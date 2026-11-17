@@ -18,7 +18,7 @@ import { listarGruposEvolution, participantesDoGrupoEvolution } from "../_core/e
 import { doloresMarcacoesConfig, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import { LIMITES_MARCACOES, lidValido } from "../../shared/dolores/marcacao.js";
 import { ehNumeroDoDono } from "../../shared/dolores/whatsapp.js";
-import { CONFIG_MARCACOES_PADRAO, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
+import { CONFIG_MARCACOES_PADRAO, desligamentoDaMarcacaoPorFalha, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -198,7 +198,10 @@ export const gruposRouter = router({
         lerConfigMarcacoes(), getDb().select().from(doloresMarcacoesGrupo), marcacoesRecentes(input?.grupoId ?? null, 50),
       ]);
       const numero = (await lerConfigWhatsapp().catch(() => null))?.numeroDolores ?? null;
+      // desligada sozinha (uso de uma resposta não registrado no consumo), inclusive a pausa só em memória: a tela mostra
+      const desligada = await desligamentoDaMarcacaoPorFalha().catch(() => null);
       return {
+        desligamentoPorFalha: desligada ? { ...desligada, em: desligada.em ? new Date(desligada.em).toISOString() : null } : null,
         config: {
           responderLigado: config.responderLigado, tetoGrupoDia: config.tetoGrupoDia, tetoRemetenteHora: config.tetoRemetenteHora,
           janelaFrescorSegundos: config.janelaFrescorSegundos,

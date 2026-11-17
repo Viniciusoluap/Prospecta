@@ -218,6 +218,13 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
           {d.config.responderLigado ? "ligado" : "desligado"}
         </label>
       </div>
+      {d.desligamentoPorFalha && (
+        <p role="alert" className="rounded border border-red-400/40 bg-red-500/10 p-2 text-xs text-red-200">
+          A Dolores desligou a resposta quando marcada sozinha{d.desligamentoPorFalha.em ? ` em ${quando(d.desligamentoPorFalha.em)}` : ""}
+          {d.desligamentoPorFalha.soNestaInstancia ? " (só neste servidor: nem o desligamento pôde ser gravado no banco)" : ""}: {d.desligamentoPorFalha.motivo}.
+          Sem esse registro o limite mensal ficaria sem a conta. Confira o banco e religue quando estiver normal.
+        </p>
+      )}
       <p role="note" className="rounded border border-yellow-300/40 bg-yellow-300/10 p-2 text-xs text-yellow-100">
         Atenção: o que ela escreve no grupo é lido por todos os participantes.
       </p>

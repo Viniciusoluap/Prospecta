@@ -590,4 +590,39 @@ describe("QA-SEG E4b — correções (caminho completo do webhook)", () => {
     } finally { erro.mockRestore(); }
   });
 
+  it("pausa só em memória (nem o desligamento gravou): a tela mostra o aviso; religar limpa", async () => {
+    await ligarTudo();
+    await banco.pg.exec(`CREATE FUNCTION falha_qa() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'fora do ar'; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER falha_consumo_qa BEFORE INSERT ON dolores_consumo FOR EACH ROW EXECUTE FUNCTION falha_qa();
+      CREATE TRIGGER falha_config_qa BEFORE UPDATE ON dolores_marcacoes_config FOR EACH ROW EXECUTE FUNCTION falha_qa();`);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect((await caller("admin").dolores.grupos.marcacoes()).desligamentoPorFalha).toBeNull();
+      respostas = [texto("Está na etapa Protocolo.")];
+      await chamar(aviso(item({ id: "PAUSA-1" })));
+      expect(enviarAoGrupo).not.toHaveBeenCalled();
+      expect((await q<{ responder_ligado: boolean }>("SELECT responder_ligado FROM dolores_marcacoes_config"))[0].responder_ligado).toBe(true);
+      expect((await caller("admin").dolores.grupos.marcacoes()).desligamentoPorFalha).toMatchObject({ soNestaInstancia: true, em: null, motivo: MOTIVO_DESLIGAMENTO_MARCACAO });
+      await banco.pg.exec("DROP TRIGGER falha_consumo_qa ON dolores_consumo; DROP TRIGGER falha_config_qa ON dolores_marcacoes_config;");
+      await caller("admin").dolores.grupos.salvarMarcacoes({ responderLigado: true });
+      expect((await caller("admin").dolores.grupos.marcacoes()).desligamentoPorFalha).toBeNull();
+    } finally { erro.mockRestore(); limparPausaDaMarcacao(); }
+  });
+
+  it("desligada no banco por falha: a tela mostra quando e por quê, até o admin religar", async () => {
+    await ligarTudo();
+    await banco.pg.exec(`CREATE FUNCTION falha_qa2() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'fora do ar'; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER falha_consumo_qa2 BEFORE INSERT ON dolores_consumo FOR EACH ROW EXECUTE FUNCTION falha_qa2();`);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      respostas = [texto("Está na etapa Protocolo.")];
+      await chamar(aviso(item({ id: "DESL-1" })));
+      const tela = (await caller("admin").dolores.grupos.marcacoes()).desligamentoPorFalha;
+      expect(tela).toMatchObject({ soNestaInstancia: false, motivo: MOTIVO_DESLIGAMENTO_MARCACAO });
+      expect(typeof tela?.em).toBe("string");
+      await banco.pg.exec("DROP TRIGGER falha_consumo_qa2 ON dolores_consumo;");
+      await caller("admin").dolores.grupos.salvarMarcacoes({ responderLigado: true });
+      expect((await caller("admin").dolores.grupos.marcacoes()).desligamentoPorFalha).toBeNull();
+    } finally { erro.mockRestore(); limparPausaDaMarcacao(); }
+  });
 });

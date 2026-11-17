@@ -15,6 +15,7 @@
 // - Cada marcação vira uma linha em dolores_marcacoes (tela e `ler_grupo_cliente`); nada é enviado ao dono por marcação.
 import { createHmac } from "node:crypto";
 import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import {
   doloresMarcacoes, doloresMarcacoesConfig, doloresMarcacoesContagem, doloresMarcacoesGrupo, type DoloresMarcacoesConfig, type SituacaoMarcacao,
@@ -156,6 +157,25 @@ async function desligarPorFalhaNoConsumo(d: { autor: number | null; grupoId: num
   if (gravado) pausadaPorFalhaNoConsumo = false; // ficou no banco: vale para todas as instâncias
   await registrarAcao({ funcao: FUNCAO_DESLIGAMENTO_MARCACAO, resultado: "erro", motivo: MOTIVO_DESLIGAMENTO_MARCACAO, autorUserId: d.autor, canal: "whatsapp",
     pedidoId: `grupo:${d.grupoId}:marcacao:${d.marcacaoId}`, resumo: { grupoId: d.grupoId, desligadaNoBanco: gravado } });
+}
+
+/**
+ * Para a tela do admin (a mesma regra de `desligamentoPorFalha` da classificação): a resposta quando marcada está desligada (ou
+ * pausada SÓ nesta instância, quando nem o desligamento gravou) por falha no registro do consumo? Vale o último desligamento
+ * automático auditado DEPOIS da última vez que o admin religou pela tela; religada, some.
+ */
+export async function desligamentoDaMarcacaoPorFalha(): Promise<{ em: Date | null; motivo: string; soNestaInstancia: boolean } | null> {
+  if (pausadaPorFalhaNoConsumo) return { em: null, motivo: MOTIVO_DESLIGAMENTO_MARCACAO, soNestaInstancia: true };
+  const config = await lerConfigMarcacoes();
+  if (config.responderLigado) return null;
+  const db = getDb();
+  const [d] = await db.select({ em: doloresAcoes.criadoEm, motivo: doloresAcoes.motivo }).from(doloresAcoes)
+    .where(eq(doloresAcoes.funcao, FUNCAO_DESLIGAMENTO_MARCACAO)).orderBy(desc(doloresAcoes.id)).limit(1);
+  if (!d) return null;
+  const [religou] = await db.select({ em: doloresAcoes.criadoEm }).from(doloresAcoes)
+    .where(and(eq(doloresAcoes.funcao, "configurar_marcacoes"), sql`${doloresAcoes.resumo} ->> 'responderLigado' = 'true'`)).orderBy(desc(doloresAcoes.id)).limit(1);
+  if (religou && religou.em >= d.em) return null;
+  return { em: d.em, motivo: d.motivo ?? MOTIVO_DESLIGAMENTO_MARCACAO, soNestaInstancia: false };
 }
 
 // ── Constantes do laço ──
