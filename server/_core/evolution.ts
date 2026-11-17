@@ -190,3 +190,19 @@ export async function baixarMidiaEvolution(c: EvolutionConfig, instancia: string
     nome: typeof r.data?.fileName === "string" ? r.data.fileName.slice(0, 255) : null,
   };
 }
+
+/**
+ * EPIC-025 (Dolores, etapa 4) — grupos em que o número da instância está (GET /group/fetchAllGroups/{instância}, sem
+ * participantes). SÓ LEITURA: serve para o administrador escolher o grupo a cadastrar. O nome do grupo é texto de terceiro
+ * (quem chama sanitiza). Devolve no máximo 300 grupos.
+ */
+export async function listarGruposEvolution(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<Array<{ id: string; nome: string | null; participantes: number | null }>> {
+  const r = await chamar<unknown>(c, `/group/fetchAllGroups/${encodeURIComponent(instancia)}?getParticipants=false`, { signal: AbortSignal.timeout(15_000) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não listou os grupos (HTTP ${r.status})${motivo(r.data)}.`);
+  const lista = Array.isArray(r.data) ? r.data : [];
+  return lista.slice(0, 300).flatMap(g => {
+    const x = g as { id?: unknown; subject?: unknown; size?: unknown };
+    if (typeof x.id !== "string" || !x.id.endsWith("@g.us")) return [];
+    return [{ id: x.id.slice(0, 80), nome: typeof x.subject === "string" ? x.subject.slice(0, 200) : null, participantes: typeof x.size === "number" ? x.size : null }];
+  });
+}
