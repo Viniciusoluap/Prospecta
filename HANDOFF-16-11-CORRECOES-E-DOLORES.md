@@ -208,3 +208,18 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
 - Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
 - Provedor de imagem para "Gerar com IA" do logotipo (correção 02).
+
+## Atualização — 17/11, Dolores etapa 4 (Grupos de clientes) — @dev
+- Ramo `epic025-dolores-etapa4` (worktree `.claude/worktrees/dolores-e4`), cópia em `claude/wip-epic025-dolores-etapa4`.
+  Base `25ccea2` (main + E3) + merge de `origin/claude/epic025-dolores-etapa3` (`f8232ca`). Story
+  `docs/stories/epics/epic-025-dolores/E4-grupos.md` em InReview.
+- Entregue: cadastro de grupos (admin por papel, Integrações › Dolores — grupos de clientes), leitura só dos grupos
+  cadastrados e ativos (nunca comando, nunca resposta), classificação dos documentos pela IA (desligada por padrão, tetos,
+  80% do limite mensal, função "Dolores — classificação de documentos"), `criar_card_cliente` e `salvar_documentos_grupo`
+  (as duas pela fila), Drive pelo organizador existente sem sobrescrever.
+- Migração `drizzle/0126_dolores_grupos.sql` (aditiva, idempotente) **não aplicada**.
+- Testes (a) automáticos: tsc ok; `vite build` ok; suíte-alvo 44 arquivos / 584 testes ok (inclui 24 novos em
+  `server/dolores/grupos.test.ts`); suíte completa: ver story. (b) manuais: nenhum. (c) pendentes em produção: aplicar 0126,
+  cadastrar um grupo real, conferir a lista de grupos da Evolution (`/group/fetchAllGroups`), uma classificação real e um
+  salvamento real no Drive.
+- Próximo passo exato: portão de QA da E4; depois unir com a `main`, aplicar a 0126 e publicar.
