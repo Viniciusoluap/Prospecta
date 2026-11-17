@@ -188,6 +188,27 @@ describe("leitura da nota no grupo da obra", () => {
     expect((await q("SELECT situacao FROM dolores_grupo_mensagens"))[0].situacao).toBe("a_classificar");
   });
 
+  it("Etapa 6 — pausa geral ou conta da Dolores desativada, leitura ligada: webhook e botão da tela não baixam, não contam tokens, não chamam a IA nem enviam nada", async () => {
+    let contou = 0;
+    usarModelo(async () => { contou++; return 1_000; });
+    for (const [i, sql] of [
+      "UPDATE dolores_config SET pausada = true",
+      `UPDATE dolores_config SET pausada = false; INSERT INTO users ("openId", name, role, active) VALUES ('sistema:dolores', 'Dolores', 'user', false)`,
+    ].entries()) {
+      await banco.pg.exec(sql);
+      esquecerUsuarioDolores();
+      await chamar(aviso(item({ id: `PAUSA-NOTA${i}`, message: documento(`nota-p${i}.pdf`) })));
+      await caller("admin").dolores.notas.lerPendentes({ maximo: 3 });
+    }
+    expect(baixar).not.toHaveBeenCalled();
+    expect(contou).toBe(0);
+    expect(pedidosIa).toEqual([]);
+    expect(enviar).not.toHaveBeenCalled();
+    expect(await notas()).toEqual([]);
+    expect(await q("SELECT * FROM dolores_consumo")).toEqual([]);
+    expect((await q("SELECT situacao FROM dolores_grupo_mensagens ORDER BY id")).map(m => m.situacao)).toEqual(["a_classificar", "a_classificar"]);
+  });
+
   it("grupo de CLIENTE continua na classificação da etapa 4 (não vira nota)", async () => {
     respostaIa = p => ({ stop_reason: "tool_use", usage: { input_tokens: 1000, output_tokens: 20 }, content: [{ type: "tool_use", name: p.ferramenta.name, input: { tipo: "rg", confianca: 0.9, motivo: "documento com foto" } }] });
     await mandarNota(3, "5599977776666", GRUPO_CLIENTE);
