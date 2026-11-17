@@ -6,12 +6,14 @@
 // PENDENCIAS_DO_JURIDICO, mostrada SÓ ao administrador (QA S-12, achado 2). Não afirma conformidade legal.
 import { ENDERECO_DA_SEDE } from "./empresa.js";
 
-/** Versão vigente do termo. Mude sempre que o texto mudar (ex.: "2026-11-17.1" → "2026-12-01.1"). */
-export const VERSAO_DO_TERMO = "2026-11-17.1";
+/** Versão vigente do termo. Mude sempre que o texto mudar (ex.: "2026-11-17.2" → "2026-12-01.1"). */
+// Histórico: "2026-11-17.1" (primeiro texto, nunca aceito em produção) → "2026-11-17.2" (QA S-12: seção de IA com o
+// atendimento automático pelo WhatsApp e a leitura de documentos; textos neutros no lugar dos marcadores do jurídico).
+export const VERSAO_DO_TERMO = "2026-11-17.2";
 
 /** Frase curta que aparece ao lado da caixa de seleção, na tela de criar a senha. */
 export const FRASE_CURTA_DO_TERMO =
-  "Li e concordo com o tratamento dos meus dados pela Prospecta, inclusive por ferramentas de inteligência artificial usadas no atendimento.";
+  "Li e concordo com o tratamento dos meus dados pela Prospecta, inclusive por inteligência artificial no atendimento pelo WhatsApp e na leitura de documentos.";
 
 /** Aviso que aparece quando a pessoa tenta salvar sem marcar a caixa. */
 export const AVISO_SEM_ACEITE = "Para criar a senha, marque a caixa de concordância com o termo.";
@@ -38,7 +40,7 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
   {
     titulo: "2. Quais dados",
     paragrafos: [
-      "Os dados que você ou a equipe informam no sistema: nome, CPF ou CNPJ, telefone, e-mail, endereço, documentos enviados, dados do imóvel, da obra, do financiamento e dos pagamentos, e as mensagens trocadas com a equipe.",
+      "Os dados que você ou a equipe informam no sistema: nome, CPF ou CNPJ, telefone, e-mail, endereço, documentos enviados, dados do imóvel, da obra, do financiamento e dos pagamentos, e as mensagens trocadas com a Prospecta (inclusive pelo WhatsApp).",
       "Também registramos dados de uso do sistema, como data e hora de acesso.",
     ],
   },
@@ -51,8 +53,12 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
   {
     titulo: "4. Inteligência artificial",
     paragrafos: [
-      "A equipe da Prospecta usa uma assistente de inteligência artificial para consultar informações do sistema e montar respostas. Para isso, partes dos dados (por exemplo: nome, CPF, telefone, e-mail e o andamento dos serviços) podem ser enviadas a um prestador de serviço de inteligência artificial (atualmente a Anthropic), que processa os dados para gerar a resposta à equipe.",
-      "Esse prestador pode ficar fora do Brasil. As respostas da assistente servem de apoio à equipe da Prospecta.",
+      "A Prospecta usa inteligência artificial de três formas:",
+      "Primeiro atendimento pelo WhatsApp: quando você fala com a Prospecta pelo WhatsApp, as primeiras respostas podem ser dadas por uma assistente automática, que tira dúvidas iniciais e anota o que você procura. Se você pedir para falar com uma pessoa, ou se a assistente não conseguir ajudar, a conversa passa para alguém da equipe.",
+      "Leitura de documentos e projetos: documentos, plantas e projetos enviados ao sistema podem ser lidos por inteligência artificial, para ajudar a equipe a fazer avaliações de imóveis e maquetes.",
+      "Apoio à equipe: a equipe usa uma assistente de inteligência artificial para consultar informações do sistema e preparar respostas.",
+      "Nesses usos, partes dos seus dados (por exemplo: nome, CPF, telefone, e-mail, as mensagens trocadas, os documentos enviados e o andamento dos serviços) são enviadas a um prestador de serviço de inteligência artificial, atualmente a Anthropic, que processa os dados para gerar a resposta. Esse prestador pode ficar fora do Brasil.",
+      "A inteligência artificial pode errar. Propostas, valores e contratos são decididos pela equipe da Prospecta.",
     ],
   },
   {

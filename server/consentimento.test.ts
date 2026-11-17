@@ -299,6 +299,24 @@ describe("texto público do termo (QA S-12, achado 2)", () => {
   });
 });
 
+describe("seção de inteligência artificial (QA S-12, achado 3)", () => {
+  const ia = SECOES_DO_TERMO.find(sec => /Inteligência artificial/.test(sec.titulo))!.paragrafos.join(" ");
+  it("diz a verdade: atendimento automático no WhatsApp com passagem para pessoa, leitura de documentos, apoio à equipe, Anthropic fora do Brasil", () => {
+    expect(ia).toMatch(/primeiro atendimento pelo WhatsApp/i);
+    expect(ia).toMatch(/assistente automática/);
+    expect(ia).toMatch(/passa para alguém da equipe/);
+    expect(ia).toMatch(/documentos, plantas e projetos/);
+    expect(ia).toMatch(/Apoio à equipe/);
+    expect(ia).toMatch(/atualmente a Anthropic/);
+    expect(ia).toMatch(/fora do Brasil/);
+    expect(ia).not.toMatch(/só|apenas|somente|garant/i);
+    expect(FRASE_CURTA_DO_TERMO).toMatch(/WhatsApp/);
+  });
+  it("texto mudou ⇒ versão nova (a .1 nunca foi aceita em produção)", () => {
+    expect(VERSAO_DO_TERMO).toBe("2026-11-17.2");
+  });
+});
+
 describe("termo e resumo técnico", () => {
   it("frase curta simples, marcadores do jurídico listados e aparelho sem guardar o user-agent", () => {
     expect(FRASE_CURTA_DO_TERMO).toMatch(/inteligência artificial/);
