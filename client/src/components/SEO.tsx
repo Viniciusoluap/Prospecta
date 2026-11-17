@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { APP_TITLE } from "@/const";
+import { SEDE } from "@shared/empresa";
 
 interface SEOProps {
   title?: string;
@@ -94,10 +95,10 @@ export const organizationSchema = {
   },
   address: {
     "@type": "PostalAddress",
-    streetAddress: "R. Gonçalves Dias, 1993 - Juçara",
-    addressLocality: "Imperatriz",
-    addressRegion: "MA",
-    postalCode: "65900-545",
+    streetAddress: SEDE.rua,
+    addressLocality: SEDE.cidade,
+    addressRegion: SEDE.uf,
+    postalCode: SEDE.cep,
     addressCountry: "BR"
   },
   sameAs: [
@@ -116,10 +117,10 @@ export const localBusinessSchema = {
   priceRange: "$$",
   address: {
     "@type": "PostalAddress",
-    streetAddress: "R. Gonçalves Dias, 1993 - Juçara",
-    addressLocality: "Imperatriz",
-    addressRegion: "MA",
-    postalCode: "65900-545",
+    streetAddress: SEDE.rua,
+    addressLocality: SEDE.cidade,
+    addressRegion: SEDE.uf,
+    postalCode: SEDE.cep,
     addressCountry: "BR"
   },
   geo: {

@@ -27,6 +27,7 @@ Escopo: só Prospecta. Grupo Santa Fé em espera por decisão do dono (pendênci
 | 05 | Maquete — importar planta na revisão | 4 | `S-05-importar-planta-revisao.md` | M/L | 0121 |
 | 10 | Integração Anthropic (cadastro, sem ativar) | 5 | `S-10-anthropic.md` | M | — |
 | 10b | Modelo da Anthropic por função (pedido do dono, 16/11) | 5 | `S-11-modelo-por-funcao.md` | M | — |
+| 11 | Termo de consentimento no primeiro acesso (pedido do dono, 17/11) | 5 | `S-12-termo-consentimento.md` | M | 0127 |
 
 Números de migração reservados para não colidir entre agentes: 0118 PCI, 0119 logos, 0120 e-mail da proposta,
 0121 revisões da maquete. Todas aditivas e idempotentes.
