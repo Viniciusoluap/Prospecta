@@ -551,4 +551,28 @@ describe("QA-SEG E4b — correções (caminho completo do webhook)", () => {
     expect(enviarAoGrupo.mock.calls.map(c => c[0].texto)).toEqual([FRASE_FORA_DE_ESCOPO, FRASE_FORA_DE_ESCOPO]);
     expect((await marcacoes()).at(-1)).toMatchObject({ situacao: "fora_de_escopo", motivo: "saída com número ou data que não veio das consultas" });
   });
+  it("achado 4: rajada com o grupo ocupado não gasta as vagas do dia nem as da pessoa; o grupo volta a responder", async () => {
+    await ligarTudo();
+    await banco.pg.exec("UPDATE dolores_marcacoes_config SET teto_grupo_dia = 2, teto_remetente_hora = 1");
+    await banco.pg.exec(`INSERT INTO dolores_marcacoes (grupo_id, instancia, external_id, situacao) VALUES (1, 'prospecta-dolores', 'OCUPA', 'processando')`);
+    const r = await chamar(aviso(...Array.from({ length: 6 }, (_, i) => item({ id: `RAJ-${i}` }))));
+    expect(r.body.r).toMatchObject({ "marcacao-ocupada": 6 });
+    expect((await q("SELECT count(*)::int AS n FROM dolores_marcacoes_contagem WHERE chave LIKE 'g:%' OR chave LIKE 'r:%'"))[0].n).toBe(0);
+    await banco.pg.exec(`ALTER TABLE dolores_marcacoes DISABLE TRIGGER dolores_marcacoes_guarda; UPDATE dolores_marcacoes SET criado_em = now() - interval '10 minutes' WHERE external_id = 'OCUPA'; ALTER TABLE dolores_marcacoes ENABLE TRIGGER dolores_marcacoes_guarda;`);
+    const r2 = await chamar(aviso(item({ id: "DEPOIS" })));
+    expect(r2.body.r).toMatchObject({ "marcacao-respondida": 1 });
+    expect(enviarAoGrupo).toHaveBeenCalledTimes(1);
+  });
+
+  it("achado 4: no mesmo aviso, o pedido do dono é tratado ANTES da marcação no grupo", async () => {
+    await ligarTudo();
+    const ordem: string[] = [];
+    enviarAoDono.mockImplementation(async () => { ordem.push("dono"); return true; });
+    enviarAoGrupo.mockImplementation(async () => { ordem.push("grupo"); return true; });
+    const doDono = { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "DONO-1" }, message: { conversation: "aprovar ACDEF" }, messageTimestamp: Math.floor((AGORA.getTime() - 5_000) / 1000) };
+    const r = await chamar(aviso(item({ id: "ANTES-DO-DONO" }), doDono));
+    expect(r.body.r).toMatchObject({ "marcacao-respondida": 1 });
+    expect(ordem).toEqual(["dono", "grupo"]);
+  });
+
 });

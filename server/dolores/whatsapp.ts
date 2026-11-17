@@ -410,21 +410,19 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const interrompidos = await recuperarPedidosInterrompidos(cfg, autor, prazoFinal);
   if (interrompidos) contagem.interrompida = interrompidos;
   let classificouNesteAviso = false;
+  // QA-SEG E4b achado 4: as marcações ficam para DEPOIS dos itens do dono neste aviso (o comando do dono não fica "sem tempo"
+  // por causa de marcação no grupo); cada uma confere o prazo que sobrar.
+  const marcacoesDoAviso: unknown[] = [];
   for (const item of itens) {
     // Etapa 4 — GRUPO: registrado (se cadastrado e ativo); nunca vira comando, aprovação nem ação — nem quando quem escreveu
     // no grupo é o dono. Grupo não cadastrado continua ignorado como antes ("grupo").
     // Etapa 4b — a ÚNICA fala no grupo: quando a Dolores é MARCADA (menção real, por código), em grupo cadastrado e ativo e com
-    // os interruptores ligados, ela responde só sobre aquele cliente (marcacao.ts). Cada uma confere o prazo do aviso.
+    // os interruptores ligados, ela responde só sobre aquele cliente (marcacao.ts) — depois dos itens do dono deste aviso.
     if (ehDeGrupo(item)) {
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor });
       contar(g.resultado);
       // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
-      if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") {
-        // cada marcação confere o próprio prazo (a IA só com tempo de sobra; a frase fixa, com o mínimo do envio)
-        const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
-          .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
-        if (r) contar(r);
-      }
+      if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
       // no máximo UMA classificação por aviso, e só com tempo de sobra; o resto fica "a classificar" (a tela e o próximo
       // pedido do dono tratam). Quem decide se a IA pode rodar (interruptores, teto, limite) é a classificação.
       if (g.aClassificar && g.mensagemId && !classificouNesteAviso && prazoFinal - deps.ms() >= MINIMO_PARA_CLASSIFICAR_MS) {
@@ -475,6 +473,13 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       contar("sem-tempo"); continue;
     }
     contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor));
+  }
+  // Etapa 4b — as marcações, depois do dono. Cada uma confere o próprio prazo (a IA só com tempo de sobra; a frase fixa, com o
+  // mínimo do envio).
+  for (const item of marcacoesDoAviso) {
+    const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
+      .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
+    if (r) contar(r);
   }
   if (contagem.reacao || contagem.edicao || contagem.interacao) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação, edição, fixação, enquete ou botão: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",

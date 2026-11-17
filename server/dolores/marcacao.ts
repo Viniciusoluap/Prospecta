@@ -447,31 +447,30 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
         : !conf.responderLigado ? "interruptor geral de responder quando marcada desligado" : "interruptor deste grupo desligado");
       return "marcacao-desligada";
     }
-    // 6) tetos: por remetente/hora e por grupo/dia
-    const dia = diaDeImperatriz(agora);
-    const remetente = resumoDoRemetente(m.participanteBruto ?? m.participante ?? "(sem remetente)");
-    if (!(await vagaNoContador(`r:${remetente}:${agora.toISOString().slice(0, 13)}`, conf.tetoRemetenteHora))) {
-      await gravar(grupo, m, "silencio", `teto de ${conf.tetoRemetenteHora} marcações por pessoa por hora`);
-      return "marcacao-teto-remetente";
-    }
-    if (!(await vagaNoContador(`g:${grupo.id}:${dia}`, conf.tetoGrupoDia))) {
-      const id = await gravar(grupo, m, "processando", `teto de ${conf.tetoGrupoDia} marcações no grupo hoje`);
-      if (!id) return "marcacao-ocupada";
-      // uma frase fixa por grupo por dia, no máximo; depois, silêncio
-      const avisar = await primeiraVez(`aviso:${grupo.id}:${dia}`);
-      const cred = avisar ? await o.obterCredencial().catch((): CredencialGrupo => ({ motivo: "indisponivel" })) : null;
-      const enviou = avisar && cred?.motivo === null && o.prazoFinal - deps.ms() >= MINIMO_PARA_FRASE_MS
-        ? await responderNoGrupo(grupo, m, FRASE_TETO_DO_DIA, { marcacaoId: id, autor: o.autor, prazoFinal: o.prazoFinal, instancia: cfg.instancia }) : false;
-      await atualizar(id, { situacao: "silencio", resposta: enviou ? FRASE_TETO_DO_DIA : null, respondidaEm: deps.agora() });
-      return "marcacao-teto-grupo";
-    }
-    // 7) reivindica: no máximo UMA em andamento por grupo
+    // 6) reivindica: no máximo UMA em andamento por grupo. QA-SEG E4b achado 4: ANTES dos tetos — uma rajada que encontra o grupo
+    //    ocupado não gasta as vagas do dia (nem as da pessoa) e não cala o grupo.
     await recuperarVencidas(grupo.id);
     const id = await gravar(grupo, m, "processando", null);
     if (!id) {
       if (await jaRegistrada(grupo.instancia, m.externalId)) return "marcacao-repetida";
       await gravar(grupo, m, "silencio", "outra resposta em andamento neste grupo");
       return "marcacao-ocupada";
+    }
+    // 7) tetos (só depois da vaga "em andamento"): por remetente/hora e por grupo/dia
+    const dia = diaDeImperatriz(agora);
+    const remetente = resumoDoRemetente(m.participanteBruto ?? m.participante ?? "(sem remetente)");
+    if (!(await vagaNoContador(`r:${remetente}:${agora.toISOString().slice(0, 13)}`, conf.tetoRemetenteHora))) {
+      await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoRemetenteHora} marcações por pessoa por hora`, respondidaEm: deps.agora() });
+      return "marcacao-teto-remetente";
+    }
+    if (!(await vagaNoContador(`g:${grupo.id}:${dia}`, conf.tetoGrupoDia))) {
+      // uma frase fixa por grupo por dia, no máximo; depois, silêncio
+      const avisar = await primeiraVez(`aviso:${grupo.id}:${dia}`);
+      const cred = avisar ? await o.obterCredencial().catch((): CredencialGrupo => ({ motivo: "indisponivel" })) : null;
+      const enviou = avisar && cred?.motivo === null && o.prazoFinal - deps.ms() >= MINIMO_PARA_FRASE_MS
+        ? await responderNoGrupo(grupo, m, FRASE_TETO_DO_DIA, { marcacaoId: id, autor: o.autor, prazoFinal: o.prazoFinal, instancia: cfg.instancia }) : false;
+      await atualizar(id, { situacao: "silencio", motivo: `teto de ${conf.tetoGrupoDia} marcações no grupo hoje`, resposta: enviou ? FRASE_TETO_DO_DIA : null, respondidaEm: deps.agora() });
+      return "marcacao-teto-grupo";
     }
     return await responder(cfg, grupo, m, id, o);
   } catch (e) {
