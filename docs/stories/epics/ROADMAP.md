@@ -223,6 +223,10 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
 - [ ] S-11 — modelo da Anthropic por função em Integrações › Anthropic (leitura de plantas da Maquete e Dolores no
   WhatsApp; no Santa Fé, as funções que usarem a chave do painel lá)
 - [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)
+- [ ] S-12 (17/11) — termo de consentimento ao criar a senha do primeiro acesso: caixa desmarcada + frase curta + link
+  para o termo completo; servidor exige o aceite e grava aceite e senha na mesma transação (tabela só de inclusão
+  `consentimentos`, versão do termo); redefinição não pede de novo; consulta do admin por papel; opção "pedir no
+  próximo login" desligada. No Santa Fé: o primeiro acesso por link equivalente e o termo com o nome da empresa de lá.
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
 A Dolores não está na lista de exceções; quando o dono mandar fazer a paridade, portar (`epic-025-dolores/`):

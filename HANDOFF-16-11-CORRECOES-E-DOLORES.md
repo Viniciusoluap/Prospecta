@@ -208,3 +208,17 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
 - Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
 - Provedor de imagem para "Gerar com IA" do logotipo (correção 02).
+
+## Atualização — 17/11, S-12 termo de consentimento (ramo `epic024-s12-consentimento`, cópia em `claude/wip-epic024-s12`)
+- Feito: story `epic-024-correcoes-16-11/S-12-termo-consentimento.md` (implementada, aguardando QA). Caixa do termo na
+  tela `/definir-senha/:token`, termo em `/termo-de-consentimento` (texto em `shared/termo-consentimento.ts`), aceite
+  exigido pelo servidor e gravado com a senha na mesma transação (`server/consentimento.ts`), consulta do admin em
+  "Usuários e acesso" › "Termo de consentimento", opção "pedir no próximo login" pronta e DESLIGADA
+  (`CONSENTIMENTO_PEDIR_NO_LOGIN=1` liga).
+- Migração `drizzle/0127_consentimentos.sql` NÃO aplicada — aplicar no Neon ANTES do deploy (a tela de criar senha
+  consulta a tabela).
+- Testes: (a) automáticos — `server/consentimento.test.ts` 17/17; suítes pedidas 116/116; `tsc` e `vite build` ok;
+  (b) manuais — Playwright (computador, iPhone, iPad) na tela de senha, no termo e na consulta do admin;
+  (c) produção — pendente (criar um usuário de teste e definir a senha pelo link).
+- Próximo passo: QA da S-12 → aplicar 0127 → publicar. Pendências do dono/jurídico: marcadores "[A PREENCHER PELO
+  JURÍDICO]" no termo; caminho `portal.admin.provisionAccess` (senha digitada pelo admin) não passa pelo termo.
