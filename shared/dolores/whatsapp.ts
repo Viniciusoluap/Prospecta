@@ -61,7 +61,7 @@ export function pareceMesmoTelefone(a: string | null | undefined, b: string | nu
 export const mascararNumero = (n: string | null | undefined): string | null => mascararTelefone(n);
 
 /** messageTimestamp chega em segundos: número, texto ou Long ({ low, high }) do Baileys. */
-function segundos(v: unknown): number | null {
+export function segundos(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && /^\d+$/.test(v)) return Number(v);
   const l = v as { low?: number; high?: number } | null;
@@ -77,7 +77,7 @@ export type MensagemLida =
 
 /** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
 const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"] as const;
-function desembrulhar(m: Record<string, any>): Record<string, any> {
+export function desembrulhar(m: Record<string, any>): Record<string, any> {
   let atual = m;
   for (let i = 0; i < 4; i++) {
     const dentro = EMBALAGENS.map(k => atual?.[k]?.message).find(x => x && typeof x === "object");
@@ -87,12 +87,12 @@ function desembrulhar(m: Record<string, any>): Record<string, any> {
   return atual ?? {};
 }
 /** Interações que não são mensagem escrita: fixar, manter na conversa, enquete, botão, lista, modelo. */
-const INTERACOES = [
+export const INTERACOES = [
   "pinInChatMessage", "keepInChatMessage", "pollCreationMessage", "pollCreationMessageV2", "pollCreationMessageV3", "pollUpdateMessage",
   "buttonsResponseMessage", "listResponseMessage", "templateButtonReplyMessage", "interactiveResponseMessage", "senderKeyDistributionMessage",
 ] as const;
 /** Encaminhada: o WhatsApp marca no contextInfo do conteúdo (texto ou mídia). */
-function foiEncaminhada(m: Record<string, any>): boolean {
+export function foiEncaminhada(m: Record<string, any>): boolean {
   for (const v of Object.values(m)) {
     const ci = v && typeof v === "object" ? (v as { contextInfo?: { isForwarded?: unknown; forwardingScore?: unknown } }).contextInfo : null;
     if (ci && (ci.isForwarded === true || (typeof ci.forwardingScore === "number" && ci.forwardingScore > 0))) return true;

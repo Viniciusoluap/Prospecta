@@ -1,7 +1,12 @@
 // Pedido de 25/10: WhatsApp por QR code via Evolution API (Baileys) hospedada pelo dono (Railway),
 // até a integração da Lógyca. Gêmeo de Grupo-Santa-Fe/web/src/lib/evolution.ts.
 import { chaveTelefone } from "../../shared/whatsapp/conversas.js";
-export type EvolutionConfig = { url: string; apiKey: string };
+/**
+ * `semRedirecionamento` (EPIC-025, QA E4 r2 N4): recusa redirecionamento (`redirect: "error"`), para o `apikey` nunca ir a
+ * outro host. Ligado só nas chamadas da Dolores; a Central de Vendas segue como antes (o padrão do fetch, "follow"), porque
+ * a URL já é normalizada para https e não há prova de que nenhuma instalação dependa de um redirecionamento.
+ */
+export type EvolutionConfig = { url: string; apiKey: string; semRedirecionamento?: boolean };
 type Fetch = typeof fetch;
 
 /** Pedido de 25/10: o Railway só aceita https (http redireciona e o POST vira GET → 404) e /manager é o painel. */
@@ -22,7 +27,7 @@ function motivo(data: unknown): string {
 const headers = (c: EvolutionConfig) => ({ "Content-Type": "application/json", apikey: c.apiKey.trim() });
 
 async function chamar<T>(c: EvolutionConfig, caminho: string, init: RequestInit = {}, fetchImpl: Fetch = fetch): Promise<{ ok: boolean; status: number; data: T | null }> {
-  const res = await fetchImpl(`${base(c)}${caminho}`, { ...init, headers: { ...headers(c), ...(init.headers ?? {}) } });
+  const res = await fetchImpl(`${base(c)}${caminho}`, { ...init, ...(c.semRedirecionamento ? { redirect: "error" as const } : {}), headers: { ...headers(c), ...(init.headers ?? {}) } });
   let data: T | null = null;
   try { data = (await res.json()) as T; } catch { /* corpo vazio */ }
   return { ok: res.ok, status: res.status, data };
@@ -189,4 +194,20 @@ export async function baixarMidiaEvolution(c: EvolutionConfig, instancia: string
     mime: typeof r.data?.mimetype === "string" ? r.data.mimetype.split(";")[0].trim().slice(0, 120) || null : null,
     nome: typeof r.data?.fileName === "string" ? r.data.fileName.slice(0, 255) : null,
   };
+}
+
+/**
+ * EPIC-025 (Dolores, etapa 4) — grupos em que o número da instância está (GET /group/fetchAllGroups/{instância}, sem
+ * participantes). SÓ LEITURA: serve para o administrador escolher o grupo a cadastrar. O nome do grupo é texto de terceiro
+ * (quem chama sanitiza). Devolve no máximo 300 grupos.
+ */
+export async function listarGruposEvolution(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<Array<{ id: string; nome: string | null; participantes: number | null }>> {
+  const r = await chamar<unknown>(c, `/group/fetchAllGroups/${encodeURIComponent(instancia)}?getParticipants=false`, { signal: AbortSignal.timeout(15_000) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não listou os grupos (HTTP ${r.status})${motivo(r.data)}.`);
+  const lista = Array.isArray(r.data) ? r.data : [];
+  return lista.slice(0, 300).flatMap(g => {
+    const x = g as { id?: unknown; subject?: unknown; size?: unknown };
+    if (typeof x.id !== "string" || !x.id.endsWith("@g.us")) return [];
+    return [{ id: x.id.slice(0, 80), nome: typeof x.subject === "string" ? x.subject.slice(0, 200) : null, participantes: typeof x.size === "number" ? x.size : null }];
+  });
 }

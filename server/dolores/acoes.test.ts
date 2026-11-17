@@ -107,8 +107,9 @@ describe("regras puras (decisão do dono, prazo, cobrança)", () => {
 
 describe("registro fechado e níveis", () => {
   it("as quatro ações da etapa 3 estão no registro com o nível certo; nenhuma proibida existe; ferramentas: ponte só lê, WhatsApp lê e age", () => {
-    expect(Object.fromEntries(ACOES.map(a => [a.nome, a.nivel]))).toEqual({ criar_tarefa: "direto", registrar_acompanhamento: "direto", preparar_cobranca: "fila", gerar_documento: "fila" });
-    expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3].sort());
+    expect(Object.fromEntries(ACOES.map(a => [a.nome, a.nivel]))).toEqual({ criar_tarefa: "direto", registrar_acompanhamento: "direto", preparar_cobranca: "fila", gerar_documento: "fila",
+      criar_card_cliente: "fila", salvar_documentos_grupo: "fila" });
+    expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3, "criar_card_cliente", "salvar_documentos_grupo"].sort());
     for (const nome of Object.keys(PROIBIDAS)) { expect(funcaoLiberada(nome)).toBe(false); expect(ACOES.some(a => a.nome === nome)).toBe(false); }
     expect(ferramentasLiberadas().map(f => f.name)).not.toContain("criar_tarefa");
     const wa = ferramentasDoWhatsapp().map(f => f.name);

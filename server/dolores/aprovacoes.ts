@@ -110,7 +110,7 @@ const MINIMO_PARA_EXECUTAR_MS = 6_000;
  * Por função, quando precisa de mais: a PCI (planilha + PDF + gravação + duas cópias ao Drive) só começa com 30 s.
  * Sem esse tempo, o item NÃO começa e continua aguardando.
  */
-export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000 };
+export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000, salvar_documentos_grupo: 20_000 };
 /** Funções pesadas: no máximo uma por mensagem de decisão (as outras continuam aguardando, com aviso). */
 const PESADAS = new Set(["gerar_documento"]);
 /**
@@ -221,6 +221,12 @@ async function funcaoAguardando(codigo: string): Promise<string | null> {
 function textoParaODono(funcao: string, dados: unknown): string {
   const d = dados as { textoPreparado?: unknown } | null;
   if (funcao === "preparar_cobranca" && typeof d?.textoPreparado === "string") return `\nTexto preparado (NÃO enviado ao cliente):\n${d.textoPreparado}`;
+  // etapa 4: depois de salvar um documento do grupo, o que ainda falta pelo checklist do cliente (lido do sistema)
+  const faltam = (dados as { faltamNoChecklist?: unknown } | null)?.faltamNoChecklist;
+  if (funcao === "salvar_documentos_grupo" && Array.isArray(faltam)) {
+    const lista = faltam.filter((x): x is string => typeof x === "string").slice(0, 12).map(x => textoDeDado(x, 80));
+    return lista.length ? ` Ainda faltam pelo checklist: ${lista.join(", ")}.` : " Pelo checklist, não falta mais nenhum documento.";
+  }
   return "";
 }
 

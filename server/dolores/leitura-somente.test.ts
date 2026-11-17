@@ -90,6 +90,8 @@ describe("leitura: em tempo de execução", () => {
       listar_medicoes: [{}, { obraId: 1, situacao: "recebidas" }],
       listar_tarefas: [{}, { situacao: "todas" }],
       listar_processos_regularizacao: [{}, { situacao: "todos" }],
+      listar_grupos: [{}, { situacao: "todos" }],
+      ler_grupo_cliente: [{ grupoId: 1 }, { grupoId: 1, conteudo: "documentos" }],
     };
     for (const fn of FUNCOES) {
       for (const a of argumentos[fn.nome] ?? [{}]) {

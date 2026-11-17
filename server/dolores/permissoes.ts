@@ -5,7 +5,7 @@
 // apagar lançamento financeiro confirmado; nunca pagar nem autorizar pagamento; nunca mexer em usuários, acessos,
 // credenciais ou dados bancários; nunca assinar ou validar documento técnico/jurídico; nunca inventar dado.
 
-export const ETAPA_ATUAL = 3;
+export const ETAPA_ATUAL = 4;
 
 /** Etapa 1 — Leitura: somente consultas. */
 export const LIBERADAS_ETAPA_1 = [
@@ -35,11 +35,17 @@ export const LIBERADAS_ETAPA_2 = [] as const;
  */
 export const LIBERADAS_ETAPA_3 = ["criar_tarefa", "registrar_acompanhamento", "preparar_cobranca", "gerar_documento"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3 };
+/**
+ * Etapa 4 — Grupos de clientes: as duas leituras dos grupos cadastrados e as duas ações da documentação, ambas de FILA
+ * (o conteúdo do grupo é de terceiro; criar card e salvar documento só com a aprovação do dono). Nada fala no grupo.
+ */
+export const LIBERADAS_ETAPA_4 = ["listar_grupos", "ler_grupo_cliente", "criar_card_cliente", "salvar_documentos_grupo"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4 };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. */
 export const PREVISTAS: Record<string, number> = {
-  ler_grupo_cliente: 4, ler_nota_obra: 5, relatorio_diario: 6,
+  ler_nota_obra: 5, relatorio_diario: 6,
 };
 
 /**
@@ -50,6 +56,9 @@ export const PROIBIDAS: Record<string, string> = {
   enviar_mensagem_whatsapp: "envio de mensagem a cliente ou terceiro não foi liberado pelo dono (a Dolores só responde ao número dele)",
   enviar_email: "envio de e-mail a cliente ou terceiro não foi liberado pelo dono",
   enviar_cobranca: "a Dolores só PREPARA cobranças; o envio a cliente não foi liberado pelo dono",
+  responder_grupo: "a Dolores não fala nos grupos: só lê os grupos cadastrados (nesta etapa nenhuma função exige falar)",
+  enviar_mensagem_grupo: "a Dolores não fala nos grupos: só lê os grupos cadastrados (nesta etapa nenhuma função exige falar)",
+  apagar_arquivo_drive: "limite fixo: a Dolores nunca apaga nem sobrescreve arquivo",
   aprovar_item: "só o dono aprova itens da fila (resposta \"aprovar CÓDIGO\" no WhatsApp ou a tela do administrador)",
   excluir_registro: "limite fixo: a Dolores nunca exclui registros",
   registrar_pagamento: "limite fixo: a Dolores nunca faz, autoriza, baixa ou estorna pagamento",
