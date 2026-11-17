@@ -21,6 +21,7 @@ import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
 import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
 import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas } from "./aprovacoes.js";
 import { gruposRouter } from "./grupos-router.js";
+import { notasRouter } from "./notas-router.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -113,6 +114,7 @@ const filaRouter = router({
 export const doloresRouter = router({
   fila: filaRouter,
   grupos: gruposRouter,
+  notas: notasRouter,
   status: soAdmin.query(() => situacao()),
 
   /** Cria a instância própria da Dolores (se não existir) e devolve o QR code para escanear com o celular DELA. */
