@@ -381,3 +381,52 @@ describe("QA r2 N2: admin que decidiu item da fila pela tela pode ser excluído 
     }
   });
 });
+
+describe("QA r2 N4: as chamadas da Dolores à Evolution não seguem redirecionamento (o apikey não vai a outro host)", () => {
+  async function servidores() {
+    const { createServer } = await import("node:http");
+    let viu: { apikey?: unknown } | null = null;
+    const alvo = createServer((req, res) => { viu = { apikey: req.headers["apikey"] }; res.writeHead(201, { "content-type": "application/json" }); res.end('{"base64":"QUJD"}'); });
+    await new Promise<void>(r => alvo.listen(0, "127.0.0.1", () => r()));
+    const pa = (alvo.address() as { port: number }).port;
+    const origem = createServer((_req, res) => { res.writeHead(307, { location: `http://localhost:${pa}/interno` }); res.end(); });
+    await new Promise<void>(r => origem.listen(0, "127.0.0.1", () => r()));
+    const po = (origem.address() as { port: number }).port;
+    return { po, visto: () => viu, fechar: () => { alvo.close(); origem.close(); } };
+  }
+
+  it("download (fetchComTeto): 307 para outro host é recusado e o outro host não recebe nada", async () => {
+    const { fetchComTeto } = await import("./classificacao.js");
+    const s = await servidores();
+    try {
+      await expect(fetchComTeto(5_000, 1024 * 1024)(`http://127.0.0.1:${s.po}/chat/getBase64FromMediaMessage/x`, { method: "POST", headers: { apikey: "chave-evo" }, body: "{}" })).rejects.toThrow();
+      expect(s.visto()).toBeNull();
+    } finally { s.fechar(); }
+  });
+
+  it("cliente da Evolution: com semRedirecionamento manda redirect 'error'; sem ele (Central de Vendas) fica como antes", async () => {
+    const { baixarMidiaEvolution, enviarTextoEvolution, listarGruposEvolution } = await import("../_core/evolution.js");
+    const vistos: Array<RequestInit | undefined> = [];
+    const espiao = (async (_u: unknown, init?: RequestInit) => { vistos.push(init); return new Response('{"base64":"QUJD"}', { status: 200 }); }) as typeof fetch;
+    const c = { url: "https://evo.exemplo", apiKey: "k" };
+    await baixarMidiaEvolution({ ...c, semRedirecionamento: true }, "i", "x", espiao);
+    await listarGruposEvolution({ ...c, semRedirecionamento: true }, "i", espiao).catch(() => undefined);
+    await enviarTextoEvolution({ ...c, semRedirecionamento: true }, "i", "5599991234567", "oi", espiao).catch(() => undefined);
+    await baixarMidiaEvolution(c, "i", "x", espiao);
+    expect(vistos.slice(0, 3).map(v => v?.redirect)).toEqual(["error", "error", "error"]);
+    expect(vistos[3]?.redirect).toBeUndefined();
+  });
+
+  it("estático: todo ponto da Dolores que pega a configuração da Evolution liga o semRedirecionamento", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const dir = new URL("./", import.meta.url);
+    const arquivos = [...readdirSync(dir).map(n => `./${n}`), ...readdirSync(new URL("./acoes/", import.meta.url)).map(n => `./acoes/${n}`)]
+      .filter(n => n.endsWith(".ts") && !n.endsWith(".test.ts") && n !== "./testes-banco.ts");
+    const usam = arquivos.filter(n => readFileSync(new URL(n, dir), "utf8").includes("configEvolution("));
+    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-router.ts", "./router.ts", "./whatsapp.ts"]);
+    for (const n of usam) {
+      const texto = readFileSync(new URL(n, dir), "utf8");
+      expect(texto.split("configEvolution(").length - 1, n).toBe(texto.split("semRedirecionamento: true").length - 1);
+    }
+  });
+});

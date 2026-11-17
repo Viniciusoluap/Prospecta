@@ -78,7 +78,9 @@ export const gruposRouter = router({
   /** Grupos em que o número da Dolores está, pela Evolution (só leitura), marcando os já cadastrados. */
   gruposDoWhatsapp: soAdmin.query(async () => {
     const { configEvolution } = await import("../whatsapp-router.js");
-    const evo = await configEvolution();
+    const configurada = await configEvolution();
+    // QA E4 r2 N4: a chave da Evolution nunca segue redirecionamento para outro host
+    const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
     if (!evo) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp (Evolution) não configurado: Integrações › WhatsApp." });
     const instancia = await instanciaDaDolores();
     let lista: Awaited<ReturnType<typeof listarGruposEvolution>>;

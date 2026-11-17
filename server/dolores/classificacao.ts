@@ -148,7 +148,8 @@ export function fetchComTeto(prazoMs: number, maxBytes: number, base: typeof fet
   return async (url, init) => {
     const controle = new AbortController();
     const sinal = AbortSignal.any([controle.signal, AbortSignal.timeout(prazoMs), ...(init?.signal ? [init.signal] : [])]);
-    const res = await base(url, { ...init, signal: sinal });
+    // QA E4 r2 N4: nunca segue redirecionamento (o apikey não vai a outro host)
+    const res = await base(url, { ...init, redirect: "error", signal: sinal });
     return lerRespostaComTeto(res, tetoDaResposta(maxBytes), () => controle.abort());
   };
 }
@@ -160,7 +161,7 @@ export const baixarPelaEvolution: BaixarArquivo = async ({ instancia, externalId
   const c = await configEvolution();
   if (!c) return null;
   // prazo próprio (o do aviso) por cima dos 20 s fixos do download, e o corte de tamanho
-  const r = await baixarMidiaEvolution(c, instancia, externalId, fetchComTeto(prazoMs, maxBytes));
+  const r = await baixarMidiaEvolution({ ...c, semRedirecionamento: true }, instancia, externalId, fetchComTeto(prazoMs, maxBytes));
   return r ? { base64: r.base64 } : null;
 };
 
