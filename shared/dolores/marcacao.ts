@@ -31,10 +31,11 @@ export const LIMITES_MARCACOES = {
 } as const;
 
 // ── Frases fixas (nada aqui vem de modelo) ──
-export const FRASE_FORA_DE_ESCOPO = "Isso eu preciso confirmar com a equipe; já avisei.";
+// QA-SEG E4b achado 3: só texto verdadeiro — ninguém é avisado por marcação (a pergunta fica na lista da tela), então não promete aviso
+export const FRASE_FORA_DE_ESCOPO = "Isso a equipe responde por aqui.";
 export const FRASE_APRESENTACAO = "Oi! Sou a Dolores, da Prospecta. Posso informar o andamento deste atendimento e os documentos que faltam; é só me marcar com a pergunta.";
 export const FRASE_TETO_DO_DIA = "Recebi muitas perguntas hoje; a equipe vai responder por aqui assim que possível.";
-export const FRASE_SEM_VINCULO = "Este grupo ainda não está ligado a um cliente no sistema; vou confirmar com a equipe.";
+export const FRASE_SEM_VINCULO = "Este grupo ainda não está ligado a um cliente no sistema; a equipe responde por aqui.";
 /** O modelo responde exatamente isto quando a pergunta sai do escopo ou não há dado. */
 export const SINAL_FORA_DO_ESCOPO = "FORA_DO_ESCOPO";
 

@@ -1,12 +1,13 @@
-// QA de segurança da E4b (Quinn, 17/11/2026) — provas dos achados NÃO bloqueantes. Estes testes DOCUMENTAM o comportamento
-// atual (passam hoje); quando cada achado for corrigido, inverta a expectativa marcada com "ACHADO".
+// QA de segurança da E4b (Quinn, 17/11/2026) — provas dos achados NÃO bloqueantes, INVERTIDAS depois da correção (Dex,
+// 17/11/2026): cada bloco agora prova que o defeito não volta. Os achados 4 e 5 (tetos e "processando" preso) e a pausa em
+// memória na tela estão no caminho completo do webhook, em marcacao.test.ts ("QA-SEG E4b — correções").
 // PGlite; nada sai para a rede.
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 
-import { FRASE_FORA_DE_ESCOPO, foraDeEscopo, numeroSemFonte, respostaSeguraDoGrupo, situacaoNeutraDoGrupo } from "../../shared/dolores/marcacao.js";
+import { FRASE_FORA_DE_ESCOPO, FRASE_SEM_VINCULO, foraDeEscopo, numeroSemFonte, respostaSeguraDoGrupo, situacaoNeutraDoGrupo } from "../../shared/dolores/marcacao.js";
 import { getDb } from "../db.js";
 import { definirDependenciasMarcacao, executarLeituraDoGrupo } from "./marcacao.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -73,10 +74,13 @@ describe("QA-SEG E4b — achado 2 (corrigido): texto ditado é barrado na entrad
   });
 });
 
-describe("QA-SEG E4b — achado 3: a frase fixa diz 'já avisei', mas ninguém é avisado", () => {
-  it("FRASE_FORA_DE_ESCOPO afirma aviso; marcacao.ts não importa nenhum envio ao dono", () => {
-    expect(FRASE_FORA_DE_ESCOPO).toContain("já avisei");
+describe("QA-SEG E4b — achado 3 (corrigido): as frases fixas não prometem aviso que ninguém recebe", () => {
+  it("FRASE_FORA_DE_ESCOPO e FRASE_SEM_VINCULO não dizem 'avisei'/'vou confirmar'; marcacao.ts continua sem envio ao dono", () => {
+    expect(FRASE_FORA_DE_ESCOPO).toBe("Isso a equipe responde por aqui.");
+    for (const f of [FRASE_FORA_DE_ESCOPO, FRASE_SEM_VINCULO]) expect(f).not.toMatch(/avis|vou confirmar|confirmo|vou passar|notific/i);
     const fonte = readFileSync(new URL("./marcacao.ts", import.meta.url), "utf8");
     expect(fonte).not.toMatch(/responderAoDono|enviarTextoEvolution\b|avisarDono|notificar/);
+    // as frases fixas passam no próprio filtro de saída (o envio filtra de novo)
+    for (const f of [FRASE_FORA_DE_ESCOPO, FRASE_SEM_VINCULO]) expect(respostaSeguraDoGrupo(f, URL_SISTEMA)).toMatchObject({ texto: f });
   });
 });

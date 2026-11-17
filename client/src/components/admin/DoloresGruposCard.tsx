@@ -225,7 +225,7 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
         Ela só responde quando alguém marca o número dela no grupo (a marcação de verdade do WhatsApp; escrever o nome não conta), com
         este interruptor e o do grupo ligados. Responde só sobre aquele cliente: andamento, etapas e documentos que faltam. Nunca fala de
         valores, contrato, prazos, CPF, telefone, outros clientes ou anotações da equipe, e nunca faz nada a partir do grupo — nesses
-        casos responde "Isso eu preciso confirmar com a equipe; já avisei." e a pergunta aparece na lista abaixo. Usa o modelo da função
+        casos responde "Isso a equipe responde por aqui." (ninguém é avisado: a pergunta aparece na lista abaixo). Usa o modelo da função
         "Dolores — resposta em grupo quando marcada" (Integrações › Anthropic), o interruptor da IA e o limite mensal da Dolores.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">

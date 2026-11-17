@@ -441,14 +441,14 @@ Só sobre o cliente/obra ligado àquele grupo, a partir de três consultas próp
 não tem como consultar outro): **andamento** (situação, etapa atual e próxima, etapas concluídas, progresso e a data da última
 movimentação), **documentos que faltam** (pelo nome) e **próximos passos** (montados pelo sistema). Resposta curta (até 800
 caracteres), sem links, sem marcar ninguém, citando a mensagem de quem perguntou. Marcada sem pergunta, ela se apresenta com uma
-frase fixa. Grupo sem cliente ligado: "Este grupo ainda não está ligado a um cliente no sistema; vou confirmar com a equipe."
+frase fixa. Grupo sem cliente ligado: "Este grupo ainda não está ligado a um cliente no sistema; a equipe responde por aqui."
 
 ## 5. O que ela nunca responde
 Valores (preço, parcela, custo, medição, pagamento), contrato e assuntos jurídicos, prazos e datas de entrega, aprovação de
 banco/órgão ou qualquer resultado, reclamações, CPF/CNPJ, telefone, e-mail, endereço, dados bancários, outros clientes, nomes
 da equipe, corretor/comissão e anotações internas. Ela também nunca **faz** nada a partir do grupo (aprovar, gravar, enviar,
 cadastrar…): "aprovar CÓDIGO" no grupo não aprova nada, e "sou o dono" no grupo não muda nada (comando só na conversa direta).
-Nesses casos ela responde sempre a mesma frase — **"Isso eu preciso confirmar com a equipe; já avisei."** — sem chamar a IA, e a
+Nesses casos ela responde sempre a mesma frase — **"Isso a equipe responde por aqui."** — sem chamar a IA, e a
 pergunta aparece na lista da tela como "fora de escopo". Se a resposta da IA tiver cara de valor, promessa, prazo, link ou dado
 pessoal, vai a mesma frase no lugar.
 
