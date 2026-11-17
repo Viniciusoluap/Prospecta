@@ -222,3 +222,19 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
   (c) produção — pendente (criar um usuário de teste e definir a senha pelo link).
 - Próximo passo: QA da S-12 → aplicar 0127 → publicar. Pendências do dono/jurídico: marcadores "[A PREENCHER PELO
   JURÍDICO]" no termo; caminho `portal.admin.provisionAccess` (senha digitada pelo admin) não passa pelo termo.
+
+## Atualização — 17/11, S-12 correções do QA (CONCERNS) — mesmo ramo, cópia em `claude/wip-epic024-s12`
+- Feito (um commit por achado, `fix: … [EPIC-024 S-12]`): (1) conta criada já com senha pelo admin
+  (`portal.admin.provisionAccess`, `/api/auth/setup-admin`) aceita o termo no 1º login, com a opção do item 4 ainda
+  desligada — modal em todas as áreas logadas, com "Sair"; (2) termo público sem "[A PREENCHER…]", pendências só na
+  janela do admin, endereço de `shared/empresa.ts` (mesma fonte do rodapé e do SEO); (3) seção de IA com o atendimento
+  automático pelo WhatsApp, leitura de documentos e apoio à equipe — versão `2026-11-17.2`; (5) falha do banco no link
+  mostra "Não foi possível verificar agora…"; (6) início do termo independe do fuso da sessão; (7) "Voltar" não cobre o
+  topo do termo e da criação de senha; (8) story com o setup-admin; (9) textos só com o que o sistema faz. Achado 4 mantido
+  (decisão do dono).
+- Testes: (a) automáticos — `consentimento.test.ts` 35/35; suítes pedidas 8 arquivos 73/73; QA adversarial 8/10 (os 2
+  que falham reproduziam os achados 1 e 5, agora corrigidos); `tsc` e `vite build` ok; (b) manuais — Playwright em 4
+  aparelhos (termo, criação de senha, modal no portal/painel/corretor, janela do admin); (c) produção — pendente.
+- LIMITAÇÃO: o servidor não bloqueia as outras rotas de quem não aceitou no login (a trava é o modal).
+- Próximo passo exato: re-QA da S-12 → no Neon, `SHOW TimeZone` e aplicar a 0127 → publicar → criar uma conta pelo
+  painel do lead e entrar no portal para ver o termo.
