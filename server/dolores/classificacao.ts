@@ -85,15 +85,54 @@ const clientePadrao: ClienteClassificacao = async p => {
   return r as unknown as RespostaClassificacao;
 };
 
-/** Baixa o arquivo da mensagem (base64) — só a Evolution da própria instância da Dolores. */
-export type BaixarArquivo = (p: { instancia: string; externalId: string; prazoMs: number }) => Promise<{ base64: string } | null>;
-export const baixarPelaEvolution: BaixarArquivo = async ({ instancia, externalId, prazoMs }) => {
+/** O arquivo passa do tamanho máximo: o download foi CORTADO (não foi lido inteiro). */
+export class ArquivoGrandeDemais extends Error {
+  constructor(readonly lidos: number) { super("arquivo maior que o limite configurado"); this.name = "ArquivoGrandeDemais"; }
+}
+
+/** Teto da resposta da Evolution para um arquivo de até `maxBytes`: o base64 (× 4/3) mais a folga do JSON. */
+export const tetoDaResposta = (maxBytes: number) => Math.ceil((maxBytes * 4) / 3) + 64 * 1024;
+
+/**
+ * QA E4, achado 3 — lê a resposta com corte: o Content-Length acima do teto aborta antes de ler; sem ele (ou mentindo), a
+ * leitura em fluxo para e aborta o download assim que passa do teto. O tamanho declarado no WhatsApp (fileLength) é só dica.
+ */
+export async function lerRespostaComTeto(res: Response, teto: number, abortar: () => void): Promise<Response> {
+  const declarado = Number(res.headers.get("content-length") ?? NaN);
+  if (Number.isFinite(declarado) && declarado > teto) { abortar(); await res.body?.cancel().catch(() => undefined); throw new ArquivoGrandeDemais(declarado); }
+  if (!res.body) return res;
+  const leitor = res.body.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > teto) { abortar(); await leitor.cancel().catch(() => undefined); throw new ArquivoGrandeDemais(total); }
+    partes.push(value);
+  }
+  const cabecalhos = new Headers(Array.from(res.headers.entries()).filter(([k]) => k !== "content-length" && k !== "content-encoding"));
+  return new Response(Buffer.concat(partes), { status: res.status, statusText: res.statusText, headers: cabecalhos });
+}
+
+/** fetch com o prazo do aviso e o corte de tamanho (para a Evolution). */
+export function fetchComTeto(prazoMs: number, maxBytes: number, base: typeof fetch = fetch): typeof fetch {
+  return async (url, init) => {
+    const controle = new AbortController();
+    const sinal = AbortSignal.any([controle.signal, AbortSignal.timeout(prazoMs), ...(init?.signal ? [init.signal] : [])]);
+    const res = await base(url, { ...init, signal: sinal });
+    return lerRespostaComTeto(res, tetoDaResposta(maxBytes), () => controle.abort());
+  };
+}
+
+/** Baixa o arquivo da mensagem (base64) — só a Evolution da própria instância da Dolores — com prazo e tamanho máximo. */
+export type BaixarArquivo = (p: { instancia: string; externalId: string; prazoMs: number; maxBytes: number }) => Promise<{ base64: string } | null>;
+export const baixarPelaEvolution: BaixarArquivo = async ({ instancia, externalId, prazoMs, maxBytes }) => {
   const [{ configEvolution }, { baixarMidiaEvolution }] = await Promise.all([import("../whatsapp-router.js"), import("../_core/evolution.js")]);
   const c = await configEvolution();
   if (!c) return null;
-  // prazo próprio (o do aviso) por cima dos 20 s fixos do download
-  const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.any([AbortSignal.timeout(prazoMs), ...(init?.signal ? [init.signal] : [])]) });
-  const r = await baixarMidiaEvolution(c, instancia, externalId, comPrazo);
+  // prazo próprio (o do aviso) por cima dos 20 s fixos do download, e o corte de tamanho
+  const r = await baixarMidiaEvolution(c, instancia, externalId, fetchComTeto(prazoMs, maxBytes));
   return r ? { base64: r.base64 } : null;
 };
 
@@ -222,7 +261,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     // 1) o arquivo, sob demanda e com prazo
     let bytes: Buffer | null = null;
     try {
-      const r = await baixarArquivo({ instancia: msg.instancia, externalId: msg.externalId, prazoMs: Math.max(1_000, Math.min(PRAZO_DOWNLOAD_MS, restante() - PRAZO_MODELO_MS - 3_000)) });
+      const r = await baixarArquivo({ instancia: msg.instancia, externalId: msg.externalId, prazoMs: Math.max(1_000, Math.min(PRAZO_DOWNLOAD_MS, restante() - PRAZO_MODELO_MS - 3_000)), maxBytes: config.tamanhoMaximoBytes });
       if (r?.base64) {
         if (bytesDoBase64(r.base64) > config.tamanhoMaximoBytes) {
           await voltar("grande_demais", "arquivo maior que o limite configurado; não foi baixado");
@@ -232,6 +271,11 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
         bytes = Buffer.from(r.base64, "base64");
       }
     } catch (e) {
+      if (e instanceof ArquivoGrandeDemais) {
+        await voltar("grande_demais", "arquivo maior que o limite configurado; o download foi cortado");
+        await auditar("recusada", "arquivo maior que o limite (download cortado)", { lidos: e.lidos });
+        return "classificacao-grande";
+      }
       console.error("[dolores/classificacao] falha ao baixar o arquivo", erroParaLog(e));
     }
     if (!bytes) {

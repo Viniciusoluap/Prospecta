@@ -16,7 +16,7 @@ import { ROTULO_DOCUMENTO } from "../../shared/drive-estrutura.js";
 import { documentHash, driveConfigured, comPrazoNoDrive, uploadPrivateDocument } from "../drive-documents.js";
 import { MARCA_DOLORES, RecusaAcao, conferirMostrado, registrarAutoria, type ContextoAcao, type ResultadoAcao } from "./acoes/comum.js";
 import { clientesParecidos, type entradaCardAprovado, type entradaSalvarAprovado } from "./acoes/grupos.js";
-import { baixarArquivo } from "./classificacao.js";
+import { ArquivoGrandeDemais, baixarArquivo } from "./classificacao.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { bancoDaAcao, emTransacaoDeEscrita } from "./escrita.js";
 import { lerConfigGrupos, ligarGrupoAoCliente, marcarDocumentoSalvo } from "./grupos.js";
@@ -105,12 +105,13 @@ export async function executarSalvarAprovado(args: z.infer<typeof entradaSalvarA
 
   let bytes: Buffer;
   try {
-    const r = await baixarArquivo({ instancia: m.instancia, externalId: m.externalId, prazoMs: Math.max(1_000, Math.min(PRAZO_DOWNLOAD_MS, restante() - PRAZO_DRIVE_MS - FOLGA_FINAL_MS)) });
+    const r = await baixarArquivo({ instancia: m.instancia, externalId: m.externalId, prazoMs: Math.max(1_000, Math.min(PRAZO_DOWNLOAD_MS, restante() - PRAZO_DRIVE_MS - FOLGA_FINAL_MS)), maxBytes: config.tamanhoMaximoBytes });
     if (!r?.base64) throw new Error("sem arquivo");
     if (bytesDoBase64(r.base64) > config.tamanhoMaximoBytes) throw new RecusaAcao(`O arquivo passa do limite de ${Math.round(config.tamanhoMaximoBytes / 1_048_576)} MB; nada foi salvo.`);
     bytes = Buffer.from(r.base64, "base64");
   } catch (e) {
     if (e instanceof RecusaAcao) throw e;
+    if (e instanceof ArquivoGrandeDemais) throw new RecusaAcao(`O arquivo passa do limite de ${Math.round(config.tamanhoMaximoBytes / 1_048_576)} MB (o download foi cortado); nada foi salvo.`);
     console.error("[dolores/documentos-cliente] falha ao baixar o arquivo", erroParaLog(e));
     throw new RecusaAcao("Não consegui baixar o arquivo do WhatsApp agora; nada foi salvo. Peça de novo em instantes.");
   }

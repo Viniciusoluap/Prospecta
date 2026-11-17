@@ -261,3 +261,70 @@ describe("QA-A (achado 2): teto de páginas do PDF e reserva do pior caso", () =
     expect(ms[1].motivo).toMatch(/pausadas até amanhã/);
   });
 });
+
+describe("QA-C (achado 3): o download da Evolution é cortado no limite (o fileLength declarado é só dica)", () => {
+  /** Resposta da Evolution servida aos pedaços (64 KB), contando o que foi entregue. */
+  function respostaEmFluxo(bytesDoArquivo: number, comTamanho = false) {
+    const b64 = Math.ceil(bytesDoArquivo / 3) * 4;
+    const total = 11 + b64 + 2;
+    let entregue = 0;
+    let sinal: AbortSignal | undefined;
+    const pedaco = 64 * 1024;
+    const corpo = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (entregue >= total) { c.close(); return; }
+        const n = Math.min(pedaco, total - entregue);
+        const parte = Buffer.alloc(n, 0x41);
+        if (entregue === 0) parte.write('{"base64":"', 0, "latin1");
+        if (entregue + n === total) parte.write('"}', n - 2, "latin1");
+        entregue += n; c.enqueue(parte);
+      },
+    });
+    const f = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      sinal = init?.signal ?? undefined;
+      return new Response(corpo, { status: 201, headers: comTamanho ? { "content-length": String(total) } : {} });
+    });
+    return { f, total, entregue: () => entregue, abortado: () => sinal?.aborted ?? false };
+  }
+
+  it("declarado 1000 bytes, real 11 MB: o download é abortado no teto, sem ler tudo, e vira 'grande demais' sem IA", async () => {
+    const { baixarMidiaEvolution } = await import("../_core/evolution.js");
+    const { ArquivoGrandeDemais, fetchComTeto, tetoDaResposta } = await import("./classificacao.js");
+    const limite = 10 * 1024 * 1024;
+    const evo = respostaEmFluxo(11 * 1024 * 1024);
+    await expect(baixarMidiaEvolution({ url: "evo.app", apiKey: "k" }, "prospecta-dolores", "X1", fetchComTeto(5_000, limite, evo.f as never))).rejects.toBeInstanceOf(ArquivoGrandeDemais);
+    expect(evo.entregue()).toBeLessThanOrEqual(tetoDaResposta(limite) + 2 * 64 * 1024); // o fluxo adianta no máximo um pedaço
+    expect(evo.entregue()).toBeLessThan(evo.total);
+    expect(evo.abortado()).toBe(true);
+    // com Content-Length acima do teto: nem começa a ler
+    const evo2 = respostaEmFluxo(11 * 1024 * 1024, true);
+    await expect(baixarMidiaEvolution({ url: "evo.app", apiKey: "k" }, "prospecta-dolores", "X2", fetchComTeto(5_000, limite, evo2.f as never))).rejects.toBeInstanceOf(ArquivoGrandeDemais);
+    expect(evo2.entregue()).toBeLessThanOrEqual(2 * 64 * 1024);
+    // abaixo do limite: lê normalmente
+    const evo3 = respostaEmFluxo(300 * 1024);
+    const ok = await baixarMidiaEvolution({ url: "evo.app", apiKey: "k" }, "prospecta-dolores", "X3", fetchComTeto(5_000, limite, evo3.f as never));
+    expect(ok?.base64.length).toBe(Math.ceil((300 * 1024) / 3) * 4);
+    // no fluxo: o downloader cortado vira "grande demais", sem IA; e o limite configurado é o que vai ao downloader
+    baixar.mockImplementation(async () => { throw new ArquivoGrandeDemais(14_000_000); });
+    await chamar(aviso(item({ message: documento("pequeno.pdf", "x", 1000) })));
+    const [m] = await mensagens();
+    expect(m.situacao).toBe("grande_demais");
+    expect(pedidosIa).toEqual([]);
+    expect(baixar.mock.calls[0][0]).toMatchObject({ maxBytes: limite });
+  });
+  it("no salvamento aprovado: o download cortado recusa sem enviar nada ao Drive", async () => {
+    const { ArquivoGrandeDemais } = await import("./classificacao.js");
+    definirDependenciasPonte({ agora: () => new Date() });
+    await chamar(aviso(item({ message: documento("rg.pdf", "RG") })));
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Carla Nova", telefone: "99 98888-1111" });
+    await decidir([(await fila())[0].codigo], "aprovar", decisorDaTela(1));
+    await pedir("salvar_documentos_grupo", { grupoId: 1 }, 2);
+    baixar.mockImplementation(async () => { throw new ArquivoGrandeDemais(14_000_000); });
+    const doc = (await fila()).find(i => i.funcao === "salvar_documentos_grupo")!;
+    const [r] = await decidir([doc.codigo], "aprovar", decisorDaTela(1));
+    expect(r.ok).toBe(false);
+    expect(r.texto).toMatch(/download foi cortado/);
+    expect(vi.mocked(uploadPrivateDocument)).not.toHaveBeenCalled();
+    expect((await mensagens())[0].situacao).not.toBe("salvo");
+  });
+});
