@@ -253,3 +253,32 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 1. E4: receber o QA r2 → corrigir o que for importante → `0126` → publicar pela receita. 2. E5: receber o @dev → QA →
 `0128` → publicar. 3. E6: lançar o @dev em cima da E5, QA, migração `0129`, publicar. 4. Relatório final ao dono com
 a classificação de cada item e o que depende só dele.
+
+## Atualização — 17/11, ~10:10 UTC
+
+### Concluído e publicado
+- **Dolores etapa 4 (grupos de clientes)** — PR #248, squash `44715cb` na `main`, produção READY. Arquivos principais:
+  `shared/dolores/grupos.ts`, `server/dolores/{grupos,classificacao,documentos-cliente,grupos-router}.ts`,
+  `server/dolores/acoes/grupos.ts`, `server/dolores/leitura/grupos.ts`, `DoloresGruposCard.tsx`.
+- **Banco de produção (Neon):** aplicadas a `0126_dolores_grupos.sql` (tabelas `dolores_grupos`, `dolores_grupo_mensagens`,
+  `dolores_grupos_contagem`, `dolores_grupos_config`, `dolores_grupos_consumo_mes`) e a `0130_dolores_fila_guarda.sql`
+  (a guarda da fila aceita a exclusão do usuário que decidiu). Aplicadas até aqui: 0117–0127 e 0130. **Faltam 0128 e 0129.**
+- Regra do dono gravada no `CLAUDE.md`: nos grupos a Dolores só responde quando é marcada.
+
+### Em andamento (ramos locais, cópia no GitHub)
+- **E4b — resposta no grupo quando marcada:** worktree `dolores-e4b`, cópia `claude/wip-epic025-dolores-etapa4b`, migração `0129`.
+  @dev unindo a etapa 4 final; depois QA de segurança.
+- **E5 — notas de obra:** worktree `dolores-e5`, cópia `claude/wip-epic025-dolores-etapa5` (HEAD `db6f862`), migração `0128`.
+  Em QA de segurança.
+- **E6 — operação contínua:** não começou.
+
+### Testes
+- (a) automáticos: etapa 4 no ramo de publicação — `tsc` limpo, 48 arquivos / 671 testes, `vite build` ok; prévia da Vercel READY.
+- (b) manuais: nenhum (a Dolores está desligada em produção).
+- (c) pendentes de validação em produção pelo dono: conectar o número, cadastrar um grupo real, conferir o formato da marcação.
+
+## Próximo passo exato (17/11, 10:10 UTC)
+1. Receber o QA da E5; devolver ao @dev o que bloquear; aplicar a `0128`; publicar pela receita do topo.
+2. Receber a E4b unida; QA de segurança; aplicar a `0129`; publicar.
+3. E6 em cima da `main` com E4b e E5; QA; migração; publicar.
+4. Relatório final ao dono.

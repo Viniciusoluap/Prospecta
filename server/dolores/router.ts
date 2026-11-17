@@ -20,6 +20,7 @@ import { URL_WEBHOOK_DOLORES, segredoWebhookDolores } from "./whatsapp.js";
 import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
 import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
 import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas } from "./aprovacoes.js";
+import { gruposRouter } from "./grupos-router.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -39,7 +40,8 @@ async function exigirEvolution() {
   const { configEvolution } = await import("../whatsapp-router.js");
   const c = await configEvolution();
   if (!c) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp (Evolution) não configurado: Integrações › WhatsApp." });
-  return c;
+  // QA E4 r2 N4: a chave da Evolution nunca segue redirecionamento para outro host
+  return { ...c, semRedirecionamento: true };
 }
 const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userId: number) =>
   getDb().update(doloresWhatsappConfig).set({ ...dados, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
@@ -110,6 +112,7 @@ const filaRouter = router({
 
 export const doloresRouter = router({
   fila: filaRouter,
+  grupos: gruposRouter,
   status: soAdmin.query(() => situacao()),
 
   /** Cria a instância própria da Dolores (se não existir) e devolve o QR code para escanear com o celular DELA. */

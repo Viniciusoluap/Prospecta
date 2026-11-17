@@ -241,3 +241,7 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
   agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.
 - [ ] Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
   aprovação `dolores_aprovacoes`, decisão do dono por código no WhatsApp ou na tela do admin; autoria em `dolores_autoria`)
+  — ao portar, já com a correção da 0130 (excluir o usuário que decidiu item da fila: só o SET NULL de quem decidiu passa)
+- [ ] Etapa 4 — grupos de clientes (só grupos cadastrados e ativos, nunca comando; classificação com contagem prévia de
+  tokens, uma por vez e orçamento próprio de 20% do limite; card e documentos pela fila; chamadas à Evolution sem
+  redirecionamento)
