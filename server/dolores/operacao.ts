@@ -9,7 +9,9 @@
 //   tem de chamar esta porta antes (pausa geral → silêncio).
 import { eq } from "drizzle-orm";
 import { doloresEventos, doloresOperacaoConfig, type TipoEventoDolores } from "../../drizzle/schema-dolores-operacao.js";
+import { users } from "../../drizzle/schema.js";
 import { getDb } from "../db.js";
+import { DOLORES_OPEN_ID } from "./perfil.js";
 import { lerPausa } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
 
@@ -35,7 +37,7 @@ export async function lerConfigOperacao(): Promise<ConfigOperacao | null> {
   } catch { return null; }
 }
 
-export type BloqueioOperacao = { motivo: "pausada"; detalhe: string | null } | { motivo: "indisponivel" };
+export type BloqueioOperacao = { motivo: "pausada"; detalhe: string | null } | { motivo: "indisponivel" } | { motivo: "usuaria_desativada" };
 
 /** Porta comum da pausa geral. null = pode operar. Sem conseguir ler a pausa → bloqueia (falha fechada). */
 export async function bloqueioDaOperacao(): Promise<BloqueioOperacao | null> {
@@ -43,6 +45,11 @@ export async function bloqueioDaOperacao(): Promise<BloqueioOperacao | null> {
   try { pausa = await lerPausa(); } catch { return { motivo: "indisponivel" }; }
   if (!pausa) return { motivo: "indisponivel" };
   if (pausa.pausada) return { motivo: "pausada", detalhe: pausa.motivo };
+  // desativar a conta da Dolores em "Usuários e acesso" também para a operação (o botão de parada do administrador)
+  try {
+    const [u] = await getDb().select({ ativo: users.active }).from(users).where(eq(users.openId, DOLORES_OPEN_ID)).limit(1);
+    if (u && !u.ativo) return { motivo: "usuaria_desativada" };
+  } catch { return { motivo: "indisponivel" }; }
   return null;
 }
 

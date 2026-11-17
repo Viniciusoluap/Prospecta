@@ -100,3 +100,7 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
   padrão de cron (`CRON_SECRET`), `emTransacaoSomenteLeitura`, PGlite de `testes-banco.ts`.
 - ADAPT: `enviarAvisoAoDono` (mesma cadeia de `responderAoDono`, sem mensagem de origem).
 - CREATE: tabelas e módulos da operação (não existia ronda, relatório nem evento).
+
+## Change Log
+- 17/11/2026 — @dev (Dex): Ready → InProgress (início da implementação no ramo `epic025-dolores-etapa6`).
+- 17/11/2026 — @dev (Dex): InProgress → InReview (migração, regras, rondas, relatório, rotas, tela, testes e docs; aguarda QA).

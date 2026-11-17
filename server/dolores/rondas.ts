@@ -48,6 +48,8 @@ const MINIMO_POR_SECAO_MS = 3_000;
 /** Para enviar o relatório depois da ronda. */
 const MINIMO_PARA_RELATORIO_MS = 6_000;
 
+const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada") =>
+  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso" : "configuração indisponível";
 const limpo = (s: string | null | undefined, max = 80) => {
   const t = sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO).replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
@@ -171,7 +173,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
 
 export type ResultadoRonda =
   | { ok: true; ronda: DoloresRonda; nova: boolean }
-  | { ok: false; motivo: "pausada" | "indisponivel" | "desligada" | "erro"; detalhe?: string | null };
+  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "desligada" | "erro"; detalhe?: string | null };
 
 /**
  * Uma ronda na janela dada. Já existe → devolve a existente (nova = false), sem ler de novo. Pausa geral ou configuração que
@@ -183,7 +185,7 @@ export async function executarRonda(p: { janela: string; origem: OrigemOperacao;
   const canal = p.origem === "cron" ? "cron" : p.origem;
   const bloqueio = await bloqueioDaOperacao();
   if (bloqueio) {
-    await registrarAcao({ funcao: "ronda", resultado: "recusada", motivo: bloqueio.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "configuração indisponível", autorUserId: autor, canal, pedidoId: p.janela });
+    await registrarAcao({ funcao: "ronda", resultado: "recusada", motivo: motivoDoBloqueio(bloqueio.motivo), autorUserId: autor, canal, pedidoId: p.janela });
     return { ok: false, ...bloqueio };
   }
   try {
@@ -249,7 +251,7 @@ export async function enviarRelatorio(p: {
 }): Promise<ResultadoRelatorio> {
   const autor = await idDaDoloresSemCriar().catch(() => null);
   const bloqueio = await bloqueioDaOperacao();
-  if (bloqueio) return { ok: false, situacao: "bloqueado", motivo: bloqueio.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "configuração indisponível", relatorioId: null };
+  if (bloqueio) return { ok: false, situacao: "bloqueado", motivo: motivoDoBloqueio(bloqueio.motivo), relatorioId: null };
   const texto = montarRelatorio({ tipo: p.tipo, geradoEm: p.agora, totais: p.ronda.totais as TotaisRonda, destaques: p.ronda.destaques as DestaquesRonda,
     falhas: p.ronda.falhas ?? [], precos: { entradaMilhao: p.config.precoEntradaMilhao, saidaMilhao: p.config.precoSaidaMilhao } });
   const registro = sanitizarTexto(texto, FILTRO_DO_REGISTRO).slice(0, 4000);
@@ -308,7 +310,7 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   if (!config.rondasLigadas && !config.relatorioLigado) return { status: 200, body: { ok: true, r: "desligada" } };
   const bloqueio = await bloqueioDaOperacao();
   if (bloqueio) {
-    await registrarAcao({ funcao: "ronda", resultado: "recusada", motivo: bloqueio.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "configuração indisponível",
+    await registrarAcao({ funcao: "ronda", resultado: "recusada", motivo: motivoDoBloqueio(bloqueio.motivo),
       autorUserId: await idDaDoloresSemCriar().catch(() => null), canal: "cron", pedidoId: janelaDiaria(agora) });
     return { status: 200, body: { ok: true, r: bloqueio.motivo } };
   }

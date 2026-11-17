@@ -194,6 +194,17 @@ describe("pausa geral barra cada porta", () => {
   });
 });
 
+describe("conta da Dolores desativada (botão de parada do administrador)", () => {
+  it("cron e eventos param; nada é enviado", async () => {
+    await ligarTudo();
+    await banco.pg.exec(`INSERT INTO users ("openId", name, role, active) VALUES ('sistema:dolores', 'Dolores', 'user', false)`);
+    expect((await cron(`Bearer ${SEGREDO_CRON}`)).body).toMatchObject({ r: "usuaria_desativada" });
+    expect(await registrarEvento({ tipo: "nota_lida", chave: "nota:9" })).toBe(false);
+    expect(await n("dolores_rondas")).toBe(0);
+    expect(enviar).not.toHaveBeenCalled();
+  });
+});
+
 describe("comando \"relatório\" pelo WhatsApp (por código, sem IA)", () => {
   it("com o relatório ligado: ronda sob demanda + relatório só ao dono, sem chamar o modelo; repetido no mesmo minuto não duplica", async () => {
     await ligarTudo();
