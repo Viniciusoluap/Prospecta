@@ -15,8 +15,8 @@ import { definirClienteModelo } from "./cerebro.js";
 import { funcaoPorNome } from "./funcoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
-import { PISO_CONSULTA_SECAO_MS, TETO_CONSULTA_SECAO_MS, definirRelogioCron, tempoLimiteDaSecao, tratarCronDolores } from "./rondas.js";
-import { CRON_DOLORES_AGENDA, HORA_MAX_RELATORIO, MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
+import { PISO_CONSULTA_SECAO_MS, TETO_CONSULTA_SECAO_MS, TETO_SOB_DEMANDA_ATINGIDO, definirRelogioCron, relatorioSobDemanda, tempoLimiteDaSecao, tratarCronDolores } from "./rondas.js";
+import { CRON_DOLORES_AGENDA, HORA_MAX_RELATORIO, MAX_RELATORIOS_SOB_DEMANDA_DIA, MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
 import { readFileSync } from "node:fs";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
@@ -206,5 +206,74 @@ describe("QA E6 — achado 4: hora do relatório não passa da hora do cron diá
     const r = await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
     expect(r.body).toMatchObject({ ok: true, relatorio: "enviado" });
     expect((await admin.dolores.operacao.situacao()).config.relatorioHora).toBe(7);
+  });
+});
+
+describe("QA E6 — achado 3: relatório diário gravado e envio que falha", () => {
+  it("envio falhou: a tela mostra FALHOU e o admin reenvia o MESMO texto (sem outro relatório); uma vez por minuto; depois de enviado, recusa", async () => {
+    await ligarTudo();
+    enviar.mockResolvedValueOnce(false); // a Evolution recusa no cron
+    const r = await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
+    expect(r.body).toMatchObject({ relatorio: "nao_enviado" });
+    const admin = caller("admin");
+    vi.useFakeTimers({ now: new Date("2026-11-17T10:40:00Z"), toFake: ["Date"] });
+    try {
+      let s = await admin.dolores.operacao.situacao();
+      expect(s.relatorioDeHoje).toMatchObject({ situacao: "falhou" });
+      const textoGravado = (await q<{ texto: string }>(`SELECT texto FROM dolores_relatorios WHERE janela = 'diario:2026-11-17'`))[0].texto;
+      enviar.mockClear();
+      enviar.mockResolvedValueOnce(false); // o reenvio também falha
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: false, situacao: "nao_enviado" });
+      // mesmo minuto: não manda de novo
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: false, situacao: "ja_enviado" });
+      expect(enviar).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(new Date("2026-11-17T10:41:00Z"));
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: true, situacao: "enviado" });
+      expect(enviar).toHaveBeenCalledTimes(2);
+      // o mesmo texto gravado (o envio passa só pelos filtros de saída, que não mudam um texto já filtrado no registro)
+      expect(String(enviar.mock.calls[1][0].texto)).toBe(textoGravado);
+      expect(enviar.mock.calls[1][0].numero).toBe(DONO);
+      expect(await n("dolores_relatorios")).toBe(1); // nenhum relatório novo
+      expect(await n("dolores_rondas")).toBe(1); // nenhuma ronda nova
+      expect(await n("dolores_relatorio_reenvios")).toBe(2);
+      s = await admin.dolores.operacao.situacao();
+      expect(s.relatorioDeHoje).toMatchObject({ situacao: "enviado" });
+      vi.setSystemTime(new Date("2026-11-17T10:42:00Z"));
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: false, situacao: "ja_enviado" });
+      expect(enviar).toHaveBeenCalledTimes(2);
+      await expect(banco.pg.exec(`DELETE FROM dolores_relatorio_reenvios`)).rejects.toThrow(/SOMENTE_INSERCAO/);
+      await expect(caller("colaborador").dolores.operacao.reenviarRelatorioDoDia()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally { vi.useRealTimers(); }
+  });
+  it("sem relatório diário de hoje ou com a pausa geral: nada é enviado", async () => {
+    await ligarTudo();
+    const admin = caller("admin");
+    vi.useFakeTimers({ now: new Date("2026-11-17T10:40:00Z"), toFake: ["Date"] });
+    try {
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: false, situacao: "nao_enviado" });
+      await banco.pg.exec(`UPDATE dolores_config SET pausada = true`);
+      expect(await admin.dolores.operacao.reenviarRelatorioDoDia()).toMatchObject({ ok: false, situacao: "bloqueado" });
+      expect(enviar).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("QA E6 — teto diário do relatório sob demanda", () => {
+  it(`passou de ${MAX_RELATORIOS_SOB_DEMANDA_DIA} no dia: frase fixa, sem ronda nem relatório`, async () => {
+    await ligarTudo();
+    // simula 20 relatórios sob demanda já saídos hoje
+    await banco.pg.exec(`INSERT INTO dolores_rondas (janela, origem) VALUES ('base', 'tela')`);
+    for (let i = 0; i < MAX_RELATORIOS_SOB_DEMANDA_DIA; i++) {
+      await banco.pg.exec(`INSERT INTO dolores_relatorios (janela, tipo, origem, ronda_id, texto) VALUES ('sob-demanda:2026-11-17T06:${String(i).padStart(2, "0")}', 'sob_demanda', 'tela', 1, 't')`);
+    }
+    const rondasAntes = await n("dolores_rondas");
+    const r = await relatorioSobDemanda({ origem: "whatsapp", agora: MANHA, prazoFinal: Date.now() + 40_000, relogio: Date.now });
+    expect(r).toMatchObject({ ok: false, situacao: "bloqueado", motivo: TETO_SOB_DEMANDA_ATINGIDO });
+    expect(await n("dolores_rondas")).toBe(rondasAntes);
+    expect(await n("dolores_relatorios")).toBe(MAX_RELATORIOS_SOB_DEMANDA_DIA);
+    expect(enviar).not.toHaveBeenCalled();
+    // o dia seguinte libera
+    const amanha = await relatorioSobDemanda({ origem: "tela", agora: new Date(MANHA.getTime() + 86_400_000), prazoFinal: Date.now() + 40_000, relogio: Date.now });
+    expect(amanha.situacao).not.toBe("bloqueado");
   });
 });

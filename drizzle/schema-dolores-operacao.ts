@@ -51,6 +51,19 @@ export const doloresRelatorios = pgTable("dolores_relatorios", {
 ]);
 export type DoloresRelatorio = typeof doloresRelatorios.$inferSelect;
 
+/** Reenvio pela tela do MESMO texto do relatório diário (envio falhou). Janela única por minuto; só inserção. */
+export const doloresRelatorioReenvios = pgTable("dolores_relatorio_reenvios", {
+  id: serial("id").primaryKey(),
+  relatorioId: integer("relatorio_id").notNull(),
+  janela: varchar("janela", { length: 60 }).notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
+  pedidoPorUserId: integer("pedido_por_user_id"),
+}, t => [
+  foreignKey({ name: "dolores_relatorio_reenvios_relatorio_fk", columns: [t.relatorioId], foreignColumns: [doloresRelatorios.id] }).onDelete("restrict"),
+  uniqueIndex("dolores_relatorio_reenvios_janela_uidx").on(t.janela),
+  index("dolores_relatorio_reenvios_relatorio_idx").on(t.relatorioId),
+]);
+
 export type TipoEventoDolores = "documento_grupo" | "nota_lida" | "prazo_vencido" | "pagamento_banco";
 
 export const doloresEventos = pgTable("dolores_eventos", {

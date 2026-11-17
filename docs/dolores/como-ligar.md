@@ -556,7 +556,8 @@ relatório; nunca disparam ação, mensagem, item de fila nem IA. **Tudo nasce d
 
 ## 1. Banco (equipe técnica)
 Aplicar `drizzle/0131_dolores_operacao.sql` no Neon (só aditiva e idempotente: `dolores_operacao_config` com tudo desligado,
-`dolores_rondas`, `dolores_relatorios` e `dolores_eventos` — estas três só aceitam inserção, com janela/chave únicas). Nenhuma
+`dolores_rondas`, `dolores_relatorios`, `dolores_relatorio_reenvios` e `dolores_eventos` — estas quatro só aceitam inserção, com
+janela/chave únicas; os gatilhos seguem o padrão das outras migrações da Dolores, `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`). Nenhuma
 tabela existente muda. Sem a 0131, a tela avisa e o cron responde "sem-configuracao".
 
 ## 2. Agendamento (já no `vercel.json`)
@@ -564,9 +565,13 @@ tabela existente muda. Sem a 0131, a tela avisa e o cron responde "sem-configura
 feita no código, UTC−3). A rota só aceita o cabeçalho `Authorization: Bearer <CRON_SECRET>` que a própria Vercel manda
 (comparação em tempo constante); **sem `CRON_SECRET` cadastrado na Vercel, ela recusa sempre** (o cron `lead-card-due` já usa
 a mesma variável — confira que existe em Settings › Environment Variables). Query e corpo são ignorados. Cabe em 45 s.
-O relatório diário sai na execução do dia se a hora escolhida na tela já tiver chegado (padrão 07:00). Com o cron diário,
-escolher uma hora depois das 07:00 faz o relatório não sair pelo cron — use o botão ou a mensagem "relatório"; para outro
-horário fixo, a equipe técnica muda o `schedule` no `vercel.json` (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
+O relatório diário sai na execução do dia se a hora escolhida na tela já tiver chegado (padrão 07:00). Como o cron é diário,
+**a hora só vai até 07:00**: a tela só oferece 00:00–07:00 e o servidor recusa hora maior (e, se houver hora maior gravada no
+banco, trata como 07:00). A conta sai de uma constante só, `CRON_DOLORES_AGENDA` em `shared/dolores/operacao.ts`, que um teste
+confere contra o `vercel.json`. Para outro horário fixo, a equipe técnica muda o `schedule` no `vercel.json` **e** essa
+constante (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
+Cada seção da ronda roda com `SET LOCAL statement_timeout` igual ao tempo que resta do prazo (piso 1 s, teto 15 s): a seção que
+estoura vira "sem leitura" na ronda e no relatório, sem derrubar as outras.
 
 ## 3. Ligar (administrador, em Integrações › "Dolores — operação contínua")
 1. **Rondas** (liga a varredura diária).
@@ -576,7 +581,22 @@ horário fixo, a equipe técnica muda o `schedule` no `vercel.json` (no plano Ho
    reais contra o teto do dono (R$ 1.621/mês). Sem preço, a tela mostra só os tokens — o sistema não inventa preço.
 Botões: **Fazer ronda agora** (só leitura; no máximo uma por minuto) e **Enviar relatório agora ao dono**.
 Pelo WhatsApp, o dono manda só **"relatório"** (ou "relatório agora", "Dolores, relatório do dia"): é reconhecido por código,
-não chama a IA nem gasta; vale só do número do dono; repetido no mesmo minuto não manda de novo.
+não chama a IA nem gasta; vale só do número do dono; repetido no mesmo minuto não manda de novo. Relatório sob demanda (tela +
+WhatsApp) tem **teto de 20 por dia**: passou disso, a resposta é uma frase fixa ("já saíram 20 relatórios sob demanda hoje…"),
+sem ronda nem relatório.
+
+**Relatório diário que não chegou.** O relatório do dia é gravado ANTES do envio (assim a reentrega do cron nunca manda duas
+vezes). Se o envio falhar (Dolores desconectada, Evolution recusou, sem tempo), a tela mostra em "Relatório diário de hoje":
+*gerado, envio FALHOU (motivo) — use "Enviar agora"*. O botão **Enviar agora** reenvia o **mesmo texto gravado** do dia (não faz
+ronda nem monta outro relatório; o diário continua um só), só ao número do dono e pelos mesmos filtros de saída; no máximo um
+reenvio por minuto (`dolores_relatorio_reenvios`, janela única) e, depois que um envio der certo, o botão some e o servidor
+recusa novo reenvio. O resultado de cada tentativa fica em `dolores_acoes` (`relatorio_envio`, pedido `relatorio:<id>`, com
+`reenvio: true` no resumo).
+
+**Nomes de terceiros no relatório.** Nome de cliente e de responsável vêm de cadastro (inclusive leads de fora) e aparecem
+entre aspas angulares («Ana»): o texto é cortado no primeiro caractere que não seja letra, espaço, hífen, apóstrofo ou ponto,
+perde `*`, `_`, `~`, crase e aspas, perde "aprovar"/"recusar" e o código que vier depois, e tem no máximo 40 caracteres — um
+nome nunca vira título de seção nem pedido de aprovação.
 
 ## 4. Pausa geral (o botão que para tudo)
 "Pausar tudo agora" grava `dolores_config.pausada` (a mesma pausa da etapa 1) e, conferido no servidor, para: IA da conversa,
@@ -590,7 +610,8 @@ Ligar rondas e relatório; conferir por 7 dias, na tela, que há uma ronda por d
 envio "enviado" e o gasto do mês. O custo da IA é o de `dolores_consumo` (as rondas e o relatório não usam IA).
 
 ## 6. Conferir
-- `dolores_rondas` (uma por dia + as sob demanda), `dolores_relatorios` (texto já mascarado), `dolores_eventos`.
+- `dolores_rondas` (uma por dia + as sob demanda), `dolores_relatorios` (texto já mascarado), `dolores_relatorio_reenvios`
+  (reenvios pela tela do relatório diário que falhou), `dolores_eventos`.
 - `dolores_acoes`: `ronda` (ok/erro com as seções sem leitura, ou recusada pela pausa), `relatorio_envio` (ok, ou recusada:
   sem número do dono / desconectada / pausada), `pausa_geral` e `operacao_config` (tela).
 - Ferramenta nova para a conversa: `relatorio_diario` (só lê a última ronda e o último relatório; não faz ronda).

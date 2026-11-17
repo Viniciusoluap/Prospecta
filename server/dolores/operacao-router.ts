@@ -17,7 +17,7 @@ import { lerConfigGrupos } from "./grupos.js";
 import { lerConfigNotas } from "./notas-obra.js";
 import { lerConfigMarcacoes } from "./marcacao.js";
 import { lerConfigOperacao } from "./operacao.js";
-import { executarRonda, historicoParaTela, relatorioSobDemanda } from "./rondas.js";
+import { executarRonda, historicoParaTela, reenviarRelatorioDoDia, relatorioSobDemanda } from "./rondas.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -41,7 +41,7 @@ async function situacao() {
   const mes = mesFortaleza(agora);
   const [pausa, wa, uso, grupos, notas, historico, marcacoes] = await Promise.all([
     lerPausa().catch(() => null), lerConfigWhatsapp().catch(() => null), usoDoMes(mes).catch(() => ({ entrada: 0, saida: 0 })),
-    lerConfigGrupos().catch(() => null), lerConfigNotas(), historicoParaTela(5).catch(() => ({ rondas: [], ultimoRelatorio: null })),
+    lerConfigGrupos().catch(() => null), lerConfigNotas(), historicoParaTela(5, agora).catch(() => ({ rondas: [], ultimoRelatorio: null, relatorioDeHoje: null })),
     lerConfigMarcacoes().catch(() => null), // sem a 0129: desligado
   ]);
   const desde = new Date(agora.getTime() - 24 * 3_600_000);
@@ -71,6 +71,11 @@ async function situacao() {
       id: historico.ultimoRelatorio.id, janela: historico.ultimoRelatorio.janela, tipo: historico.ultimoRelatorio.tipo, origem: historico.ultimoRelatorio.origem,
       criadoEm: historico.ultimoRelatorio.criadoEm.toISOString(), texto: historico.ultimoRelatorio.texto,
       envio: historico.ultimoRelatorio.envio ? { resultado: historico.ultimoRelatorio.envio.resultado, motivo: historico.ultimoRelatorio.envio.motivo } : null,
+    } : null,
+    // relatório DIÁRIO de hoje: gerado? enviado? falhou? (falhou → a tela oferece "Enviar agora", que reenvia o mesmo texto)
+    relatorioDeHoje: historico.relatorioDeHoje ? {
+      id: historico.relatorioDeHoje.id, criadoEm: historico.relatorioDeHoje.criadoEm.toISOString(), situacao: historico.relatorioDeHoje.situacao,
+      motivo: historico.relatorioDeHoje.envio?.resultado === "ok" ? null : historico.relatorioDeHoje.envio?.motivo ?? null,
     } : null,
   };
 }
@@ -127,6 +132,17 @@ export const operacaoRouter = router({
     const r = await executarRonda({ janela: janelaSobDemanda(agora), origem: "tela", agora, prazoFinal: inicio + PRAZO_TELA_MS, relogio: Date.now, config });
     if (!r.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: r.motivo === "pausada" ? "A Dolores está pausada (pausa geral): nada foi lido." : "Não consegui fazer a ronda agora." });
     return { rondaId: r.ronda.id, nova: r.nova, falhas: r.ronda.falhas };
+  }),
+
+  /**
+   * Reenvia o MESMO texto gravado do relatório diário de hoje quando o envio falhou (não monta outro relatório). Uma vez
+   * por minuto; já enviado com sucesso → recusa. Só ao número do dono.
+   */
+  reenviarRelatorioDoDia: soAdmin.mutation(async ({ ctx }) => {
+    await exigirConfig();
+    const inicio = Date.now();
+    const r = await reenviarRelatorioDoDia({ agora: new Date(), prazoFinal: inicio + PRAZO_TELA_MS, pedidoPorUserId: ctx.user.id });
+    return { ok: r.ok, situacao: r.situacao, motivo: r.motivo };
   }),
 
   /** Relatório agora: ronda + relatório de modelo fixo, enviado SÓ ao número do dono. Exige o relatório ligado. */

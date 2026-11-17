@@ -18,7 +18,7 @@
 -- Somente aditiva e idempotente: CREATE TABLE/INDEX IF NOT EXISTS, CREATE OR REPLACE FUNCTION, gatilhos no padrão das outras
 -- migrações da Dolores (DROP TRIGGER IF EXISTS + CREATE TRIGGER, só dos gatilhos desta migração) e a linha de
 -- configuração com ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
--- Reversão: DROP TABLE "dolores_relatorios", "dolores_rondas", "dolores_eventos", "dolores_operacao_config";
+-- Reversão: DROP TABLE "dolores_relatorio_reenvios", "dolores_relatorios", "dolores_rondas", "dolores_eventos", "dolores_operacao_config";
 -- DROP FUNCTION dolores_operacao_somente_insercao() (nada fora da etapa 6 depende delas).
 
 CREATE TABLE IF NOT EXISTS "dolores_operacao_config" (
@@ -71,6 +71,20 @@ CREATE TABLE IF NOT EXISTS "dolores_relatorios" (
 CREATE UNIQUE INDEX IF NOT EXISTS "dolores_relatorios_janela_uidx" ON "dolores_relatorios" ("janela");
 CREATE INDEX IF NOT EXISTS "dolores_relatorios_criado_em_idx" ON "dolores_relatorios" ("criado_em");
 
+-- "dolores_relatorio_reenvios": reenvio pela tela do MESMO texto gravado do relatório diário cujo envio falhou (achado 3 do
+--   QA de segurança). Não monta outro relatório; janela própria por minuto ("reenvio:AAAA-MM-DDTHH:MM", única): clique duplo
+--   não manda duas vezes. Só inserção. O resultado do envio fica em dolores_acoes ("relatorio_envio", pedido "relatorio:<id>").
+CREATE TABLE IF NOT EXISTS "dolores_relatorio_reenvios" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "relatorio_id" integer NOT NULL CONSTRAINT "dolores_relatorio_reenvios_relatorio_fk" REFERENCES "dolores_relatorios"("id") ON DELETE RESTRICT,
+  "janela" varchar(60) NOT NULL,
+  "criado_em" timestamp with time zone NOT NULL DEFAULT now(),
+  -- quem pediu pela tela (id do usuário, sem FK)
+  "pedido_por_user_id" integer
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "dolores_relatorio_reenvios_janela_uidx" ON "dolores_relatorio_reenvios" ("janela");
+CREATE INDEX IF NOT EXISTS "dolores_relatorio_reenvios_relatorio_idx" ON "dolores_relatorio_reenvios" ("relatorio_id");
+
 CREATE TABLE IF NOT EXISTS "dolores_eventos" (
   "id" serial PRIMARY KEY NOT NULL,
   "criado_em" timestamp with time zone NOT NULL DEFAULT now(),
@@ -103,6 +117,12 @@ CREATE TRIGGER dolores_relatorios_guarda BEFORE UPDATE OR DELETE ON "dolores_rel
   FOR EACH ROW EXECUTE FUNCTION dolores_operacao_somente_insercao();
 DROP TRIGGER IF EXISTS dolores_relatorios_sem_truncate ON "dolores_relatorios";
 CREATE TRIGGER dolores_relatorios_sem_truncate BEFORE TRUNCATE ON "dolores_relatorios"
+  FOR EACH STATEMENT EXECUTE FUNCTION dolores_operacao_somente_insercao();
+DROP TRIGGER IF EXISTS dolores_relatorio_reenvios_guarda ON "dolores_relatorio_reenvios";
+CREATE TRIGGER dolores_relatorio_reenvios_guarda BEFORE UPDATE OR DELETE ON "dolores_relatorio_reenvios"
+  FOR EACH ROW EXECUTE FUNCTION dolores_operacao_somente_insercao();
+DROP TRIGGER IF EXISTS dolores_relatorio_reenvios_sem_truncate ON "dolores_relatorio_reenvios";
+CREATE TRIGGER dolores_relatorio_reenvios_sem_truncate BEFORE TRUNCATE ON "dolores_relatorio_reenvios"
   FOR EACH STATEMENT EXECUTE FUNCTION dolores_operacao_somente_insercao();
 DROP TRIGGER IF EXISTS dolores_eventos_guarda ON "dolores_eventos";
 CREATE TRIGGER dolores_eventos_guarda BEFORE UPDATE OR DELETE ON "dolores_eventos"

@@ -34,6 +34,10 @@ export function DoloresOperacaoCard() {
     onSuccess: async r => { toast.success(r.nova ? `Ronda feita${r.falhas.length ? ` (sem leitura: ${r.falhas.join(", ")})` : ""}.` : "Já houve uma ronda neste minuto."); await recarregar(); },
     onError: erro,
   });
+  const reenvio = trpc.dolores.operacao.reenviarRelatorioDoDia.useMutation({
+    onSuccess: async r => { if (r.ok) toast.success("Relatório de hoje reenviado ao número do dono."); else toast.error(`Relatório não reenviado: ${r.motivo ?? r.situacao}`); await recarregar(); },
+    onError: erro,
+  });
   const relatorio = trpc.dolores.operacao.enviarRelatorio.useMutation({
     onSuccess: async r => { if (r.ok) toast.success("Relatório enviado ao número do dono."); else toast.error(`Relatório não enviado: ${r.motivo ?? r.situacao}`); await recarregar(); },
     onError: erro,
@@ -129,6 +133,17 @@ export function DoloresOperacaoCard() {
               <ul className="space-y-1 text-xs">{d.rondas.map(r => (
                 <li key={r.id}>{quando(r.criadoEm)} · {r.origem} · {r.duracaoMs ?? "?"} ms{r.falhas.length ? <span className="text-amber-200"> · sem leitura: {r.falhas.join(", ")}</span> : " · todas as seções lidas"}</li>
               ))}</ul>
+            )}
+            <h4 className="pt-2 text-xs font-semibold text-gray-300">Relatório diário de hoje</h4>
+            {!d.relatorioDeHoje ? <p className="text-xs text-gray-400">Ainda não gerado hoje.</p> : d.relatorioDeHoje.situacao === "enviado" ? (
+              <p className="text-xs">Gerado em {quando(d.relatorioDeHoje.criadoEm)} · <span className="text-green-300">enviado</span></p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <p className="text-amber-200">Gerado em {quando(d.relatorioDeHoje.criadoEm)} · envio {d.relatorioDeHoje.situacao === "falhou" ? "FALHOU" : "sem registro"}
+                  {d.relatorioDeHoje.motivo ? ` (${d.relatorioDeHoje.motivo})` : ""} — use “Enviar agora” (reenvia o mesmo texto, não monta outro relatório).</p>
+                <Button size="sm" variant="outline" className={botaoSec} disabled={reenvio.isPending || pausada || !d.config.relatorioLigado} onClick={() => reenvio.mutate()}>
+                  {reenvio.isPending ? "Enviando…" : "Enviar agora"}</Button>
+              </div>
             )}
             <h4 className="pt-2 text-xs font-semibold text-gray-300">Último relatório</h4>
             {!d.ultimoRelatorio ? <p className="text-xs text-gray-400">Nenhum relatório ainda.</p> : (

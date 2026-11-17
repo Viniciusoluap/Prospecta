@@ -13,15 +13,16 @@
 // - Nada aqui grava em módulo do sistema, cria item na fila, chama a IA ou fala em grupo.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
-import { and, desc, eq, gt, gte, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, like, ne, notInArray, sql } from "drizzle-orm";
 import { bankTransactions, leadServices, leads, whatsappMessages } from "../../drizzle/schema.js";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresAprovacoes, doloresAutoria } from "../../drizzle/schema-dolores-fila.js";
 import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
-import { doloresEventos, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
+import { doloresEventos, doloresRelatorioReenvios, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
 import {
-  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, janelaDiaria, janelaRelatorioDiario, janelaSobDemanda, limparNomeDeTerceiro, montarRelatorio, relatorioDiarioNaHora,
+  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, MAX_RELATORIOS_SOB_DEMANDA_DIA, janelaDiaria, janelaReenvio, janelaRelatorioDiario, janelaSobDemanda,
+  limparNomeDeTerceiro, montarRelatorio, prefixoSobDemandaDoDia, relatorioDiarioNaHora,
   type DestaquesRonda, type SecaoRonda, type TotaisRonda,
 } from "../../shared/dolores/operacao.js";
 import { LEAD_FINALIZED_STAGE } from "../../shared/lead-pipeline.js";
@@ -278,16 +279,73 @@ export async function enviarRelatorio(p: {
   return { ok: envio.ok, situacao: envio.ok ? "enviado" : "nao_enviado", motivo: envio.motivo, relatorioId };
 }
 
-/** Ronda + relatório sob demanda (tela ou comando do dono): uma janela por minuto. Exige o relatório ligado. */
+/** Frase fixa quando o teto diário de relatórios sob demanda já foi usado. */
+export const TETO_SOB_DEMANDA_ATINGIDO = `já saíram ${MAX_RELATORIOS_SOB_DEMANDA_DIA} relatórios sob demanda hoje (o limite do dia); amanhã libera de novo`;
+
+/**
+ * Ronda + relatório sob demanda (tela ou comando do dono): uma janela por minuto e no máximo
+ * {@link MAX_RELATORIOS_SOB_DEMANDA_DIA} por dia. Exige o relatório ligado.
+ */
 export async function relatorioSobDemanda(p: { origem: "tela" | "whatsapp"; agora: Date; prazoFinal: number; relogio: () => number; pedidoPorUserId?: number | null }): Promise<ResultadoRelatorio> {
   const config = await lerConfigOperacao();
   if (!config) return { ok: false, situacao: "bloqueado", motivo: "configuração da operação ausente (migração 0131)", relatorioId: null };
   if (!config.relatorioLigado) return { ok: false, situacao: "bloqueado", motivo: "o relatório está desligado (Integrações › Dolores — operação contínua)", relatorioId: null };
   const janela = janelaSobDemanda(p.agora);
+  // teto diário (tela + WhatsApp): passou dele, frase fixa — nem ronda nem relatório
+  try {
+    const [c] = await getDb().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresRelatorios)
+      .where(and(eq(doloresRelatorios.tipo, "sob_demanda"), like(doloresRelatorios.janela, `${prefixoSobDemandaDoDia(p.agora)}%`)));
+    if (contar(c?.n) >= MAX_RELATORIOS_SOB_DEMANDA_DIA) return { ok: false, situacao: "bloqueado", motivo: TETO_SOB_DEMANDA_ATINGIDO, relatorioId: null };
+  } catch (e) {
+    console.error("[dolores/rondas] falha ao contar os relatórios do dia", erroParaLog(e));
+    return { ok: false, situacao: "bloqueado", motivo: "não consegui conferir o limite diário de relatórios", relatorioId: null };
+  }
   const r = await executarRonda({ janela, origem: p.origem, agora: p.agora, prazoFinal: p.prazoFinal, relogio: p.relogio, config });
   if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "não consegui fazer a ronda agora", relatorioId: null };
   if (p.prazoFinal - p.relogio() < MINIMO_PARA_RELATORIO_MS) return { ok: false, situacao: "nao_enviado", motivo: "sem tempo para enviar dentro do prazo", relatorioId: null };
   return enviarRelatorio({ tipo: "sob_demanda", janela, origem: p.origem, ronda: r.ronda, agora: p.agora, prazoFinal: p.prazoFinal, config, pedidoPorUserId: p.pedidoPorUserId });
+}
+
+/** Último resultado do envio de um relatório (auditoria "relatorio_envio", pedido "relatorio:<id>"; o reenvio grava no mesmo pedido). */
+async function ultimoEnvio(relatorioId: number) {
+  const [envio] = await getDb().select({ resultado: doloresAcoes.resultado, motivo: doloresAcoes.motivo, criadoEm: doloresAcoes.criadoEm }).from(doloresAcoes)
+    .where(and(eq(doloresAcoes.funcao, "relatorio_envio"), eq(doloresAcoes.pedidoId, `relatorio:${relatorioId}`))).orderBy(desc(doloresAcoes.id)).limit(1);
+  return envio ?? null;
+}
+
+/**
+ * Reenvio pela tela do relatório DIÁRIO de hoje cujo envio falhou (achado 3 do QA de segurança): manda o MESMO texto
+ * gravado (não faz ronda nem monta outro relatório; o diário continua um só). Janela própria por minuto
+ * (dolores_relatorio_reenvios, janela única): clique duplo não manda duas vezes. Já enviado com sucesso → recusa (não
+ * duplica no WhatsApp do dono). Mesmas portas do envio: relatório ligado, pausa geral, só o número do dono, filtros de saída.
+ */
+export async function reenviarRelatorioDoDia(p: { agora: Date; prazoFinal: number; pedidoPorUserId?: number | null }): Promise<ResultadoRelatorio> {
+  const config = await lerConfigOperacao();
+  if (!config) return { ok: false, situacao: "bloqueado", motivo: "configuração da operação ausente (migração 0131)", relatorioId: null };
+  if (!config.relatorioLigado) return { ok: false, situacao: "bloqueado", motivo: "o relatório está desligado (Integrações › Dolores — operação contínua)", relatorioId: null };
+  const bloqueio = await bloqueioDaOperacao();
+  if (bloqueio) return { ok: false, situacao: "bloqueado", motivo: motivoDoBloqueio(bloqueio.motivo), relatorioId: null };
+  const autor = await idDaDoloresSemCriar().catch(() => null);
+  let relatorioId: number;
+  let texto: string;
+  try {
+    const [rel] = await getDb().select({ id: doloresRelatorios.id, texto: doloresRelatorios.texto }).from(doloresRelatorios)
+      .where(eq(doloresRelatorios.janela, janelaRelatorioDiario(p.agora))).limit(1);
+    if (!rel) return { ok: false, situacao: "nao_enviado", motivo: "ainda não há relatório diário de hoje para reenviar", relatorioId: null };
+    const envio = await ultimoEnvio(rel.id);
+    if (envio?.resultado === "ok") return { ok: false, situacao: "ja_enviado", motivo: "o relatório de hoje já foi enviado ao dono (não é enviado de novo)", relatorioId: rel.id };
+    const [reenvio] = await getDb().insert(doloresRelatorioReenvios).values({ relatorioId: rel.id, janela: janelaReenvio(p.agora), pedidoPorUserId: p.pedidoPorUserId ?? null })
+      .onConflictDoNothing().returning({ id: doloresRelatorioReenvios.id });
+    if (!reenvio) return { ok: false, situacao: "ja_enviado", motivo: "já houve um reenvio neste minuto; aguarde o resultado", relatorioId: rel.id };
+    relatorioId = rel.id;
+    texto = rel.texto;
+  } catch (e) {
+    console.error("[dolores/rondas] falha ao preparar o reenvio do relatório", erroParaLog(e));
+    return { ok: false, situacao: "nao_enviado", motivo: "não consegui ler o relatório de hoje; nada foi enviado", relatorioId: null };
+  }
+  const envio = await enviarAvisoAoDono(texto, { funcao: "relatorio_envio", pedidoId: `relatorio:${relatorioId}`, autor, prazoFinal: p.prazoFinal, canal: "tela",
+    resumo: { relatorioId, tipo: "diario", reenvio: true, porUserId: p.pedidoPorUserId ?? null } });
+  return { ok: envio.ok, situacao: envio.ok ? "enviado" : "nao_enviado", motivo: envio.motivo, relatorioId };
 }
 
 // ── Cron (/api/cron/dolores) ──────────────────────────────────────────────────────────────────────────────────────
@@ -334,15 +392,23 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   return { status: 200, body: { ok: true, ronda: ronda.nova ? "feita" : "ja-feita", relatorio } };
 }
 
-/** Últimas rondas e relatórios para a tela (só contagens e o texto já filtrado do registro). */
-export async function historicoParaTela(limite = 5) {
+/**
+ * Últimas rondas e relatórios para a tela (só contagens e o texto já filtrado do registro) e a situação do relatório DIÁRIO
+ * de hoje (gerado? enviado? falhou? — a tela oferece o reenvio do mesmo texto quando falhou).
+ */
+export async function historicoParaTela(limite = 5, agora = new Date()) {
   const db = getDb();
   const rondas = await db.select({ id: doloresRondas.id, janela: doloresRondas.janela, origem: doloresRondas.origem, criadoEm: doloresRondas.criadoEm,
     duracaoMs: doloresRondas.duracaoMs, totais: doloresRondas.totais, falhas: doloresRondas.falhas }).from(doloresRondas).orderBy(desc(doloresRondas.id)).limit(limite);
   const [relatorio] = await db.select().from(doloresRelatorios).orderBy(desc(doloresRelatorios.id)).limit(1);
   // resultado do envio: a auditoria (função relatorio_envio, pedido "relatorio:<id>")
-  const [envio] = relatorio ? await db.select({ resultado: doloresAcoes.resultado, motivo: doloresAcoes.motivo, criadoEm: doloresAcoes.criadoEm }).from(doloresAcoes)
-    .where(and(eq(doloresAcoes.funcao, "relatorio_envio"), eq(doloresAcoes.pedidoId, `relatorio:${relatorio.id}`))).orderBy(desc(doloresAcoes.id)).limit(1) : [];
-  return { rondas, ultimoRelatorio: relatorio ? { ...relatorio, envio: envio ?? null } : null };
+  const envio = relatorio ? await ultimoEnvio(relatorio.id) : null;
+  const [hoje] = await db.select({ id: doloresRelatorios.id, criadoEm: doloresRelatorios.criadoEm }).from(doloresRelatorios)
+    .where(eq(doloresRelatorios.janela, janelaRelatorioDiario(agora))).limit(1);
+  const envioHoje = hoje ? (hoje.id === relatorio?.id ? envio : await ultimoEnvio(hoje.id)) : null;
+  return {
+    rondas, ultimoRelatorio: relatorio ? { ...relatorio, envio } : null,
+    relatorioDeHoje: hoje ? { id: hoje.id, criadoEm: hoje.criadoEm, envio: envioHoje,
+      situacao: !envioHoje ? "sem_registro" as const : envioHoje.resultado === "ok" ? "enviado" as const : "falhou" as const } : null,
+  };
 }
-

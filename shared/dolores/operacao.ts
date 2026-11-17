@@ -49,6 +49,16 @@ export const HORAS_DO_RELATORIO: readonly number[] = Array.from({ length: HORA_M
 /** Hora do relatório limitada ao que o cron diário alcança (0 a {@link HORA_MAX_RELATORIO}). */
 export const horaDoRelatorio = (hora: number) => Math.min(HORA_MAX_RELATORIO, Math.max(0, Number.isFinite(hora) ? Math.trunc(hora) : HORA_MAX_RELATORIO));
 
+/** Janela do reenvio, pela tela, do texto já gravado do relatório diário: uma por minuto (não monta outro relatório). */
+export const janelaReenvio = (agora: Date) => {
+  const r = relogioBrasilia(agora);
+  return `reenvio:${r.dia}T${r.hhmm}`;
+};
+/** Teto diário de relatórios sob demanda (tela + WhatsApp). Passou disso: frase fixa, sem ronda nem relatório. */
+export const MAX_RELATORIOS_SOB_DEMANDA_DIA = 20;
+/** Prefixo das janelas sob demanda de um dia (para contar o teto diário). */
+export const prefixoSobDemandaDoDia = (agora: Date) => `sob-demanda:${relogioBrasilia(agora).dia}T`;
+
 /** O relatório diário já pode sair? (hora local ≥ hora configurada, limitada à hora do cron). */
 export const relatorioDiarioNaHora = (agora: Date, hora: number) => relogioBrasilia(agora).hora >= horaDoRelatorio(hora);
 
