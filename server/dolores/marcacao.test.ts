@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
+vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => null) }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
@@ -19,6 +20,7 @@ import { ENV } from "../_core/env.js";
 import { enviarTextoAoGrupoEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
+import { configEvolution } from "../whatsapp-router.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
@@ -366,6 +368,30 @@ describe("rotas (appRouter, caminho completo) e envio", () => {
     expect(r.config).toMatchObject({ responderLigado: true, tetoGrupoDia: 10 });
     expect(r.grupos).toEqual([{ grupoId: 1, ligado: true }]);
     await expect(admin.dolores.grupos.salvarMarcacoes({ tetoGrupoDia: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("@lid: ligar o grupo confere o @lid do NÚMERO da Dolores pela Evolution; a marcação por esse @lid passa a contar", async () => {
+    vi.mocked(configEvolution).mockResolvedValue({ url: "https://evo.exemplo", apiKey: "k", fonte: "banco" } as never);
+    const f = vi.fn(async () => new Response(JSON.stringify({ participants: [
+      { id: "111111111111111@lid", phoneNumber: `${CLIENTE}@s.whatsapp.net` }, { id: LID_DOLORES, phoneNumber: `${DOLORES}@s.whatsapp.net` }] }), { status: 200 }));
+    vi.stubGlobal("fetch", f);
+    try {
+      const admin = caller("admin");
+      await admin.dolores.grupos.salvarMarcacoes({ responderLigado: true });
+      const r = await admin.dolores.grupos.ligarMarcacaoGrupo({ grupoId: 1, ligado: true });
+      expect(r.lid).toEqual({ conferido: true, motivo: "@lid da Dolores conferido" });
+      expect(String((f.mock.calls[0] as unknown[])[0])).toContain(`/group/participants/prospecta-dolores?groupJid=${encodeURIComponent(GRUPO)}`);
+      expect((await q("SELECT lid_dolores, lid_do_numero FROM dolores_marcacoes_config"))[0]).toEqual({ lid_dolores: LID_DOLORES, lid_do_numero: DOLORES });
+      expect((await admin.dolores.grupos.marcacoes()).config.lid).toMatchObject({ final: "2345" });
+      await chamar(aviso(item({ mencoes: ["111111111111111@lid"] }))); // marcou o cliente, não a Dolores
+      expect(enviarAoGrupo).not.toHaveBeenCalled();
+      await chamar(aviso(item({ mencoes: [LID_DOLORES] })));
+      expect(enviarAoGrupo).toHaveBeenCalledTimes(1);
+      // o número conectado mudou: o @lid antigo deixa de valer
+      await banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dolores = '5599900002222'");
+      await chamar(aviso(item({ mencoes: [LID_DOLORES] })));
+      expect(enviarAoGrupo).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it("envio à Evolution: id de grupo inválido não envia; sem prévia, sem menção, citando a mensagem; @lid dos participantes", async () => {
