@@ -7,7 +7,7 @@
 // - Idempotência por instância + id da mensagem; teto diário de mensagens por grupo (spam só soma a contagem).
 // - Texto e nome de arquivo gravados pelo filtro do REGISTRO (dados pessoais mascarados; segredos e bancários sempre); o arquivo
 //   nunca é guardado no banco (só os metadados; baixado sob demanda).
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import {
   doloresGrupoMensagens, doloresGrupos, doloresGruposConfig, doloresGruposContagem, type DoloresGruposConfig,
@@ -160,13 +160,16 @@ export async function listarGruposParaTela() {
 }
 
 /** Documentos que esperam classificação ou conferência (para a tela). Só metadados e o resultado da classificação. */
-export async function pendenciasDeClassificacao(limite = 50) {
+/** Pendências da tela: só dentro da retenção (vencido não é mais oferecido para classificar nem salvar — QA E4, achado 8). */
+export async function pendenciasDeClassificacao(limite = 50, agora = new Date()) {
+  const { retencaoDias } = await lerConfigGrupos();
+  const corte = new Date(agora.getTime() - retencaoDias * 86_400_000);
   return getDb().select({
     id: doloresGrupoMensagens.id, grupoId: doloresGrupoMensagens.grupoId, grupo: doloresGrupos.nome, tipo: doloresGrupoMensagens.tipo,
     nome: doloresGrupoMensagens.midiaNome, tamanho: doloresGrupoMensagens.midiaTamanho, situacao: doloresGrupoMensagens.situacao,
     classificacao: doloresGrupoMensagens.classificacao, confianca: doloresGrupoMensagens.confianca, motivo: doloresGrupoMensagens.motivo,
     criadoEm: doloresGrupoMensagens.criadoEm, tentativas: doloresGrupoMensagens.tentativas,
   }).from(doloresGrupoMensagens).innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
-    .where(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "erro", "confira", "classificado"]))
+    .where(and(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "erro", "confira", "classificado"]), gte(doloresGrupoMensagens.criadoEm, corte)))
     .orderBy(asc(doloresGrupoMensagens.id)).limit(Math.min(200, limite));
 }

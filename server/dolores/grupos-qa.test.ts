@@ -415,3 +415,32 @@ describe("QA-C (achado 6): criar_card_cliente lista os parecidos e diz de onde v
     expect(ultimo.resumo).toMatch(/como o dono indicou \(o número está na mensagem dele\)/);
   });
 });
+
+describe("QA-C (achados 7 e 8): tela sem telefone no id antigo e sem pendência vencida", () => {
+  it("id de grupo no formato antigo: a parte do telefone aparece mascarada (só os 4 finais); o formato novo fica igual", async () => {
+    const { jidDeGrupoParaExibir } = await import("../../shared/dolores/grupos.js");
+    expect(jidDeGrupoParaExibir("5599991234567-1600000000@g.us")).toBe("•••••••••4567-1600000000@g.us");
+    expect(jidDeGrupoParaExibir("5599991234567-1600000000@g.us")).not.toMatch(/99912/);
+    expect(jidDeGrupoParaExibir(GRUPO)).toBe(GRUPO);
+    const { readFileSync: ler } = await import("node:fs");
+    const tela = ler(new URL("../../client/src/components/admin/DoloresGruposCard.tsx", import.meta.url), "utf8");
+    expect(tela).toMatch(/jidDeGrupoParaExibir\(g\.grupoJid\)/);
+    expect(tela).not.toMatch(/>\{g\.grupoJid\}</);
+  });
+
+  it("pendências da tela: documento com a retenção vencida não aparece (nada é apagado)", async () => {
+    await chamar(aviso(item({ message: documento("novo.pdf", "x") })));
+    await chamar(aviso(item({ message: documento("velho.pdf", "y") })));
+    await banco.pg.exec("UPDATE dolores_grupos_config SET classificacao_ligada = false WHERE id = 1");
+    // o gatilho não deixa mudar criado_em: a retenção é encurtada e o "agora" da consulta avança
+    const { pendenciasDeClassificacao } = await import("./grupos.js");
+    const ms = await mensagens();
+    expect(ms).toHaveLength(2);
+    const dentro = await pendenciasDeClassificacao(50, new Date(new Date(ms[0].criado_em).getTime() + 86_400_000 / 2));
+    expect(dentro.map(p => p.id)).toEqual([ms[0].id, ms[1].id]);
+    expect(await pendenciasDeClassificacao(50, new Date(new Date(ms[1].criado_em).getTime() + 31 * 86_400_000))).toEqual([]);
+    const tela = await (caller("admin") as any).dolores.grupos.listar();
+    expect(tela.pendencias.length).toBe(2); // hoje, dentro dos 30 dias
+    expect((await mensagens())).toHaveLength(2);
+  });
+});
