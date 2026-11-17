@@ -39,6 +39,7 @@ import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao, limparPausaPorFalhaNoConsumo, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
 import { RESERVA_ENTRADA_NOTA } from "./notas-obra.js";
+import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA as AGORA_DO_CENARIO, CENARIO, criarBanco } from "./testes-banco.js";
@@ -285,7 +286,7 @@ describe("leitura da nota no grupo da obra", () => {
   });
 
   it("custo: orçamento dos documentos esgotado → nada vai à IA; o dono segue com o resto do limite", async () => {
-    await banco.pg.exec("INSERT INTO dolores_grupos_consumo_mes (mes, tokens_entrada, tokens_saida, chamadas) VALUES ('2026-11', 199000, 0, 1)");
+    await banco.pg.exec(`INSERT INTO dolores_grupos_consumo_mes (mes, tokens_entrada, tokens_saida, chamadas) VALUES ('${mesFortaleza(AGORA)}', 199000, 0, 1)`);
     await mandarNota(11);
     expect(pedidosIa).toHaveLength(0);
     expect((await q("SELECT situacao, motivo FROM dolores_grupo_mensagens"))[0]).toMatchObject({ situacao: "a_classificar", motivo: expect.stringMatching(/orçamento mensal dos documentos/) });
