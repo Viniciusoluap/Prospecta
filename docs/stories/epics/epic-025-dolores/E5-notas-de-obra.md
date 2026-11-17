@@ -171,6 +171,22 @@ Em aberto (não bloqueia a etapa):
   integracoes-modelo-por-funcao, bpo*, whatsapp*, drive*, auth-session, imports-esm, api-rotas-producao) 48 arquivos / 753
   testes ok; `npx vite build` ok; suíte completa 254 arquivos / 2719 testes ok. Novos: notas-regras (23) e notas-obra (41).
 
+## Correções do portão de QA de segurança (17/11)
+Provas do QA em `server/dolores/qa-e5-provas.test.ts` invertidas (agora provam que o defeito sumiu) + um teste por achado.
+A 0128 foi editada no próprio arquivo (continua só aditiva e idempotente; **não aplicada**).
+
+| # | Sev. | Correção | Commit |
+|---|------|----------|--------|
+| 1 | médio | duplicidade: uma consulta por critério (SHA, chave, emitente + número normalizado NO SQL igual a `numeroComparavel`), a mais antiga de cada, sem `limit(100)` que cortava candidatas | 53ba3c6 |
+| 2 | baixo | gatilho: `conciliada_em` só com `bpo_lancamento_id` e `conciliada_aprovacao_id`; resposta do empreiteiro (tipo e data) travada depois de sair de "pendente" e gravada com a data; `salva_em`/`salva_aprovacao_id` só junto com `drive_file_id`. Os vínculos SET NULL continuam podendo virar NULL | f4e570b |
+| 3 | baixo | "vínculo perdido" (`conciliada_em` preenchido, lançamento excluído no BPO): volta às abertas, aviso na tela e na leitura, religável só por NOVO item na fila; o gatilho só afrouxa esse caso (exige aprovação nova e diferente) | 2fac699 |
+| 4 | baixo | execução refaz `apontarConciliacao` e exige que ainda aponte o mesmo lançamento; o resumo da fila mostra o fornecedor do BPO | 5691f13 |
+| 5 | baixo | salvar no Drive recusa com o grupo desativado (nada baixado nem enviado) | ad48be4 |
+
+Merge de `origin/main` (E4 publicada em `44715cb`): conflitos só em arquivos idênticos à E4 (lado da E5 mantido),
+`drizzle.config.ts` (o lado da E5 já tinha a lista unida) e o HANDOFF (as duas partes mantidas) — 0c517d4.
+
 ## Change Log
+- 17/11/2026 — @dev (Dex): correções dos 5 achados do QA de segurança (tabela acima); 0128 editada, NÃO aplicada.
 - 17/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 2, 4.5, 4.6, 5, 6, 7 e 9).
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); migração 0128 NÃO aplicada no banco.
