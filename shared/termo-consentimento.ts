@@ -2,7 +2,9 @@
 // Arquivo ÚNICO do termo: para trocar o texto, edite aqui e suba `VERSAO_DO_TERMO` (aceites antigos continuam válidos;
 // pedir novo aceite depende da opção CONSENTIMENTO_PEDIR_NO_LOGIN, desligada — ver server/consentimento.ts).
 // Texto provisório, escrito em linguagem simples: precisa ser revisado pelo jurídico antes de ser tratado como final.
-// Dados que o sistema não tem ficam marcados com "[A PREENCHER PELO JURÍDICO: …]". Não afirma conformidade legal.
+// O texto mostrado ao público só tem frases neutras e verdadeiras; o que falta o jurídico definir fica em
+// PENDENCIAS_DO_JURIDICO, mostrada SÓ ao administrador (QA S-12, achado 2). Não afirma conformidade legal.
+import { ENDERECO_DA_SEDE } from "./empresa.js";
 
 /** Versão vigente do termo. Mude sempre que o texto mudar (ex.: "2026-11-17.1" → "2026-12-01.1"). */
 export const VERSAO_DO_TERMO = "2026-11-17.1";
@@ -29,8 +31,8 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
     titulo: "1. Quem cuida dos seus dados",
     paragrafos: [
       "PROSPECTA CONSTRUÇÕES E AVALIAÇÃO IMOBILIÁRIA LTDA, CNPJ 41.865.900/0001-89, de Imperatriz (MA), aqui chamada de \"Prospecta\".",
-      "Endereço completo: [A PREENCHER PELO JURÍDICO: endereço da sede].",
-      "Responsável pelos dados pessoais (encarregado): [A PREENCHER PELO JURÍDICO: nome e contato do encarregado].",
+      `Endereço: ${ENDERECO_DA_SEDE}.`,
+      "Para falar sobre seus dados pessoais, use os contatos do item 7.",
     ],
   },
   {
@@ -62,14 +64,14 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
   {
     titulo: "6. Por quanto tempo",
     paragrafos: [
-      "Enquanto você tiver conta ou relação com a Prospecta, e depois pelo tempo exigido por lei ou necessário para defender direitos. Prazo específico: [A PREENCHER PELO JURÍDICO: prazo de guarda dos dados após o fim da relação].",
+      "Enquanto você tiver conta ou relação com a Prospecta, e depois pelo tempo exigido por lei ou necessário para defender direitos.",
     ],
   },
   {
     titulo: "7. Seus direitos e como pedir",
     paragrafos: [
       "Você pode pedir: acesso aos seus dados, correção, informações sobre com quem foram compartilhados, e a retirada deste consentimento (a retirada não desfaz o que já foi feito antes dela e pode impedir parte do atendimento pelo sistema).",
-      "Para pedir, escreva para atendimento@prospectaconstrucoes.com ou fale com a equipe pelo telefone (99) 98139-2210. Prazo de resposta: [A PREENCHER PELO JURÍDICO: prazo de resposta aos pedidos do titular].",
+      "Para pedir, escreva para atendimento@prospectaconstrucoes.com ou fale com a equipe pelo telefone (99) 98139-2210. Responderemos no prazo previsto em lei.",
     ],
   },
   {
@@ -80,11 +82,16 @@ export const SECOES_DO_TERMO: readonly SecaoDoTermo[] = [
   },
 ];
 
-/** Marcadores ainda pendentes no texto (para conferir antes de tirar o "texto provisório"). */
-export function marcadoresPendentes(): string[] {
-  const todos = SECOES_DO_TERMO.flatMap(s => s.paragrafos.join(" ").match(/\[A PREENCHER PELO JURÍDICO:[^\]]*\]/g) ?? []);
-  return Array.from(new Set(todos));
-}
+/**
+ * Pontos que o jurídico ainda precisa revisar. Mostrados SÓ na janela do administrador ("Usuários e acesso" › Termo de
+ * consentimento), junto com AVISO_TEXTO_PROVISORIO — nunca na página pública nem na caixa.
+ */
+export const PENDENCIAS_DO_JURIDICO: readonly string[] = [
+  "Item 1 — endereço: hoje é o endereço do site; confirmar se é o endereço oficial da sede.",
+  "Item 1 — encarregado pelos dados pessoais: definir nome e contato (hoje o texto manda usar os contatos do item 7).",
+  "Item 6 — prazo de guarda dos dados depois do fim da relação (hoje: \"pelo tempo exigido por lei\").",
+  "Item 7 — prazo de resposta aos pedidos do titular (hoje: \"no prazo previsto em lei\").",
+];
 
 /** Canais (telas) em que o aceite pode ser registrado. */
 export const CANAIS_DO_CONSENTIMENTO = ["definir_senha", "login"] as const;

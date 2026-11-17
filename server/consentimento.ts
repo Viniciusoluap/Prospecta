@@ -17,7 +17,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { consentimentos, type AparelhoDoConsentimento } from "../drizzle/schema-consentimentos.js";
 import { users } from "../drizzle/schema.js";
-import { AVISO_TEXTO_PROVISORIO, VERSAO_DO_TERMO, marcadoresPendentes, type CanalDoConsentimento } from "../shared/termo-consentimento.js";
+import { AVISO_TEXTO_PROVISORIO, PENDENCIAS_DO_JURIDICO, VERSAO_DO_TERMO, type CanalDoConsentimento } from "../shared/termo-consentimento.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb, type DrizzleDb } from "./db.js";
@@ -183,7 +183,7 @@ export const consentimentoRouter = router({
         versaoAtual: VERSAO_DO_TERMO,
         pedirNoLogin: pedirAceiteNoLogin(),
         avisoProvisorio: AVISO_TEXTO_PROVISORIO,
-        marcadoresPendentes: marcadoresPendentes(),
+        pendenciasDoJuridico: [...PENDENCIAS_DO_JURIDICO],
         porVersao: porVersao.map(v => ({ versao: v.versao, usuarios: Number(v.usuarios) })),
         usuarios: ultimos.map(u => ({ ...u, aceitouVersaoAtual: comAtual.has(u.userId) })),
       };

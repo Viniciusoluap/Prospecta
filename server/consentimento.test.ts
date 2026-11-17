@@ -11,7 +11,8 @@ vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()),
 
 import * as schema from "../drizzle/schema.js";
 import { ADMIN_MODULES } from "../shared/admin-permissions.js";
-import { FRASE_CURTA_DO_TERMO, VERSAO_DO_TERMO, marcadoresPendentes } from "../shared/termo-consentimento.js";
+import { ENDERECO_DA_SEDE } from "../shared/empresa.js";
+import { FRASE_CURTA_DO_TERMO, PENDENCIAS_DO_JURIDICO, SECOES_DO_TERMO, TITULO_DO_TERMO, VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { verifyPassword } from "./_core/auth-utils.js";
 import { aparelhoDoUserAgent, ehPrimeiroAcesso, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
 import { getDb } from "./db.js";
@@ -273,6 +274,7 @@ describe("consulta do admin (caminho completo pelo appRouter)", () => {
     expect(r.versaoAtual).toBe(VERSAO_DO_TERMO);
     expect(r.pedirNoLogin).toBe(false);
     expect(r.avisoProvisorio).toMatch(/provisório/);
+    expect(r.pendenciasDoJuridico).toEqual([...PENDENCIAS_DO_JURIDICO]);
     expect(r.porVersao).toEqual(expect.arrayContaining([{ versao: VERSAO_DO_TERMO, usuarios: 1 }, { versao: "2026-01-01.1", usuarios: 1 }]));
     expect(r.usuarios.find(u => u.userId === nova)).toMatchObject({ versao: VERSAO_DO_TERMO, aceitouVersaoAtual: true, canal: "definir_senha" });
     expect(r.usuarios.find(u => u.userId === antiga)).toMatchObject({ versao: "2026-01-01.1", aceitouVersaoAtual: false });
@@ -281,11 +283,26 @@ describe("consulta do admin (caminho completo pelo appRouter)", () => {
   });
 });
 
+describe("texto público do termo (QA S-12, achado 2)", () => {
+  const publicoTodo = [TITULO_DO_TERMO, FRASE_CURTA_DO_TERMO, ...SECOES_DO_TERMO.flatMap(sec => [sec.titulo, ...sec.paragrafos])].join("\n");
+  it("não tem marcador do jurídico; as pendências ficam numa lista separada, só para o admin", () => {
+    expect(publicoTodo).not.toMatch(/\[A PREENCHER|PREENCHER PELO JUR|\[|\]/);
+    expect(PENDENCIAS_DO_JURIDICO.length).toBeGreaterThanOrEqual(4);
+    for (const p of PENDENCIAS_DO_JURIDICO) expect(publicoTodo).not.toContain(p);
+  });
+  it("endereço da mesma fonte do site; frases neutras para encarregado e prazos", () => {
+    expect(ENDERECO_DA_SEDE).toBe("R. Gonçalves Dias, 1993 - Juçara, Imperatriz - MA, 65900-545");
+    expect(publicoTodo).toContain(`Endereço: ${ENDERECO_DA_SEDE}.`);
+    expect(publicoTodo).toContain("use os contatos do item 7");
+    expect(publicoTodo).toContain("pelo tempo exigido por lei");
+    expect(publicoTodo).toContain("no prazo previsto em lei");
+  });
+});
+
 describe("termo e resumo técnico", () => {
   it("frase curta simples, marcadores do jurídico listados e aparelho sem guardar o user-agent", () => {
     expect(FRASE_CURTA_DO_TERMO).toMatch(/inteligência artificial/);
     expect(FRASE_CURTA_DO_TERMO.length).toBeLessThan(160);
-    expect(marcadoresPendentes().length).toBeGreaterThanOrEqual(3);
     expect(aparelhoDoUserAgent("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)")).toBe("tablet");
     expect(aparelhoDoUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari")).toBe("celular");
     expect(aparelhoDoUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("computador");

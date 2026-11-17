@@ -166,8 +166,11 @@ export default function AdminConfiguracoes() {
           <p>Versão vigente: <strong>{termo.versaoAtual}</strong></p>
           <p className="mt-1">Aceites por versão: {termo.porVersao.length === 0 ? "nenhum ainda" : termo.porVersao.map(v => `${v.versao} — ${v.usuarios} ${v.usuarios === 1 ? "usuário" : "usuários"}`).join(" · ")}</p>
           <p className="mt-1">Pedir o aceite no próximo login: <strong>{termo.pedirNoLogin ? "ligado" : "desligado"}</strong> (quem já tinha senha não é perguntado enquanto estiver desligado).</p>
-          {termo.marcadoresPendentes.length > 0 && <p className="mt-1 text-amber-200">Pendências do jurídico no texto: {termo.marcadoresPendentes.length}</p>}
         </div>
+        {termo.pendenciasDoJuridico.length > 0 && <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-sm text-amber-100">
+          <p className="font-semibold text-amber-200">Pontos para o jurídico revisar (não aparecem para o público):</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">{termo.pendenciasDoJuridico.map(p => <li key={p}>{p}</li>)}</ul>
+        </div>}
         <TextoDoTermo />
       </div> : <p className="text-sm text-gray-300">Carregando… (se não abrir, confira se a migração 0127 foi aplicada)</p>}
     </DialogContent></Dialog>
