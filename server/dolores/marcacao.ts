@@ -108,11 +108,54 @@ export type CredencialGrupo =
   | { motivo: MotivoBloqueio | "indisponivel"; detalhe?: string | null }
   | { motivo: null; apiKey: string; modelo: string; autor: number; limites: Limites; mes: string };
 
-type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoGrupo; cliente: ClienteGrupo };
-const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao, cliente: clientePadrao };
+/**
+ * Contagem prévia (QA E4 r2 N0.1, a mesma da classificação): `client.messages.countTokens` com o MESMO pedido (modelo, sistema,
+ * ferramentas, tool_choice, mensagens). A chave é a do pedido (vinda de `credencialDaMarcacao` → `bloqueioAtual`).
+ */
+export type ContadorGrupo = (p: Omit<PedidoGrupo, "maxTokens">) => Promise<number>;
+const contadorPadrao: ContadorGrupo = async p => {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const cliente = new Anthropic({ apiKey: p.apiKey, maxRetries: 0, timeout: p.timeoutMs });
+  const r = await cliente.messages.countTokens({
+    model: p.modelo, system: p.sistema, tools: p.ferramentas as never,
+    tool_choice: p.semFerramentas ? { type: "none" } : { type: "auto" }, messages: p.mensagens as never,
+  }, { timeout: p.timeoutMs });
+  return Number(r.input_tokens);
+};
+
+type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoGrupo; cliente: ClienteGrupo; contador: ContadorGrupo };
+const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao, cliente: clientePadrao, contador: contadorPadrao };
 let deps: Dependencias = { ...padrao };
-/** Só para testes: relógio, envio ao grupo e cliente do modelo. Sem argumento, volta ao padrão. */
+/** Só para testes: relógio, envio ao grupo, cliente do modelo e contador de tokens. Sem argumento, volta ao padrão. */
 export function definirDependenciasMarcacao(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
+
+// ── Falha fechada quando o consumo não grava (QA E4 r3 N7, a mesma regra da classificação) ──
+
+export const FUNCAO_DESLIGAMENTO_MARCACAO = "grupo_marcacao_desligada";
+export const MOTIVO_DESLIGAMENTO_MARCACAO = "o uso de uma resposta em grupo não pôde ser registrado no consumo: responder quando marcada desligado até o admin conferir e religar";
+let pausadaPorFalhaNoConsumo = false;
+export const marcacaoPausadaPorFalha = () => pausadaPorFalhaNoConsumo;
+/** O admin religou (ou teste): limpa a pausa em memória desta instância. */
+export function limparPausaDaMarcacao() { pausadaPorFalhaNoConsumo = false; }
+/**
+ * Sem o registro, o limite mensal e o orçamento das respostas em grupo estourariam em silêncio: pausa nesta instância, desliga o
+ * interruptor GERAL no banco (vale para todas) e audita. Se nem o desligamento gravar, a pausa em memória continua.
+ */
+async function desligarPorFalhaNoConsumo(d: { autor: number | null; grupoId: number; marcacaoId: number }) {
+  pausadaPorFalhaNoConsumo = true;
+  console.error("[dolores/marcacao] o consumo da resposta em grupo não foi gravado: responder quando marcada desligado até o admin religar");
+  let gravado = false;
+  try {
+    const r = await getDb().update(doloresMarcacoesConfig).set({ responderLigado: false, atualizadoEm: sql`now()`, atualizadoPor: null })
+      .where(eq(doloresMarcacoesConfig.id, 1)).returning({ id: doloresMarcacoesConfig.id });
+    gravado = r.length > 0;
+  } catch (e) {
+    console.error("[dolores/marcacao] nem o desligamento pôde ser gravado; pausa só nesta instância", e instanceof Error ? e.name : "erro");
+  }
+  if (gravado) pausadaPorFalhaNoConsumo = false; // ficou no banco: vale para todas as instâncias
+  await registrarAcao({ funcao: FUNCAO_DESLIGAMENTO_MARCACAO, resultado: "erro", motivo: MOTIVO_DESLIGAMENTO_MARCACAO, autorUserId: d.autor, canal: "whatsapp",
+    pedidoId: `grupo:${d.grupoId}:marcacao:${d.marcacaoId}`, resumo: { grupoId: d.grupoId, desligadaNoBanco: gravado } });
+}
 
 // ── Constantes do laço ──
 
@@ -124,6 +167,8 @@ export const RESERVA_ENTRADA_GRUPO = 6_000;
 export const MINIMO_PARA_RESPONDER_MS = 12_000;
 /** Para a frase fixa (envio só). */
 const MINIMO_PARA_FRASE_MS = 3_000;
+/** Prazo da contagem prévia de tokens. */
+const PRAZO_CONTAGEM_MS = 3_000;
 const PRAZO_ENVIO_MS = 8_000;
 const FOLGA_FINAL_MS = 2_500;
 /** Linha "processando" mais velha que isto = a função morreu no meio (a da Vercel acaba aos 60 s). */
@@ -242,7 +287,7 @@ async function responderNoGrupo(grupo: DoloresGrupo, m: Marcada, texto: string, 
   const [atual] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupo.id)).limit(1).catch(() => []);
   if (!atual || !atual.ativo || atual.instancia !== ctx.instancia || atual.grupoJid !== m.grupoJid || atual.grupoJid !== grupo.grupoJid) return recusar("destino não confere com o grupo cadastrado e ativo da mensagem");
   const ligados = await Promise.all([lerConfigMarcacoes().then(c => c.responderLigado).catch(() => false), grupoLigado(grupo.id).catch(() => false)]);
-  if (!ligados[0] || !ligados[1]) return recusar("interruptor de responder quando marcada desligado no momento do envio");
+  if (pausadaPorFalhaNoConsumo || !ligados[0] || !ligados[1]) return recusar("interruptor de responder quando marcada desligado no momento do envio");
   const final = respostaSeguraDoGrupo(texto, urlDoSistemaParaLinks()).texto;
   const restante = ctx.prazoFinal - deps.ms();
   if (restante < 1_500) {
@@ -270,7 +315,25 @@ const usoDe = (r: RespostaGrupo): UsoDaChamada => ({
 });
 const textoDe = (b: Bloco[]) => b.filter((x): x is BlocoTexto => x.type === "text" && typeof (x as BlocoTexto).text === "string").map(x => x.text).join("\n").trim();
 
-async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { motivo: null }>; marcacaoId: number; ctx: ContextoDoGrupo; prazoFinal: number }) {
+/** Contagem prévia com prazo; erro, prazo ou número inválido → null (a chamada não vai). */
+async function contarComPrazo(p: Omit<PedidoGrupo, "maxTokens">): Promise<number | null> {
+  let relogio: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const n = await Promise.race([
+      deps.contador(p),
+      new Promise<never>((_, rej) => { relogio = setTimeout(() => rej(new Error("prazo da contagem")), p.timeoutMs); }),
+    ]);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch (e) {
+    const status = (e as { status?: unknown })?.status;
+    console.error("[dolores/marcacao] contagem prévia de tokens falhou; a chamada não vai", typeof status === "number" ? status : (e instanceof Error ? e.name : "erro"));
+    return null;
+  } finally {
+    if (relogio) clearTimeout(relogio);
+  }
+}
+
+async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { motivo: null }>; marcacaoId: number; grupoId: number; ctx: ContextoDoGrupo; prazoFinal: number }) {
   const tokens = { entrada: 0, saida: 0 };
   let voltas = 0;
   let parou: string | null = null;
@@ -284,16 +347,27 @@ async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { moti
     const bloqueio = await reservarMarcacao({ mes: p.cred.mes, marcacaoId: p.marcacaoId, limites: p.cred.limites, reserva: { entrada: RESERVA_ENTRADA_GRUPO, saida: MAX_TOKENS_SAIDA_GRUPO }, validadeMs: 90_000 })
       .catch(() => "indisponivel" as const);
     if (bloqueio) { parou = bloqueio; break; }
+    const semFerramentas = voltas + 1 >= MAX_VOLTAS_GRUPO;
+    // contagem prévia com o MESMO pedido: acima da reserva, com erro ou fora do prazo, a chamada não vai
+    const contados = await contarComPrazo({ apiKey: p.cred.apiKey, modelo: p.cred.modelo, sistema: PROMPT_SISTEMA_GRUPO, ferramentas: ferramentasDoGrupo(), mensagens,
+      timeoutMs: Math.min(PRAZO_CONTAGEM_MS, Math.max(500, restante() - 6_000)), semFerramentas });
+    if (contados === null || contados > RESERVA_ENTRADA_GRUPO) {
+      parou = contados === null ? "contagem_indisponivel" : "contagem_acima_da_reserva";
+      await liberarReservaMarcacao(p.marcacaoId);
+      break;
+    }
     voltas++;
     let r: RespostaGrupo;
     try {
       r = await deps.cliente({ apiKey: p.cred.apiKey, modelo: p.cred.modelo, sistema: PROMPT_SISTEMA_GRUPO, ferramentas: ferramentasDoGrupo(), mensagens,
-        maxTokens: MAX_TOKENS_SAIDA_GRUPO, timeoutMs: Math.max(1_000, restante()), semFerramentas: voltas >= MAX_VOLTAS_GRUPO });
+        maxTokens: MAX_TOKENS_SAIDA_GRUPO, timeoutMs: Math.max(1_000, restante()), semFerramentas });
     } catch (e) {
       const status = (e as { status?: unknown })?.status;
       // sem resposta (tempo, rede, 5xx, 408): a reserva entra como custo estimado (como na classificação)
-      if (typeof status !== "number" || status >= 500 || status === 408)
-        await registrarConsumo({ mes: p.cred.mes, mensagemId: null, modelo: p.cred.modelo, volta: voltas, parada: "grupo_sem_resposta", uso: { entrada: RESERVA_ENTRADA_GRUPO, saida: MAX_TOKENS_SAIDA_GRUPO, cacheEscrita: 0, cacheLeitura: 0 } });
+      if (typeof status !== "number" || status >= 500 || status === 408) {
+        const gravou = await registrarConsumo({ mes: p.cred.mes, mensagemId: null, modelo: p.cred.modelo, volta: voltas, parada: "grupo_sem_resposta", uso: { entrada: RESERVA_ENTRADA_GRUPO, saida: MAX_TOKENS_SAIDA_GRUPO, cacheEscrita: 0, cacheLeitura: 0 } });
+        if (!gravou) await desligarPorFalhaNoConsumo({ autor: p.cred.autor, grupoId: p.grupoId, marcacaoId: p.marcacaoId });
+      }
       parou = "erro_modelo";
       await liberarReservaMarcacao(p.marcacaoId);
       break;
@@ -301,8 +375,20 @@ async function laco(p: { pergunta: string; cred: Extract<CredencialGrupo, { moti
     const uso = usoDe(r);
     tokens.entrada += uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
     tokens.saida += uso.saida;
-    await registrarConsumo({ mes: p.cred.mes, mensagemId: null, modelo: p.cred.modelo, volta: voltas, uso, parada: `grupo:${r.stop_reason ?? ""}`.slice(0, 30) });
+    const gravou = await registrarConsumo({ mes: p.cred.mes, mensagemId: null, modelo: p.cred.modelo, volta: voltas, uso, parada: `grupo:${r.stop_reason ?? ""}`.slice(0, 30) });
     await liberarReservaMarcacao(p.marcacaoId);
+    // QA E4 r3 N7: sem o registro do consumo, FALHA FECHADO — desliga, nada mais vai à IA e o texto desta volta não é usado
+    if (!gravou) {
+      await desligarPorFalhaNoConsumo({ autor: p.cred.autor, grupoId: p.grupoId, marcacaoId: p.marcacaoId });
+      parou = "consumo_nao_gravou";
+      break;
+    }
+    // o uso real passou da reserva (não deveria, com a contagem prévia): para aqui, sem mais voltas
+    if (uso.entrada + uso.cacheEscrita + uso.cacheLeitura > RESERVA_ENTRADA_GRUPO || uso.saida > MAX_TOKENS_SAIDA_GRUPO) {
+      console.error("[dolores/marcacao] uso real passou da reserva; laço parado", { grupoId: p.grupoId, entrada: uso.entrada + uso.cacheEscrita + uso.cacheLeitura, saida: uso.saida });
+      parou = "uso_acima_da_reserva";
+      break;
+    }
     mensagens.push({ role: "assistant", content: r.content });
     if (r.stop_reason !== "tool_use") { final = textoDe(r.content); if (r.stop_reason === "max_tokens") parou = "max_tokens"; break; }
     const pedidos = r.content.filter((b): b is BlocoFerramenta => b.type === "tool_use").slice(0, 6);
@@ -351,8 +437,9 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
     if (await jaRegistrada(grupo.instancia, m.externalId)) return "marcacao-repetida";
     // 5) interruptores (geral e do grupo; os dois nascem desligados): silêncio, registrado
     const doGrupo = await grupoLigado(grupo.id);
-    if (!conf.responderLigado || !doGrupo) {
-      await gravar(grupo, m, "silencio", !conf.responderLigado ? "interruptor geral de responder quando marcada desligado" : "interruptor deste grupo desligado");
+    if (pausadaPorFalhaNoConsumo || !conf.responderLigado || !doGrupo) {
+      await gravar(grupo, m, "silencio", pausadaPorFalhaNoConsumo ? "pausada nesta instância: o consumo de uma resposta não foi gravado"
+        : !conf.responderLigado ? "interruptor geral de responder quando marcada desligado" : "interruptor deste grupo desligado");
       return "marcacao-desligada";
     }
     // 6) tetos: por remetente/hora e por grupo/dia
@@ -420,7 +507,7 @@ async function responder(cfg: DoloresWhatsappConfig, grupo: DoloresGrupo, m: Mar
     await auditar("erro", "marcada, sem tempo para responder no prazo do aviso");
     return "marcacao-sem-tempo";
   }
-  const r = await laco({ pergunta: m.pergunta, cred, marcacaoId: id, prazoFinal: o.prazoFinal,
+  const r = await laco({ pergunta: m.pergunta, cred, marcacaoId: id, grupoId: grupo.id, prazoFinal: o.prazoFinal,
     ctx: { agora: deps.agora(), grupoId: grupo.id, leadId: grupo.leadId, obraId: grupo.obraId } });
   const saida = r.parou && !r.final ? { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: `laço parou: ${r.parou}` } : respostaSeguraDoGrupo(r.final, urlDoSistemaParaLinks());
   const enviou = o.prazoFinal - deps.ms() >= 1_500

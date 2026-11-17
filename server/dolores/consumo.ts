@@ -161,7 +161,10 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
-    const outras = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    const classificacoes = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    // E4b: uma resposta em grupo (quando marcada) em andamento também ocupa a vez — uma chamada de IA dos grupos por vez
+    const respostas = await reservasDasMarcacoes(tx, agora, null);
+    const outras = { entrada: classificacoes.entrada + respostas.entrada, saida: classificacoes.saida + respostas.saida };
     const [andamento] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupoMensagens)
       .where(and(gt(doloresGrupoMensagens.reservaAte, agora), gt(doloresGrupoMensagens.reservaEntrada, 0), ne(doloresGrupoMensagens.id, p.mensagemGrupoId)));
     if (Number(andamento?.n ?? 0) > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_classificacao";
@@ -237,16 +240,31 @@ async function reservasDasMarcacoes(tx: Transacao, agora: Date, excetoId: number
   return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
 }
 
+/** E4b — orçamento PRÓPRIO das respostas em grupo: % do limite mensal (como o da classificação, mas separado). */
+export const ORCAMENTO_MARCACAO_PCT = 10;
+/** E4b — prefixo de `dolores_consumo.parada` das chamadas das respostas em grupo (o uso delas no mês sai daí). */
+export const PARADA_GRUPO = "grupo";
+
+export type BloqueioDaMarcacao = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_marcacao" | "outra_chamada";
+
 /**
  * Etapa 4b — reserva do limite mensal para UMA chamada do laço do grupo, com a mesma trava (linha da configuração em FOR UPDATE)
- * e a mesma folga do dono da classificação: uso real + reservas dos comandos do dono + das classificações + das outras respostas
- * em grupo + esta reserva cabem em FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite. A reserva fica na própria marcação e vence
- * sozinha. Devolve o motivo do bloqueio ou null (reservado).
+ * e as mesmas regras da classificação (QA E4 r2/r3), na ordem:
+ * 1. UMA chamada de IA dos grupos por vez (global): reserva válida de uma classificação ou de OUTRA marcação → "outra_chamada"
+ *    (silêncio; a reserva da própria marcação, de uma volta anterior, já foi solta antes da próxima volta).
+ * 2. Uso real de tudo no mês: limite atingido → o mesmo motivo do dono.
+ * 3. Folga do dono: uso real + reservas dos comandos + esta reserva ≤ FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite.
+ * 4. Orçamento PRÓPRIO: uso real das respostas em grupo no mês (`dolores_consumo` com `parada` "grupo…") + esta reserva ≤
+ *    ORCAMENTO_MARCACAO_PCT% do limite. Atingido, só as respostas em grupo param.
+ * A reserva fica na própria marcação e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
  */
-export async function reservarMarcacao(p: { mes: string; marcacaoId: number; limites: Limites; reserva: Uso; validadeMs: number }) {
+export async function reservarMarcacao(p: { mes: string; marcacaoId: number; limites: Limites; reserva: Uso; validadeMs: number }): Promise<BloqueioDaMarcacao | null> {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
+    const classificacoes = await reservasDasClassificacoes(tx, agora, null);
+    const outras = await reservasDasMarcacoes(tx, agora, p.marcacaoId);
+    if (classificacoes.entrada > 0 || classificacoes.saida > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_chamada";
     const [usado] = await tx.select({
       entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
@@ -257,14 +275,18 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const classificacoes = await reservasDasClassificacoes(tx, agora, null);
-    const outras = await reservasDasMarcacoes(tx, agora, p.marcacaoId);
     const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
     const total = {
-      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + classificacoes.entrada + outras.entrada + p.reserva.entrada,
-      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + classificacoes.saida + outras.saida + p.reserva.saida,
+      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada,
+      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida,
     };
-    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono" as const;
+    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono";
+    const [doGrupo] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_GRUPO + "%"}`));
+    const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_MARCACAO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_MARCACAO_PCT) / 100) };
+    if (Number(doGrupo?.entrada ?? 0) + p.reserva.entrada > orcamento.entrada || Number(doGrupo?.saida ?? 0) + p.reserva.saida > orcamento.saida) return "orcamento_marcacao";
     await tx.update(doloresMarcacoes).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),

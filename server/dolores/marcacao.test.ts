@@ -43,6 +43,7 @@ let enviarAoDono: ReturnType<typeof vi.fn>;
 let enviarAoGrupo: ReturnType<typeof vi.fn>;
 let pedidos: PedidoGrupo[];
 let respostas: Array<RespostaGrupo | ((p: PedidoGrupo) => RespostaGrupo | Promise<RespostaGrupo>)>;
+let contagem: number | null;
 const segredoAntes = ENV.cookieSecret;
 const q = async <T = any>(sql: string) => (await banco.pg.query<T>(sql)).rows;
 const marcacoes = () => q<{ situacao: string; resposta: string | null; fora_de_escopo: boolean; motivo: string | null; pergunta: string | null; remetente: string | null }>("SELECT * FROM dolores_marcacoes ORDER BY id");
@@ -88,9 +89,10 @@ beforeEach(async () => {
   definirDependenciasClassificacao({ cliente: async () => { throw new Error("texto de grupo não classifica"); } });
   pedidos = [];
   respostas = [];
+  contagem = 1_000;
   enviarAoGrupo = vi.fn(async () => true);
   definirDependenciasMarcacao({
-    agora: () => AGORA, enviar: enviarAoGrupo as never,
+    agora: () => AGORA, enviar: enviarAoGrupo as never, contador: async () => { if (contagem === null) throw new Error("contagem indisponível"); return contagem; },
     cliente: async p => {
       pedidos.push(JSON.parse(JSON.stringify(p)));
       const r = respostas.shift();

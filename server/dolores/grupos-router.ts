@@ -18,7 +18,7 @@ import { listarGruposEvolution, participantesDoGrupoEvolution } from "../_core/e
 import { doloresMarcacoesConfig, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import { LIMITES_MARCACOES, lidValido } from "../../shared/dolores/marcacao.js";
 import { ehNumeroDoDono } from "../../shared/dolores/whatsapp.js";
-import { CONFIG_MARCACOES_PADRAO, lerConfigMarcacoes, marcacoesRecentes } from "./marcacao.js";
+import { CONFIG_MARCACOES_PADRAO, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -217,6 +217,8 @@ export const gruposRouter = router({
     const r = await getDb().update(doloresMarcacoesConfig).set({ ...input, atualizadoEm: new Date(), atualizadoPor: ctx.user.id })
       .where(eq(doloresMarcacoesConfig.id, 1)).returning({ id: doloresMarcacoesConfig.id }).catch(semMigracao0129);
     if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO_0129 });
+    // religado pelo admin: solta a pausa em memória da falha no registro do consumo (E4b, QA E4 r3 N7)
+    if (input.responderLigado === true) limparPausaDaMarcacao();
     await auditar(ctx.user.id, "configurar_marcacoes", null, input);
     const c = await lerConfigMarcacoes();
     return { ...CONFIG_MARCACOES_PADRAO, ...c, lidDolores: undefined, lidDoNumero: undefined };
