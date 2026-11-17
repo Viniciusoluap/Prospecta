@@ -229,6 +229,12 @@ mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da 
   próximo login" desligada; conta criada já com senha pelo admin aceita no primeiro login (modal nas áreas logadas);
   termo sem marcadores para o público (pendências do jurídico só no admin) e seção de IA com o atendimento pelo
   WhatsApp. No Santa Fé: o primeiro acesso por link equivalente e o termo com o nome da empresa de lá.
+  **17/11 — portado na branch `claude/paridade17-b4-termo` do Santa Fé** (texto definitivo, retirada registrada,
+  modal no login, consulta por papel, página `/termo-de-consentimento`; migração `20261117400000_consentimentos` não
+  aplicada). Falta: razão social e CNPJ do Santa Fé (não estão no repositório; o termo usa "Grupo Santa Fé").
+- [ ] Endereço da Avaliação (regra do dono, 17/11: "sempre vindo do lead, mas com a possibilidade de edição na
+  avaliação, isso para os dois") — feito nos dois (Prospecta `claude/paridade17-termo`, Santa Fé
+  `claude/paridade17-b4-termo`); falta merge/publicação.
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
 A Dolores não está na lista de exceções; quando o dono mandar fazer a paridade, portar (`epic-025-dolores/`):

@@ -123,9 +123,12 @@ describe("EPIC-017 — responsável e corretor reais no lead", () => {
     vi.spyOn(db, "getLeadById").mockResolvedValue({ id: 7, stage: "lead_new", deletedAt: null } as never);
     vi.spyOn(db, "validateLeadAssignment").mockResolvedValue({ responsibleOk: true, brokerOk: true });
     const update = vi.spyOn(db, "updateLead").mockResolvedValue(undefined);
+    // Regra do endereço (17/11): o endereço mudou, então as avaliações do lead são consultadas (nenhuma aqui).
+    const avaliacoesDoLead = vi.spyOn(db, "getAvaliacoesEnderecoDoLead").mockResolvedValue([]);
     await caller("admin").leads.update({
       id: 7, responsibleUserId: 1, brokerId: 2, cpf: "123", address: "Rua A", neighborhood: "Centro",
     });
+    expect(avaliacoesDoLead).toHaveBeenCalledWith(7);
     expect(update).toHaveBeenCalledWith(7, expect.objectContaining({
       responsibleUserId: 1, brokerId: 2, cpf: "123", address: "Rua A", neighborhood: "Centro",
     }));
