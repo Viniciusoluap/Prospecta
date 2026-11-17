@@ -165,7 +165,8 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     ))).returning({ id: doloresGrupoMensagens.id });
   if (!reivindicada) return "classificacao-ocupada";
   const voltar = (situacao: "a_classificar" | "erro" | "grande_demais", motivo: string | null) =>
-    db.update(doloresGrupoMensagens).set({ situacao, motivo: motivo?.slice(0, 200) ?? null, ...(situacao === "a_classificar" ? { tentativas: sql`greatest(${doloresGrupoMensagens.tentativas} - 1, 0)` } : {}) })
+    db.update(doloresGrupoMensagens).set({ situacao, motivo: motivo?.slice(0, 200) ?? null, reservaEntrada: 0, reservaSaida: 0, reservaAte: null,
+      ...(situacao === "a_classificar" ? { tentativas: sql`greatest(${doloresGrupoMensagens.tentativas} - 1, 0)` } : {}) })
       .where(eq(doloresGrupoMensagens.id, mensagemId));
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, resumo: Record<string, unknown>) =>
     registrarAcao({ funcao: "classificar_documento", resultado, motivo, autorUserId: autor, canal: o.canal, pedidoId: `grupo:${msg.grupoId}:doc:${mensagemId}`,
@@ -179,6 +180,9 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
   const bloqueio = await reservarClassificacao({ mes, mensagemGrupoId: mensagemId, limites, reserva: { entrada: RESERVA_ENTRADA_CLASSIFICACAO, saida: MAX_TOKENS_CLASSIFICACAO }, validadeMs: CLASSIFICANDO_VENCIDO_MS })
     .catch(() => "indisponivel" as const);
   if (bloqueio) {
+    // a vaga do dia não foi usada: devolve (grupo e total)
+    await db.update(doloresGruposContagem).set({ classificacoes: sql`greatest(${doloresGruposContagem.classificacoes} - 1, 0)` })
+      .where(and(inArray(doloresGruposContagem.grupoId, [msg.grupoId, 0]), eq(doloresGruposContagem.dia, diaDeImperatriz(agora)))).catch(() => undefined);
     await voltar("a_classificar", "limite mensal da IA (com a folga dos comandos do dono) não comporta a classificação agora");
     await auditar("recusada", `limite mensal: ${bloqueio}`, {});
     return "classificacao-limite";

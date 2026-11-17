@@ -16,7 +16,7 @@ vi.mock("../drive-documents.js", async orig => ({
 
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
 import {
-  JID_GRUPO, TIPOS_DOCUMENTO_GRUPO, formatoPorBytes, lerMensagemDeGrupo, lerSaidaClassificacao, nomeSeguroDeArquivo,
+  FERRAMENTA_CLASSIFICACAO, JID_GRUPO, TIPOS_DOCUMENTO_GRUPO, formatoPorBytes, lerMensagemDeGrupo, lerSaidaClassificacao, nomeSeguroDeArquivo,
 } from "../../shared/dolores/grupos.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
@@ -25,7 +25,7 @@ import { uploadPrivateDocument } from "../drive-documents.js";
 import { appRouter } from "../routers.js";
 import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
-import { FERRAMENTA_CLASSIFICACAO, SISTEMA_CLASSIFICACAO, definirDependenciasClassificacao, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
+import { SISTEMA_CLASSIFICACAO, definirDependenciasClassificacao, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -258,6 +258,9 @@ describe("classificação (custo e injeção por documento)", () => {
     await chamar(aviso(item({ message: documento("a.pdf") })));
     expect(pedidosIa).toEqual([]);
     expect((await mensagens())[0]).toMatchObject({ situacao: "a_classificar", reserva_ate: null });
+    expect((await acoes()).find(a => a.funcao === "classificar_documento")).toMatchObject({ resultado: "recusada", motivo: "limite mensal: folga_do_dono" });
+    // a vaga do teto diário não foi gasta
+    expect((await q("SELECT classificacoes FROM dolores_grupos_contagem WHERE grupo_id = 1"))[0].classificacoes).toBe(0);
   });
   it("arquivo acima do limite não é baixado", async () => {
     await chamar(aviso(item({ message: documento("grande.pdf", "", 50 * 1024 * 1024) })));

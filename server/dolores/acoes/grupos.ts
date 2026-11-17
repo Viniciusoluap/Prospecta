@@ -117,8 +117,9 @@ export async function prepararCardCliente(args: z.infer<typeof entradaCriarCardC
         resumo: `Criar o card do cliente "${nome}" no CRM${telefone ? ` com o telefone ${telefone}` : ", sem telefone (complete no CRM)"}, na etapa inicial, com origem "Dolores — grupo do WhatsApp", e ligar a ele o grupo "${grupo}" (grupo ${g.id}). Conferi antes: nenhum cliente com esse nome${telefone ? " ou telefone" : ""} no CRM.`,
         argumentos: { grupoId: g.id, modo: "criar", nome, telefone, leadId: null },
       };
-    // o resumo mostra TODO o texto que será gravado (nome e telefone), na forma em que será gravado (QA R2 N3)
-    item.resumo = resumoDaFila(item.resumo, [`"${nome}"`, ...(telefone && !alvoLead ? [telefone] : [])]);
+    // o resumo mostra TODO o texto que será gravado (nome e telefone), na forma em que será gravado (QA R2 N3); ao LIGAR a um
+    // card existente nada do que o dono escreveu é gravado (só o vínculo), então não há trecho a conferir
+    item.resumo = resumoDaFila(item.resumo, alvoLead ? [] : [`"${nome}"`, ...(telefone ? [telefone] : [])]);
     return { itens: [item], recusados: [] };
   });
 }
