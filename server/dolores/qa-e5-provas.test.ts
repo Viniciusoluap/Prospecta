@@ -252,3 +252,17 @@ describe("QA E5 — execução da conciliação refaz o apontamento", () => {
   });
 });
 
+describe("QA E5 — salvar a nota no Drive com o grupo desativado", () => {
+  it("CORRIGIDO: grupo desativado depois do pedido → recusado, nada baixado nem enviado ao Drive", async () => {
+    await mandarNota(10);
+    const [n] = await notas();
+    await caller("admin").dolores.notas.proporSalvar({ notaId: n.id });
+    await banco.pg.exec(`UPDATE dolores_grupos SET ativo = false WHERE grupo_jid = '${GRUPO_OBRA}'`);
+    const chamadasAntes = baixar.mock.calls.length;
+    const [ap] = await q("SELECT codigo FROM dolores_aprovacoes");
+    expect((await decidir([ap.codigo], "aprovar", decisorDaTela(1)))[0]).toMatchObject({ ok: false, texto: expect.stringMatching(/desativado/) });
+    expect(baixar.mock.calls.length).toBe(chamadasAntes);
+    expect(vi.mocked(uploadArquivoNoCaminho)).not.toHaveBeenCalled();
+    expect((await notas())[0]).toMatchObject({ drive_file_id: null, salva_em: null });
+  });
+});

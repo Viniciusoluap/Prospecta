@@ -82,6 +82,8 @@ export async function executarSalvarNotaAprovado(args: z.infer<typeof entradaSal
   if (n.driveFileId) throw new RecusaAcao(`O arquivo da nota ${n.id} já está no Drive; nada foi feito de novo.`);
   if (n.arquivoSha256 !== args.sha256) throw new RecusaAcao(`O arquivo da nota ${n.id} não confere com o pedido; nada foi salvo.`);
   if (!msg) throw new RecusaAcao(`A mensagem da nota ${n.id} não foi encontrada; nada foi salvo.`);
+  // grupo desativado depois do pedido (QA E5 achado 5): nada é baixado do grupo nem enviado ao Drive
+  if (!msg.ativo) throw new RecusaAcao(`O grupo da nota ${n.id} foi desativado depois do pedido; nada foi salvo. Reative o grupo e peça de novo.`);
   if (!(await driveConfigured())) throw new RecusaAcao("O Google Drive da Prospecta não está configurado (Configurações); nada foi salvo.");
   const config = await lerConfigGrupos();
   let bytes: Buffer;
