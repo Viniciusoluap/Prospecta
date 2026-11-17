@@ -1,6 +1,7 @@
 // EPIC-025 (Dolores) — interruptores dos dados pessoais. ÚNICO ponto do servidor que lê DOLORES_MASCARAR_DADOS_PESSOAIS e
 // DOLORES_PONTE_DADOS_PESSOAIS. A regra é POR CANAL (QA r7 A3):
 //   - canal "whatsapp" (a Dolores respondendo ao dono): segue DOLORES_MASCARAR_DADOS_PESSOAIS (abaixo);
+//   - canal "grupo" (etapa 4b: a resposta NO GRUPO quando ela é marcada): dados pessoais SEMPRE mascarados;
 //   - canal "ponte" (a ponte HTTP da etapa 1, para quem tiver o token): dados pessoais MASCARADOS por padrão; só com
 //     DOLORES_PONTE_DADOS_PESSOAIS = "1", "true", "sim", "on" ou "yes" saem completos (qualquer outro valor mascara).
 // Decisão do dono em 16/11/2026 (opção B): a Dolores pode ver e informar CPF, CNPJ, telefone e e-mail dos clientes — a
@@ -20,6 +21,12 @@ export const VARIAVEL_MASCARAR_DADOS_PESSOAIS = "DOLORES_MASCARAR_DADOS_PESSOAIS
 export const VARIAVEL_PONTE_DADOS_PESSOAIS = "DOLORES_PONTE_DADOS_PESSOAIS";
 /** De onde veio a chamada (vai para `dolores_acoes.canal` e decide o interruptor dos dados pessoais). */
 export type CanalDolores = "ponte" | "whatsapp";
+/**
+ * Etapa 4b — canal do FILTRO: além dos dois de cima, "grupo" (a Dolores respondendo NO GRUPO do cliente, quando marcada). No
+ * grupo os dados pessoais saem SEMPRE mascarados: a opção B do dono vale só para a conversa direta dele (o grupo é lido por
+ * todos os participantes). Não é canal da auditoria (dolores_acoes.canal continua "ponte"/"whatsapp"/"tela").
+ */
+export type CanalDoFiltro = CanalDolores | "grupo";
 
 /** Valor da variável sem espaços, sem aspas em volta e em minúsculas. */
 function valorNormalizado(nome: string): string | undefined {
@@ -63,14 +70,15 @@ function mascararNaPonte(): boolean {
  * Dados pessoais mascarados neste canal? Canal desconhecido: mascara (falha fechada) — QA r8 achado 7: antes, qualquer
  * canal que não fosse "whatsapp" caía na regra da ponte (e DOLORES_PONTE_DADOS_PESSOAIS=1 o liberava).
  */
-export function mascararDadosPessoais(canal: CanalDolores): boolean {
+export function mascararDadosPessoais(canal: CanalDoFiltro): boolean {
+  if (canal === "grupo") return true; // etapa 4b: sempre, qualquer que seja a variável
   if (canal === "whatsapp") return mascararNoWhatsapp();
   if (canal === "ponte") return mascararNaPonte();
   return true;
 }
 
 /** Filtro do que vai ao modelo/agente e na resposta ao dono, pelo canal — variáveis lidas a cada chamada. */
-export function filtroDaSaida(canal: CanalDolores): OpcoesFiltro {
+export function filtroDaSaida(canal: CanalDoFiltro): OpcoesFiltro {
   return { mascararDadosPessoais: mascararDadosPessoais(canal) };
 }
 
@@ -81,7 +89,7 @@ export type TipoCampoPessoal = "cpf" | "cnpj" | "telefone" | "email";
  * "***.***.***-01", CNPJ só com os 2 últimos dígitos, telefone "(99) *****-4567" e e-mail não sai (undefined: a chave some do JSON), como era antes da decisão do dono.
  * Dados bancários e credenciais NÃO passam por aqui: as leituras nunca os devolvem.
  */
-export function campoPessoal(valor: string | null | undefined, tipo: TipoCampoPessoal, canal: CanalDolores): string | null | undefined {
+export function campoPessoal(valor: string | null | undefined, tipo: TipoCampoPessoal, canal: CanalDoFiltro): string | null | undefined {
   const v = String(valor ?? "").trim();
   if (!mascararDadosPessoais(canal)) return v || null;
   if (!v) return tipo === "email" ? undefined : null;

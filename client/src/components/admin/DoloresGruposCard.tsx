@@ -1,7 +1,9 @@
 // EPIC-025 (Dolores, etapa 4): grupos de clientes — só admin. O administrador cadastra o grupo de WhatsApp em que o número da
 // Dolores está (escolhendo da lista da Evolution ou digitando o id "…@g.us") e o liga a um cliente do CRM, a uma obra ou a
-// nenhum ainda. Só grupos cadastrados e ATIVOS são lidos; a Dolores nunca fala no grupo. Nada é excluído: desativa-se.
+// nenhum ainda. Só grupos cadastrados e ATIVOS são lidos. Nada é excluído: desativa-se.
 // Também mostra a configuração da classificação (desligada por padrão) e os documentos que esperam classificação.
+// Etapa 4b: "Responder no grupo quando marcada" — interruptor geral e por grupo (os dois desligados por padrão), tetos e a lista
+// das marcações com a resposta dada. Sem marcação real, ela nunca fala no grupo.
 import { useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
@@ -57,8 +59,9 @@ export function DoloresGruposCard() {
       <CardHeader><CardTitle className="flex items-center gap-2 text-[#C9A961]"><Users className="h-5 w-5" /> Dolores — grupos de clientes</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-gray-300">
-          A Dolores só lê os grupos cadastrados aqui e ativos; os outros continuam ignorados. Ela nunca responde, reage nem manda nada
-          no grupo, e nada escrito no grupo é comando (nem quando é o dono quem escreve lá). Criar o card do cliente e salvar os
+          A Dolores só lê os grupos cadastrados aqui e ativos; os outros continuam ignorados. Ela só responde num grupo quando alguém a
+          MARCA nele e o "responder quando marcada" está ligado (abaixo); fora isso, não responde, não reage e não manda nada. Nada
+          escrito no grupo é comando (nem quando é o dono quem escreve lá). Criar o card do cliente e salvar os
           documentos no card e no Drive só acontecem com a aprovação do dono, pela fila. Para a Dolores entrar no grupo, o dono a
           adiciona pelo celular, fora do sistema.
         </p>
@@ -161,6 +164,8 @@ export function DoloresGruposCard() {
             </section>
           )}
 
+          <MarcacoesSecao grupos={dados.data?.grupos ?? []} />
+
           {/* Pendências */}
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-[#C9A961]">Documentos esperando classificação ou conferência</h3>
@@ -180,5 +185,99 @@ export function DoloresGruposCard() {
         </>}
       </CardContent>
     </Card>
+  );
+}
+
+const ROTULO_MARCACAO: Record<string, string> = {
+  processando: "respondendo…", respondida: "respondida", fora_de_escopo: "fora de escopo (frase fixa)", silencio: "sem resposta", erro: "não respondida (falha)",
+};
+
+/** Etapa 4b — responder no grupo quando marcada (consulta própria: sem a migração 0129, só esta seção mostra o aviso). */
+function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; ativo: boolean }> }) {
+  const utils = trpc.useUtils();
+  const dados = trpc.dolores.grupos.marcacoes.useQuery(undefined, { retry: false });
+  const [tetos, setTetos] = useState<Record<string, string>>({});
+  const recarregar = () => utils.dolores.grupos.marcacoes.invalidate();
+  const erro = (e: { message: string }) => toast.error(e.message);
+  const salvar = trpc.dolores.grupos.salvarMarcacoes.useMutation({ onSuccess: async () => { toast.success("Configuração salva."); setTetos({}); await recarregar(); }, onError: erro });
+  const ligar = trpc.dolores.grupos.ligarMarcacaoGrupo.useMutation({
+    onSuccess: async r => { toast.success(r.lid ? `Grupo atualizado. ${r.lid.motivo}.` : "Grupo atualizado."); await recarregar(); }, onError: erro,
+  });
+  const conferir = trpc.dolores.grupos.conferirLidDolores.useMutation({ onSuccess: async r => { toast.message(r.motivo); await recarregar(); }, onError: erro });
+  if (dados.isLoading) return <p className="text-sm text-gray-300">Carregando a resposta quando marcada…</p>;
+  if (dados.error) return <p role="alert" className="text-sm text-red-300">{dados.error.message}</p>;
+  const d = dados.data!;
+  const ligado = new Map(d.grupos.map(g => [g.grupoId, g.ligado]));
+  const n = (k: string) => (tetos[k] !== undefined && tetos[k] !== "" ? Number(tetos[k]) : undefined);
+  return (
+    <section className="space-y-2 rounded-lg border border-[#C9A961]/40 bg-[#1A2332] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[#C9A961]">Responder no grupo quando marcada</h3>
+        <label className="flex items-center gap-2 text-xs text-gray-300">
+          <Switch checked={d.config.responderLigado} disabled={salvar.isPending} onCheckedChange={v => salvar.mutate({ responderLigado: v })} aria-label="Responder quando marcada (geral)" />
+          {d.config.responderLigado ? "ligado" : "desligado"}
+        </label>
+      </div>
+      {d.desligamentoPorFalha && (
+        <p role="alert" className="rounded border border-red-400/40 bg-red-500/10 p-2 text-xs text-red-200">
+          A Dolores desligou a resposta quando marcada sozinha{d.desligamentoPorFalha.em ? ` em ${quando(d.desligamentoPorFalha.em)}` : ""}
+          {d.desligamentoPorFalha.soNestaInstancia ? " (só neste servidor: nem o desligamento pôde ser gravado no banco)" : ""}: {d.desligamentoPorFalha.motivo}.
+          Sem esse registro o limite mensal ficaria sem a conta. Confira o banco e religue quando estiver normal.
+        </p>
+      )}
+      <p role="note" className="rounded border border-yellow-300/40 bg-yellow-300/10 p-2 text-xs text-yellow-100">
+        Atenção: o que ela escreve no grupo é lido por todos os participantes.
+      </p>
+      <p className="text-xs text-gray-300">
+        Ela só responde quando alguém marca o número dela no grupo (a marcação de verdade do WhatsApp; escrever o nome não conta), com
+        este interruptor e o do grupo ligados. Responde só sobre aquele cliente: andamento, etapas e documentos que faltam. Nunca fala de
+        valores, contrato, prazos, CPF, telefone, outros clientes ou anotações da equipe, e nunca faz nada a partir do grupo — nesses
+        casos responde "Isso a equipe responde por aqui." (ninguém é avisado: a pergunta aparece na lista abaixo). Usa o modelo da função
+        "Dolores — resposta em grupo quando marcada" (Integrações › Anthropic), o interruptor da IA e o limite mensal da Dolores.
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {([["grupo", "Respostas por grupo/dia", d.config.tetoGrupoDia], ["remetente", "Por pessoa/hora", d.config.tetoRemetenteHora],
+          ["janela", "Responde até (segundos)", d.config.janelaFrescorSegundos]] as const).map(([k, rot, atual]) => (
+          <div key={k}><Label htmlFor={`marcacoes-${k}`} className="text-xs text-gray-300">{rot} (hoje {atual})</Label>
+            <Input id={`marcacoes-${k}`} inputMode="numeric" value={tetos[k] ?? ""} onChange={e => setTetos({ ...tetos, [k]: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
+        ))}
+      </div>
+      <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending || !Object.values(tetos).some(Boolean)}
+        onClick={() => salvar.mutate({ tetoGrupoDia: n("grupo"), tetoRemetenteHora: n("remetente"), janelaFrescorSegundos: n("janela") })}>Salvar tetos</Button>
+      <p className="text-xs text-gray-400">
+        Marcação por @lid (grupos novos do WhatsApp): {d.config.lid ? `conferida (final ${d.config.lid.final}, ${quando(d.config.lid.conferidoEm)})` : "ainda não conferida — ligue um grupo ou use o botão do grupo"}.
+      </p>
+      {!grupos.length ? <p className="text-xs text-gray-300">Cadastre um grupo para ligar a resposta nele.</p> : (
+        <ul className="space-y-1 text-xs">
+          {grupos.map(g => (
+            <li key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 p-2">
+              <span className="min-w-0 break-words">{g.nome} <span className="text-gray-400">(grupo {g.id}{g.ativo ? "" : ", desativado"})</span></span>
+              <span className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className={botaoSec} disabled={conferir.isPending || !g.ativo} onClick={() => conferir.mutate({ grupoId: g.id })}>Conferir @lid</Button>
+                <label className="flex items-center gap-2 text-gray-300">
+                  <Switch checked={ligado.get(g.id) === true} disabled={ligar.isPending || (!g.ativo && ligado.get(g.id) !== true)}
+                    onCheckedChange={v => ligar.mutate({ grupoId: g.id, ligado: v })} aria-label={`Responder quando marcada no grupo ${g.nome}`} />
+                  {ligado.get(g.id) ? "responde quando marcada" : "não responde"}
+                </label>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <h4 className="pt-1 text-xs font-semibold text-[#C9A961]">Últimas marcações</h4>
+      {!d.marcacoes.length ? <p className="text-xs text-gray-300">Ninguém marcou a Dolores ainda.</p> : (
+        <ul className="max-h-80 space-y-1 overflow-y-auto text-xs">
+          {d.marcacoes.map(m => (
+            <li key={m.id} className="rounded border border-white/10 p-2">
+              <p><span className="text-gray-400">{quando(m.criadoEm)} · {m.grupo} · {m.remetente ?? "participante"}</span>
+                <span className={m.foraDeEscopo ? " text-yellow-200" : m.situacao === "erro" ? " text-red-300" : " text-gray-300"}> · {ROTULO_MARCACAO[m.situacao] ?? m.situacao}</span></p>
+              <p className="mt-1 break-words text-gray-100">Pergunta: {m.pergunta ?? "(sem texto)"}</p>
+              {m.resposta ? <p className="mt-1 break-words text-gray-300">Ela respondeu: {m.resposta}</p> : null}
+              {m.motivo ? <p className="mt-1 text-gray-400">{m.motivo}</p> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

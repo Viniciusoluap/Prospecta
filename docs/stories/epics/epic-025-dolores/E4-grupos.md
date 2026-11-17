@@ -194,3 +194,6 @@ Veredito da 3ª rodada: CONCERNS sem bloqueio (N0–N6 fechados; N7 importante; 
 - 17/11/2026 — @dev (Dex): 8 achados do portão de QA corrigidos, com 19 testes de regressão (`grupos-qa.test.ts`).
 - 17/11/2026 — @dev (Dex): 2ª rodada do QA (N0–N6) corrigida, com testes de regressão em `grupos-qa-r2.test.ts`; migração 0130 nova.
 - 17/11/2026 — @dev (Dex): 3ª rodada do QA (N7, N8, resíduo do N6) corrigida, com regressões em `grupos-qa-r3.test.ts`.
+- 17/11/2026 — @dev (Dex): nota — por decisão do dono de 17/11, a regra "ela nunca fala no grupo" desta story passa a ser "só
+  responde quando marcada, com o interruptor ligado, e só sobre aquele cliente" (story E4b, `E4b-resposta-quando-marcada.md`).
+  O resto desta story (leitura, card, classificação, Drive) não muda.

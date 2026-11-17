@@ -37,7 +37,8 @@ export const LIBERADAS_ETAPA_3 = ["criar_tarefa", "registrar_acompanhamento", "p
 
 /**
  * Etapa 4 — Grupos de clientes: as duas leituras dos grupos cadastrados e as duas ações da documentação, ambas de FILA
- * (o conteúdo do grupo é de terceiro; criar card e salvar documento só com a aprovação do dono). Nada fala no grupo.
+ * (o conteúdo do grupo é de terceiro; criar card e salvar documento só com a aprovação do dono). Nenhuma delas fala no grupo;
+ * a etapa 4b (resposta quando marcada) não é ferramenta do laço do dono: tem laço e leituras próprios (marcacao.ts).
  */
 export const LIBERADAS_ETAPA_4 = ["listar_grupos", "ler_grupo_cliente", "criar_card_cliente", "salvar_documentos_grupo"] as const;
 
@@ -63,8 +64,8 @@ export const PROIBIDAS: Record<string, string> = {
   enviar_mensagem_whatsapp: "envio de mensagem a cliente ou terceiro não foi liberado pelo dono (a Dolores só responde ao número dele)",
   enviar_email: "envio de e-mail a cliente ou terceiro não foi liberado pelo dono",
   enviar_cobranca: "a Dolores só PREPARA cobranças; o envio a cliente não foi liberado pelo dono",
-  responder_grupo: "a Dolores não fala nos grupos: só lê os grupos cadastrados (nesta etapa nenhuma função exige falar)",
-  enviar_mensagem_grupo: "a Dolores não fala nos grupos: só lê os grupos cadastrados (nesta etapa nenhuma função exige falar)",
+  responder_grupo: "o modelo não escreve em grupo: só o sistema responde, quando a Dolores é marcada num grupo cadastrado com o interruptor ligado, e só sobre aquele cliente",
+  enviar_mensagem_grupo: "o modelo não escreve em grupo: só o sistema responde, quando a Dolores é marcada num grupo cadastrado com o interruptor ligado, e só sobre aquele cliente",
   pedir_confirmacao_nota: "a Dolores não fala no grupo nem com o empreiteiro: a tela e listar_notas_obra mostram o texto sugerido para o DONO enviar",
   apagar_arquivo_drive: "limite fixo: a Dolores nunca apaga nem sobrescreve arquivo",
   aprovar_item: "só o dono aprova itens da fila (resposta \"aprovar CÓDIGO\" no WhatsApp ou a tela do administrador)",
