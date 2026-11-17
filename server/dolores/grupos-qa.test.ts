@@ -354,3 +354,21 @@ describe("QA-C (achado 4): o motivo escrito pelo modelo não leva link, código 
     expect(JSON.stringify(tela)).not.toMatch(/evil|ABC234/i);
   });
 });
+
+describe("QA-C (achado 5): chamada à IA sem resposta entra na contabilidade pelo lado conservador", () => {
+  it("tempo limite (sem status) e 504: custo estimado = a reserva registrado em dolores_consumo; 400 (recusa da API): nada", async () => {
+    const { RESERVA_ENTRADA_CLASSIFICACAO, MAX_TOKENS_CLASSIFICACAO } = await import("./classificacao.js");
+    const consumo = () => q<{ tokens_entrada: number; tokens_saida: number; parada: string }>("SELECT tokens_entrada, tokens_saida, parada FROM dolores_consumo ORDER BY id");
+    respostaIa = () => { throw Object.assign(new Error("Request timed out."), { name: "APIConnectionTimeoutError" }); };
+    await chamar(aviso(item({ message: documento("a.pdf", "a") })));
+    expect(await consumo()).toEqual([{ tokens_entrada: RESERVA_ENTRADA_CLASSIFICACAO, tokens_saida: MAX_TOKENS_CLASSIFICACAO, parada: "estimado_sem_resposta" }]);
+    respostaIa = () => { throw Object.assign(new Error("timeout"), { status: 504 }); };
+    await chamar(aviso(item({ message: documento("b.pdf", "b") })));
+    expect(await consumo()).toHaveLength(2);
+    respostaIa = () => { throw Object.assign(new Error("invalid"), { status: 400 }); };
+    await chamar(aviso(item({ message: documento("c.pdf", "c") })));
+    expect(await consumo()).toHaveLength(2);
+    const ms = await mensagens();
+    expect(ms.map(m => [m.situacao, m.reserva_entrada])).toEqual([["erro", 0], ["erro", 0], ["erro", 0]]);
+  });
+});

@@ -306,7 +306,15 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     try {
       resp = await (clienteTeste ?? clientePadrao)({ apiKey, modelo, sistema: SISTEMA_CLASSIFICACAO, conteudo, ferramenta: FERRAMENTA_CLASSIFICACAO, maxTokens: MAX_TOKENS_CLASSIFICACAO, timeoutMs });
     } catch (e) {
-      console.error("[dolores/classificacao] falha na chamada ao modelo", (e as { status?: number })?.status ?? (e instanceof Error ? e.name : "erro"));
+      const status = (e as { status?: unknown })?.status;
+      console.error("[dolores/classificacao] falha na chamada ao modelo", typeof status === "number" ? status : (e instanceof Error ? e.name : "erro"));
+      // QA E4, achado 5: tempo limite, rede ou erro do servidor podem ter sido processados (e cobrados) pela API — o custo vai
+      // para a contabilidade pelo lado conservador (a reserva = o pior caso do que foi enviado). Recusa explícita do pedido
+      // (4xx, menos 408) não é processada e não entra.
+      if (typeof status !== "number" || status >= 500 || status === 408) {
+        await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, parada: "estimado_sem_resposta",
+          uso: { entrada: RESERVA_ENTRADA_CLASSIFICACAO, saida: MAX_TOKENS_CLASSIFICACAO, cacheEscrita: 0, cacheLeitura: 0 } });
+      }
       await voltar("erro", "a IA não respondeu");
       await auditar("erro", "a IA não respondeu", { modelo });
       return "classificacao-erro";
