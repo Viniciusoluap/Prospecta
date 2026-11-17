@@ -121,7 +121,7 @@ describe("comando do dono — teste de aceite pelo WhatsApp", () => {
     expect(a.map(x => [x.funcao, x.resultado, x.canal])).toEqual([
       ["whatsapp_mensagem", "ok", "whatsapp"], ["listar_processos_regularizacao", "ok", "whatsapp"], ["whatsapp_resposta", "ok", "whatsapp"],
     ]);
-    expect(a.every(x => x.etapa === 4)).toBe(true); // etapa 4 (grupos) em vigor
+    expect(a.every(x => x.etapa === 5)).toBe(true); // etapa 5 (notas de obra) em vigor
     expect(a[1].resumo).toMatchObject({ truncado: false });
     expect(JSON.stringify(a)).not.toContain(DONO);
     // consumo por chamada e a mensagem marcada

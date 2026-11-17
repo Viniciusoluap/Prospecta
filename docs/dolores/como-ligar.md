@@ -400,3 +400,78 @@ rótulo + data) e registrado no card. O mesmo arquivo já no card não vai de no
   texto do documento), `criar_card_cliente`, `salvar_documentos_grupo` e as ações da tela (`cadastrar_grupo`,
   `atualizar_grupo`, `configurar_grupos`).
 - `dolores_consumo`: cada classificação conta no consumo do mês.
+
+# Etapa 5 — Notas de obra (leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO)
+
+A nota fiscal ou o recibo que chega num grupo cadastrado e **ligado a uma OBRA** é lido pela IA e vira um **rascunho interno
+da Dolores** (tabela `obra_notas`) — **nunca um lançamento**: nada é lançado, pago, baixado nem estornado. A Dolores continua
+**sem falar no grupo** (não pede a confirmação; a tela mostra o texto para o dono enviar). Ligar a nota a um pagamento do
+BPO e salvar o arquivo na pasta da obra só acontecem com a **aprovação do dono, pela fila**. A resposta do empreiteiro no
+grupo, quando aparece, é registrada como um **indício** — não é assinatura, não autoriza pagamento e não dispensa o dono.
+(A marcação da E4b — a Dolores responder quando marcada — não muda nada aqui: resposta ao empreiteiro não é comando e a
+Dolores não pede confirmação a ninguém.)
+
+## 1. Banco (equipe técnica)
+Aplicar `drizzle/0128_dolores_notas.sql` no Neon (só aditiva e idempotente: 3 tabelas novas — `obra_notas`,
+`obra_notas_respostas` e `obra_notas_config` —, índices, gatilhos que impedem apagar e mudar o que foi lido, e a linha de
+configuração com a leitura DESLIGADA). Precisa da 0126 (etapa 4) e da 0125 (fila) aplicadas antes. Sem a 0128, a tela das
+notas avisa que a migração falta e os documentos dos grupos de obra ficam "a classificar".
+Exclusões que já existiam continuam funcionando: excluir a obra, o usuário empreiteiro ou o lançamento do BPO (ex.: a
+transação do banco removida) só esvazia o vínculo na nota (`ON DELETE SET NULL`, aceito pelo gatilho); a nota fica.
+
+## 2. Grupo da obra (administrador, em Integrações › Dolores — grupos de clientes)
+Cadastre o grupo da obra com o **nº da obra** (não o do cliente). Um grupo ligado a obra passa a mandar os documentos para a
+leitura de nota; grupo de cliente continua na classificação da etapa 4, igual. O empreiteiro que pode confirmar é o
+**empreiteiro vinculado à obra** (tela da obra), com o **telefone** cadastrado no usuário dele (papel empreiteiro, ativo).
+
+## 3. Ligar a leitura (desligada por padrão)
+Em Integrações › Dolores — notas de obra, ligue "Leitura das notas pela IA". Precisa também: interruptor da IA da Dolores,
+"Classificação dos documentos pela IA" (etapa 4) ligada, chave da Anthropic e limite mensal. O modelo é o da função
+**"Dolores — leitura de notas de obra"** (Integrações › Anthropic › Modelo por função; um que leia bem imagem e PDF).
+Custo — as MESMAS travas da classificação da etapa 4, somadas a ela:
+- uma chamada de IA por aviso do WhatsApp e **uma leitura/classificação por vez** no sistema todo;
+- tetos do dia da etapa 4 (total e por grupo) e o **orçamento dos documentos** (padrão 20% do limite mensal, contando o
+  uso real das classificações e das notas), nunca passando de 80% do limite somando tudo — os comandos do dono sempre têm
+  folga;
+- arquivo até 10 MB (download cortado acima), PDF até 4 MB e 5 páginas contadas com segurança, imagem até 3,75 MB, e a
+  **contagem prévia de tokens** (gratuita, `messages.countTokens` do SDK) dentro da reserva da leitura (30,3 mil tokens de
+  entrada; saída até 2 mil). Fora disso **a IA não é chamada**: a nota fica "não lida pela IA" para o dono conferir no grupo;
+- o mesmo arquivo de uma nota já registrada não vai de novo à IA (duplicada, sem custo); texto de grupo nunca chama a IA.
+
+## 4. O que a leitura faz
+- Emitente, CPF/CNPJ, número, data, valor, descrição, itens (até 30), chave de acesso, categoria e etapa sugeridas, com
+  **confiança por campo**. Abaixo de 80% o campo **não é gravado** e vira "confira".
+- O sistema confere por código: dígito verificador do CPF/CNPJ; soma dos itens × total; data real, não futura e não mais
+  velha que 18 meses; valor entre R$ 0,01 e R$ 5 milhões; chave de acesso (44 dígitos, DV, modelo 55/65) cruzada com o CNPJ,
+  o número e o mês da nota — divergência = "possível adulteração". O que falha fica VAZIO; nada é completado.
+- Textos lidos passam pelo filtro do registro, sem links; **dados bancários (banco, agência, conta, PIX) nunca são gravados**
+  — fica só o alerta "a nota traz dados bancários: NÃO foram gravados".
+- Nota duplicada (mesmo arquivo, mesma chave de acesso ou mesmo número + emitente) é marcada e não concilia.
+- O empreiteiro da obra só é sugerido se o CPF/CNPJ da nota for o dele.
+
+## 5. Confirmação do empreiteiro (dado, não autenticação)
+O dono copia o texto sugerido da tela (ou da resposta da Dolores) e envia ele mesmo no grupo, se quiser. O sistema reconhece,
+**por código** e sem chamar a IA, uma resposta inequívoca — "CONFIRMO NOTA 12", ou "confirmo" **respondendo à mensagem da
+nota** — vinda do telefone do empreiteiro cadastrado DAQUELA obra, no MESMO grupo, dentro do prazo (padrão 7 dias). "CORRIGIR
+NOTA 12 …" registra o pedido de correção. Fica guardado: quem (telefone **mascarado**), quando e o texto filtrado. Outro
+número, outro grupo, fora do prazo, encaminhada, ambígua ("confirmo, mas…"), negativa ou sem referência à nota: nada é
+confirmado e a tentativa fica na auditoria. Só a primeira resposta vale.
+
+## 6. Conciliação com o BPO (só aponta)
+Para cada nota, a tela e a leitura `listar_notas_obra` comparam com os lançamentos de DESPESA do BPO perto da data (±30 dias,
+ajustável): valor ao centavo, fornecedor (CPF/CNPJ do cadastro do BPO ou nome) e obra (vínculo operacional "obras" ou
+pagamento da obra ligado). Resultado: **já lançado**, **provável duplicata** (o pagamento já está ligado a outra nota),
+**divergente** (valor, fornecedor ou obra), **mais de um possível**, **sem lançamento**; e, filtrando por obra, os
+**pagamentos sem nota** dos últimos 90 dias. Nenhum lançamento é criado, ligado ou alterado por isso.
+Para LIGAR a nota ao pagamento: "Propor ligar ao pagamento" na tela ou pedir à Dolores (`conciliar_nota_obra`). Vai para a
+fila; só é aceito com o pagamento **pago e vindo do extrato do banco**. Aprovado, grava só o vínculo NA NOTA (uma vez; o
+gatilho impede trocar) — o lançamento do BPO não muda.
+Para SALVAR o arquivo: "Propor salvar na pasta da obra" ou `salvar_nota_obra`. Aprovado, baixa de novo, confere que é o
+MESMO arquivo lido (SHA-256) e envia como arquivo novo para Obras › Obra (nº) › Notas fiscais, com o nome montado pelo
+sistema ("Nota 12 — 15-11-2026.pdf").
+
+## 7. Conferir
+- `dolores_acoes`: `ler_nota_obra` (ok/recusada/erro, contagens e tokens, sem texto da nota), `resposta_empreiteiro_nota`
+  (confirmação registrada ou tentativa recusada, com o remetente mascarado), `conciliar_nota_obra`, `salvar_nota_obra` e as
+  ações da tela (`configurar_notas_obra`).
+- `dolores_consumo` e `dolores_grupos_consumo_mes`: cada leitura conta no limite mensal e no orçamento dos documentos.

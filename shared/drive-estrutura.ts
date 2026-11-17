@@ -311,6 +311,13 @@ export function caminhoGeradorPci(obra: Entidade): PastaAlvo[] {
   return [...baseObra(obra), { chave: chaveGeradorPci(obra.id), nome: PASTA_GERADOR_PCI }];
 }
 
+/** EPIC-025 (etapa 5): Obras/<Obra (nº id)>/Notas fiscais — notas de obra salvas pela Dolores com aprovação do dono. */
+export const PASTA_NOTAS_OBRA = "Notas fiscais";
+export const chaveNotasObra = (id: string | number) => `obra:${id}:notas-fiscais`;
+export function caminhoNotasObra(obra: Entidade): PastaAlvo[] {
+  return [...baseObra(obra), { chave: chaveNotasObra(obra.id), nome: PASTA_NOTAS_OBRA }];
+}
+
 /** Clientes/<Nome (nº id)>/Atendimento/WhatsApp */
 export function caminhoWhatsappCliente(cliente: Entidade): PastaAlvo[] {
   return [...caminhoCliente(cliente, "atendimento"), { chave: chaveWhatsappCliente(cliente.id), nome: PASTA_WHATSAPP }];
