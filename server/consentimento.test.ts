@@ -188,8 +188,10 @@ describe("opção 'pedir o aceite no próximo login' (item 4)", () => {
     expect(await aceites()).toMatchObject([{ user_id: id, canal: "login", com_senha: false }]);
   });
 
-  it("sem login, as rotas do aceite no login respondem UNAUTHORIZED", async () => {
-    await expect(publico().consentimento.minhaSituacao()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  it("sem login: a situação responde 'não pedir' e o aceite responde UNAUTHORIZED", async () => {
+    process.env.CONSENTIMENTO_PEDIR_NO_LOGIN = "1";
+    expect(await publico().consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    await expect(publico().consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });
 

@@ -16,7 +16,7 @@ import { consentimentos, type AparelhoDoConsentimento } from "../drizzle/schema-
 import { users } from "../drizzle/schema.js";
 import { AVISO_TEXTO_PROVISORIO, VERSAO_DO_TERMO, marcadoresPendentes, type CanalDoConsentimento } from "../shared/termo-consentimento.js";
 import { hashPassword } from "./_core/auth-utils.js";
-import { adminProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb, type DrizzleDb } from "./db.js";
 
 /** A partir desta data (17/11/2026, 00:00 UTC — 16/11 21:00 em Brasília; a folga só deixa a regra mais rigorosa) toda conta nova passa pelo termo ao criar a senha. */
@@ -121,9 +121,12 @@ const soAdmin = adminProcedure.use(({ ctx, next }) => {
 });
 
 export const consentimentoRouter = router({
-  /** Opção do item 4: com a opção desligada, sempre `pedir: false`. */
-  minhaSituacao: protectedProcedure.query(async ({ ctx }) => {
-    if (!pedirAceiteNoLogin()) return { pedir: false, versao: VERSAO_DO_TERMO };
+  /**
+   * Opção do item 4: com a opção desligada, sempre `pedir: false` (sem consultar o banco). Pública de propósito: o
+   * cliente redireciona ao login em qualquer UNAUTHORIZED, e esta consulta roda nas áreas logadas sem esperar o auth.me.
+   */
+  minhaSituacao: publicProcedure.query(async ({ ctx }) => {
+    if (!pedirAceiteNoLogin() || !ctx.user) return { pedir: false, versao: VERSAO_DO_TERMO };
     const aceitou = await aceitouVersaoAtual(getDb(), ctx.user.id);
     return { pedir: !aceitou, versao: VERSAO_DO_TERMO };
   }),

@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
+import { CaixaDoTermo } from "@/components/consentimento/CaixaDoTermo";
+import { AVISO_SEM_ACEITE } from "../../../shared/termo-consentimento";
 
 export default function DefinirSenha() {
   const { token } = useParams();
@@ -16,6 +18,9 @@ export default function DefinirSenha() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // EPIC-024 S-12: caixa do termo SEMPRE começa desmarcada.
+  const [aceitou, setAceitou] = useState(false);
+  const [avisoTermo, setAvisoTermo] = useState<string | null>(null);
 
   const { data: validacao, isLoading } = trpc.primeiroAcesso.validarToken.useQuery(
     { token: token ?? "" },
@@ -37,7 +42,15 @@ export default function DefinirSenha() {
       return;
     }
     if (!token) return;
-    definir.mutate({ token, novaSenha: senha });
+    if (validacao?.termo === "obrigatorio" && !aceitou) {
+      setAvisoTermo(AVISO_SEM_ACEITE);
+      document.getElementById("aceite-termo")?.focus();
+      return;
+    }
+    definir.mutate({
+      token, novaSenha: senha,
+      ...(validacao?.termo !== "aceito" && aceitou ? { aceitouTermo: true, versaoDoTermo: validacao?.versaoDoTermo } : {}),
+    });
   }
 
   return (
@@ -95,6 +108,7 @@ export default function DefinirSenha() {
                       />
                       <button
                         type="button"
+                        aria-label={showPassword ? "Esconder senha" : "Mostrar senha"}
                         onClick={() => setShowPassword((v) => !v)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
                       >
@@ -118,7 +132,21 @@ export default function DefinirSenha() {
                     />
                   </div>
 
-                  <Button type="submit" disabled={definir.isPending} className="w-full bg-[#C9A961] font-bold text-[#1A2332]">
+                  {validacao.termo && validacao.termo !== "aceito" && (
+                    <CaixaDoTermo
+                      marcado={aceitou}
+                      onChange={v => { setAceitou(v); if (v) setAvisoTermo(null); }}
+                      aviso={avisoTermo}
+                      opcional={validacao.termo === "opcional"}
+                    />
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={definir.isPending}
+                    aria-disabled={validacao.termo === "obrigatorio" && !aceitou ? true : undefined}
+                    className={`w-full bg-[#C9A961] font-bold text-[#1A2332] ${validacao.termo === "obrigatorio" && !aceitou ? "opacity-60" : ""}`}
+                  >
                     {definir.isPending ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...

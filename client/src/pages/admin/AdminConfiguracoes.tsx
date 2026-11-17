@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, KeyRound, Plus, Search, Settings, Shield, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, FileCheck2, KeyRound, Plus, Search, Settings, Shield, Trash2, UserCog } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { ADMIN_MODULE_LABELS, ADMIN_MODULES, AdminModule, parsePermissions } from "../../../../shared/admin-permissions";
 import { UFS } from "../../../../shared/engenheiro";
 import { PerfilEngenheiroPanel } from "@/components/admin/PerfilEngenheiroPanel";
+import { TextoDoTermo } from "@/components/consentimento/TextoDoTermo";
 
 const ROLES = ["admin", "corretor", "colaborador", "cliente", "empreiteiro"] as const;
 // Lote 2, correção 04: "Engenheiro" é um perfil da tela — no acesso é colaborador (módulos) + perfil profissional.
@@ -56,6 +57,10 @@ export default function AdminConfiguracoes() {
   const [filtroSituacao, setFiltroSituacao] = useState<"todos" | "ativos" | "inativos">("todos");
   const [busca, setBusca] = useState("");
   const [convidar, setConvidar] = useState(true);
+  // EPIC-024 S-12: aceites do termo de consentimento (só leitura; só admin por papel).
+  const [verTermo, setVerTermo] = useState(false);
+  const { data: termo } = trpc.consentimento.admin.resumo.useQuery(undefined, { retry: false });
+  const aceiteDe = useMemo(() => new Map((termo?.usuarios ?? []).map(u => [u.userId, u])), [termo]);
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return usuarios.filter(u =>
@@ -138,7 +143,7 @@ export default function AdminConfiguracoes() {
   return <div className="min-h-screen bg-[#1A2332] text-white">
     <header className="border-b border-[#C9A961]/20 bg-[#0F1923] px-4 py-4 md:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
       <div className="flex items-center gap-3"><Link href="/admin"><Button variant="ghost" size="icon"><ArrowLeft /></Button></Link><Settings className="text-[#C9A961]" /><div><h1 className="text-2xl font-bold text-[#C9A961]">Usuários e acesso</h1><p className="text-sm text-gray-400">Cadastro de usuários, papéis e permissões</p></div></div>
-      <div className="flex flex-wrap gap-2"><Button onClick={() => { setNomeNovo(""); setFoneNovo(""); setLeadNovo(""); setConvidar(true); if (filtroPerfil !== "todos") setPapelNovo(filtroPerfil); setNovo(true); }} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setVerTermo(true)} className="border-[#C9A961]/40 bg-transparent text-[#C9A961] hover:bg-[#C9A961]/10"><FileCheck2 className="mr-2 h-4 w-4" /> Termo de consentimento</Button><Button onClick={() => { setNomeNovo(""); setFoneNovo(""); setLeadNovo(""); setConvidar(true); if (filtroPerfil !== "todos") setPapelNovo(filtroPerfil); setNovo(true); }} className="bg-[#C9A961] font-bold text-[#1A2332]"><Plus className="mr-2 h-4 w-4" /> Novo usuário</Button></div>
     </div></header>
     <main className="mx-auto max-w-7xl p-4 md:p-6"><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100"><CardContent className="space-y-2 pt-6">
       <div className="mb-3 flex flex-wrap items-end gap-3">
@@ -148,11 +153,24 @@ export default function AdminConfiguracoes() {
         <p className="pb-2 text-xs text-gray-400">{visiveis.length} de {usuarios.length}</p>
       </div>
       {isLoading ? <p className="text-gray-300">Carregando…</p> : visiveis.length === 0 ? <p className="rounded-lg bg-[#1A2332] p-4 text-sm text-gray-300">Nenhum usuário com esses filtros.</p> : visiveis.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
-        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p></div></div>
+        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p>{termo && <LinhaDoTermo aceite={aceiteDe.get(item.id)} />}</div></div>
         <div className="text-right"><p className="text-sm text-[#C9A961]">{item.engenheiro ? ROLE_LABEL.engenheiro : ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {item.role === "corretor" ? `CRECI ${item.creci || "—"}${item.defaultCommissionPct ? ` · comissão ${Number(item.defaultCommissionPct).toLocaleString("pt-BR")}%` : ""}` : `${parsePermissions(item.permissions).length} permissões`}</p></div>
       </button>)}
     </CardContent></Card>
     </main>
+
+    <Dialog open={verTermo} onOpenChange={setVerTermo}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Termo de consentimento</DialogTitle></DialogHeader>
+      {termo ? <div className="space-y-4">
+        <p role="note" className="rounded-md border border-amber-400/50 bg-amber-400/10 p-3 text-sm font-semibold text-amber-200">{termo.avisoProvisorio}</p>
+        <div className="rounded-md bg-[#2C3E50] p-3 text-sm text-gray-100">
+          <p>Versão vigente: <strong>{termo.versaoAtual}</strong></p>
+          <p className="mt-1">Aceites por versão: {termo.porVersao.length === 0 ? "nenhum ainda" : termo.porVersao.map(v => `${v.versao} — ${v.usuarios} ${v.usuarios === 1 ? "usuário" : "usuários"}`).join(" · ")}</p>
+          <p className="mt-1">Pedir o aceite no próximo login: <strong>{termo.pedirNoLogin ? "ligado" : "desligado"}</strong> (quem já tinha senha não é perguntado enquanto estiver desligado).</p>
+          {termo.marcadoresPendentes.length > 0 && <p className="mt-1 text-amber-200">Pendências do jurídico no texto: {termo.marcadoresPendentes.length}</p>}
+        </div>
+        <TextoDoTermo />
+      </div> : <p className="text-sm text-gray-300">Carregando… (se não abrir, confira se a migração 0127 foi aplicada)</p>}
+    </DialogContent></Dialog>
 
     <Dialog open={novo} onOpenChange={setNovo}><DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
       <form onSubmit={handleNovo} className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papelNovo === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeNovo} onChange={setNomeNovo} readOnly={papelNovo === "cliente"} /><Campo name="email" label="E-mail" type="email" required />
@@ -188,4 +206,11 @@ export default function AdminConfiguracoes() {
 function Campo({ name, label, type = "text", required, defaultValue, value, onChange, readOnly }: { name: string; label: string; type?: string; required?: boolean; defaultValue?: string; value?: string; onChange?: (valor: string) => void; readOnly?: boolean }) {
   const controlado = onChange ? { value: value ?? "", onChange: (e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value) } : { defaultValue };
   return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} required={required} readOnly={readOnly} {...controlado} className="mt-1 read-only:opacity-80 border-[#C9A961]/30 bg-[#2C3E50] text-white placeholder:text-gray-400" /></div>;
+}
+
+/** EPIC-024 S-12: situação do termo de um usuário (só leitura). */
+function LinhaDoTermo({ aceite }: { aceite?: { versao: string; aceitoEm: Date | string; aceitouVersaoAtual: boolean } }) {
+  if (!aceite) return <p className="text-xs text-gray-400">Termo: não aceito</p>;
+  const quando = new Date(aceite.aceitoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  return <p className={`text-xs ${aceite.aceitouVersaoAtual ? "text-green-300" : "text-amber-200"}`}>Termo: aceito em {quando} · versão {aceite.versao}{aceite.aceitouVersaoAtual ? "" : " (anterior)"}</p>;
 }
