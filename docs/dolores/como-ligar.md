@@ -475,3 +475,53 @@ sistema ("Nota 12 — 15-11-2026.pdf").
   (confirmação registrada ou tentativa recusada, com o remetente mascarado), `conciliar_nota_obra`, `salvar_nota_obra` e as
   ações da tela (`configurar_notas_obra`).
 - `dolores_consumo` e `dolores_grupos_consumo_mes`: cada leitura conta no limite mensal e no orçamento dos documentos.
+
+# Etapa 6 — Operação contínua (eventos, rondas, relatório diário, tela com pausa e gasto)
+
+A Dolores passa a trabalhar sem ser chamada, **sem IA e sem custo**: uma **ronda** por código conta o que precisa de atenção
+(fila de aprovação perto de vencer, atrasados e parados, tarefas vencidas, documentos pendentes, recebimentos, conversas sem
+leitura, documentos dos grupos a conferir, notas de obra sem confirmação ou sem conciliação, movimentações do banco, o que ela
+fez nas últimas 24 h e o gasto do mês) e o **relatório** sai em texto fixo **só para o número do dono**. Eventos (documento
+recebido em grupo, nota lida, prazo vencido, pagamento sincronizado do banco) são **só registro**: no máximo entram no
+relatório; nunca disparam ação, mensagem, item de fila nem IA. **Tudo nasce desligado.**
+
+## 1. Banco (equipe técnica)
+Aplicar `drizzle/0131_dolores_operacao.sql` no Neon (só aditiva e idempotente: `dolores_operacao_config` com tudo desligado,
+`dolores_rondas`, `dolores_relatorios` e `dolores_eventos` — estas três só aceitam inserção, com janela/chave únicas). Nenhuma
+tabela existente muda. Sem a 0131, a tela avisa e o cron responde "sem-configuracao".
+
+## 2. Agendamento (já no `vercel.json`)
+`/api/cron/dolores` todo dia às **10:00 UTC = 07:00 em Brasília** (o Neon e a Vercel estão em GMT; a conta do horário local é
+feita no código, UTC−3). A rota só aceita o cabeçalho `Authorization: Bearer <CRON_SECRET>` que a própria Vercel manda
+(comparação em tempo constante); **sem `CRON_SECRET` cadastrado na Vercel, ela recusa sempre** (o cron `lead-card-due` já usa
+a mesma variável — confira que existe em Settings › Environment Variables). Query e corpo são ignorados. Cabe em 45 s.
+O relatório diário sai na execução do dia se a hora escolhida na tela já tiver chegado (padrão 07:00). Com o cron diário,
+escolher uma hora depois das 07:00 faz o relatório não sair pelo cron — use o botão ou a mensagem "relatório"; para outro
+horário fixo, a equipe técnica muda o `schedule` no `vercel.json` (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
+
+## 3. Ligar (administrador, em Integrações › "Dolores — operação contínua")
+1. **Rondas** (liga a varredura diária).
+2. **Relatório diário** (exige rondas ligadas e o número do dono cadastrado) e a hora.
+3. **Eventos** (opcional).
+4. **Preço por milhão de tokens** (opcional, em R$; entrada e saída): só serve para a tela e o relatório estimarem o gasto em
+   reais contra o teto do dono (R$ 1.621/mês). Sem preço, a tela mostra só os tokens — o sistema não inventa preço.
+Botões: **Fazer ronda agora** (só leitura; no máximo uma por minuto) e **Enviar relatório agora ao dono**.
+Pelo WhatsApp, o dono manda só **"relatório"** (ou "relatório agora", "Dolores, relatório do dia"): é reconhecido por código,
+não chama a IA nem gasta; vale só do número do dono; repetido no mesmo minuto não manda de novo.
+
+## 4. Pausa geral (o botão que para tudo)
+"Pausar tudo agora" grava `dolores_config.pausada` (a mesma pausa da etapa 1) e, conferido no servidor, para: IA da conversa,
+classificação dos documentos, leitura das notas, ponte, aprovação de item da fila, rondas, relatório (cron, tela e WhatsApp),
+eventos e o reconhecimento da resposta do empreiteiro. As mensagens dos grupos cadastrados continuam só REGISTRADAS (para nada
+se perder). A resposta nos grupos (etapa 4b) tem o gancho pronto: `podeFalarNoGrupo()` em `server/dolores/operacao.ts`.
+"Retomar a Dolores" volta cada função ao estado do próprio interruptor.
+
+## 5. Teste de aceite (prompt mestre): "sete dias rodando sem falha, com o custo medido"
+Ligar rondas e relatório; conferir por 7 dias, na tela, que há uma ronda por dia sem "sem leitura", um relatório diário com
+envio "enviado" e o gasto do mês. O custo da IA é o de `dolores_consumo` (as rondas e o relatório não usam IA).
+
+## 6. Conferir
+- `dolores_rondas` (uma por dia + as sob demanda), `dolores_relatorios` (texto já mascarado), `dolores_eventos`.
+- `dolores_acoes`: `ronda` (ok/erro com as seções sem leitura, ou recusada pela pausa), `relatorio_envio` (ok, ou recusada:
+  sem número do dono / desconectada / pausada), `pausa_geral` e `operacao_config` (tela).
+- Ferramenta nova para a conversa: `relatorio_diario` (só lê a última ronda e o último relatório; não faz ronda).
