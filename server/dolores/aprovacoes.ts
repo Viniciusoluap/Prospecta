@@ -110,7 +110,7 @@ const MINIMO_PARA_EXECUTAR_MS = 6_000;
  * Por função, quando precisa de mais: a PCI (planilha + PDF + gravação + duas cópias ao Drive) só começa com 30 s.
  * Sem esse tempo, o item NÃO começa e continua aguardando.
  */
-export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000, salvar_documentos_grupo: 20_000 };
+export const MINIMO_POR_FUNCAO_MS: Readonly<Record<string, number>> = { gerar_documento: 30_000, salvar_documentos_grupo: 20_000, salvar_nota_obra: 20_000 };
 /** Funções pesadas: no máximo uma por mensagem de decisão (as outras continuam aguardando, com aviso). */
 const PESADAS = new Set(["gerar_documento"]);
 /**
