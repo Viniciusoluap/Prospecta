@@ -59,3 +59,4 @@ Números de migração reservados para não colidir entre agentes: 0118 PCI, 011
 - [x] Fase 3 — 09 — publicada (PR #237)
 - [x] Fase 4 — 03, 04, 05 — publicadas (PR #239 muro; PR #242 PDF-imagem pela IA e importar planta; migração `0121`)
 - [x] Fase 5 — 10 — publicada (PR #234), só cadastro; Anthropic não ativada
+- [x] S-11 — modelo da IA por função — publicada (PR #244)

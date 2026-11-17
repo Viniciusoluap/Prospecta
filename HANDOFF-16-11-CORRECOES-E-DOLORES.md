@@ -208,3 +208,27 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
 - Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
 - Provedor de imagem para "Gerar com IA" do logotipo (correção 02).
+
+## Atualização — 17/11, ~00:15 UTC
+- **Publicado:** PR #244 — **S-11 modelo da IA por função** (produção `6862f03`; sem migração; QA PASS na 2ª rodada).
+  PR #245 — **Dolores etapa 3 (Ações com fila de aprovação)** (produção `8e7c21d` READY; migração `0125` aplicada
+  antes: `dolores_aprovacoes`, `dolores_autoria`, `dolores_fila_config`, fila vazia, validade 48 h). QA: 1ª FAIL,
+  2ª CONCERNS, 3ª PASS; conferência final sobre a `main` CONCERNS sem bloqueio, achados 1–3 corrigidos no próprio PR
+  (`server/dolores/correcoes-e3-final.test.ts`). Relatórios em `scratchpad/qa-dolores-e3*/RELATORIO.md`.
+- **Estado em produção:** etapas 1, 2 e 3 da Dolores no ar e DESLIGADAS (IA desligada, WhatsApp desconectado,
+  limites 0, ponte sem token). O dono pode ligar quando quiser pelo passo a passo de `docs/dolores/como-ligar.md`.
+- **Em curso — Dolores etapa 4 (Grupos de clientes):** @dev no worktree `dolores-e4`, ramo
+  `epic025-dolores-etapa4` (cópia `claude/wip-epic025-dolores-etapa4`), base `25ccea2` + falta unir `f8232ca`/`main`.
+  Migração reservada `0126` (NÃO aplicada). O ambiente reiniciou às ~23:50 UTC e matou o primeiro agente com trabalho
+  sem commit (não se perdeu: os arquivos ficaram no worktree); o agente novo faz commit e push a cada parte.
+- **Faltam:** etapa 4 (QA, `0126`, publicar), etapa 5 (notas de obra) e etapa 6 (operação contínua).
+
+## Próximo passo exato (17/11, 00:15 UTC)
+1. Receber o @dev da etapa 4 → portão de QA (segurança) → corrigir → aplicar `0126` → publicar pela receita
+   (ramo novo a partir da `main`, aplicar o diff da etapa, tsc, vitest com `--maxWorkers=2 --minWorkers=1`, vite build,
+   guarda da Vercel, prévia READY, mesclar, conferir produção). 2. Etapa 5 e etapa 6, do mesmo jeito. 3. Relatório final.
+
+## Decisões pendentes do dono (não travam)
+1. Com a opção B, o texto que ele manda a Dolores gravar (tarefa/acompanhamento) fica com CPF/telefone em claro na
+   fila e no registro — confirmar ou pedir para mascarar. 2. Confirmar que o laço da Dolores roda no servidor (e não no
+   agente do Console). 3. Ponte HTTP mascarada por padrão — confirmar ou liberar (`DOLORES_PONTE_DADOS_PESSOAIS`).
