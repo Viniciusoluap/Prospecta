@@ -245,3 +245,11 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
 - [ ] Etapa 4 — grupos de clientes (só grupos cadastrados e ativos, nunca comando; classificação com contagem prévia de
   tokens, uma por vez e orçamento próprio de 20% do limite; card e documentos pela fila; chamadas à Evolution sem
   redirecionamento)
+- [ ] Etapa 4b — resposta no grupo só quando marcada (regra do dono de 17/11): menção real reconhecida por código,
+  qualquer pessoa do grupo pode marcar, só fala do cliente/obra daquele grupo com situação em lista neutra, nunca age;
+  interruptor geral e por grupo desligados por padrão; tetos por grupo/dia e por pessoa/hora (`0129`)
+- [ ] Etapa 5 — notas de obra (leitura da nota em grupo de obra vira rascunho; confirmação do empreiteiro reconhecida por
+  código; conciliar com pagamento do BPO e salvar no Drive só pela fila; o BPO nunca é alterado) (`0128`)
+- [ ] Etapa 6 — operação contínua (rondas por código, eventos, relatório diário e sob demanda só para o dono, pausa
+  geral que barra todas as portas, gasto do mês; cron diário próprio) (`0131`)
+- [ ] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado)
