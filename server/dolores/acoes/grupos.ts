@@ -120,11 +120,21 @@ export async function clientesCandidatos(conexao: ReturnType<typeof bancoDaLeitu
 }
 
 /** O número do cliente está na mensagem do DONO que originou o pedido? (senão veio do modelo ou do grupo) */
+/**
+ * QA E4 r2, N6 — o dono só "indicou" o cliente se o número vier na forma EXPLÍCITA: "cliente 3", "card 3", "lead 3" (com
+ * "nº", "n.", "número" ou "#" opcionais no meio) ou "#3". Número solto ("salve os 3 documentos", "grupo 3") não é indicação.
+ */
+export function clienteIndicadoNoTexto(texto: string | null | undefined, leadId: number): boolean {
+  if (!Number.isInteger(leadId) || leadId <= 0) return false;
+  const t = String(texto ?? "").normalize("NFKC").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return new RegExp(String.raw`(?:(?<![\w#])#\s*|\b(?:cliente|card|lead)\s*(?:(?:n[o.º°]?|numero)\s*\.?\s*)?#?\s*)0*${leadId}(?![\w])`).test(t);
+}
+
 async function leadIdNaMensagemDoDono(mensagemId: number | null, leadId: number): Promise<boolean> {
   if (!mensagemId) return false;
   const [m] = await bancoDaLeitura().select({ texto: doloresMensagens.texto, doDono: doloresMensagens.doDono }).from(doloresMensagens)
     .where(eq(doloresMensagens.id, mensagemId)).limit(1);
-  return !!m?.doDono && new RegExp(`(?<!\\d)${leadId}(?!\\d)`).test(m.texto ?? "");
+  return !!m?.doDono && clienteIndicadoNoTexto(m.texto, leadId);
 }
 
 export async function prepararCardCliente(args: z.infer<typeof entradaCriarCardCliente>, ctx: ContextoAcao): Promise<Preparo> {

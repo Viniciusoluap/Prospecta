@@ -444,3 +444,24 @@ describe("QA r2 N5: o motivo da IA não passa com homóglifo nem largura total",
     expect(motivoDaIaSeguro("ｄｏｃｕｍｅｎｔｏ ｌｅｇíｖｅｌ")).toBe("documento legível");
   });
 });
+
+describe("QA r2 N6: 'como o dono indicou' só com a forma explícita do número do cliente", () => {
+  it("regras puras", async () => {
+    const { clienteIndicadoNoTexto } = await import("./acoes/grupos.js");
+    for (const sim of ["liga o grupo 1 ao cliente 3", "é o card 3", "lead 3", "o #3", "cliente nº 3", "cliente n. 3", "Cliente número 3", "card #3", "CLIENTE 3."]) {
+      expect(clienteIndicadoNoTexto(sim, 3), sim).toBe(true);
+    }
+    for (const nao of ["salve os 3 documentos", "grupo 3", "cria o card deste cliente e salva os 3 arquivos", "cliente 33", "cliente 13", "card 3a", "R$ 3", "3"]) {
+      expect(clienteIndicadoNoTexto(nao, 3), nao).toBe(false);
+    }
+  });
+
+  it("no fluxo: 'salve os 3 documentos' não vira 'como o dono indicou' para o cliente #3", async () => {
+    const [m] = await q<{ id: number }>(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, texto) VALUES ('prospecta-dolores', 'DONO6', true, 'cria o card e salve os 3 documentos') RETURNING id`);
+    const r = await executarFuncao({ funcao: "criar_card_cliente", argumentos: { grupoId: 1, nome: "Ana", leadId: 3 }, pedidoId: `wa:${m.id}:1:0` }, { canal: "whatsapp", mensagemId: m.id });
+    expect(r.body).toMatchObject({ ok: true });
+    const [i] = await q("SELECT resumo FROM dolores_aprovacoes ORDER BY id DESC LIMIT 1");
+    expect(i.resumo).not.toMatch(/como o dono indicou/);
+    expect(i.resumo).toMatch(/NÃO está na sua mensagem/);
+  });
+});
