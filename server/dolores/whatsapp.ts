@@ -417,7 +417,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     if (ehDeGrupo(item)) {
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor });
       contar(g.resultado);
-      if (g.resultado !== "grupo") {
+      // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
+      if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") {
         // cada marcação confere o próprio prazo (a IA só com tempo de sobra; a frase fixa, com o mínimo do envio)
         const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
           .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
