@@ -232,3 +232,24 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 1. Com a opção B, o texto que ele manda a Dolores gravar (tarefa/acompanhamento) fica com CPF/telefone em claro na
    fila e no registro — confirmar ou pedir para mascarar. 2. Confirmar que o laço da Dolores roda no servidor (e não no
    agente do Console). 3. Ponte HTTP mascarada por padrão — confirmar ou liberar (`DOLORES_PONTE_DADOS_PESSOAIS`).
+
+## Atualização — 17/11, ~02:10 UTC
+- **Publicado:** PR #246 — **S-12 termo de consentimento no primeiro acesso** (produção `2b7f064` READY; migração
+  `0127` aplicada antes: tabela `consentimentos`, 0 aceites, 11 usuários intactos). QA: 1ª CONCERNS, 2ª PASS
+  (`scratchpad/qa-s12*/RELATORIO.md`). Texto provisório até o jurídico (pendências só na janela do admin).
+  Desligado por decisão pendente do dono: `CONSENTIMENTO_PEDIR_NO_LOGIN` (pedir a quem já tem senha).
+- **O dono confirmou em 17/11** as três decisões pendentes da Dolores (ver `CLAUDE.md`) e mandou "continuar sem parar
+  até concluir tudo".
+- **Dolores etapa 4 (Grupos de clientes):** 1ª rodada de QA FAIL (gatilho da `0126` quebrava exclusões do CRM; PDF
+  comprimido furava o teto de páginas); 8 achados corrigidos (`3901fef`…`e3e99af`, HEAD `a386300`, cópia
+  `claude/wip-epic025-dolores-etapa4`); 2ª rodada em curso (`scratchpad/qa-dolores-e4-r2/RELATORIO.md`).
+  `0126` NÃO aplicada.
+- **Dolores etapa 5 (Notas de obra):** @dev em curso no worktree `dolores-e5`, ramo `epic025-dolores-etapa5` (cópia
+  `claude/wip-epic025-dolores-etapa5`), migração reservada `0128`. Base = etapa 4 + `main`.
+- **Falta:** publicar a etapa 4; QA e publicação da etapa 5; etapa 6 (operação contínua: eventos, rondas, relatório
+  diário, tela com pausa e gasto); relatório final.
+
+## Próximo passo exato (17/11, 02:10 UTC)
+1. E4: receber o QA r2 → corrigir o que for importante → `0126` → publicar pela receita. 2. E5: receber o @dev → QA →
+`0128` → publicar. 3. E6: lançar o @dev em cima da E5, QA, migração `0129`, publicar. 4. Relatório final ao dono com
+a classificação de cada item e o que depende só dele.
