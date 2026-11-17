@@ -74,13 +74,13 @@ export const notasRouter = router({
   /** Notas (rascunhos) com conferências, resposta do empreiteiro e apontamento da conciliação; pendências de leitura. */
   listar: soAdmin.input(z.object({ obraId: id32.optional(), situacao: z.enum(["abertas", "todas"]).default("todas") }).strict().optional()).query(async ({ input }) => {
     try {
+      const config = await lerConfigNotas();
       return await emTransacaoSomenteLeitura(async () => {
         const conexao = bancoDaLeitura();
         const linhas = await notasDoBanco(conexao, { obraId: input?.obraId, abertas: input?.situacao === "abertas", limite: 200 });
         const janela = await janelaDaConciliacao(conexao);
-        const [apontamentos, respostas, config] = await Promise.all([
-          apontarNotas(conexao, linhas.map(l => paraConciliar(l.n)), janela), respostasDasNotas(conexao, linhas.map(l => l.n.id)), lerConfigNotas(),
-        ]);
+        const apontamentos = await apontarNotas(conexao, linhas.map(l => paraConciliar(l.n)), janela);
+        const respostas = await respostasDasNotas(conexao, linhas.map(l => l.n.id));
         const [pend] = await conexao.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupoMensagens)
           .innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
           .where(and(eq(doloresGrupos.ativo, true), isNotNull(doloresGrupos.obraId), inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "erro"])));

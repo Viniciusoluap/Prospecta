@@ -75,8 +75,8 @@ async function devolverVagaDoDia(grupoId: number, dia: string) {
 }
 
 /** Empreiteiro cadastrado da obra (usuário ativo, papel empreiteiro), com CPF (dígitos) e a chave do telefone. */
-export async function empreiteiroDaObra(obraId: number) {
-  const [r] = await getDb().select({ id: users.id, cpf: users.cpf, phone: users.phone, ativo: users.active, papel: users.role })
+export async function empreiteiroDaObra(obraId: number, conexao: Pick<ReturnType<typeof getDb>, "select"> = getDb()) {
+  const [r] = await conexao.select({ id: users.id, cpf: users.cpf, phone: users.phone, ativo: users.active, papel: users.role })
     .from(constructionProjects).innerJoin(users, eq(users.id, constructionProjects.contractorUserId)).where(eq(constructionProjects.id, obraId)).limit(1);
   if (!r || !r.ativo || r.papel !== "empreiteiro") return null;
   return { id: r.id, cpf: String(r.cpf ?? "").replace(/\D/g, "") || null, chaveTelefone: r.phone ? chaveTelefone(r.phone) : null };
@@ -107,7 +107,7 @@ async function gravarNota(p: {
     let empreiteiroUserId: number | null = null;
     const duvidas = [...l.duvidas];
     if (p.obraId) {
-      const emp = await empreiteiroDaObra(p.obraId);
+      const emp = await empreiteiroDaObra(p.obraId, tx as never);
       if (emp && l.emitenteDocumento && emp.cpf === l.emitenteDocumento) empreiteiroUserId = emp.id;
       else if (l.categoria === "empreiteiro") duvidas.push("categoria \"empreiteiro\" sugerida, mas o CPF/CNPJ da nota não é o do empreiteiro cadastrado na obra: confira");
     }
