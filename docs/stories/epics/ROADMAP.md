@@ -233,3 +233,5 @@ A Dolores não está na lista de exceções; quando o dono mandar fazer a parida
   padrão, atrás de um interruptor (`DOLORES_MASCARAR_DADOS_PESSOAIS=1` volta a mascarar): filtro do texto livre, campos
   das leituras, regra do prompt. Sempre mascarados nos dois modos: senha, token, código de acesso/OTP, chave de API,
   agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.
+- [ ] Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
+  aprovação `dolores_aprovacoes`, decisão do dono por código no WhatsApp ou na tela do admin; autoria em `dolores_autoria`)

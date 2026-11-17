@@ -575,7 +575,14 @@ async function salvarRascunho(projectId: number, form: FormularioPci, autorId: n
     ON CONFLICT (project_id) DO UPDATE SET form_data = EXCLUDED.form_data, updated_by = EXCLUDED.updated_by, updated_at = now()`);
 }
 
-export async function gerarPciDaObra(projectId: number, entrada: unknown, autor: { id: number; name: string | null }) {
+/**
+ * Opções de quem gera fora da tela (EPIC-025, Dolores): `regravarRascunho: false` gera a partir do rascunho SEM regravá-lo
+ * (o rascunho é da equipe: autoria e edição em andamento não mudam); `prazoDriveMs` limita cada cópia ao Drive (passou,
+ * a cópia fica pendente para o organizador). Sem opções, o comportamento é o da tela (botão "Gerar").
+ */
+export type OpcoesGeracaoPci = { regravarRascunho?: boolean; prazoDriveMs?: number };
+
+export async function gerarPciDaObra(projectId: number, entrada: unknown, autor: { id: number; name: string | null }, opcoes: OpcoesGeracaoPci = {}) {
   const obra = await obraDoGerador(projectId);
   let form = await conferirProcedenciaNoServidor(projectId, normalizarFormularioPci(entrada), autor.id);
   // Lote 03, correção 06/07: valores inválidos, cronograma incompleto ou fora da lista bloqueiam.
@@ -586,7 +593,7 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
   const modelo = await modeloParaGerarPci(atual);
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
   form = await registrarConfirmacoes(projectId, form, autor.id);
-  await salvarRascunho(projectId, form, autor.id);
+  if (opcoes.regravarRascunho !== false) await salvarRascunho(projectId, form, autor.id);
   let planilha;
   try {
     planilha = gerarPlanilhaPci(modelo.bytes, modelo.formato, form);
@@ -605,8 +612,8 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
     RETURNING id`);
   const id = Number(linhas<{ id: number }>(r)[0].id);
   // Pedido de 29/10: cópias em Obras/<Obra (nº id)>/Gerador de PCI (falha fica pendente).
-  await copiarParaDrive("pci_gerada_planilha", id);
-  await copiarParaDrive("pci_gerada_pdf", id);
+  await copiarParaDrive("pci_gerada_planilha", id, undefined, opcoes.prazoDriveMs);
+  await copiarParaDrive("pci_gerada_pdf", id, undefined, opcoes.prazoDriveMs);
   return { id, avisos: planilha.avisos, pendencias: pendenciasPci(form) };
 }
 

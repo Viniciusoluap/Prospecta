@@ -15,6 +15,7 @@ import { doloresMensagens, doloresRemetentesEstranhos, doloresWhatsappConfig, ty
 import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
+import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
   FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, type MotivoBloqueio,
@@ -29,6 +30,9 @@ import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_FINAL_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
+import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
+import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
+import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 
 /** Prazo do laço + envio, com folga para os 60 s da função da Vercel. */
 export const PRAZO_TOTAL_MS = 45_000;
@@ -56,7 +60,6 @@ const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstru
  * QA r7 A2: domínio do sistema para a lista permitida de links da resposta — SÓ a variável PUBLIC_SITE_URL (a mesma do
  * endereço do aviso). Sem ela, nenhum link do sistema passa (só trello.com).
  */
-const urlDoSistemaParaLinks = () => process.env.PUBLIC_SITE_URL?.trim() || null;
 export const URL_WEBHOOK_DOLORES = () => `${SITE()}/api/dolores/whatsapp`;
 
 /** Segredo do aviso da Dolores: derivado do segredo do servidor com rótulo próprio (nunca vai para log nem para a tela). */
@@ -177,6 +180,22 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
     return "so-texto";
   }
+  // Etapa 3 — decisão da fila: reconhecida por CÓDIGO (a mensagem inteira é "aprovar CÓDIGO"/"recusar CÓDIGO"), nunca
+  // pelo modelo. Só chega aqui mensagem do número do dono, não encaminhada e sem mídia. Não chama a IA (nem gasta).
+  const decisao = msg.temMidia ? null : lerDecisaoDoDono(msg.texto);
+  if (decisao) {
+    let texto: string;
+    try {
+      const r = await decidir(decisao.codigos, decisao.decisao, { via: "whatsapp", userId: null, agora: deps.agora(), prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms, mensagemId: msg.id });
+      texto = `Dolores:\n${r.map(x => x.texto).join("\n")}`;
+    } catch (e) {
+      console.error("[dolores/whatsapp] falha ao decidir itens da fila", erroCurto(e));
+      texto = "Dolores: não consegui registrar a decisão agora; nada foi executado. Tente de novo em instantes.";
+    }
+    await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { decisao: decisao.decisao, codigos: decisao.codigos.length }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: "respondida", motivo: `decisão da fila: ${decisao.decisao}`, respondidaEm: deps.agora() });
+    return `decisao:${decisao.decisao}`;
+  }
   let estado: Awaited<ReturnType<typeof bloqueioAtual>>;
   try { estado = await bloqueioAtual(cfg, mes); }
   catch (e) { console.error("[dolores/whatsapp] falha ao conferir a configuração", erroCurto(e)); estado = { motivo: "indisponivel" }; }
@@ -201,6 +220,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
+    texto = await anexarQuadros(msg.id, texto, r.codigosNaFila);
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
@@ -211,6 +231,35 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
     return "erro";
   }
+}
+
+/** "16/11 09:05" no horário de Imperatriz (UTC−3 fixo). */
+const diaEHora = (d: Date) => {
+  const s = new Date(d.getTime() - 3 * 60 * 60_000).toISOString();
+  return `${s.slice(8, 10)}/${s.slice(5, 7)} ${s.slice(11, 16)}`;
+};
+
+/**
+ * Etapa 3 — quadros DETERMINÍSTICOS no fim da resposta: o que a Dolores gravou direto por este comando e o que ficou na
+ * fila, com o código de cada item (lidos do banco; o texto do modelo nunca escolhe código nem resumo). Os quadros têm
+ * prioridade sobre o texto do modelo no limite de tamanho.
+ */
+async function anexarQuadros(mensagemId: number, texto: string, codigosNaFila: readonly string[] = []): Promise<string> {
+  const [pendentes, feitos] = await Promise.all([
+    itensAguardandoDoPedido(mensagemId, codigosNaFila).catch(e => { console.error("[dolores/whatsapp] falha ao ler a fila", erroCurto(e)); return []; }),
+    feitosDoPedido(mensagemId).catch(e => { console.error("[dolores/whatsapp] falha ao ler a autoria", erroCurto(e)); return []; }),
+  ]);
+  // QA R2 M5: nada é cortado no fim. A fila tem prioridade (itens inteiros enquanto couberem, depois "e mais N"), o quadro
+  // do que foi feito usa o que sobra, e o texto do modelo fica com o resto (no mínimo 200 caracteres). Já sai pelo filtro
+  // de dados pessoais aqui, para o tamanho medido ser o que vai (o filtro de novo, na saída, não muda nada).
+  const MINIMO_TEXTO = 200;
+  const FOLGA = 60;
+  const fila = sanitizarTexto(quadroDePendencias(pendentes, diaEHora, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - 300 - FOLGA), filtroDaSaida("whatsapp"));
+  const feito = sanitizarTexto(quadroDoQueFoiFeito(feitos, MAX_CARACTERES_WHATSAPP - MINIMO_TEXTO - FOLGA - (fila ? fila.length + 2 : 0)), filtroDaSaida("whatsapp"));
+  const quadros = [feito, fila].filter(Boolean).join("\n\n");
+  if (!quadros) return texto;
+  const espaco = Math.max(MINIMO_TEXTO, MAX_CARACTERES_WHATSAPP - quadros.length - 4 - FOLGA);
+  return `${cortarResposta(sanitizarTexto(texto, filtroDaSaida("whatsapp")), espaco)}\n\n${quadros}`;
 }
 
 /** "09:05" no horário de Imperatriz (UTC−3 fixo). */

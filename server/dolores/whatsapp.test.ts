@@ -121,7 +121,7 @@ describe("comando do dono — teste de aceite pelo WhatsApp", () => {
     expect(a.map(x => [x.funcao, x.resultado, x.canal])).toEqual([
       ["whatsapp_mensagem", "ok", "whatsapp"], ["listar_processos_regularizacao", "ok", "whatsapp"], ["whatsapp_resposta", "ok", "whatsapp"],
     ]);
-    expect(a.every(x => x.etapa === 2)).toBe(true);
+    expect(a.every(x => x.etapa === 3)).toBe(true); // etapa 3 (ações) em vigor
     expect(a[1].resumo).toMatchObject({ truncado: false });
     expect(JSON.stringify(a)).not.toContain(DONO);
     // consumo por chamada e a mensagem marcada
@@ -311,7 +311,7 @@ describe("injeção de instruções (dados envenenados)", () => {
     // 2) as ferramentas pedidas pelo "dado" foram recusadas pela lista fechada da ponte (e auditadas)
     const r2 = pedidosModelo[2].mensagens[4].content as any[];
     expect(r2.map(x => [x.tool_use_id, x.is_error])).toEqual([["tu_envio", true], ["tu_sql", true]]);
-    expect(r2[0].content).toMatch(/prevista para a etapa 3; ainda não liberada/);
+    expect(r2[0].content).toMatch(/não permitida: envio de mensagem a cliente ou terceiro não foi liberado pelo dono/);
     expect(r2[1].content).toMatch(/não existe na lista de funções autorizadas/);
     const a = await acoes();
     expect(a.filter(x => x.resultado === "recusada").map(x => x.funcao)).toEqual(["enviar_mensagem_whatsapp", nomeParaRegistro("executar_sql")]); // QA r7 A7: nome fora da lista vai com hash

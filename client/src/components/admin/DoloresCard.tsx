@@ -86,7 +86,7 @@ export function DoloresCard() {
             </div>
           )}
           <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
-            <Info className="mt-0.5 h-3 w-3 shrink-0" /> A Dolores só lê o sistema (etapa 2). Ela responde apenas ao número do dono; mensagem de outro número é ignorada e registrada. Com a IA desligada, ela responde só uma frase fixa, sem gastar nada.
+            <Info className="mt-0.5 h-3 w-3 shrink-0" /> Etapa 3: a Dolores lê o sistema, cria tarefas e registra acompanhamentos; cobranças e documentos esperam a aprovação do dono (fila abaixo) e nada é enviado a clientes. Ela responde apenas ao número do dono; mensagem de outro número é ignorada e registrada. Com a IA desligada, ela responde só uma frase fixa, sem gastar nada.
           </p>
 
           <div className="flex flex-wrap gap-2">

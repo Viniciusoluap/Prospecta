@@ -120,8 +120,12 @@ const GUARDA = /\uE000(\d+)\uE001/g;
 // o link voltaria a ser clicável.
 const INVISIVEL_NO_PONTO = new RegExp(String.raw`(?<=[\p{L}\p{N}])[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=\.)|(?<=[\p{L}\p{N}]\.)[\u00AD\u200B-\u200D\u2060\uFEFF]+(?=[\p{L}\p{N}])`, "gu");
 
+const PONTO_DISFARCADO = new RegExp(String.raw`(?<=[\p{L}\p{N}])[\uFF0E\u3002\uFF61](?=[\p{L}\p{N}])`, "gu");
+
 /** Resposta ao dono com os links tratados (ver o cabeçalho). Texto sem link volta idêntico. */
-export function tratarLinksDaResposta(texto: string, urlDoSistema: string | null | undefined): string {
+export function tratarLinksDaResposta(textoBruto: string, urlDoSistema: string | null | undefined): string {
+  // QA final da E3 (achado 3): ponto de largura total ou ideográfico entre letras vira link clicável no WhatsApp.
+  const texto = textoBruto ? textoBruto.replace(PONTO_DISFARCADO, ".") : textoBruto;
   if (!texto || !/[./:\\]|\]\(/.test(texto)) return texto;
   const permitidos = hostsPermitidos(urlDoSistema);
   const guardados: string[] = [];
