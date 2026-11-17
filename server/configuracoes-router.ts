@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
-import { and, count, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, count, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { brokerProfiles, engineerProfiles, leads, users } from "../drizzle/schema.js";
 import { validarPerfilEngenheiro } from "../shared/engenheiro.js";
@@ -12,6 +12,8 @@ import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
+import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
+import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, ehPrimeiroAcesso, gravarSenhaComAceite, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
 
 const managedRole = z.enum(["admin", "corretor", "colaborador", "cliente", "empreiteiro"]);
 // EPIC-023 (S-A): comissão padrão e observações do corretor vieram da antiga tela
@@ -22,7 +24,7 @@ const comissaoPadrao = z.string().trim().transform(v => v.replace(",", "."))
 const observacoes = z.string().trim().max(5000).optional().nullable();
 const permissionsSchema = z.array(z.enum(ADMIN_MODULES)).max(ADMIN_MODULES.length);
 
-const PRIMEIRO_ACESSO_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000;
+const PRIMEIRO_ACESSO_VALIDADE_MS = VALIDADE_DO_LINK_MS;
 const SITE_URL = "https://www.prospectaconstrucoes.com";
 
 // Gera um token de primeiro acesso/redefinição de senha (7 dias) e envia o email para
@@ -276,34 +278,38 @@ export const configuracoesRouter = router({
 // define a própria senha a partir do link enviado por email, sem nunca passar pelo
 // admin. Mantido junto de configuracoesRouter porque compartilha a lógica de token.
 export const primeiroAcessoRouter = router({
+  // EPIC-024 S-12: a tela recebe também a situação do termo de consentimento ("obrigatorio", "opcional" ou "aceito").
   validarToken: publicProcedure.input(z.object({ token: z.string().min(1) })).query(async ({ input }) => {
-    const [usuario] = await getDb().select({ name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm })
+    const db = getDb();
+    const [usuario] = await db.select({ id: users.id, name: users.name, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: users.createdAt })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
     const valido = tokenPrimeiroAcessoAindaValido(usuario?.expiraEm);
-    return { valido, nome: valido ? usuario!.name : null };
+    if (!valido) return { valido, nome: null, termo: null, versaoDoTermo: VERSAO_DO_TERMO };
+    const termo = situacaoDoTermo(await aceitesDoUsuario(db, usuario!.id), ehPrimeiroAcesso({ createdAt: usuario!.createdAt, tokenExpiraEm: usuario!.expiraEm }));
+    return { valido, nome: usuario!.name, termo, versaoDoTermo: VERSAO_DO_TERMO };
   }),
 
+  // EPIC-024 S-12: no primeiro acesso o servidor EXIGE `aceitouTermo: true` com a versão vigente; senha e aceite
+  // são gravados na mesma transação (server/consentimento.ts › gravarSenhaComAceite).
   definirSenha: publicProcedure.input(z.object({
     token: z.string().min(1),
     novaSenha: z.string().min(8).max(128),
-  })).mutation(async ({ input }) => {
+    aceitouTermo: z.boolean().optional(),
+    versaoDoTermo: z.string().max(40).optional(),
+  })).mutation(async ({ ctx, input }) => {
     const db = getDb();
-    const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm })
+    const [usuario] = await db.select({ id: users.id, expiraEm: users.tokenPrimeiroAcessoExpiraEm, createdAt: users.createdAt })
       .from(users).where(eq(users.tokenPrimeiroAcesso, input.token)).limit(1);
     if (!usuario || !tokenPrimeiroAcessoAindaValido(usuario.expiraEm)) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
     }
+    const situacao = situacaoDoTermo(await aceitesDoUsuario(db, usuario.id), ehPrimeiroAcesso({ createdAt: usuario.createdAt, tokenExpiraEm: usuario.expiraEm }));
+    const gravarAceite = conferirAceite(situacao, input.aceitouTermo, input.versaoDoTermo);
+    const ua = (ctx?.req as { headers?: Record<string, string | undefined> } | undefined)?.headers?.["user-agent"];
     // Reivindica o token com guarda atômica (token ainda bate E ainda não expirou) —
     // evita reuso em corrida (duas abas enviando o mesmo link ao mesmo tempo).
-    const [claimed] = await db.update(users).set({
-      passwordHash: hashPassword(input.novaSenha),
-      tokenPrimeiroAcesso: null,
-      tokenPrimeiroAcessoExpiraEm: null,
-      sessionVersion: sql`${users.sessionVersion} + 1`,
-      updatedAt: new Date(),
-    }).where(and(eq(users.id, usuario.id), eq(users.tokenPrimeiroAcesso, input.token), gt(users.tokenPrimeiroAcessoExpiraEm, new Date())))
-      .returning({ id: users.id });
-    if (!claimed) throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
+    const ok = await gravarSenhaComAceite(db, { userId: usuario.id, token: input.token, novaSenha: input.novaSenha, gravarAceite, aparelho: aparelhoDoUserAgent(ua) });
+    if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado" });
     return { success: true } as const;
   }),
 });
