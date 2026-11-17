@@ -18,7 +18,8 @@ import { ArquivoGrandeDemais, baixarArquivo } from "./classificacao.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { bancoDaAcao, emTransacaoDeEscrita } from "./escrita.js";
 import { lerConfigGrupos } from "./grupos.js";
-import { janelaDaConciliacao, lancamentosParaConciliar } from "./leitura/notas.js";
+import { apontarConciliacao } from "../../shared/dolores/notas.js";
+import { janelaDaConciliacao, lancamentosParaConciliar, paraConciliar } from "./leitura/notas.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import type { z } from "zod";
 
@@ -46,6 +47,11 @@ export async function executarConciliarAprovado(args: z.infer<typeof entradaConc
     if (Math.abs(l.valorCentavos - args.valorCentavos) > 1) throw new RecusaAcao(`O valor do lançamento #${l.id} mudou e não confere mais com a nota; nada foi feito.`);
     if (l.notaLigada) throw new RecusaAcao(`O lançamento #${l.id} já está ligado à nota ${l.notaLigada}; nada foi feito.`);
     if (l.obraId !== null && l.obraId !== n.obraId) throw new RecusaAcao(`O lançamento #${l.id} está ligado a outra obra; nada foi feito.`);
+    // a MESMA regra da proposta, refeita agora (QA E5 achado 4): o fornecedor, a obra ou outro pagamento podem ter mudado no BPO
+    // entre o pedido e a aprovação — se a nota não aponta mais para ESTE lançamento, nada é gravado
+    const ap = apontarConciliacao(paraConciliar(n), lancs.filter(x => x.notaLigada !== n.id), janela);
+    const aponta = ap.situacao === "ja_lancado" ? ap.lancamentoId === l.id : ap.situacao === "varios" ? ap.lancamentoIds.includes(l.id) : false;
+    if (!aponta) throw new RecusaAcao(`O lançamento #${l.id} não confere mais com a nota ${n.id} (valor, data, fornecedor e obra) desde o pedido; nada foi feito. Peça de novo.`);
     const r = await tx.update(obraNotas).set({ bpoLancamentoId: l.id, conciliadaEm: ctx.agora, conciliadaAprovacaoId: ctx.aprovacaoId })
       .where(and(eq(obraNotas.id, n.id), isNull(obraNotas.bpoLancamentoId))).returning({ id: obraNotas.id });
     if (!r.length) throw new RecusaAcao(`A nota ${n.id} já foi ligada a um pagamento; nada foi feito.`);

@@ -23,6 +23,7 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://u:p@127.0.0
 import { FERRAMENTA_NOTA, type SaidaNota } from "../../shared/dolores/notas.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
+import { uploadArquivoNoCaminho } from "../drive-documents.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
@@ -218,3 +219,36 @@ describe("QA E5 — conciliação depois que o lançamento do BPO some", () => {
     expect((await caller("admin").dolores.notas.listar({ situacao: "abertas" })).notas.find((x: any) => x.id === n.id)).toBeUndefined();
   });
 });
+
+describe("QA E5 — execução da conciliação refaz o apontamento", () => {
+  const lancamento = (nome: string) => `INSERT INTO bank_accounts (banco, conta) VALUES ('Banco', '1');
+      INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo) VALUES (1, '2026-11-16', 'PIX', '-2500.00', 'debito');
+      INSERT INTO bpo_lancamentos (tipo, descricao, valor, valor_recebido, vencimento, pago, pago_em, competencia, a_classificar, categoria_operacional, vinculo_operacional_id, tipo_despesa_obra, bank_transaction_id, cliente_nome_livre)
+        VALUES ('despesa', 'PIX', '2500.00', '0', '2026-11-16', true, '2026-11-16 12:00', '2026-11', false, 'obras', '1', 'empreiteiro', 1, '${nome}');`;
+
+  it("CORRIGIDO: o resumo da fila mostra o fornecedor do BPO; se o fornecedor muda antes da aprovação, nada é gravado", async () => {
+    await banco.pg.exec(lancamento("Zé Empreiteiro ME"));
+    await mandarNota(8);
+    const [n] = await notas();
+    const proposta = await caller("admin").dolores.notas.proporConciliacao({ notaId: n.id });
+    expect(proposta.itens[0].resumo).toContain('fornecedor no BPO "Zé Empreiteiro ME"');
+    // entre a proposta e a aprovação, o lançamento passa a ser de OUTRO fornecedor no BPO
+    await banco.pg.exec("UPDATE bpo_lancamentos SET cliente_nome_livre = 'Outra Construtora Ltda' WHERE bank_transaction_id = 1");
+    const [ap] = await q("SELECT codigo FROM dolores_aprovacoes");
+    expect((await decidir([ap.codigo], "aprovar", decisorDaTela(1)))[0]).toMatchObject({ ok: false, texto: expect.stringMatching(/não confere mais/) });
+    expect((await notas())[0]).toMatchObject({ bpo_lancamento_id: null, conciliada_em: null, conciliada_aprovacao_id: null });
+    // o lançamento do BPO não foi tocado pela Dolores
+    expect((await q("SELECT cliente_nome_livre, valor::text AS valor, pago FROM bpo_lancamentos WHERE bank_transaction_id = 1"))[0]).toMatchObject({ cliente_nome_livre: "Outra Construtora Ltda", pago: true, valor: expect.stringMatching(/^2500(\.00?)?$/) });
+  });
+
+  it("controle: com o fornecedor igual, a aprovação liga a nota", async () => {
+    await banco.pg.exec(lancamento("Zé Empreiteiro ME"));
+    await mandarNota(9);
+    const [n] = await notas();
+    await caller("admin").dolores.notas.proporConciliacao({ notaId: n.id });
+    const [ap] = await q("SELECT codigo, id FROM dolores_aprovacoes");
+    expect((await decidir([ap.codigo], "aprovar", decisorDaTela(1)))[0]).toMatchObject({ ok: true });
+    expect((await notas())[0]).toMatchObject({ conciliada_aprovacao_id: ap.id });
+  });
+});
+

@@ -65,7 +65,8 @@ export async function prepararConciliarNota(args: z.infer<typeof entradaConcilia
     if (l.notaLigada) throw new RecusaAcao(`O lançamento #${l.id} já está ligado à nota ${l.notaLigada} (provável duplicata). Nada foi posto na fila.`);
     const emitente = mostrar(n.emitenteNome, 80, "emitente não lido");
     const resumo = resumoDaFila(`Ligar a nota ${n.id} (obra "${mostrar(obra, 80, `obra ${n.obraId}`)}", obra ${n.obraId}; emitente "${emitente}"; nº ${mostrar(n.numero, 30, "sem número")}; `
-      + `${reais(n.valorCentavos)} de ${dataBr(n.dataEmissao)}) ao pagamento do BPO lançamento #${l.id} (${reais(l.valorCentavos)}, ${dataBr(l.data)}, pago e vindo do extrato do banco). `
+      + `${reais(n.valorCentavos)} de ${dataBr(n.dataEmissao)}) ao pagamento do BPO lançamento #${l.id} (fornecedor no BPO "${mostrar(l.fornecedorNome, 80, "sem fornecedor no cadastro do BPO")}"; `
+      + `${reais(l.valorCentavos)}, ${dataBr(l.data)}, pago e vindo do extrato do banco). `
       + (vinculoPerdido(n) ? `ATENÇÃO: esta nota já foi ligada antes a um pagamento que depois foi EXCLUÍDO no BPO (vínculo perdido); isto a religa. ` : "")
       + `Só grava o vínculo NA NOTA (registro da Dolores): o lançamento do BPO NÃO é alterado, nada é pago nem baixado. ${CONFIRMACAO[n.confirmacao] ?? ""}. ${AVISO_CONFIRMACAO}`);
     return { itens: [{ alvo: `nota:${n.id}:conciliar`, resumo, argumentos: { notaId: n.id, lancamentoId: l.id, valorCentavos: n.valorCentavos, obraId: n.obraId } }], recusados: [] };
