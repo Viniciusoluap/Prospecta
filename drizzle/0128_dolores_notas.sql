@@ -10,12 +10,13 @@
 --   não barrar exclusões legítimas que o sistema já fazia (lição da etapa 4).
 -- "obra_notas_respostas": cada resposta do empreiteiro no grupo reconhecida POR CÓDIGO como confirmação ou pedido de correção
 --   de uma nota (indício, não assinatura). Só inserção (o usuário pode virar NULL pela exclusão dele).
--- "obra_notas_config": linha única (id = 1) — leitura de notas pela IA (DESLIGADA por padrão), teto diário, prazo da
---   confirmação e janela de datas da conciliação.
--- "obra_notas_contagem": uma linha por dia (leituras pela IA e o uso acima da reserva).
+-- "obra_notas_config": linha única (id = 1) — leitura de notas pela IA (DESLIGADA por padrão), prazo da confirmação e janela
+--   de datas da conciliação. Os tetos diários, o orçamento próprio e a pausa por excesso são os MESMOS da classificação de
+--   documentos da etapa 4 (dolores_grupos_config / dolores_grupos_contagem / dolores_grupos_consumo_mes): a leitura de nota
+--   conta como um documento do grupo, uma chamada por vez, dentro do mesmo orçamento.
 -- Somente aditiva e idempotente: tabelas, índices, funções e gatilhos novos (IF NOT EXISTS / OR REPLACE); a linha de
 -- configuração entra com ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
--- Reversão: DROP TABLE "obra_notas_respostas", "obra_notas", "obra_notas_config", "obra_notas_contagem";
+-- Reversão: DROP TABLE "obra_notas_respostas", "obra_notas", "obra_notas_config";
 -- DROP FUNCTION obra_notas_guarda(), obra_notas_respostas_guarda() (nada depende delas).
 
 CREATE TABLE IF NOT EXISTS "obra_notas" (
@@ -63,7 +64,8 @@ CREATE INDEX IF NOT EXISTS "obra_notas_grupo_idx" ON "obra_notas" ("grupo_id", "
 CREATE INDEX IF NOT EXISTS "obra_notas_sha_idx" ON "obra_notas" ("arquivo_sha256") WHERE "arquivo_sha256" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "obra_notas_chave_idx" ON "obra_notas" ("chave_acesso") WHERE "chave_acesso" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "obra_notas_emitente_idx" ON "obra_notas" ("emitente_documento", "numero") WHERE "emitente_documento" IS NOT NULL;
-CREATE INDEX IF NOT EXISTS "obra_notas_bpo_idx" ON "obra_notas" ("bpo_lancamento_id") WHERE "bpo_lancamento_id" IS NOT NULL;
+-- um pagamento do BPO concilia com UMA nota só (a segunda é "provável duplicata")
+CREATE UNIQUE INDEX IF NOT EXISTS "obra_notas_bpo_uidx" ON "obra_notas" ("bpo_lancamento_id") WHERE "bpo_lancamento_id" IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION obra_notas_guarda() RETURNS trigger AS $$
 BEGIN
@@ -166,7 +168,6 @@ CREATE TRIGGER obra_notas_respostas_sem_truncate BEFORE TRUNCATE ON "obra_notas_
 CREATE TABLE IF NOT EXISTS "obra_notas_config" (
   "id" integer PRIMARY KEY DEFAULT 1 CHECK ("id" = 1),
   "leitura_ligada" boolean NOT NULL DEFAULT false,
-  "teto_leituras_dia" integer NOT NULL DEFAULT 20 CHECK ("teto_leituras_dia" BETWEEN 0 AND 500),
   "prazo_confirmacao_dias" integer NOT NULL DEFAULT 7 CHECK ("prazo_confirmacao_dias" BETWEEN 1 AND 60),
   "janela_conciliacao_dias" integer NOT NULL DEFAULT 30 CHECK ("janela_conciliacao_dias" BETWEEN 1 AND 120),
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),
@@ -174,12 +175,3 @@ CREATE TABLE IF NOT EXISTS "obra_notas_config" (
 );
 
 INSERT INTO "obra_notas_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS "obra_notas_contagem" (
-  -- dia civil de Imperatriz (AAAA-MM-DD)
-  "dia" varchar(10) PRIMARY KEY NOT NULL,
-  "leituras" integer NOT NULL DEFAULT 0,
-  -- tokens de entrada usados ACIMA da reserva no dia; maior que zero, as leituras ficam pausadas até o dia seguinte
-  "excesso_entrada" integer NOT NULL DEFAULT 0,
-  "ultima_em" timestamp with time zone NOT NULL DEFAULT now()
-);

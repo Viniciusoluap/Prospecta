@@ -1,6 +1,7 @@
-// 17/11/2026 — EPIC-025 (etapa 5): notas de obra lidas nos grupos de obra, respostas do empreiteiro reconhecidas, configuração
-// e contagem diária da leitura (migração 0128_dolores_notas.sql). Tabelas novas, em arquivo próprio: nenhuma tabela anterior
+// 17/11/2026 — EPIC-025 (etapa 5): notas de obra lidas nos grupos de obra, respostas do empreiteiro reconhecidas e a
+// configuração da leitura (migração 0128_dolores_notas.sql). Tabelas novas, em arquivo próprio: nenhuma tabela anterior
 // foi alterada. As garantias (nada apagado, o que foi lido não muda, vínculos que só podem virar NULL) estão nos gatilhos.
+import { sql } from "drizzle-orm";
 import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import type { CategoriaNota, ItemNota, SituacaoNota, TipoNota } from "../shared/dolores/notas.js";
 import { bpoLancamentos, constructionProjects, users } from "./schema.js";
@@ -47,6 +48,7 @@ export const obraNotas = pgTable("obra_notas", {
   uniqueIndex("obra_notas_mensagem_uidx").on(t.mensagemId),
   index("obra_notas_obra_idx").on(t.obraId, t.criadoEm),
   index("obra_notas_grupo_idx").on(t.grupoId, t.criadoEm),
+  uniqueIndex("obra_notas_bpo_uidx").on(t.bpoLancamentoId).where(sql`${t.bpoLancamentoId} IS NOT NULL`),
 ]);
 export type ObraNota = typeof obraNotas.$inferSelect;
 
@@ -69,17 +71,9 @@ export const obraNotasRespostas = pgTable("obra_notas_respostas", {
 export const obraNotasConfig = pgTable("obra_notas_config", {
   id: integer("id").primaryKey().default(1),
   leituraLigada: boolean("leitura_ligada").default(false).notNull(),
-  tetoLeiturasDia: integer("teto_leituras_dia").default(20).notNull(),
   prazoConfirmacaoDias: integer("prazo_confirmacao_dias").default(7).notNull(),
   janelaConciliacaoDias: integer("janela_conciliacao_dias").default(30).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
 });
 export type ObraNotasConfig = typeof obraNotasConfig.$inferSelect;
-
-export const obraNotasContagem = pgTable("obra_notas_contagem", {
-  dia: varchar("dia", { length: 10 }).primaryKey(),
-  leituras: integer("leituras").default(0).notNull(),
-  excessoEntrada: integer("excesso_entrada").default(0).notNull(),
-  ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
-});
