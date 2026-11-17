@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -26,6 +26,12 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     rotulo: "Dolores — conversa pelo WhatsApp",
     descricao: "Responde aos comandos do dono pelo WhatsApp da Dolores. Só gasta com o interruptor da IA dela ligado, a cada comando, até os limites mensais definidos no cartão da Dolores.",
     recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar.",
+  },
+  dolores_documentos: {
+    id: "dolores_documentos",
+    rotulo: "Dolores — classificação de documentos",
+    descricao: "Classifica os documentos e fotos que chegam nos grupos de clientes cadastrados (RG, CNH, comprovante…). Só gasta com o interruptor da IA da Dolores e a classificação ligados, um documento por vez, até os tetos diários e dentro do limite mensal do cartão da Dolores.",
+    recomendacao: "Um modelo que leia imagem e PDF; o mais barato (ex.: Haiku) costuma bastar. Confiança baixa vira \"confira\".",
   },
 };
 

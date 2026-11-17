@@ -324,3 +324,79 @@ uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia
 - No máximo 10 ações (diretas + itens na fila) por mensagem sua.
 - Tudo conta no mesmo limite mensal de tokens da etapa 2. Com a IA desligada, os comandos não agem; "aprovar/recusar
   CÓDIGO" funciona sem IA (não gasta nada). Com a Dolores pausada, nada é aprovado (recusar continua valendo).
+
+---
+
+# Etapa 4 — Grupos de clientes (leitura dos grupos cadastrados, card, classificação e Drive)
+
+A Dolores passa a **ler** os grupos de WhatsApp de clientes que o administrador cadastrar. Ela **nunca fala no grupo**
+(não responde, não reage, não manda nada e não marca como lida de propósito) e **nada escrito no grupo é comando** — nem
+quando é o dono quem escreve lá: "aprovar CÓDIGO" num grupo não aprova nada. Pedido só vale na conversa DIRETA do dono
+com a Dolores. Grupo não cadastrado ou desativado continua ignorado como antes (nada é gravado).
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar `drizzle/0126_dolores_grupos.sql` no Neon (só aditiva e idempotente: 5 tabelas novas, gatilhos que impedem
+apagar e mudar o que chegou, e a linha de configuração com a classificação DESLIGADA). Sem ela, os grupos continuam
+ignorados e a tela de grupos avisa que a migração falta. Antes, conferir que ela nunca foi aplicada
+(`SELECT to_regclass('dolores_grupos_contagem')` precisa voltar NULL): a 0126 foi editada dentro dos CREATE TABLE.
+Aplicar também `drizzle/0130_dolores_fila_guarda.sql` (só `CREATE OR REPLACE FUNCTION`): corrige a guarda da fila da etapa 3
+para que excluir um usuário que decidiu item da fila pela tela funcione (o item continua encerrado, só sem quem decidiu).
+
+A classificação tem orçamento próprio: no máximo 20% do limite mensal da Dolores (ajustável de 1% a 50% na tela), contando
+o uso real da classificação, e nunca passa de 80% do limite somando tudo. Uma classificação por vez. Antes de mandar o
+arquivo, a Dolores pede à Anthropic a contagem de tokens do pedido (gratuita): se passar da reserva (28,3 mil), der erro
+ou demorar mais de 5 s, o arquivo não vai e a classificação sai só pelo nome e pela legenda, sempre com "confira".
+
+## 2. Colocar a Dolores no grupo (o dono, pelo celular)
+O dono adiciona o número da Dolores ao grupo do cliente, no próprio WhatsApp. O sistema nunca entra em grupo sozinho.
+Combinado: **um grupo por cliente**.
+
+## 3. Cadastrar o grupo (administrador, em Integrações › Dolores — grupos de clientes)
+1. "Ver os grupos em que a Dolores está" lista os grupos pela Evolution (só leitura) → "Usar este id"; ou digite o id
+   (termina em `@g.us`).
+2. Dê um rótulo (como a equipe chama o grupo) e, se já existir, o nº do cliente no CRM (ou o nº da obra). Pode deixar sem
+   card: o dono pede depois para a Dolores criar.
+3. Cadastrar. A partir daí as mensagens novas do grupo são registradas. Desativar = parar de ler (nada é apagado).
+
+## 4. Classificação dos documentos (desligada por padrão)
+- Ligue em "Classificação dos documentos pela IA". Também precisa do interruptor da IA da Dolores ligado, da chave da
+  Anthropic e de limite mensal. O modelo é o da função **"Dolores — classificação de documentos"** em Integrações ›
+  Anthropic › Modelo por função (recomendação: um que leia imagem e PDF; o mais barato costuma bastar).
+- Só documento e foto são classificados (texto nunca chama a IA), **no máximo um por aviso** do WhatsApp, até os tetos:
+  30 por dia no total e 10 por grupo por dia (padrão; ajuste na tela). A classificação usa **no máximo 80% do limite
+  mensal**: o resto fica para os comandos do dono. Sem isso, o documento fica "a classificar" e pode ser classificado
+  depois pelo botão "Classificar pendentes agora".
+- Tipos possíveis (lista fechada): RG, CNH, comprovante de endereço, comprovante de renda, FGTS, certidão, PIS,
+  documento do cônjuge, matrícula, contrato, planta, foto de obra, nota fiscal, outro. Confiança abaixo de 75% =
+  **"confira"**.
+- Arquivo acima de 10 MB (padrão) não é baixado. PDF acima de 4 MB ou 5 páginas e imagem acima de 3,75 MB vão à IA só pelo
+  nome e pela legenda (sempre "confira").
+
+## 5. Usar (teste de aceite)
+O dono escreve para a Dolores: **"Dolores, cria o card deste cliente (Maria Souza, 99 99123-4567) e salva a documentação do
+grupo."** Ela:
+1. confere se o cliente já existe (mesmo nome ou telefone). Existe → propõe **ligar** o grupo ao card existente; não
+   existe → propõe **criar** o card (etapa inicial, origem "Dolores — grupo do WhatsApp"). Vai para a **fila**.
+2. com o card ligado, propõe salvar cada documento classificado no card e na pasta do cliente no Drive (Clientes › Nome
+   (nº) › área). Também vai para a **fila**, um item por documento (até 10), dizendo o tipo e a confiança.
+3. diz quais documentos ainda não foram classificados ou lidos e o que falta pelo checklist.
+Aprovado ("aprovar CÓDIGO" na conversa direta ou na tela da fila): o card é criado/ligado; o arquivo é baixado na hora,
+conferido pelo conteúdo (PDF, JPG, PNG, WEBP), enviado como **arquivo novo** (o nome no Drive é montado pelo sistema:
+rótulo + data) e registrado no card. O mesmo arquivo já no card não vai de novo. Nada é sobrescrito nem apagado.
+
+## 6. O que fica guardado e por quanto tempo
+- `dolores_grupos`: o cadastro (nunca apagado; desativa-se).
+- `dolores_grupo_mensagens`: cada mensagem dos grupos cadastrados — o texto/legenda **já filtrado** (CPF, telefone,
+  e-mail mascarados; senha, código, chave e dado bancário sempre), o remetente **mascarado**, o tipo e os metadados do
+  arquivo (nome limpo, formato, tamanho) e a classificação. **O arquivo não fica no banco**: é baixado da Evolution só para
+  classificar e, depois da aprovação, para enviar ao Drive. Nunca é apagada (sem rotina de limpeza).
+- Retenção do pendente: **30 dias** (padrão, de 1 a 365 na tela). Depois disso o documento não salvo deixa de ser
+  oferecido para classificar ou salvar (peça para reenviar no grupo) — **nada é apagado**.
+- `dolores_grupos_contagem`: uma linha por grupo por dia (mensagens, ignoradas pelo teto, classificações).
+- Teto de 300 mensagens registradas por grupo por dia (padrão): acima disso o spam só soma a contagem.
+
+## 7. Conferir
+- `dolores_acoes`: `grupo_mensagem` (teto atingido), `classificar_documento` (ok/recusada/erro, com tipo e confiança, sem
+  texto do documento), `criar_card_cliente`, `salvar_documentos_grupo` e as ações da tela (`cadastrar_grupo`,
+  `atualizar_grupo`, `configurar_grupos`).
+- `dolores_consumo`: cada classificação conta no consumo do mês.

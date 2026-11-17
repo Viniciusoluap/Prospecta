@@ -36,6 +36,14 @@ export async function criarBanco() {
   const fila = readFileSync(new URL("../../drizzle/0125_dolores_fila.sql", import.meta.url), "utf8");
   await pg.exec(fila);
   await pg.exec(fila);
+  // Etapa 4 (Grupos): migração 0126, também duas vezes.
+  const grupos = readFileSync(new URL("../../drizzle/0126_dolores_grupos.sql", import.meta.url), "utf8");
+  await pg.exec(grupos);
+  await pg.exec(grupos);
+  // QA E4 r2 (N2): a guarda da fila aceita o ON DELETE SET NULL de quem decidiu (0130), também duas vezes.
+  const guardaFila = readFileSync(new URL("../../drizzle/0130_dolores_fila_guarda.sql", import.meta.url), "utf8");
+  await pg.exec(guardaFila);
+  await pg.exec(guardaFila);
   return { pg, db: drizzle(pg) };
 }
 
