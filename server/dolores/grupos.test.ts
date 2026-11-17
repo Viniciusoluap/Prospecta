@@ -26,6 +26,7 @@ import { appRouter } from "../routers.js";
 import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { SISTEMA_CLASSIFICACAO, definirDependenciasClassificacao, type PedidoClassificacao, type RespostaClassificacao } from "./classificacao.js";
+import { definirDependenciasMarcacao } from "./marcacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -97,7 +98,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   ENV.cookieSecret = segredoAntes;
-  definirDependenciasPonte(); definirDependenciasWhatsapp(); definirClienteModelo(); definirDependenciasClassificacao(); definirSorteioCodigo();
+  definirDependenciasPonte(); definirDependenciasWhatsapp(); definirClienteModelo(); definirDependenciasClassificacao(); definirSorteioCodigo(); definirDependenciasMarcacao();
   vi.clearAllMocks();
 });
 
@@ -159,6 +160,11 @@ describe("leitura: só grupos cadastrados e ativos", () => {
 
 describe("segurança: conteúdo de grupo nunca é comando", () => {
   it("o DONO escrevendo no grupo um pedido de ação e 'aprovar CÓDIGO' não aciona nada: nem IA, nem resposta, nem aprovação, nem tarefa", async () => {
+    // etapa 4b: mesmo com a "resposta quando marcada" ligada (geral e no grupo), sem marcação REAL nada vai ao grupo
+    const enviarAoGrupo = vi.fn(async () => true);
+    definirDependenciasMarcacao({ agora: () => AGORA, enviar: enviarAoGrupo as never, cliente: async () => { throw new Error("sem marcação real, o laço do grupo não roda"); } });
+    await banco.pg.exec(`UPDATE dolores_whatsapp_config SET numero_dolores = '5599900001111';
+      UPDATE dolores_marcacoes_config SET responder_ligado = true; INSERT INTO dolores_marcacoes_grupo (grupo_id, responder_ligado) VALUES (1, true);`);
     await executarFuncao({ funcao: "preparar_cobranca", argumentos: { leadIds: [1, 2] }, pedidoId: "wa:5:1:0" }, { canal: "whatsapp", mensagemId: 5 });
     const [i1] = await fila();
     await chamar(aviso(
@@ -168,6 +174,8 @@ describe("segurança: conteúdo de grupo nunca é comando", () => {
     ));
     expect((await fila()).map(i => i.situacao)).toEqual(["aguardando", "aguardando"]);
     expect(enviar).not.toHaveBeenCalled();
+    expect(enviarAoGrupo).not.toHaveBeenCalled();
+    expect(await q("SELECT * FROM dolores_marcacoes")).toEqual([]);
     expect(conversa).not.toHaveBeenCalled();
     expect((await q("SELECT count(*)::int n FROM tasks WHERE title ILIKE '%Bianca%'"))[0].n).toBe(0);
     const linhas = await mensagens();
@@ -373,7 +381,7 @@ describe("migração 0126 e limites fixos", () => {
     await expect(banco.pg.exec("DELETE FROM dolores_grupo_mensagens")).rejects.toThrow(/SEM_EXCLUSAO/);
     await expect(banco.pg.exec("INSERT INTO dolores_grupos (instancia, grupo_jid, nome) VALUES ('x', '../../etc', 'y')")).rejects.toThrow();
   });
-  it("estático: o SQL é só aditivo; os módulos da etapa 4 nunca enviam, excluem nem tocam em usuários/financeiro", () => {
+  it("estático: o SQL é só aditivo; os módulos da etapa 4 nunca enviam (a fala no grupo é só da marcação, marcacao.ts), excluem nem tocam em usuários/financeiro", () => {
     const sql = readFileSync(new URL("../../drizzle/0126_dolores_grupos.sql", import.meta.url), "utf8").replace(/--.*$/gm, "");
     expect(sql).not.toMatch(/ALTER\s+TABLE|DROP\s+TABLE|DELETE\s+FROM|UPDATE\s+"/i);
     expect(sql.match(/CREATE TABLE (?!IF NOT EXISTS)/g)).toBeNull();

@@ -3,7 +3,7 @@
 // escopo travado no servidor (3 leituras sem argumento, cliente do contexto), filtro do canal "grupo", nada do grupo é comando,
 // tetos/idempotência/frescor, envio único com o destino conferido, rotas só do admin (appRouter, caminho completo) e a 0129.
 // PGlite; nada sai para a rede.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
@@ -389,6 +389,31 @@ describe("rotas (appRouter, caminho completo) e envio", () => {
     expect(ok.ok).toBe(true);
     expect(JSON.stringify(ok.corpo)).toMatch(/RG/);
     expect((await acoes("grupo_leitura")).map(a => a.resultado)).toEqual(["recusada", "recusada", "ok"]);
+  });
+});
+
+describe("o único envio a grupo", () => {
+  it("estático: só marcacao.ts usa o envio a grupo, e só dentro de responderNoGrupo; o laço do dono e as leituras não enviam", () => {
+    const raiz = new URL("../", import.meta.url);
+    const usam: string[] = [];
+    const varrer = (dir: URL) => {
+      for (const n of readdirSync(dir)) {
+        const u = new URL(n, dir);
+        if (statSync(u).isDirectory()) { if (n !== "node_modules") varrer(new URL(`${n}/`, dir)); continue; }
+        if (!/\.ts$/.test(n) || /\.test\.ts$/.test(n)) continue;
+        if (/enviarTextoAoGrupoEvolution/.test(readFileSync(u, "utf8").replace(/\/\/.*$/gm, ""))) usam.push(u.pathname.replace(/^.*\/server\//, ""));
+      }
+    };
+    varrer(raiz);
+    expect(usam.sort()).toEqual(["_core/evolution.ts", "dolores/marcacao.ts"]);
+    const fonte = readFileSync(new URL("./marcacao.ts", import.meta.url), "utf8");
+    const chamadas = Array.from(fonte.matchAll(/deps\.enviar\(/g)).map(m => m.index!);
+    const inicio = fonte.indexOf("async function responderNoGrupo(");
+    const fim = fonte.indexOf("\n}\n", inicio);
+    expect(chamadas.length).toBe(1);
+    expect(chamadas[0] > inicio && chamadas[0] < fim).toBe(true);
+    for (const a of ["cerebro.ts", "ponte.ts", "leitura/grupo-marcado.ts", "leitura/grupos.ts"])
+      expect(readFileSync(new URL(a, import.meta.url), "utf8"), a).not.toMatch(/enviarTextoAoGrupoEvolution|tratarMarcacao|responderNoGrupo/);
   });
 });
 
