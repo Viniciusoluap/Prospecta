@@ -67,6 +67,8 @@ import SimuladorFinanciamento from "./pages/SimuladorFinanciamento";
 import WhatsAppFloat from "./components/WhatsAppFloat";
 import Login from "./pages/Login";
 import DefinirSenha from "./pages/DefinirSenha";
+import TermoConsentimento from "./pages/TermoConsentimento";
+import { ConsentimentoNoLogin } from "./components/consentimento/ConsentimentoNoLogin";
 import Portal from "./pages/Portal";
 import { PortalRoute } from "./components/PortalRoute";
 import { GlobalBackButton } from "./components/GlobalBackButton";
@@ -82,6 +84,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/definir-senha/:token" component={DefinirSenha} />
+      <Route path="/termo-de-consentimento" component={TermoConsentimento} />
       <Route path="/portal/*">
         <PortalRoute>
           <Portal />
@@ -431,6 +434,7 @@ function App() {
           <GlobalBackButton />
           <BarraEnvioGlobal />
           <WhatsAppFloat />
+          <ConsentimentoNoLogin />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

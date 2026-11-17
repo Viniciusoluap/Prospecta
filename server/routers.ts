@@ -64,6 +64,7 @@ import {
   mapaRouter,
 } from "./operacional-router.js";
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
+import { consentimentoRouter } from "./consentimento.js";
 import { integracoesRouter } from "./integracoes-router.js";
 import { doloresRouter } from "./dolores/router.js";
 import { googleDriveRouter } from "./google-drive-router.js";
@@ -194,6 +195,8 @@ export const appRouter = router({
   dolores: doloresRouter,
   googleDrive: googleDriveRouter,
   primeiroAcesso: primeiroAcessoRouter,
+  // EPIC-024 S-12: termo de consentimento (consulta só do admin por papel; aceite no login desligado por padrão)
+  consentimento: consentimentoRouter,
   relatorios: relatoriosRouter,
   tax: taxRouter,
   leadServices: leadServicesRouter,
