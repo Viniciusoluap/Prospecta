@@ -143,3 +143,6 @@ Alterados:
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.4, 5, 6, 7 e 9).
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); tsc, build, suíte-alvo (584) e completa (2568) verdes.
 - 17/11/2026 — @dev (Dex): 8 achados do portão de QA corrigidos, com 19 testes de regressão (`grupos-qa.test.ts`).
+- 17/11/2026 — @dev (Dex): nota — por decisão do dono de 17/11, a regra "ela nunca fala no grupo" desta story passa a ser "só
+  responde quando marcada, com o interruptor ligado, e só sobre aquele cliente" (story E4b, `E4b-resposta-quando-marcada.md`).
+  O resto desta story (leitura, card, classificação, Drive) não muda.
