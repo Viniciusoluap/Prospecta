@@ -190,7 +190,7 @@ async function contarComPrazo(p: Omit<PedidoClassificacao, "maxTokens">): Promis
     return Number.isFinite(n) && n >= 0 ? n : null;
   } catch (e) {
     const status = (e as { status?: unknown })?.status;
-    console.error("[dolores/classificacao] contagem prévia de tokens falhou; o arquivo não vai", typeof status === "number" ? status : (e instanceof Error ? e.message : "erro"));
+    console.error("[dolores/classificacao] contagem prévia de tokens falhou; o arquivo não vai", typeof status === "number" ? status : (e instanceof Error ? e.name : "erro"));
     return null;
   } finally {
     if (relogio) clearTimeout(relogio);
