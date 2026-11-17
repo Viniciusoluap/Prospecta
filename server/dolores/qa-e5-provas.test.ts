@@ -149,15 +149,29 @@ describe("QA E5 — duplicidade por número + emitente", () => {
 });
 
 describe("QA E5 — gatilho da 0128 (defesa em profundidade)", () => {
-  it("ACHADO (baixo): o gatilho aceita conciliar SEM aprovação e trocar a resposta registrada (correção → confirmada)", async () => {
+  it("CORRIGIDO: o gatilho recusa conciliar SEM aprovação e trocar a resposta registrada (correção → confirmada)", async () => {
     await mandarNota(3);
     const [n] = await notas();
     await banco.pg.exec(`INSERT INTO bank_accounts (banco, conta) VALUES ('Banco', '1');
       INSERT INTO bpo_lancamentos (tipo, descricao, valor, valor_recebido, vencimento, pago, competencia, a_classificar) VALUES ('despesa', 'x', '1.00', '0', '2026-11-16', true, '2026-11', false);`);
-    await expect(banco.pg.query(`UPDATE obra_notas SET bpo_lancamento_id = (SELECT max(id) FROM bpo_lancamentos), conciliada_em = now() WHERE id = ${n.id}`)).resolves.toBeTruthy();
-    expect((await notas())[0].conciliada_aprovacao_id).toBeNull();
-    await banco.pg.query(`UPDATE obra_notas SET confirmacao = 'correcao' WHERE id = ${n.id}`);
-    await expect(banco.pg.query(`UPDATE obra_notas SET confirmacao = 'confirmada' WHERE id = ${n.id}`)).resolves.toBeTruthy();
+    await expect(banco.pg.query(`UPDATE obra_notas SET bpo_lancamento_id = (SELECT max(id) FROM bpo_lancamentos), conciliada_em = now() WHERE id = ${n.id}`))
+      .rejects.toThrow(/OBRA_NOTAS_CONCILIADA/);
+    await expect(banco.pg.query(`UPDATE obra_notas SET conciliada_em = now() WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_CONCILIADA/);
+    expect((await notas())[0]).toMatchObject({ bpo_lancamento_id: null, conciliada_em: null, conciliada_aprovacao_id: null });
+    // a resposta: pendente → correção (com a data) uma vez; depois nem o tipo nem a data mudam
+    await expect(banco.pg.query(`UPDATE obra_notas SET confirmacao_em = now() WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_CONFIRMACAO/);
+    await banco.pg.query(`UPDATE obra_notas SET confirmacao = 'correcao', confirmacao_em = now() WHERE id = ${n.id}`);
+    await expect(banco.pg.query(`UPDATE obra_notas SET confirmacao = 'confirmada' WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_CONFIRMACAO/);
+    await expect(banco.pg.query(`UPDATE obra_notas SET confirmacao_em = now() - interval '1 day' WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_CONFIRMACAO/);
+    expect((await notas())[0].confirmacao).toBe("correcao");
+  });
+
+  it("CORRIGIDO: 'salva no Drive' só junto com o id do arquivo e a aprovação do dono", async () => {
+    await mandarNota(7);
+    const [n] = await notas();
+    await expect(banco.pg.query(`UPDATE obra_notas SET salva_em = now() WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_SALVA/);
+    await expect(banco.pg.query(`UPDATE obra_notas SET drive_file_id = 'x' WHERE id = ${n.id}`)).rejects.toThrow(/OBRA_NOTAS_SALVA/);
+    expect((await notas())[0]).toMatchObject({ drive_file_id: null, salva_em: null, salva_aprovacao_id: null });
   });
 });
 

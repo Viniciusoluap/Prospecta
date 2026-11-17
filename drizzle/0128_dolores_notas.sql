@@ -93,22 +93,44 @@ BEGIN
      OR (NEW."duplicada_de" IS DISTINCT FROM OLD."duplicada_de" AND NEW."duplicada_de" IS NOT NULL) THEN
     RAISE EXCEPTION 'OBRA_NOTAS_VINCULO: obra, empreiteiro e nota original não são trocados';
   END IF;
-  -- confirmação: nunca volta a "pendente"
-  IF OLD."confirmacao" <> 'pendente' AND NEW."confirmacao" = 'pendente' THEN
-    RAISE EXCEPTION 'OBRA_NOTAS_CONFIRMACAO: a resposta do empreiteiro registrada não é desfeita';
+  -- confirmação: pendente → confirmada/correção, uma vez, com a data; depois nada muda (nem o tipo nem a data)
+  IF OLD."confirmacao" <> 'pendente' THEN
+    IF NEW."confirmacao" IS DISTINCT FROM OLD."confirmacao" OR NEW."confirmacao_em" IS DISTINCT FROM OLD."confirmacao_em" THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_CONFIRMACAO: a resposta do empreiteiro registrada não é desfeita nem trocada';
+    END IF;
+  ELSIF NEW."confirmacao" = 'pendente' THEN
+    IF NEW."confirmacao_em" IS DISTINCT FROM OLD."confirmacao_em" THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_CONFIRMACAO: sem resposta registrada, não há data de confirmação';
+    END IF;
+  ELSIF NEW."confirmacao_em" IS NULL THEN
+    RAISE EXCEPTION 'OBRA_NOTAS_CONFIRMACAO: a resposta do empreiteiro é registrada com a data';
   END IF;
-  -- conciliação: vazio → um lançamento, uma vez; depois só pode virar NULL (exclusão do lançamento no BPO)
-  IF OLD."conciliada_em" IS NOT NULL AND (NEW."conciliada_em" IS DISTINCT FROM OLD."conciliada_em"
+  -- conciliação: vazio → um lançamento, uma vez, SEMPRE com a aprovação do dono; depois o lançamento só pode virar NULL
+  -- (exclusão do lançamento no BPO)
+  IF OLD."conciliada_em" IS NULL THEN
+    IF NEW."conciliada_em" IS NULL THEN
+      IF NEW."bpo_lancamento_id" IS NOT NULL OR NEW."conciliada_aprovacao_id" IS NOT NULL THEN
+        RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: vínculo com o BPO só pela aprovação do dono';
+      END IF;
+    ELSIF NEW."bpo_lancamento_id" IS NULL OR NEW."conciliada_aprovacao_id" IS NULL THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: a conciliação grava o lançamento e a aprovação do dono juntos';
+    END IF;
+  ELSIF NEW."conciliada_em" IS DISTINCT FROM OLD."conciliada_em"
      OR NEW."conciliada_aprovacao_id" IS DISTINCT FROM OLD."conciliada_aprovacao_id"
-     OR (NEW."bpo_lancamento_id" IS DISTINCT FROM OLD."bpo_lancamento_id" AND NEW."bpo_lancamento_id" IS NOT NULL)) THEN
+     OR (NEW."bpo_lancamento_id" IS DISTINCT FROM OLD."bpo_lancamento_id" AND NEW."bpo_lancamento_id" IS NOT NULL) THEN
     RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: o vínculo com o BPO não é trocado';
   END IF;
-  IF OLD."conciliada_em" IS NULL AND NEW."bpo_lancamento_id" IS NOT NULL AND NEW."conciliada_em" IS NULL THEN
-    RAISE EXCEPTION 'OBRA_NOTAS_CONCILIADA: vínculo com o BPO só pela aprovação do dono';
-  END IF;
-  -- arquivo no Drive: vazio → id, uma vez
-  IF OLD."drive_file_id" IS NOT NULL AND (NEW."drive_file_id" IS DISTINCT FROM OLD."drive_file_id"
-     OR NEW."salva_em" IS DISTINCT FROM OLD."salva_em" OR NEW."salva_aprovacao_id" IS DISTINCT FROM OLD."salva_aprovacao_id") THEN
+  -- arquivo no Drive: vazio → id, uma vez, junto com a data e a aprovação do dono; depois nada muda
+  IF OLD."drive_file_id" IS NULL THEN
+    IF NEW."drive_file_id" IS NULL THEN
+      IF NEW."salva_em" IS NOT NULL OR NEW."salva_aprovacao_id" IS NOT NULL THEN
+        RAISE EXCEPTION 'OBRA_NOTAS_SALVA: sem o arquivo no Drive, a nota não é dada como salva';
+      END IF;
+    ELSIF NEW."salva_em" IS NULL OR NEW."salva_aprovacao_id" IS NULL THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_SALVA: o arquivo no Drive é gravado com a data e a aprovação do dono juntos';
+    END IF;
+  ELSIF NEW."drive_file_id" IS DISTINCT FROM OLD."drive_file_id"
+     OR NEW."salva_em" IS DISTINCT FROM OLD."salva_em" OR NEW."salva_aprovacao_id" IS DISTINCT FROM OLD."salva_aprovacao_id" THEN
     RAISE EXCEPTION 'OBRA_NOTAS_SALVA: o arquivo da nota no Drive não é trocado';
   END IF;
   RETURN NEW;

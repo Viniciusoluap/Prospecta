@@ -490,7 +490,8 @@ describe("migração 0128: só aditiva, idempotente, e não barra exclusões leg
     await mandarNota(50);
     await expect(banco.pg.query("DELETE FROM obra_notas")).rejects.toThrow(/OBRA_NOTAS_SEM_EXCLUSAO/);
     await expect(banco.pg.query("UPDATE obra_notas SET valor_centavos = 1")).rejects.toThrow(/OBRA_NOTAS_IMUTAVEL/);
-    await expect(banco.pg.query("UPDATE obra_notas SET confirmacao = 'confirmada'")).resolves.toBeTruthy();
+    await expect(banco.pg.query("UPDATE obra_notas SET confirmacao = 'confirmada'")).rejects.toThrow(/OBRA_NOTAS_CONFIRMACAO/); // sem a data (QA E5 achado 2)
+    await expect(banco.pg.query("UPDATE obra_notas SET confirmacao = 'confirmada', confirmacao_em = now()")).resolves.toBeTruthy();
     await expect(banco.pg.query("UPDATE obra_notas SET confirmacao = 'pendente'")).rejects.toThrow(/OBRA_NOTAS_CONFIRMACAO/);
     await expect(banco.pg.query("UPDATE obra_notas SET bpo_lancamento_id = 1")).rejects.toThrow(/só pela aprovação/);
   });
