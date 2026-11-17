@@ -7,7 +7,7 @@ import { eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresEventos, doloresOperacaoConfig } from "../../drizzle/schema-dolores-operacao.js";
-import { TETO_DONO_REAIS, estimarReais, janelaSobDemanda, relogioBrasilia } from "../../shared/dolores/operacao.js";
+import { HORA_CRON_DOLORES_BRASILIA, HORA_CRON_DOLORES_UTC, HORA_MAX_RELATORIO, TETO_DONO_REAIS, estimarReais, horaDoRelatorio, janelaSobDemanda, relogioBrasilia } from "../../shared/dolores/operacao.js";
 import { bloqueioDoLimite, mascararNumero, mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
@@ -55,7 +55,7 @@ async function situacao() {
       mes, uso, limites, bloqueio: bloqueioDoLimite(uso, limites), tetoDonoReais: TETO_DONO_REAIS,
       reaisEstimados: estimarReais(uso, precos), limiteEmReais: estimarReais(limites, precos), precos,
     },
-    config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: config.relatorioHora, eventosLigados: config.eventosLigados },
+    config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: horaDoRelatorio(config.relatorioHora), eventosLigados: config.eventosLigados },
     interruptores: {
       iaLigada: wa?.iaLigada ?? false, conexao: wa?.statusConexao ?? "desconectado", numeroDono: mascararNumero(wa?.numeroDono ?? null),
       classificacaoLigada: grupos?.classificacaoLigada ?? false, leituraNotasLigada: notas.leituraLigada,
@@ -63,7 +63,8 @@ async function situacao() {
       respostaGruposLigada: marcacoes?.responderLigado ?? false,
       rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, eventosLigados: config.eventosLigados,
     },
-    agendamento: { cron: "/api/cron/dolores", horarioUtc: "10:00", horarioBrasilia: "07:00", agoraBrasilia: relogioBrasilia(agora).hhmm },
+    agendamento: { cron: "/api/cron/dolores", horarioUtc: `${String(HORA_CRON_DOLORES_UTC).padStart(2, "0")}:00`,
+      horarioBrasilia: `${String(HORA_CRON_DOLORES_BRASILIA).padStart(2, "0")}:00`, horaMaxRelatorio: HORA_MAX_RELATORIO, agoraBrasilia: relogioBrasilia(agora).hhmm },
     eventos24h: Object.fromEntries(eventos.map(e => [e.tipo, e.n])),
     rondas: historico.rondas.map(r => ({ ...r, criadoEm: r.criadoEm.toISOString() })),
     ultimoRelatorio: historico.ultimoRelatorio ? {
@@ -91,7 +92,8 @@ export const operacaoRouter = router({
 
   /** Interruptores da operação e preço por milhão de tokens (opcional, só para estimar em reais). */
   salvar: soAdmin.input(z.object({
-    rondasLigadas: z.boolean().optional(), relatorioLigado: z.boolean().optional(), relatorioHora: z.number().int().min(0).max(23).optional(),
+    rondasLigadas: z.boolean().optional(), relatorioLigado: z.boolean().optional(), // achado 4: o cron é diário (às HORA_CRON_DOLORES_BRASILIA de Brasília); hora maior faria o relatório nunca sair
+    relatorioHora: z.number().int().min(0).max(HORA_MAX_RELATORIO, `O cron roda uma vez por dia às ${String(HORA_MAX_RELATORIO).padStart(2, "0")}:00 (Brasília): escolha uma hora até essa.`).optional(),
     eventosLigados: z.boolean().optional(), precoEntradaMilhao: preco.optional(), precoSaidaMilhao: preco.optional(),
   }).strict()).mutation(async ({ ctx, input }) => {
     const atual = await exigirConfig();

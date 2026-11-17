@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Activity, PauseCircle, PlayCircle } from "lucide-react";
+import { HORAS_DO_RELATORIO } from "@shared/dolores/operacao";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,12 +110,13 @@ export function DoloresOperacaoCard() {
               <label className="flex min-h-10 items-center gap-2">Relatório a partir das
                 <select aria-label="Hora do relatório" className="min-h-10 rounded border border-[#C9A961]/30 bg-[#1A2332] px-2" value={d.config.relatorioHora} disabled={salvar.isPending}
                   onChange={e => salvar.mutate({ relatorioHora: Number(e.target.value) })}>
-                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                  {HORAS_DO_RELATORIO.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
                 </select></label>
             </div>
             <p className="text-xs text-gray-400">
               O cron da Vercel chama a rotina uma vez por dia às {d.agendamento.horarioBrasilia} (Brasília; {d.agendamento.horarioUtc} UTC). O relatório diário sai nessa
-              execução se a hora escolhida já tiver chegado (para outro horário, a equipe técnica muda o agendamento). Sob demanda: o botão abaixo ou a mensagem
+              execução se a hora escolhida já tiver chegado — por isso só dá para escolher até as {d.agendamento.horarioBrasilia} (uma hora depois disso faria o relatório
+              nunca sair; para outro horário, a equipe técnica muda o agendamento). Sob demanda: o botão abaixo ou a mensagem
               "relatório" do dono no WhatsApp.
             </p>
             <div className="flex flex-wrap gap-2">

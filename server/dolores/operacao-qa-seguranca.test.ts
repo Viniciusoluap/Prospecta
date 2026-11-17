@@ -16,7 +16,8 @@ import { funcaoPorNome } from "./funcoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { PISO_CONSULTA_SECAO_MS, TETO_CONSULTA_SECAO_MS, definirRelogioCron, tempoLimiteDaSecao, tratarCronDolores } from "./rondas.js";
-import { MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
+import { CRON_DOLORES_AGENDA, HORA_MAX_RELATORIO, MAX_NOME_TERCEIRO, limparNomeDeTerceiro, montarRelatorio } from "../../shared/dolores/operacao.js";
+import { readFileSync } from "node:fs";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -184,5 +185,26 @@ describe("QA E6 — achado 2: tempo-limite por seção da ronda", () => {
     expect(tempoLimiteDaSecao(60_000)).toBe(TETO_CONSULTA_SECAO_MS);
     expect(tempoLimiteDaSecao(5_000)).toBe(4_000);
     expect(tempoLimiteDaSecao(500)).toBe(PISO_CONSULTA_SECAO_MS);
+  });
+});
+
+describe("QA E6 — achado 4: hora do relatório não passa da hora do cron diário", () => {
+  it("o vercel.json agenda o cron com a mesma agenda da constante; hora > 07 é recusada pelo servidor e o cron das 07:00 envia", async () => {
+    const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")) as { crons: Array<{ path: string; schedule: string }> };
+    expect(vercel.crons.find(c => c.path === "/api/cron/dolores")?.schedule).toBe(CRON_DOLORES_AGENDA);
+    expect(HORA_MAX_RELATORIO).toBe(7);
+    const admin = caller("admin");
+    for (const hora of [8, 12, 23]) await expect(admin.dolores.operacao.salvar({ relatorioHora: hora })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await q<any>("SELECT relatorio_hora FROM dolores_operacao_config"))[0].relatorio_hora).toBe(7);
+    const s = await admin.dolores.operacao.salvar({ relatorioHora: 6 });
+    expect(s.config.relatorioHora).toBe(6);
+    expect(s.agendamento).toMatchObject({ horarioUtc: "10:00", horarioBrasilia: "07:00", horaMaxRelatorio: 7 });
+    // uma hora gravada fora da faixa (à mão, no banco) é limitada a 07 no servidor: o cron das 07:00 manda o relatório
+    await ligarTudo();
+    await banco.pg.exec(`UPDATE dolores_operacao_config SET relatorio_hora = 20`);
+    definirRelogioCron({ agora: () => new Date("2026-11-17T10:00:30Z") });
+    const r = await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
+    expect(r.body).toMatchObject({ ok: true, relatorio: "enviado" });
+    expect((await admin.dolores.operacao.situacao()).config.relatorioHora).toBe(7);
   });
 });

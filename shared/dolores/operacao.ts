@@ -29,8 +29,28 @@ export const janelaSobDemanda = (agora: Date) => {
   return `sob-demanda:${r.dia}T${r.hhmm}`;
 };
 
-/** O relatório diário já pode sair? (hora local ≥ hora configurada). */
-export const relatorioDiarioNaHora = (agora: Date, hora: number) => relogioBrasilia(agora).hora >= Math.min(23, Math.max(0, Math.trunc(hora)));
+/**
+ * Agendamento do cron da Dolores na Vercel (vercel.json: "/api/cron/dolores"). É DIÁRIO: roda uma vez, às 10:00 UTC. Um
+ * teste confere que o vercel.json bate com esta constante.
+ */
+export const CRON_DOLORES_AGENDA = "0 10 * * *";
+/** Hora UTC do cron, tirada da agenda acima. */
+export const HORA_CRON_DOLORES_UTC = Number(CRON_DOLORES_AGENDA.split(" ")[1]);
+/** A mesma hora em Brasília/Imperatriz (UTC−3): 07. */
+export const HORA_CRON_DOLORES_BRASILIA = (HORA_CRON_DOLORES_UTC + 21) % 24;
+/**
+ * Hora mais tarde que o relatório diário aceita (achado 4 do QA de segurança): com o cron diário, ele só roda às
+ * {@link HORA_CRON_DOLORES_BRASILIA}h de Brasília; uma hora depois disso faria o relatório nunca sair. Servidor e tela usam
+ * esta constante.
+ */
+export const HORA_MAX_RELATORIO = HORA_CRON_DOLORES_BRASILIA;
+/** Horas que a tela oferece (0 até {@link HORA_MAX_RELATORIO}). */
+export const HORAS_DO_RELATORIO: readonly number[] = Array.from({ length: HORA_MAX_RELATORIO + 1 }, (_, h) => h);
+/** Hora do relatório limitada ao que o cron diário alcança (0 a {@link HORA_MAX_RELATORIO}). */
+export const horaDoRelatorio = (hora: number) => Math.min(HORA_MAX_RELATORIO, Math.max(0, Number.isFinite(hora) ? Math.trunc(hora) : HORA_MAX_RELATORIO));
+
+/** O relatório diário já pode sair? (hora local ≥ hora configurada, limitada à hora do cron). */
+export const relatorioDiarioNaHora = (agora: Date, hora: number) => relogioBrasilia(agora).hora >= horaDoRelatorio(hora);
 
 const semAcento = (s: string) => s.normalize("NFD").replace(new RegExp("[\\u0300-\\u036f]", "g"), "").toLowerCase();
 const COMANDO_RELATORIO = /^(dolores[,:]?\s+)?(manda(r)?\s+(o\s+)?)?relatorio(\s+(agora|do\s+dia|diario|de\s+hoje))?\s*[.!?]*$/;

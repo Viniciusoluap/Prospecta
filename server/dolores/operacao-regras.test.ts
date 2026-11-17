@@ -15,7 +15,9 @@ describe("relógio de Brasília (o servidor e o Neon estão em GMT)", () => {
   it("relatório diário só a partir da hora configurada (horário local)", () => {
     expect(relatorioDiarioNaHora(new Date("2026-11-17T09:59:00Z"), 7)).toBe(false); // 06:59
     expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 7)).toBe(true); // 07:00
-    expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 99)).toBe(false); // corta em 23
+    // achado 4: hora acima da do cron diário (07h) é limitada a 07h — senão o relatório nunca sairia
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 99)).toBe(true);
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 8)).toBe(true);
   });
 });
 
@@ -52,7 +54,7 @@ describe("relatório (modelo fixo)", () => {
     const t = montarRelatorio(base);
     expect(t).toContain("relatório diário de 17/11 às 07:00");
     expect(t).toContain("ACDEF: cobrança (vence 17/11 10:00)");
-    expect(t).toContain("Casa Ana — 16 dia(s) de atraso");
+    expect(t).toContain("«Casa Ana» — 16 dia(s) de atraso");
     expect(t).toContain("2 confirmada(s) sem conciliação");
     expect(t).toContain("falta informar o preço");
     expect(t).toContain("Não consegui ler agora: recebimentos");
