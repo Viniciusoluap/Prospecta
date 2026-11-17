@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import SEO, { organizationSchema, localBusinessSchema } from "@/components/SEO";
 import SocialProofSection from "@/components/SocialProofSection";
 import { APP_LOGO } from "@/const";
+import { SEDE } from "@shared/empresa";
 import {
   Home as HomeIcon,
   Building2,
@@ -484,8 +485,8 @@ export default function Home() {
               <h3 className="font-bold text-primary mb-4">Endereços</h3>
               <div className="text-white/70 text-sm space-y-3">
                 <p>
-                  📍 R. Gonçalves Dias, 1993 - Juçara<br />
-                  Imperatriz - MA, 65900-545
+                  📍 {SEDE.rua}<br />
+                  {SEDE.cidade} - {SEDE.uf}, {SEDE.cep}
                 </p>
                 <p>
                   📍 Avenida JK, 103<br />

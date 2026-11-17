@@ -1,6 +1,6 @@
 # S-11 — Modelo da Anthropic por função (Integrações › Anthropic)
 
-Status: Aprovado no QA (PASS, 2ª rodada, 4 achados menores corrigidos) — aguardando publicação depois da Etapa 2 da Dolores
+Status: Done (publicada em 16/11/2026, PR #244; QA aprovado).
 Epic: EPIC-024 — pedido complementar do dono (16/11/2026), sobre a correção 10 (S-10)
 Paridade: Admin › Integrações existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no ROADMAP
 (Santa Fé em espera por decisão do dono).

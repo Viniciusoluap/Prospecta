@@ -160,3 +160,19 @@ e área institucional. Essa lógica deve estar dentro do motor na hora de fazer 
    linha nesse painel. Escolher modelo nunca liga a IA de função nenhuma.
 4. A chave da Anthropic foi cadastrada pelo dono no painel em 16/11. Ela só é lida em dois pontos do código
    (`resolverCredencialIA` da maquete e `bloqueioAtual` da Dolores), vigiados por `server/integracoes-anthropic.test.ts`.
+
+## Dolores e consentimento — decisões do dono em 17/11/2026 (REGRA)
+
+1. **Confirmado pelo dono** ("As decisões pendentes minhas eu confirmo todas elas que você sugeriu"): (a) o texto que
+   ele manda a Dolores gravar (tarefa, acompanhamento) fica com CPF/telefone em claro na fila e no registro; (b) o laço
+   da Dolores roda no servidor do Prospecta com a chave do painel, e não no agente do Claude Console; (c) a ponte HTTP
+   (`/api/dolores/ponte`) fica com dados pessoais mascarados por padrão (`DOLORES_PONTE_DADOS_PESSOAIS`).
+2. **Termo de consentimento no primeiro acesso** (story `docs/stories/epics/epic-024-correcoes-16-11/S-12-termo-consentimento.md`):
+   quem cria a senha do primeiro acesso aceita um termo curto. Regra de implementação combinada com o dono: **curto e
+   rápido, nunca escondido** — caixa desmarcada por padrão, frase clara, link para o termo completo, aceite exigido
+   também no servidor e registrado (quem, quando, versão). Nada de caixa pré-marcada, letra miúda ou aceite implícito:
+   consentimento que a pessoa não percebe não vale pela LGPD.
+3. **Limites do termo, que o dono precisa resolver com o jurídico:** ele cobre só quem cria login; clientes e leads do
+   CRM que nunca acessam o sistema precisam consentir por contrato/ficha. O texto do termo é provisório até a revisão
+   do jurídico (marcadores "[A PREENCHER PELO JURÍDICO]").
+4. **Não decidido:** pedir o aceite a quem já tem senha, no próximo login — fica pronto e DESLIGADO até o dono mandar ligar.
