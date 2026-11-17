@@ -9,11 +9,13 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { leads } from "../../../drizzle/schema.js";
+import { doloresMensagens } from "../../../drizzle/schema-dolores-whatsapp.js";
 import { doloresGrupoMensagens, doloresGrupos, doloresGruposConfig } from "../../../drizzle/schema-dolores-grupos.js";
 import { textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
 import {
   ROTULO_SITUACAO_GRUPO, ROTULO_TIPO_DOCUMENTO, TIPOS_DOCUMENTO_GRUPO, diaHoraCurta, nomeComparavel, pendenteVencido, type TipoDocumentoGrupo,
 } from "../../../shared/dolores/grupos.js";
+import { mascararTelefone } from "../../../shared/dolores/formato.js";
 import { chaveTelefone } from "../../../shared/whatsapp/conversas.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import { RecusaAcao, comoMostrado, resumoDaFila, textoAlteradoNaSaida, textoDoDono, type ContextoAcao, type ItemParaFila, type Preparo } from "./comum.js";
@@ -84,7 +86,48 @@ export async function clientesParecidos(conexao: ReturnType<typeof bancoDaLeitur
   return candidatos.filter(c => (chave.length === 10 && chaveTelefone(c.phone) === chave) || nomeComparavel(c.name) === alvoNome);
 }
 
-export async function prepararCardCliente(args: z.infer<typeof entradaCriarCardCliente>, _ctx: ContextoAcao): Promise<Preparo> {
+/** Palavras do nome que contam para "nome parecido" (sem as ligações "de", "da", "dos"…; ao menos 3 letras). */
+const LIGACOES = new Set(["de", "da", "do", "das", "dos", "e"]);
+const palavrasDoNome = (s: string) => nomeComparavel(s).split(" ").filter(p => p.length >= 3 && !LIGACOES.has(p));
+
+export type Candidato = { id: number; name: string; criterio: "nome parecido" | "telefone de quem mandou no grupo" };
+
+/**
+ * QA E4, achado 6 — clientes PARECIDOS (não iguais), para o dono escolher: nome parcial/normalizado (todas as palavras do
+ * nome pedido aparecem no início de palavras do cadastro, ou o contrário) e telefone com o mesmo DDD e os mesmos 4 finais de
+ * quem mandou mensagem no grupo (o grupo só guarda o remetente mascarado). Até 5, sem os que já são iguais.
+ */
+export async function clientesCandidatos(conexao: ReturnType<typeof bancoDaLeitura>, grupoId: number, nome: string, excluir: Set<number>): Promise<Candidato[]> {
+  const pedidas = palavrasDoNome(nome);
+  const remetentes = await conexao.selectDistinct({ r: doloresGrupoMensagens.remetente }).from(doloresGrupoMensagens)
+    .where(and(eq(doloresGrupoMensagens.grupoId, grupoId), eq(doloresGrupoMensagens.doDono, false))).limit(20);
+  const mascaras = new Set(remetentes.map(x => x.r).filter((x): x is string => !!x && /^\(\d{2}\) \*{5}-\d{4}$/.test(x)));
+  const finais = Array.from(mascaras).map(m => m.slice(-4));
+  if (!pedidas.length && !finais.length) return [];
+  const porNome = pedidas.length ? sql`translate(lower(${leads.name}), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn') LIKE ${`%${pedidas[0].slice(0, 40)}%`}` : sql`false`;
+  const porTelefone = finais.length ? sql`right(regexp_replace(coalesce(${leads.phone}, ''), '[^0-9]', '', 'g'), 4) IN (${sql.join(finais.map(f => sql`${f}`), sql`, `)})` : sql`false`;
+  const linhas = await conexao.select({ id: leads.id, name: leads.name, phone: leads.phone }).from(leads)
+    .where(and(isNull(leads.deletedAt), sql`(${porNome} OR ${porTelefone})`)).orderBy(asc(leads.id)).limit(300);
+  const saida: Candidato[] = [];
+  for (const l of linhas) {
+    if (excluir.has(l.id) || saida.length >= 5) continue;
+    const doCadastro = palavrasDoNome(l.name ?? "");
+    const cobre = (a: string[], b: string[]) => a.length > 0 && a.every(p => b.some(q => q.startsWith(p)));
+    if (cobre(pedidas, doCadastro) || cobre(doCadastro, pedidas)) saida.push({ id: l.id, name: l.name ?? "", criterio: "nome parecido" });
+    else if (mascaras.has(mascararTelefone(l.phone) ?? "")) saida.push({ id: l.id, name: l.name ?? "", criterio: "telefone de quem mandou no grupo" });
+  }
+  return saida;
+}
+
+/** O número do cliente está na mensagem do DONO que originou o pedido? (senão veio do modelo ou do grupo) */
+async function leadIdNaMensagemDoDono(mensagemId: number | null, leadId: number): Promise<boolean> {
+  if (!mensagemId) return false;
+  const [m] = await bancoDaLeitura().select({ texto: doloresMensagens.texto, doDono: doloresMensagens.doDono }).from(doloresMensagens)
+    .where(eq(doloresMensagens.id, mensagemId)).limit(1);
+  return !!m?.doDono && new RegExp(`(?<!\\d)${leadId}(?!\\d)`).test(m.texto ?? "");
+}
+
+export async function prepararCardCliente(args: z.infer<typeof entradaCriarCardCliente>, ctx: ContextoAcao): Promise<Preparo> {
   const nome = comoMostrado(textoDoDono(umaLinha(args.nome, 120)));
   if (nome.length < 2) throw new RecusaAcao("Nome do cliente vazio depois de limpar caracteres inválidos. Nada foi posto na fila.");
   const telefone = telefoneDoCard(args.telefone);
@@ -95,26 +138,43 @@ export async function prepararCardCliente(args: z.infer<typeof entradaCriarCardC
     if (g.leadId) throw new RecusaAcao(`O grupo ${g.id} já está ligado ao card do cliente #${g.leadId}; nada a fazer. Para salvar a documentação, use salvar_documentos_grupo.`);
     const grupo = mostrar(g.nome, 80, `grupo ${g.id}`);
     let alvoLead: { id: number; name: string } | null = null;
+    let origem = "";
+    let candidatos: Candidato[] = [];
     if (args.leadId) {
       const [l] = await bancoDaLeitura().select({ id: leads.id, name: leads.name }).from(leads).where(and(eq(leads.id, args.leadId), isNull(leads.deletedAt))).limit(1);
       if (!l) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
       alvoLead = l;
+      // QA E4, achado 6: "como o dono indicou" só quando o número está na mensagem do próprio dono
+      origem = (await leadIdNaMensagemDoDono(ctx.mensagemId, l.id))
+        ? ", como o dono indicou (o número está na mensagem dele)"
+        : " — ATENÇÃO: esse número NÃO está na sua mensagem (foi a Dolores que chegou a ele); confira o nome antes de aprovar";
     } else {
       const parecidos = await clientesParecidos(bancoDaLeitura(), nome, telefone);
       if (parecidos.length > 1) {
         throw new RecusaAcao(`Há mais de um cliente parecido no CRM (${parecidos.slice(0, 5).map(p => `#${p.id} "${textoDeDado(p.name, 40)}"`).join(", ")}). Diga qual é (o número) e eu ligo o grupo a ele; nada foi posto na fila.`, { comDados: true });
       }
       alvoLead = parecidos[0] ?? null;
+      if (alvoLead) {
+        const p = parecidos[0];
+        const mesmoTelefone = !!telefone && chaveTelefone(telefone).length === 10 && chaveTelefone(p.phone) === chaveTelefone(telefone);
+        origem = ` — conferi antes: tem o mesmo ${mesmoTelefone ? "telefone" : "nome"}; não crio outro card`;
+      } else {
+        candidatos = await clientesCandidatos(bancoDaLeitura(), g.id, nome, new Set());
+      }
     }
+    const listaCandidatos = candidatos.slice(0, 3).map(c => `#${c.id} "${mostrar(c.name, 40, `cliente #${c.id}`)}" (${c.criterio})`).join("; ");
     const item: ItemParaFila = alvoLead
       ? {
         alvo: `card:grupo:${g.id}`,
-        resumo: `Ligar o grupo "${grupo}" (grupo ${g.id}) ao card que JÁ existe no CRM: cliente "${mostrar(alvoLead.name, 80, `#${alvoLead.id}`)}" (cliente #${alvoLead.id})${args.leadId ? ", como o dono indicou" : " — conferi antes: tem o mesmo nome ou telefone; não crio outro card"}. Nada mais é alterado no cadastro.`,
+        resumo: `Ligar o grupo "${grupo}" (grupo ${g.id}) ao card que JÁ existe no CRM: cliente "${mostrar(alvoLead.name, 80, `#${alvoLead.id}`)}" (cliente #${alvoLead.id})${origem}. Nada mais é alterado no cadastro.`,
         argumentos: { grupoId: g.id, modo: "vincular", nome, telefone, leadId: alvoLead.id },
       }
       : {
         alvo: `card:grupo:${g.id}`,
-        resumo: `Criar o card do cliente "${nome}" no CRM${telefone ? ` com o telefone ${telefone}` : ", sem telefone (complete no CRM)"}, na etapa inicial, com origem "Dolores — grupo do WhatsApp", e ligar a ele o grupo "${grupo}" (grupo ${g.id}). Conferi antes: nenhum cliente com esse nome${telefone ? " ou telefone" : ""} no CRM.`,
+        resumo: `Criar o card do cliente "${nome}" no CRM${telefone ? ` com o telefone ${telefone}` : ", sem telefone (complete no CRM)"}, na etapa inicial, com origem "Dolores — grupo do WhatsApp", e ligar a ele o grupo "${grupo}" (grupo ${g.id}). `
+          + (candidatos.length
+            ? `ATENÇÃO, há cliente(s) PARECIDO(S) no CRM: ${listaCandidatos}. Se for um deles, RECUSE este item e peça para ligar o grupo ao cliente pelo número; aprove só se for mesmo um cliente novo.`
+            : `Conferi antes: nenhum cliente com esse nome (nem parecido)${telefone ? ", esse telefone" : ""} ou o telefone de quem mandou no grupo no CRM.`),
         argumentos: { grupoId: g.id, modo: "criar", nome, telefone, leadId: null },
       };
     // o resumo mostra TODO o texto que será gravado (nome e telefone), na forma em que será gravado (QA R2 N3); ao LIGAR a um

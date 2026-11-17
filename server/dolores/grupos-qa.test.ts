@@ -372,3 +372,46 @@ describe("QA-C (achado 5): chamada à IA sem resposta entra na contabilidade pel
     expect(ms.map(m => [m.situacao, m.reserva_entrada])).toEqual([["erro", 0], ["erro", 0], ["erro", 0]]);
   });
 });
+
+describe("QA-C (achado 6): criar_card_cliente lista os parecidos e diz de onde veio o número", () => {
+  beforeEach(() => { definirDependenciasPonte({ agora: () => new Date() }); });
+
+  it("nome parcial ('Maria' com 'Maria Trello' no CRM): o item LISTA o candidato e não diz 'nenhum cliente'", async () => {
+    const r = await pedir("criar_card_cliente", { grupoId: 1, nome: "Maria" });
+    expect(r.body).toMatchObject({ ok: true, nivel: "fila" });
+    const [i] = await fila();
+    expect(i.resumo).toMatch(/PARECIDO\(S\) no CRM: #1 "Maria Trello" \(nome parecido\)/);
+    expect(i.resumo).toMatch(/RECUSE este item/);
+    expect(i.resumo).not.toMatch(/nenhum cliente/);
+    // acento e caixa não atrapalham ("joão atrasado" acha "João Atrasado")
+    await banco.pg.exec("INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo) VALUES ('prospecta-dolores', '120363666666666666@g.us', 'G2', true)");
+    await pedir("criar_card_cliente", { grupoId: 2, nome: "JOAO atras" }, 2);
+    expect((await fila())[1].resumo).toMatch(/#2 "João Atrasado" \(nome parecido\)/);
+  });
+
+  it("telefone de quem mandou no grupo (mesmo DDD e 4 finais de um cliente): candidato por telefone", async () => {
+    await chamar(aviso(item({ texto: "Oi, sou eu de novo" }))); // remetente CLIENTE = 5599977776666 → "(99) *****-6666"
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Fulano Novo" });
+    const [i] = await fila();
+    expect(i.resumo).toMatch(/#3 "Ana Em Dia" \(telefone de quem mandou no grupo\)/);
+  });
+
+  it("sem parecido: diz que conferiu nome, telefone e quem mandou no grupo", async () => {
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Zuleica Quintanilha" });
+    expect((await fila())[0].resumo).toMatch(/nenhum cliente com esse nome \(nem parecido\)/);
+  });
+
+  it("leadId que não está na mensagem do dono: o resumo NÃO diz 'como o dono indicou'; na mensagem dele, diz", async () => {
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Pedro", leadId: 4 });
+    const [i] = await fila();
+    expect(i.resumo).not.toMatch(/como o dono indicou/);
+    expect(i.resumo).toMatch(/NÃO está na sua mensagem/);
+    await banco.pg.exec(`UPDATE dolores_aprovacoes SET situacao = 'recusada', decidido_em = now() WHERE id = 1`).catch(() => undefined);
+    const [m] = await q<{ id: number }>(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono, texto) VALUES ('prospecta-dolores', 'DONO1', true, 'liga o grupo 1 ao cliente 4') RETURNING id`);
+    await banco.pg.exec("INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo) VALUES ('prospecta-dolores', '120363555555555555@g.us', 'Outro', true)");
+    const r = await executarFuncao({ funcao: "criar_card_cliente", argumentos: { grupoId: 2, nome: "Pedro", leadId: 4 }, pedidoId: `wa:${m.id}:1:0` }, { canal: "whatsapp", mensagemId: m.id });
+    expect(r.body).toMatchObject({ ok: true });
+    const ultimo = (await fila()).at(-1)!;
+    expect(ultimo.resumo).toMatch(/como o dono indicou \(o número está na mensagem dele\)/);
+  });
+});
