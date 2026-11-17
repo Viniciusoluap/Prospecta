@@ -10,6 +10,16 @@ import { INTERACOES, desembrulhar, foiEncaminhada, segundos } from "./whatsapp.j
 export const JID_GRUPO = /^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/;
 export const jidDeGrupoValido = (v: unknown): v is string => typeof v === "string" && JID_GRUPO.test(v);
 
+/**
+ * QA E4, achado 7 — id de grupo para EXIBIR: no formato antigo ("<telefone de quem criou>-<data>@g.us") a primeira parte é
+ * o telefone de quem criou o grupo; na tela ela aparece mascarada (só os 4 finais). O formato novo (só dígitos) não tem
+ * telefone e fica igual. O id completo continua só nos dados (para cadastrar).
+ */
+export function jidDeGrupoParaExibir(jid: string): string {
+  const m = /^(\d+)-(\d+)@g\.us$/.exec(jid);
+  return m ? `${"•".repeat(Math.max(0, m[1].length - 4))}${m[1].slice(-4)}-${m[2]}@g.us` : jid;
+}
+
 /** Mensagem de grupo mais velha que isto (histórico ao entrar no grupo, reconexão) não é registrada. */
 export const IDADE_MAXIMA_GRUPO_MS = 24 * 60 * 60_000;
 

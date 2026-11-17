@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { jidDeGrupoParaExibir } from "@shared/dolores/grupos";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -85,7 +86,7 @@ export function DoloresGruposCard() {
                 <ul className="max-h-56 space-y-1 overflow-y-auto text-xs">
                   {doWhatsapp.data.map(g => (
                     <li key={g.grupoJid} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/10 p-2">
-                      <span className="min-w-0 break-all"><span className="text-gray-100">{g.nomeNoWhatsapp ?? "(sem nome)"}</span> <code className="text-gray-400">{g.grupoJid}</code>{g.participantes != null ? ` · ${g.participantes} pessoas` : ""}</span>
+                      <span className="min-w-0 break-all"><span className="text-gray-100">{g.nomeNoWhatsapp ?? "(sem nome)"}</span> <code className="text-gray-400">{jidDeGrupoParaExibir(g.grupoJid)}</code>{g.participantes != null ? ` · ${g.participantes} pessoas` : ""}</span>
                       {g.cadastrado ? <span className="text-green-300">já cadastrado</span>
                         : <Button size="sm" variant="outline" className={botaoSec} onClick={() => setNovo({ ...novo, grupoJid: g.grupoJid })}>Usar este id</Button>}
                     </li>
