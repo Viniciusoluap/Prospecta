@@ -113,10 +113,34 @@ export function formatoPorBytes(b: Uint8Array): FormatoArquivo | null {
 /** Formatos que vão para o card e o Drive (os mesmos da tela de documentos do cliente: PDF, JPG, PNG — e WEBP). */
 export const formatoSalvavel = (f: FormatoArquivo | null) => !!f && f.formato !== "gif";
 
-/** Páginas de um PDF, por estimativa barata (conta os objetos "/Type /Page"); serve só para o teto de custo. */
-export function paginasPdfEstimadas(b: Uint8Array): number {
+/**
+ * Páginas de um PDF, por estimativa barata e CONSERVADORA (serve só para o teto de custo da classificação). Devolve null =
+ * "não sei" — e quem chama NÃO envia o arquivo à IA — quando a contagem não é confiável (QA E4, achado 2):
+ * - fluxo de objetos (/ObjStm) ou tabela xref em fluxo (/Type /XRef): os objetos de página podem estar comprimidos;
+ * - nome da estrutura escrito com escape "#xx" (ex.: /P#61ge = /Page): a página pode estar escondida da contagem;
+ * - nenhuma página encontrada.
+ * Quando conta, vale o MAIOR entre os objetos "/Type /Page", as chaves "/Contents" (cada página com conteúdo tem a sua; não é
+ * herdada), as referências nos "/Kids" e os "/Count" da árvore de páginas (comentário "%" entre as palavras também conta) —
+ * contar a mais só deixa de enviar o arquivo.
+ */
+const ESPACO_PDF = String.raw`(?:\s|%[^\r\n]*[\r\n])*`;
+const NOMES_DA_ESTRUTURA = new Set(["Type", "Page", "Pages", "ObjStm", "XRef", "Contents", "Count", "Kids"]);
+export function paginasPdfEstimadas(b: Uint8Array): number | null {
   const texto = new TextDecoder("latin1").decode(b);
-  return (texto.match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length;
+  if (/\/ObjStm(?![\w])/.test(texto) || new RegExp(String.raw`\/Type${ESPACO_PDF}\/XRef(?![\w])`).test(texto)) return null;
+  for (const m of Array.from(texto.matchAll(/\/([^\s/<>[\]()%{}]{0,40}#[0-9A-Fa-f]{2}[^\s/<>[\]()%{}]{0,40})/g))) {
+    const nome = m[1].replace(/#([0-9A-Fa-f]{2})/g, (_: string, h: string) => String.fromCharCode(parseInt(h, 16)));
+    if (NOMES_DA_ESTRUTURA.has(nome)) return null;
+  }
+  const objetos = (texto.match(new RegExp(String.raw`\/Type${ESPACO_PDF}\/Page(?![s\w])`, "g")) ?? []).length;
+  if (objetos <= 0) return null;
+  const conteudos = (texto.match(/\/Contents(?![\w])/g) ?? []).length;
+  const listasDeFilhos = Array.from(texto.matchAll(new RegExp(String.raw`\/Kids${ESPACO_PDF}\[([^\]]{0,20000})\]`, "g")));
+  // lista de filhos longa demais (ou sem fechar) para contar com segurança: "não sei"
+  if (listasDeFilhos.length !== (texto.match(/\/Kids(?![\w])/g) ?? []).length) return null;
+  const filhos = listasDeFilhos.reduce((n, m) => n + (m[1].match(/\d+\s+\d+\s+R/g) ?? []).length, 0);
+  const declarado = Array.from(texto.matchAll(new RegExp(String.raw`\/Count${ESPACO_PDF}(\d{1,9})`, "g"))).reduce((n, m) => Math.max(n, Number(m[1])), 0);
+  return Math.max(objetos, conteudos, filhos, declarado);
 }
 
 /** Tamanho dos bytes de um base64 sem decodificar (para recusar antes de ocupar memória). */

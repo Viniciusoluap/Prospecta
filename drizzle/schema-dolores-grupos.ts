@@ -62,6 +62,8 @@ export const doloresGruposContagem = pgTable("dolores_grupos_contagem", {
   mensagens: integer("mensagens").default(0).notNull(),
   ignoradas: integer("ignoradas").default(0).notNull(),
   classificacoes: integer("classificacoes").default(0).notNull(),
+  /** Linha do total (grupo 0): tokens de entrada usados ACIMA da reserva no dia; > 0 pausa as classificações até o dia seguinte. */
+  excessoEntrada: integer("excesso_entrada").default(0).notNull(),
   ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
 }, t => [primaryKey({ columns: [t.grupoId, t.dia] })]);
 

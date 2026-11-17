@@ -30,12 +30,20 @@ const PRAZO_DOWNLOAD_MS = 15_000;
 const PRAZO_MODELO_MS = 15_000;
 /** Saída máxima (só a chamada da ferramenta). */
 export const MAX_TOKENS_CLASSIFICACAO = 300;
-/** Reserva de entrada por classificação (imagem ~1,6 mil tokens; PDF de até 5 páginas ~15 mil). */
-export const RESERVA_ENTRADA_CLASSIFICACAO = 20_000;
 /** O arquivo vai à IA só até estes limites; acima, ela classifica só pelo nome e pela legenda (e sempre "confira"). */
 export const MAX_BYTES_PDF_IA = 4 * 1024 * 1024;
 export const MAX_PAGINAS_PDF_IA = 5;
 export const MAX_BYTES_IMAGEM_IA = 3_750_000;
+/**
+ * Reserva de entrada por classificação = o PIOR caso do que pode ser enviado (QA E4, achado 2). Regra conservadora (o projeto
+ * não tem a contagem prévia de tokens da API): instrução + ferramenta + nome/legenda (até 3 mil) e, por página de PDF, até 5
+ * mil (texto da página + a imagem dela, que a API cobra juntos) × o teto de páginas. Imagem (até ~1,6 mil) cabe com folga.
+ * PDF sem contagem confiável de páginas não é enviado (paginasPdfEstimadas → null). Se o uso real ainda assim passar da
+ * reserva, as classificações do dia são pausadas (excesso_entrada).
+ */
+export const RESERVA_BASE_CLASSIFICACAO = 3_000;
+export const RESERVA_POR_PAGINA_PDF = 5_000;
+export const RESERVA_ENTRADA_CLASSIFICACAO = RESERVA_BASE_CLASSIFICACAO + MAX_PAGINAS_PDF_IA * RESERVA_POR_PAGINA_PDF;
 /** Sem o arquivo, a confiança é limitada a isto (vira "confira"). */
 const CONFIANCA_SEM_ARQUIVO = 0.6;
 /** Tentativas por documento (falha de rede, modelo fora do ar). */
@@ -116,7 +124,7 @@ async function reservarVagaDoDia(grupoId: number, dia: string, tetoGrupo: number
           .onConflictDoUpdate({
             target: [doloresGruposContagem.grupoId, doloresGruposContagem.dia],
             set: { classificacoes: sql`${doloresGruposContagem.classificacoes} + 1`, ultimaEm: sql`now()` },
-            setWhere: sql`${doloresGruposContagem.classificacoes} < ${teto}`,
+            setWhere: sql`${doloresGruposContagem.classificacoes} < ${teto} AND ${doloresGruposContagem.excessoEntrada} = 0`,
           }).returning({ n: doloresGruposContagem.classificacoes });
         if (!r.length) throw new SemVaga();
       }
@@ -125,6 +133,24 @@ async function reservarVagaDoDia(grupoId: number, dia: string, tetoGrupo: number
   } catch (e) {
     if (e instanceof SemVaga) return false;
     throw e;
+  }
+}
+
+/** Tokens de entrada usados acima da reserva no dia (linha do total). Sem a linha → 0. */
+async function excessoDoDia(dia: string): Promise<number> {
+  const [r] = await getDb().select({ x: doloresGruposContagem.excessoEntrada }).from(doloresGruposContagem)
+    .where(and(eq(doloresGruposContagem.grupoId, 0), eq(doloresGruposContagem.dia, dia))).limit(1);
+  return Number(r?.x ?? 0);
+}
+
+/** Soma o excesso do dia na linha do total (cria a linha se preciso). Falha só vai para o log (o consumo já foi registrado). */
+async function marcarExcessoDoDia(dia: string, excesso: number) {
+  try {
+    await getDb().insert(doloresGruposContagem).values({ grupoId: 0, dia, excessoEntrada: excesso })
+      .onConflictDoUpdate({ target: [doloresGruposContagem.grupoId, doloresGruposContagem.dia],
+        set: { excessoEntrada: sql`${doloresGruposContagem.excessoEntrada} + ${excesso}`, ultimaEm: sql`now()` } });
+  } catch (e) {
+    console.error("[dolores/classificacao] falha ao marcar o excesso do dia", erroParaLog(e));
   }
 }
 
@@ -172,6 +198,11 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     registrarAcao({ funcao: "classificar_documento", resultado, motivo, autorUserId: autor, canal: o.canal, pedidoId: `grupo:${msg.grupoId}:doc:${mensagemId}`,
       resumo: { grupoId: msg.grupoId, mensagemId, ...resumo } });
 
+  if (await excessoDoDia(diaDeImperatriz(agora)) > 0) {
+    await voltar("a_classificar", "uma classificação de hoje usou mais que a reserva: classificações pausadas até amanhã");
+    await auditar("recusada", "classificações pausadas no dia: uso real passou da reserva", {});
+    return "classificacao-excesso";
+  }
   if (!(await reservarVagaDoDia(msg.grupoId, diaDeImperatriz(agora), config.tetoClassificacoesGrupoDia, config.tetoClassificacoesDia))) {
     await voltar("a_classificar", "teto diário de classificações atingido; fica para outro dia");
     await auditar("recusada", "teto diário de classificações atingido", {});
@@ -211,7 +242,9 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     // 2) o que vai ao modelo: o arquivo (se couber no teto de custo) + nome e legenda como DADO
     const formato = formatoPorBytes(bytes);
     let bloco: BlocoConteudo | null = null;
-    if (formato?.formato === "pdf" && bytes.length <= MAX_BYTES_PDF_IA && paginasPdfEstimadas(bytes) <= MAX_PAGINAS_PDF_IA) {
+    // PDF: só com contagem de páginas CONFIÁVEL e dentro do teto (null = "não sei" → não vai; QA E4, achado 2)
+    const paginas = formato?.formato === "pdf" ? paginasPdfEstimadas(bytes) : null;
+    if (formato?.formato === "pdf" && bytes.length <= MAX_BYTES_PDF_IA && paginas !== null && paginas <= MAX_PAGINAS_PDF_IA) {
       bloco = { type: "document", source: { type: "base64", media_type: "application/pdf", data: bytes.toString("base64") } };
     } else if (formato && formato.formato !== "pdf" && bytes.length <= MAX_BYTES_IMAGEM_IA) {
       bloco = { type: "image", source: { type: "base64", media_type: formato.mime, data: bytes.toString("base64") } };
@@ -235,6 +268,14 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     }
     const uso = usoDe(resp);
     await registrarConsumo({ mes, mensagemId: null, modelo, volta: 1, uso, parada: resp.stop_reason });
+    // o uso real passou da reserva (o pior caso calculado): registra e pausa as classificações do dia
+    const entradaReal = uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
+    if (entradaReal > RESERVA_ENTRADA_CLASSIFICACAO || uso.saida > MAX_TOKENS_CLASSIFICACAO) {
+      const excesso = Math.max(1, entradaReal - RESERVA_ENTRADA_CLASSIFICACAO);
+      await marcarExcessoDoDia(diaDeImperatriz(agora), excesso);
+      console.error("[dolores/classificacao] uso real passou da reserva; classificações pausadas no dia", { entradaReal, saida: uso.saida });
+      await auditar("erro", "uso real passou da reserva: classificações pausadas até amanhã", { tokensEntrada: entradaReal, tokensSaida: uso.saida, reserva: RESERVA_ENTRADA_CLASSIFICACAO });
+    }
     // 3) a saída: SÓ a ferramenta, validada; o resto é ignorado
     const chamada = resp.content.find(b => b.type === "tool_use" && b.name === FERRAMENTA_CLASSIFICACAO.name);
     const saida = chamada ? lerSaidaClassificacao(chamada.input) : null;
@@ -242,7 +283,7 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
     const tipo = saida?.tipo ?? "outro";
     const situacao = saida && confianca >= LIMIAR_CONFIANCA ? "classificado" : "confira";
     const motivo = !saida ? "a IA não devolveu uma classificação válida; confira"
-      : `${bloco ? "" : "classificado só pelo nome e pela legenda (arquivo fora do limite da IA ou formato sem leitura); "}${textoDeDado(sanitizarTexto(saida.motivo, FILTRO_DO_REGISTRO), 160)}`;
+      : `${bloco ? "" : "classificado só pelo nome e pela legenda (arquivo fora do limite da IA, páginas que não consegui contar ou formato sem leitura); "}${textoDeDado(sanitizarTexto(saida.motivo, FILTRO_DO_REGISTRO), 160)}`;
     await db.update(doloresGrupoMensagens).set({
       situacao, classificacao: tipo, confianca: confianca.toFixed(3), motivo: motivo.slice(0, 200), classificadoEm: new Date(), modelo: modelo.slice(0, 120),
     }).where(and(eq(doloresGrupoMensagens.id, mensagemId), eq(doloresGrupoMensagens.situacao, "classificando")));
@@ -272,7 +313,7 @@ export async function classificarPendentes(o: OpcoesClassificacao & { maximo: nu
     const r = await classificarDocumentoDoGrupo(p.id, o);
     contagem[r] = (contagem[r] ?? 0) + 1;
     // interruptor desligado, bloqueio ou teto valem para todos: não adianta tentar os outros
-    if (/^classificacao-(desligada|bloqueada|teto|limite)/.test(r)) break;
+    if (/^classificacao-(desligada|bloqueada|teto|limite|excesso)/.test(r)) break;
   }
   return contagem;
 }

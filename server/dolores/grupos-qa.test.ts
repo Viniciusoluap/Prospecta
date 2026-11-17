@@ -169,3 +169,95 @@ describe("QA-B (achado 1): a 0126 não quebra nenhuma exclusão legítima que j�
     expect((await q("SELECT obra_id, grupo_jid FROM dolores_grupos WHERE id = 1"))[0]).toEqual({ obra_id: null, grupo_jid: GRUPO });
   });
 });
+
+/** PDF 1.5 válido com N páginas, todas dentro de um fluxo de objetos comprimido (/ObjStm) + tabela xref em fluxo (o do QA). */
+function pdfComObjStm(n: number): Buffer {
+  const objs: string[] = ["<< /Type /Catalog /Pages 2 0 R >>"];
+  objs.push(`<< /Type /Pages /Kids [${Array.from({ length: n }, (_, i) => `${i + 3} 0 R`).join(" ")}] /Count ${n} >>`);
+  for (let i = 0; i < n; i++) objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>");
+  let corpo = ""; const pares: string[] = [];
+  objs.forEach((o, i) => { pares.push(`${i + 1} ${corpo.length}`); corpo += o + "\n"; });
+  const cab = pares.join(" ") + "\n";
+  const dados = deflateSync(Buffer.from(cab + corpo, "latin1"));
+  const objStmNum = n + 3, xrefNum = n + 4, size = n + 5;
+  const partes: Buffer[] = [Buffer.from("%PDF-1.5\n%\xe2\xe3\xcf\xd3\n", "latin1")];
+  let off = partes[0].length;
+  const offObjStm = off;
+  const objStm = Buffer.concat([Buffer.from(`${objStmNum} 0 obj\n<< /Type /ObjStm /N ${objs.length} /First ${cab.length} /Filter /FlateDecode /Length ${dados.length} >>\nstream\n`, "latin1"), dados, Buffer.from("\nendstream\nendobj\n", "latin1")]);
+  partes.push(objStm); off += objStm.length;
+  const offXref = off;
+  const ent = (t: number, a: number, b: number) => { const x = Buffer.alloc(7); x[0] = t; x.writeUInt32BE(a, 1); x.writeUInt16BE(b, 5); return x; };
+  const linhas: Buffer[] = [ent(0, 0, 0xffff), ...objs.map((_, i) => ent(2, objStmNum, i)), ent(1, offObjStm, 0), ent(1, offXref, 0)];
+  const xd = deflateSync(Buffer.concat(linhas));
+  partes.push(Buffer.concat([Buffer.from(`${xrefNum} 0 obj\n<< /Type /XRef /Size ${size} /W [1 4 2] /Root 1 0 R /Filter /FlateDecode /Length ${xd.length} >>\nstream\n`, "latin1"), xd, Buffer.from(`\nendstream\nendobj\nstartxref\n${offXref}\n%%EOF\n`, "latin1")]));
+  return Buffer.concat(partes);
+}
+/** PDF clássico (sem fluxo de objetos) com N páginas; `pagina` troca o texto de cada objeto de página (disfarces). */
+function pdfSimples(n: number, pagina = (i: number) => `<< /Type /Page /Parent 2 0 R /Contents ${n + 3 + i} 0 R >>`, kids = true): Buffer {
+  const lista = Array.from({ length: n }, (_, i) => `${i + 3} 0 R`).join(" ");
+  const corpo = [`1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj`, `2 0 obj << /Type /Pages ${kids ? `/Kids [${lista}] ` : ""}/Count 1 >> endobj`,
+    ...Array.from({ length: n }, (_, i) => `${i + 3} 0 obj ${pagina(i)} endobj`)].join("\n");
+  return Buffer.from(`%PDF-1.4\n${corpo}\n%%EOF\n`, "latin1");
+}
+
+describe("QA-A (achado 2): teto de páginas do PDF e reserva do pior caso", () => {
+  it("PDF com 60 páginas em /ObjStm: contagem 'não sei' → o arquivo NÃO vai à IA (só nome e legenda, 'confira')", async () => {
+    const pdf = pdfComObjStm(60);
+    expect(pdf.subarray(0, 8).toString("latin1")).toBe("%PDF-1.5");
+    const { paginasPdfEstimadas } = await import("../../shared/dolores/grupos.js");
+    expect(paginasPdfEstimadas(pdf)).toBeNull();
+    baixar.mockResolvedValue({ base64: pdf.toString("base64") });
+    await chamar(aviso(item({ message: documento("extrato.pdf", "extrato") })));
+    expect(pedidosIa).toHaveLength(1);
+    expect(pedidosIa[0].conteudo.map(c => c.type)).toEqual(["text"]);
+    expect(JSON.parse((pedidosIa[0].conteudo[0] as { text: string }).text)).toMatchObject({ arquivoEnviado: false });
+    const [m] = await mensagens();
+    expect(m.situacao).toBe("confira");
+    expect(m.motivo).toMatch(/só pelo nome e pela legenda/);
+  });
+
+  it("disfarces da contagem: escape #xx no nome, comentário entre as palavras, página sem /Type, /Count mentiroso", async () => {
+    const { paginasPdfEstimadas } = await import("../../shared/dolores/grupos.js");
+    expect(paginasPdfEstimadas(pdfSimples(3))).toBe(3);
+    expect(paginasPdfEstimadas(pdfSimples(60, () => "<< /Type /P#61ge /Parent 2 0 R >>"))).toBeNull();
+    expect(paginasPdfEstimadas(pdfSimples(60, () => "<< /T#79pe /Page /Parent 2 0 R >>"))).toBeNull();
+    expect(paginasPdfEstimadas(pdfSimples(60, i => (i === 0 ? "<< /Type /Page >>" : "<< /Type %x\n/Page /Parent 2 0 R >>")))).toBe(60);
+    expect(paginasPdfEstimadas(pdfSimples(60, i => (i === 0 ? "<< /Type /Page >>" : "<< /Parent 2 0 R /MediaBox [0 0 1 1] >>")))).toBe(60); // pelos /Kids
+    expect(paginasPdfEstimadas(pdfSimples(60, i => (i === 0 ? "<< /Type /Page /Contents 9 0 R >>" : "<< /Parent 2 0 R /Contents 9 0 R >>"), false))).toBe(60); // pelos /Contents
+    expect(paginasPdfEstimadas(Buffer.from("%PDF-1.4\n2 0 obj << /Type /Pages /Kids 7 0 R /Count 1 >> endobj 3 0 obj << /Type /Page >> endobj", "latin1"))).toBeNull();
+    expect(paginasPdfEstimadas(Buffer.from("%PDF-1.4\n%%EOF", "latin1"))).toBeNull();
+    // PDF de 6 páginas (acima do teto de 5) também não vai
+    baixar.mockResolvedValue({ base64: pdfSimples(6).toString("base64") });
+    await chamar(aviso(item({ message: documento("seis.pdf", "x") })));
+    expect(pedidosIa[0].conteudo.map(c => c.type)).toEqual(["text"]);
+  });
+
+  it("a reserva cobre o pior caso do que é enviado (5 páginas × 5 mil + 3 mil) e fica gravada durante a chamada", async () => {
+    const { RESERVA_ENTRADA_CLASSIFICACAO, MAX_PAGINAS_PDF_IA, RESERVA_POR_PAGINA_PDF, RESERVA_BASE_CLASSIFICACAO } = await import("./classificacao.js");
+    expect(RESERVA_ENTRADA_CLASSIFICACAO).toBe(RESERVA_BASE_CLASSIFICACAO + MAX_PAGINAS_PDF_IA * RESERVA_POR_PAGINA_PDF);
+    expect(RESERVA_ENTRADA_CLASSIFICACAO).toBeGreaterThanOrEqual(28_000);
+    let durante: unknown = null;
+    definirDependenciasClassificacao({ baixar: baixar as never, cliente: async () => {
+      durante = (await q("SELECT reserva_entrada FROM dolores_grupo_mensagens ORDER BY id DESC LIMIT 1"))[0].reserva_entrada;
+      return ehToolUse({ tipo: "rg", confianca: 0.9, motivo: "documento com foto" });
+    } });
+    baixar.mockResolvedValue({ base64: pdfSimples(5).toString("base64") });
+    await chamar(aviso(item({ message: documento("cinco.pdf", "x") })));
+    expect(durante).toBe(RESERVA_ENTRADA_CLASSIFICACAO);
+  });
+
+  it("uso real acima da reserva: registra o consumo real e pausa as classificações do dia (o próximo documento nem chama a IA)", async () => {
+    respostaIa = () => ehToolUse({ tipo: "rg", confianca: 0.9, motivo: "documento com foto" }, 90_000);
+    await chamar(aviso(item({ message: documento("a.pdf", "a") })));
+    expect(pedidosIa).toHaveLength(1);
+    expect((await q("SELECT sum(tokens_entrada)::int n FROM dolores_consumo"))[0].n).toBe(90_000);
+    const [total] = await q("SELECT excesso_entrada FROM dolores_grupos_contagem WHERE grupo_id = 0");
+    expect(total.excesso_entrada).toBeGreaterThan(0);
+    expect((await q("SELECT motivo FROM dolores_acoes WHERE funcao = 'classificar_documento' ORDER BY id")).map(a => a.motivo)).toContain("uso real passou da reserva: classificações pausadas até amanhã");
+    await chamar(aviso(item({ message: documento("b.pdf", "b") })));
+    expect(pedidosIa).toHaveLength(1); // pausada: nenhuma chamada nova
+    const ms = await mensagens();
+    expect(ms[1]).toMatchObject({ situacao: "a_classificar" });
+    expect(ms[1].motivo).toMatch(/pausadas até amanhã/);
+  });
+});

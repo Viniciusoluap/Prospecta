@@ -140,6 +140,9 @@ CREATE TABLE IF NOT EXISTS "dolores_grupos_contagem" (
   "mensagens" integer NOT NULL DEFAULT 0,
   "ignoradas" integer NOT NULL DEFAULT 0,
   "classificacoes" integer NOT NULL DEFAULT 0,
+  -- linha do total (grupo 0): tokens de entrada usados ACIMA da reserva naquele dia (QA E4, achado 2). Maior que zero, as
+  -- classificações ficam pausadas até o dia seguinte (o documento continua "a classificar"; nada é perdido).
+  "excesso_entrada" integer NOT NULL DEFAULT 0,
   "ultima_em" timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY ("grupo_id", "dia")
 );
