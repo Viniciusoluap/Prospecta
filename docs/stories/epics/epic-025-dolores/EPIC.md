@@ -9,7 +9,7 @@ com migração e publicação a cada etapa — o que substitui a exigência do p
 - [x] 1. Leitura (PR #240, migração `0123` aplicada) — ponte, usuário Dolores, consultas de todos os módulos, auditoria (`dolores_acoes`)
 - [x] 2. WhatsApp (PR #243, migração `0124` aplicada; IA desligada por padrão) — conexão própria pela Central, comando e resposta pelo número do dono
 - [x] 3. Ações (PR #245, migração `0125` aplicada; fila de aprovação) — tarefas, acompanhamentos, cobranças preparadas, geradores, fila de aprovação
-- [ ] 4. Grupos de clientes — leitura dos grupos cadastrados, card, classificação e Drive
+- [x] 4. Grupos de clientes (PR #248, migrações `0126` e `0130` aplicadas; tudo desligado por padrão) — leitura dos grupos cadastrados, card, classificação e Drive
 - [ ] 5. Notas de obra — leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO
 - [ ] 6. Operação contínua — eventos, rondas, relatório diário, tela com pausa e gasto
 

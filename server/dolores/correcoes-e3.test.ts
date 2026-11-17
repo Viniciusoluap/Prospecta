@@ -73,7 +73,7 @@ describe("achado 1 — regra de contaminação na porta e intenção de ação (
     expect(contaminaOComando("funcao_nova_qualquer")).toBe(true);
     expect(Object.fromEntries(ACOES.map(a => [a.nome, contaminaOComando(a.nome)]))).toEqual({
       criar_tarefa: false, registrar_acompanhamento: false, preparar_cobranca: true, gerar_documento: true,
-      criar_card_cliente: true, salvar_documentos_grupo: true });
+      criar_card_cliente: true, salvar_documentos_grupo: true, conciliar_nota_obra: true, salvar_nota_obra: true });
   });
   it("intenção de ação: verbos de ação sim; só leitura não", () => {
     for (const t of ["Dolores, crie uma tarefa para a Bianca", "registre que liguei para a Maria", "anota aí: cliente mandou o RG", "prepare as cobranças",

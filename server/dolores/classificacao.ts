@@ -78,8 +78,10 @@ export type CredencialClassificacao =
   | { motivo: string; detalhe?: string | null }
   | { motivo: null; apiKey: string; modelo: string; autor: number; limites: { entrada: number; saida: number }; mes: string };
 
-type BlocoConteudo = { type: "text"; text: string } | { type: "image" | "document"; source: { type: "base64"; media_type: string; data: string } };
-export type PedidoClassificacao = { apiKey: string; modelo: string; sistema: string; conteudo: BlocoConteudo[]; ferramenta: typeof FERRAMENTA_CLASSIFICACAO; maxTokens: number; timeoutMs: number };
+export type BlocoConteudo = { type: "text"; text: string } | { type: "image" | "document"; source: { type: "base64"; media_type: string; data: string } };
+/** Ferramenta única que o modelo é obrigado a chamar (etapa 4: registrar_classificacao; etapa 5: registrar_leitura_nota). */
+export type FerramentaDocumento = { readonly name: string; readonly description: string; readonly input_schema: unknown };
+export type PedidoClassificacao = { apiKey: string; modelo: string; sistema: string; conteudo: BlocoConteudo[]; ferramenta: FerramentaDocumento; maxTokens: number; timeoutMs: number };
 export type RespostaClassificacao = {
   content: Array<{ type: string; name?: string; input?: unknown; text?: string }>; stop_reason: string | null;
   usage?: { input_tokens?: number | null; output_tokens?: number | null; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null } | null;
@@ -181,7 +183,7 @@ export function definirDependenciasClassificacao(d?: { cliente?: ClienteClassifi
 }
 
 /** Conta com prazo curto; qualquer falha, prazo estourado ou número inválido → null ("não sei": o arquivo não vai). */
-async function contarComPrazo(p: Omit<PedidoClassificacao, "maxTokens">): Promise<number | null> {
+export async function contarComPrazo(p: Omit<PedidoClassificacao, "maxTokens">): Promise<number | null> {
   let relogio: ReturnType<typeof setTimeout> | undefined;
   try {
     const n = await Promise.race([
@@ -198,8 +200,10 @@ async function contarComPrazo(p: Omit<PedidoClassificacao, "maxTokens">): Promis
   }
 }
 export const baixarArquivo: BaixarArquivo = p => (baixarTeste ?? baixarPelaEvolution)(p);
+/** Etapa 5 — a MESMA chamada ao modelo (e o mesmo modelo falso dos testes) para a leitura de notas de obra. */
+export const chamarModeloDocumento: ClienteClassificacao = p => (clienteTeste ?? clientePadrao)(p);
 
-const usoDe = (r: RespostaClassificacao): UsoDaChamada => ({
+export const usoDe = (r: RespostaClassificacao): UsoDaChamada => ({
   entrada: Number(r.usage?.input_tokens ?? 0), saida: Number(r.usage?.output_tokens ?? 0),
   cacheEscrita: Number(r.usage?.cache_creation_input_tokens ?? 0), cacheLeitura: Number(r.usage?.cache_read_input_tokens ?? 0),
 });
@@ -208,7 +212,7 @@ const usoDe = (r: RespostaClassificacao): UsoDaChamada => ({
  * Teto do dia: sobe a contagem do grupo e a do total (grupo 0) numa transação, só se as duas estiverem abaixo dos tetos.
  * Sem vaga → nada muda (a transação é desfeita).
  */
-async function reservarVagaDoDia(grupoId: number, dia: string, tetoGrupo: number, tetoTotal: number): Promise<boolean> {
+export async function reservarVagaDoDia(grupoId: number, dia: string, tetoGrupo: number, tetoTotal: number): Promise<boolean> {
   class SemVaga extends Error {}
   try {
     await getDb().transaction(async tx => {
@@ -242,7 +246,7 @@ let pausadaPorFalhaNoConsumo = false;
 export const classificacaoPausadaPorFalha = () => pausadaPorFalhaNoConsumo;
 /** O admin religou a classificação (ou teste): limpa a pausa em memória desta instância. */
 export function limparPausaPorFalhaNoConsumo() { pausadaPorFalhaNoConsumo = false; }
-async function desligarPorFalhaNoConsumo(d: { autor: number | null; canal: OpcoesClassificacao["canal"]; grupoId: number; mensagemId: number; registro: string[] }) {
+export async function desligarPorFalhaNoConsumo(d: { autor: number | null; canal: OpcoesClassificacao["canal"]; grupoId: number; mensagemId: number; registro: string[] }) {
   pausadaPorFalhaNoConsumo = true;
   console.error("[dolores/classificacao] o consumo da classificação não foi gravado: classificação desligada até o admin religar");
   let gravado = false;
@@ -277,14 +281,14 @@ export async function desligamentoPorFalha(): Promise<{ em: Date | null; motivo:
 }
 
 /** Tokens de entrada usados acima da reserva no dia pelo GRUPO (QA E4 r2, N3: só o grupo que causou). Sem a linha → 0. */
-async function excessoDoDia(grupoId: number, dia: string): Promise<number> {
+export async function excessoDoDia(grupoId: number, dia: string): Promise<number> {
   const [r] = await getDb().select({ x: doloresGruposContagem.excessoEntrada }).from(doloresGruposContagem)
     .where(and(eq(doloresGruposContagem.grupoId, grupoId), eq(doloresGruposContagem.dia, dia))).limit(1);
   return Number(r?.x ?? 0);
 }
 
 /** Soma o excesso do dia na linha do GRUPO (cria a linha se preciso). Falha só vai para o log (o consumo já foi registrado). */
-async function marcarExcessoDoDia(grupoId: number, dia: string, excesso: number) {
+export async function marcarExcessoDoDia(grupoId: number, dia: string, excesso: number) {
   try {
     await getDb().insert(doloresGruposContagem).values({ grupoId, dia, excessoEntrada: excesso })
       .onConflictDoUpdate({ target: [doloresGruposContagem.grupoId, doloresGruposContagem.dia],
@@ -306,9 +310,11 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
   const relogio = o.relogio ?? Date.now;
   const restante = () => o.prazoFinal - relogio();
   const db = getDb();
-  const [m] = await db.select({ msg: doloresGrupoMensagens, ativo: doloresGrupos.ativo }).from(doloresGrupoMensagens)
+  const [m] = await db.select({ msg: doloresGrupoMensagens, ativo: doloresGrupos.ativo, obraId: doloresGrupos.obraId }).from(doloresGrupoMensagens)
     .innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId)).where(eq(doloresGrupoMensagens.id, mensagemId)).limit(1);
   if (!m || !m.ativo) return "classificacao-nada";
+  // Etapa 5: documento de grupo de OBRA vai para a leitura de nota (server/dolores/notas-obra.ts), não para esta classificação
+  if (m.obraId !== null) return "classificacao-obra";
   const msg = m.msg;
   if (!["a_classificar", "erro", "classificando"].includes(msg.situacao) || msg.tentativas >= MAX_TENTATIVAS) return "classificacao-nada";
   const config = await lerConfigGrupos();
@@ -488,7 +494,7 @@ export async function classificarPendentes(o: OpcoesClassificacao & { maximo: nu
   const relogio = o.relogio ?? Date.now;
   const pendentes = await getDb().select({ id: doloresGrupoMensagens.id }).from(doloresGrupoMensagens)
     .innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
-    .where(and(eq(doloresGrupos.ativo, true), inArray(doloresGrupoMensagens.situacao, ["a_classificar", "erro"]), lt(doloresGrupoMensagens.tentativas, MAX_TENTATIVAS)))
+    .where(and(eq(doloresGrupos.ativo, true), isNull(doloresGrupos.obraId), inArray(doloresGrupoMensagens.situacao, ["a_classificar", "erro"]), lt(doloresGrupoMensagens.tentativas, MAX_TENTATIVAS)))
     .orderBy(doloresGrupoMensagens.id).limit(Math.min(10, o.maximo));
   const contagem: Record<string, number> = {};
   for (const p of pendentes) {

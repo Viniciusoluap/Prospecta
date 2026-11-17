@@ -34,8 +34,9 @@ import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
-import { MINIMO_PARA_CLASSIFICAR_MS, classificarDocumentoDoGrupo } from "./classificacao.js";
+import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
 import { tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
+import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas-obra.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -149,7 +150,7 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
-async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" = "dolores_whatsapp"): Promise<
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
   if (!pausa) return { motivo: "indisponivel" };
@@ -176,13 +177,13 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "d
  * interruptor da IA, chave, modelo da função "dolores_documentos", limite mensal, usuária ativa). A chave só sai daqui como
  * `apiKey` do pedido ao modelo (server/dolores/classificacao.ts); nunca vai para log, auditoria ou tela.
  */
-export async function credencialDaClassificacao(): Promise<
+export async function credencialDaClassificacao(funcao: "dolores_documentos" | "dolores_notas" = "dolores_documentos"): Promise<
   { motivo: MotivoBloqueio | "indisponivel"; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number; limites: { entrada: number; saida: number }; mes: string }> {
   let cfg: DoloresWhatsappConfig | null;
   try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
-  const estado = await bloqueioAtual(cfg, mes, "dolores_documentos");
+  const estado = await bloqueioAtual(cfg, mes, funcao);
   if (estado.motivo !== null) return estado;
   return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
 }
@@ -201,6 +202,12 @@ export async function credencialDaMarcacao(): Promise<CredencialGrupo> {
   if (estado.motivo !== null) return estado;
   return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
 }
+
+/**
+ * Etapa 5 — leitura de notas de obra: a MESMA porta (bloqueioAtual: pausa, interruptor da IA, chave, modelo da função
+ * "dolores_notas", limite mensal, usuária ativa). A chave só sai daqui para o pedido ao modelo (server/dolores/notas-obra.ts).
+ */
+export const credencialDaLeituraDeNota = () => credencialDaClassificacao("dolores_notas");
 
 async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean }, prazoFinal: number, autorInicial: number | null) {
   const agora = deps.agora();
@@ -425,11 +432,17 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
       // no máximo UMA classificação por aviso, e só com tempo de sobra; o resto fica "a classificar" (a tela e o próximo
       // pedido do dono tratam). Quem decide se a IA pode rodar (interruptores, teto, limite) é a classificação.
+      // Etapa 5: documento de grupo de OBRA vai para a leitura de nota (mesmas travas; no máximo UMA chamada de IA por aviso,
+      // somando classificação e leitura); texto de grupo de obra pode ser a resposta do empreiteiro (código, sem IA).
       if (g.aClassificar && g.mensagemId && !classificouNesteAviso && prazoFinal - deps.ms() >= MINIMO_PARA_CLASSIFICAR_MS) {
         classificouNesteAviso = true;
-        const r = await classificarDocumentoDoGrupo(g.mensagemId, { prazoFinal, relogio: deps.ms, obterCredencial: credencialDaClassificacao, canal: "whatsapp" })
+        const r = await tratarDocumentoDoGrupo(g.mensagemId, { prazoFinal, relogio: deps.ms, obterCredencial: credencialDaClassificacao, credencialDaNota: credencialDaLeituraDeNota, canal: "whatsapp" })
           .catch(e => { console.error("[dolores/whatsapp] falha ao classificar documento do grupo", erroCurto(e)); return "classificacao-erro"; });
         contar(r);
+      } else if (g.resultado === "grupo-registrada" && g.mensagemId && !g.aClassificar) {
+        const r = await reconhecerRespostaDoEmpreiteiro(cfg, item, g.mensagemId, { agora: deps.agora(), autor })
+          .catch(e => { console.error("[dolores/whatsapp] falha ao conferir resposta de empreiteiro", erroCurto(e)); return "resposta-erro"; });
+        if (r !== "resposta-nada") contar(r);
       }
       continue;
     }

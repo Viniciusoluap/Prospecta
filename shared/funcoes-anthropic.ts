@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -38,6 +38,12 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     rotulo: "Dolores — resposta em grupo quando marcada",
     descricao: "Responde no grupo de cliente cadastrado só quando alguém marca o número da Dolores, e só sobre o andamento e os documentos daquele cliente. Só gasta com o interruptor da IA e o \"responder quando marcada\" (geral e do grupo) ligados, até os tetos por grupo e por pessoa e dentro do limite mensal do cartão da Dolores.",
     recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar: a resposta é curta e as consultas já vêm prontas.",
+  },
+  dolores_notas: {
+    id: "dolores_notas",
+    rotulo: "Dolores — leitura de notas de obra",
+    descricao: "Lê as notas fiscais e recibos que chegam nos grupos de OBRA cadastrados (emitente, CPF/CNPJ, número, data, valor, itens) e monta o rascunho para o dono conferir. Só gasta com o interruptor da IA da Dolores, a classificação de documentos e a leitura de notas ligados, uma nota por vez, dentro dos tetos diários e do orçamento dos documentos no limite mensal do cartão da Dolores.",
+    recomendacao: "Um modelo que leia bem imagem e PDF com números; valores e CPF/CNPJ são conferidos pelo sistema, e o que tiver confiança baixa vira \"confira\".",
   },
 };
 
