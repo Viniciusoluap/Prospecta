@@ -26,7 +26,7 @@ import { erroParaLog } from "./erro-seguro.js";
 /** Padrões da configuração (os mesmos da migração), usados se a linha ainda não existir. */
 export const CONFIG_GRUPOS_PADRAO: Omit<DoloresGruposConfig, "atualizadoEm" | "atualizadoPor"> = {
   id: 1, classificacaoLigada: false, tetoClassificacoesDia: 30, tetoClassificacoesGrupoDia: 10, maxMensagensGrupoDia: 300,
-  tamanhoMaximoBytes: 10_485_760, retencaoDias: 30,
+  tamanhoMaximoBytes: 10_485_760, retencaoDias: 30, orcamentoClassificacaoPct: 20,
 };
 
 export async function lerConfigGrupos(conexao: DrizzleDb = getDb()): Promise<typeof CONFIG_GRUPOS_PADRAO> {

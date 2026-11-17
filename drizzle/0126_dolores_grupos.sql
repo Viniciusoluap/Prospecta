@@ -10,12 +10,14 @@
 --   que chegou (texto, remetente, tipo, mídia) não muda; "salvo" é final.
 -- "dolores_grupos_contagem": uma linha por grupo e dia (grupo 0 = total do dia): mensagens registradas, ignoradas pelo teto
 --   (spam) e classificações pela IA. Cresce no máximo uma linha por grupo por dia.
+-- "dolores_grupos_consumo_mes": tokens usados pela classificação no mês (orçamento próprio, QA E4 r2 N0).
 -- "dolores_grupos_config": linha única (id = 1) — classificação pela IA (DESLIGADA por padrão), tetos diários, teto de
 --   mensagens por grupo por dia, tamanho máximo do arquivo e retenção do pendente (em dias; vencida, o documento deixa de ser
 --   oferecido para classificar/salvar — NADA é apagado).
 -- Somente aditiva e idempotente: tabelas, índices, função e gatilhos novos (IF NOT EXISTS / OR REPLACE); a linha de configuração
 -- entra com ON CONFLICT DO NOTHING. Nenhuma tabela existente é alterada.
--- Reversão: DROP TABLE "dolores_grupo_mensagens", "dolores_grupos_contagem", "dolores_grupos_config", "dolores_grupos";
+-- Reversão: DROP TABLE "dolores_grupo_mensagens", "dolores_grupos_contagem", "dolores_grupos_consumo_mes", "dolores_grupos_config",
+-- "dolores_grupos";
 -- DROP FUNCTION dolores_grupos_guarda(), dolores_grupo_mensagens_guarda() (nada depende delas).
 
 CREATE TABLE IF NOT EXISTS "dolores_grupos" (
@@ -140,8 +142,8 @@ CREATE TABLE IF NOT EXISTS "dolores_grupos_contagem" (
   "mensagens" integer NOT NULL DEFAULT 0,
   "ignoradas" integer NOT NULL DEFAULT 0,
   "classificacoes" integer NOT NULL DEFAULT 0,
-  -- linha do total (grupo 0): tokens de entrada usados ACIMA da reserva naquele dia (QA E4, achado 2). Maior que zero, as
-  -- classificações ficam pausadas até o dia seguinte (o documento continua "a classificar"; nada é perdido).
+  -- linha do GRUPO: tokens de entrada usados ACIMA da reserva naquele dia (QA E4, achado 2; r2 N3: só o grupo que causou é
+  -- pausado). Maior que zero, a classificação desse grupo fica pausada até o dia seguinte (o documento continua "a classificar").
   "excesso_entrada" integer NOT NULL DEFAULT 0,
   "ultima_em" timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY ("grupo_id", "dia")
@@ -155,8 +157,21 @@ CREATE TABLE IF NOT EXISTS "dolores_grupos_config" (
   "max_mensagens_grupo_dia" integer NOT NULL DEFAULT 300 CHECK ("max_mensagens_grupo_dia" BETWEEN 1 AND 5000),
   "tamanho_maximo_bytes" integer NOT NULL DEFAULT 10485760 CHECK ("tamanho_maximo_bytes" BETWEEN 1048576 AND 20971520),
   "retencao_dias" integer NOT NULL DEFAULT 30 CHECK ("retencao_dias" BETWEEN 1 AND 365),
+  -- QA E4 r2, N0: orçamento PRÓPRIO da classificação, em % do limite mensal (uso real da classificação + reservas). Atingido,
+  -- só a classificação para; os comandos do dono continuam com o restante do limite.
+  "orcamento_classificacao_pct" integer NOT NULL DEFAULT 20 CHECK ("orcamento_classificacao_pct" BETWEEN 1 AND 50),
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),
   "atualizado_por" integer REFERENCES "users"("id") ON DELETE SET NULL
 );
 
 INSERT INTO "dolores_grupos_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
+
+-- QA E4 r2, N0: consumo da CLASSIFICAÇÃO por mês (AAAA-MM de Imperatriz), o mesmo que também entra em "dolores_consumo".
+-- Base do orçamento próprio da classificação. Uma linha por mês.
+CREATE TABLE IF NOT EXISTS "dolores_grupos_consumo_mes" (
+  "mes" varchar(7) PRIMARY KEY NOT NULL CHECK ("mes" ~ '^[0-9]{4}-[0-9]{2}$'),
+  "tokens_entrada" bigint NOT NULL DEFAULT 0 CHECK ("tokens_entrada" >= 0),
+  "tokens_saida" bigint NOT NULL DEFAULT 0 CHECK ("tokens_saida" >= 0),
+  "chamadas" integer NOT NULL DEFAULT 0,
+  "ultima_em" timestamp with time zone NOT NULL DEFAULT now()
+);

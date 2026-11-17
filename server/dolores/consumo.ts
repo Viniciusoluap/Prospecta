@@ -4,7 +4,7 @@
 import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
-import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresGrupoMensagens, doloresGruposConsumoMes } from "../../drizzle/schema-dolores-grupos.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -118,21 +118,42 @@ async function reservasDasClassificacoes(tx: Transacao, agora: Date, excetoId: n
 }
 
 /**
- * Etapa 4 — a classificação de documentos só usa até esta fração do limite mensal: o resto fica de folga para os comandos
- * do dono (a leitura de grupo nunca deixa a Dolores sem orçamento para responder a ele).
+ * Etapa 4 — a classificação de documentos nunca passa desta fração do limite mensal SOMANDO tudo (uso real de todos +
+ * reservas): o resto fica de folga para os comandos do dono.
  */
 export const FRACAO_DO_LIMITE_PARA_CLASSIFICACAO = 0.8;
+/** QA E4 r2, N0 — orçamento PRÓPRIO da classificação (padrão; o admin ajusta em dolores_grupos_config, de 1% a 50%). */
+export const ORCAMENTO_CLASSIFICACAO_PCT_PADRAO = 20;
+
+/** Tokens usados pela classificação no mês (dolores_grupos_consumo_mes). Sem a linha → zero. */
+async function usoDaClassificacaoNoMes(tx: Transacao, mes: string): Promise<Uso> {
+  const [r] = await tx.select({ entrada: doloresGruposConsumoMes.tokensEntrada, saida: doloresGruposConsumoMes.tokensSaida })
+    .from(doloresGruposConsumoMes).where(eq(doloresGruposConsumoMes.mes, mes)).limit(1);
+  return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
+}
+
+export type BloqueioDaClassificacao = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_classificacao" | "outra_classificacao";
 
 /**
  * Etapa 4 — reserva do limite mensal para UMA classificação, com a mesma trava da etapa 2 (linha da configuração em
- * FOR UPDATE): soma o uso real do mês, as reservas dos comandos do dono e as das outras classificações, e só reserva se
- * tudo, mais esta reserva, couber em FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite. A reserva fica na própria mensagem do
- * grupo e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
+ * FOR UPDATE). Na ordem:
+ * 1. QA E4 r2, N0.2 — UMA classificação por vez (global): se outra mensagem de grupo já tem reserva válida, esta não reserva
+ *    ("outra_classificacao"; o documento fica "a classificar" para o próximo aviso ou a tela). Assim, uma rajada de avisos
+ *    simultâneos faz no máximo uma chamada à IA por vez, e o que a primeira usar já conta para a segunda.
+ * 2. Uso real de tudo no mês: limite atingido → o mesmo motivo do dono (limite_mensal / sem_limite).
+ * 3. Folga do dono: uso real de tudo + reservas dos comandos + esta reserva ≤ FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite.
+ * 4. QA E4 r2, N0.3 — orçamento PRÓPRIO: uso real DA CLASSIFICAÇÃO no mês + esta reserva ≤ `orcamentoPct`% do limite.
+ *    Atingido, só a classificação para; os comandos do dono seguem com o restante do limite.
+ * A reserva fica na própria mensagem do grupo e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
  */
-export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: number; limites: Limites; reserva: Uso; validadeMs: number }) {
+export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: number; limites: Limites; reserva: Uso; validadeMs: number; orcamentoPct?: number }): Promise<BloqueioDaClassificacao | null> {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
+    const outras = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
+    const [andamento] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupoMensagens)
+      .where(and(gt(doloresGrupoMensagens.reservaAte, agora), gt(doloresGrupoMensagens.reservaEntrada, 0), ne(doloresGrupoMensagens.id, p.mensagemGrupoId)));
+    if (Number(andamento?.n ?? 0) > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_classificacao";
     const [usado] = await tx.select({
       entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
@@ -143,19 +164,40 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const outras = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
     const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
     const total = {
-      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + outras.entrada + p.reserva.entrada,
-      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + outras.saida + p.reserva.saida,
+      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada,
+      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida,
     };
-    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono" as const;
+    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono";
+    const pct = Math.min(50, Math.max(1, Math.round(p.orcamentoPct ?? ORCAMENTO_CLASSIFICACAO_PCT_PADRAO)));
+    const orcamento = { entrada: Math.floor((p.limites.entrada * pct) / 100), saida: Math.floor((p.limites.saida * pct) / 100) };
+    const daClassificacao = await usoDaClassificacaoNoMes(tx, p.mes);
+    if (daClassificacao.entrada + p.reserva.entrada > orcamento.entrada || daClassificacao.saida + p.reserva.saida > orcamento.saida) return "orcamento_classificacao";
     await tx.update(doloresGrupoMensagens).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),
     }).where(eq(doloresGrupoMensagens.id, p.mensagemGrupoId));
     return null;
   });
+}
+
+/**
+ * QA E4 r2, N0.3 — soma o uso de UMA classificação no consumo do mês da classificação (além de dolores_consumo, que é o do
+ * limite inteiro). Entrada conta também o cache. Falha só vai para o log, mas aí o orçamento fica sem esta chamada: por isso
+ * a classificação é uma por vez e o limite inteiro (dolores_consumo) continua sendo a trava do dono.
+ */
+export async function registrarConsumoDaClassificacao(mes: string, uso: UsoDaChamada) {
+  const entrada = Math.max(0, Math.round(uso.entrada + uso.cacheEscrita + uso.cacheLeitura));
+  const saida = Math.max(0, Math.round(uso.saida));
+  try {
+    await getDb().insert(doloresGruposConsumoMes).values({ mes, tokensEntrada: entrada, tokensSaida: saida, chamadas: 1 })
+      .onConflictDoUpdate({ target: doloresGruposConsumoMes.mes, set: {
+        tokensEntrada: sql`${doloresGruposConsumoMes.tokensEntrada} + ${entrada}`, tokensSaida: sql`${doloresGruposConsumoMes.tokensSaida} + ${saida}`,
+        chamadas: sql`${doloresGruposConsumoMes.chamadas} + 1`, ultimaEm: sql`now()` } });
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao registrar o consumo da classificação", erroParaLog(e));
+  }
 }
 
 /** Solta a reserva da classificação. Falha só vai para o log: a reserva vence sozinha. */

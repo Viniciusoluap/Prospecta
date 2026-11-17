@@ -335,9 +335,17 @@ quando é o dono quem escreve lá: "aprovar CÓDIGO" num grupo não aprova nada.
 com a Dolores. Grupo não cadastrado ou desativado continua ignorado como antes (nada é gravado).
 
 ## 1. Banco (equipe técnica, já autorizado)
-Aplicar `drizzle/0126_dolores_grupos.sql` no Neon (só aditiva e idempotente: 4 tabelas novas, gatilhos que impedem
+Aplicar `drizzle/0126_dolores_grupos.sql` no Neon (só aditiva e idempotente: 5 tabelas novas, gatilhos que impedem
 apagar e mudar o que chegou, e a linha de configuração com a classificação DESLIGADA). Sem ela, os grupos continuam
-ignorados e a tela de grupos avisa que a migração falta.
+ignorados e a tela de grupos avisa que a migração falta. Antes, conferir que ela nunca foi aplicada
+(`SELECT to_regclass('dolores_grupos_contagem')` precisa voltar NULL): a 0126 foi editada dentro dos CREATE TABLE.
+Aplicar também `drizzle/0130_dolores_fila_guarda.sql` (só `CREATE OR REPLACE FUNCTION`): corrige a guarda da fila da etapa 3
+para que excluir um usuário que decidiu item da fila pela tela funcione (o item continua encerrado, só sem quem decidiu).
+
+A classificação tem orçamento próprio: no máximo 20% do limite mensal da Dolores (ajustável de 1% a 50% na tela), contando
+o uso real da classificação, e nunca passa de 80% do limite somando tudo. Uma classificação por vez. Antes de mandar o
+arquivo, a Dolores pede à Anthropic a contagem de tokens do pedido (gratuita): se passar da reserva (28,3 mil), der erro
+ou demorar mais de 5 s, o arquivo não vai e a classificação sai só pelo nome e pela legenda, sempre com "confira".
 
 ## 2. Colocar a Dolores no grupo (o dono, pelo celular)
 O dono adiciona o número da Dolores ao grupo do cliente, no próprio WhatsApp. O sistema nunca entra em grupo sozinho.

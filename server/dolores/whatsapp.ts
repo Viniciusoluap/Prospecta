@@ -87,7 +87,8 @@ const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs })
   if (!c) return false;
   const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
   // QA r7 A2: sem prévia de link (a Evolution não busca a URL de ninguém)
-  return Boolean(await enviarTextoEvolution(c, instancia, numero, texto, comPrazo, { linkPreview: false }));
+  // QA E4 r2 N4: a chave da Evolution nunca segue redirecionamento para outro host
+  return Boolean(await enviarTextoEvolution({ ...c, semRedirecionamento: true }, instancia, numero, texto, comPrazo, { linkPreview: false }));
 };
 /** `agora`: data (mês, idade da mensagem); `ms`: relógio do prazo de 60 s (um só para o aviso inteiro). */
 type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number };

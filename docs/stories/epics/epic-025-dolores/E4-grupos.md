@@ -83,11 +83,13 @@ Novos:
 - `client/src/components/admin/DoloresGruposCard.tsx`
 - `server/dolores/grupos.test.ts` (24 testes)
 - `server/dolores/grupos-qa.test.ts` (19 testes: regressões do portão de QA de 17/11, versões invertidas dos ataques)
+- `server/dolores/grupos-qa-r2.test.ts` (regressões da 2ª rodada do QA: N0–N6)
+- `drizzle/0130_dolores_fila_guarda.sql` (guarda da fila da E3 aceita o SET NULL de quem decidiu)
 - `docs/dolores/agente-etapa4.md`
 Alterados:
 - `drizzle.config.ts`, `shared/funcoes-anthropic.ts` (função `dolores_documentos`), `shared/dolores/whatsapp.ts` (exports)
 - `server/dolores/{whatsapp,consumo,permissoes,funcoes,aprovacoes,router,prompt,testes-banco}.ts`, `server/dolores/acoes/registro.ts`
-- `server/_core/evolution.ts` (`listarGruposEvolution`, só leitura)
+- `server/_core/evolution.ts` (`listarGruposEvolution`, só leitura; `semRedirecionamento` opcional, ligado só na Dolores)
 - `client/src/pages/admin/AdminIntegracoes.tsx`
 - `docs/dolores/como-ligar.md` (Etapa 4), `docs/dolores/ferramentas-etapa1.json` (regenerado: 14 leituras)
 - testes existentes ajustados à etapa 4: `server/dolores/{acoes,correcoes-e3,leitura-somente,ponte,whatsapp}.test.ts`,
@@ -139,7 +141,32 @@ Alterados:
 - [AUTO-DECISION] Contagem prévia de tokens da API → não usada (o projeto não tem esse caminho; regra conservadora).
 - [AUTO-DECISION] Coluna `excesso_entrada` entra no CREATE TABLE da 0126 (ainda não aplicada; o teste estático da etapa proíbe ALTER).
 
+## Correções da 2ª rodada do portão de QA (17/11, Quinn → Dex)
+| # | Achado | Correção | Commit |
+|---|---|---|---|
+| N0 | Rajada de PDFs densos estourava o limite mensal e bloqueava o dono | (1) contagem prévia `client.messages.countTokens` (existe no SDK 0.106.0 instalado) com o MESMO modelo, instrução, ferramenta, conteúdo e chave da chamada, prazo de 5 s: acima da reserva (28,3 mil), com erro, fora do prazo ou número inválido → o arquivo não vai (só nome ≤ 160 e legenda ≤ 300 caracteres, sempre "confira"); (2) uma classificação por vez, global, conferida no `FOR UPDATE` de `reservarClassificacao` (`outra_classificacao`); (3) orçamento próprio da classificação (`dolores_grupos_config.orcamento_classificacao_pct`, padrão 20%, 1–50, na tela) sobre o uso REAL da classificação no mês (`dolores_grupos_consumo_mes`, tabela nova na 0126) + a reserva; continua o teto de 80% somando tudo | 6570e83, b7826a3 |
+| N1 | Estimativa de páginas furada (NUL, `\f`, comentário nos /Kids, `/Count +60`, página sem /Type) | NUL e `\f` como espaço, comentário entre os termos das referências, `/Count` com `+`/decimal, conta `/Parent`; comentário dentro de /Kids ou `/Count` indireto → "não sei" | f8c93a6 |
+| N2 | Admin que decidiu item da fila pela tela não podia ser excluído (E3, já em produção) | `drizzle/0130_dolores_fila_guarda.sql`: `CREATE OR REPLACE FUNCTION dolores_aprovacoes_guarda()` com o corpo da 0125 + exceção para a ÚNICA mudança `decidido_por_user_id` → NULL (linha inteira comparada em jsonb). `autor_user_id` segue RESTRICT (de propósito). FKs de 0123–0126 revisadas | 5d4f993 |
+| N3 | Um PDF denso pausava a classificação de todos os grupos | o excesso fica na linha do GRUPO; só ele pausa no dia; a tela segue para os outros grupos | 6570e83 |
+| N4 | Evolution seguia redirecionamento levando o `apikey` | `EvolutionConfig.semRedirecionamento` (opcional, `redirect: "error"`), ligado nos 4 pontos da Dolores e no download (`fetchComTeto`); a Central de Vendas fica igual | 09ce2d6 |
+| N5 | Motivo da IA com homóglifo/largura total | `normalize("NFKC")` antes das conferências e só letras latinas com os acentos do português | ef299a4, 3730490 |
+| N6 | "como o dono indicou" com qualquer número no texto | `clienteIndicadoNoTexto`: só "cliente N", "card N", "lead N" (nº/número/# opcionais) ou "#N" | 2efc6c2 |
+
+- Testes de regressão: `server/dolores/grupos-qa-r2.test.ts` (versões invertidas de `ataques-r2*.test.ts` e `extra.test.ts`);
+  `grupos-qa.test.ts` ajustado (excesso por grupo).
+- [AUTO-DECISION] Orçamento próprio padrão → 20% do limite mensal, configurável de 1% a 50% (reason: "padrão conservador"; com 1 milhão
+  de entrada, 200 mil dão ~100 classificações típicas de 1,5–2 mil tokens).
+- [AUTO-DECISION] Consumo da classificação em tabela própria (`dolores_grupos_consumo_mes`, na 0126) e não marcado em `dolores_consumo`
+  (reason: a 0124 já está em produção; `mensagem_id` nulo não identifica a classificação, porque vira nulo também por SET NULL).
+- [AUTO-DECISION] Sem pausa global por excesso, nem quando dois grupos passam (reason: pedido do lead; o orçamento próprio e a
+  uma-por-vez já limitam o dano a uma chamada).
+- [AUTO-DECISION] Redirecionamento recusado só na Dolores (reason: `evolution.ts` é compartilhado com a Central de Vendas e é gêmeo do
+  Grupo Santa Fé; sem prova de que nenhuma instalação dependa do redirecionamento, o padrão não muda lá).
+- 0126 editada de novo (só dentro do CREATE TABLE e uma tabela nova; continua aditiva; NÃO aplicada): conferir antes
+  `SELECT to_regclass('dolores_grupos_contagem')` = NULL. 0130 nova, NÃO aplicada.
+
 ## Change Log
 - 16/11/2026 — @dev (Dex): story criada (Draft → InProgress), critérios tirados do prompt mestre (seções 4.4, 5, 6, 7 e 9).
 - 17/11/2026 — @dev (Dex): implementação concluída (InProgress → InReview); tsc, build, suíte-alvo (584) e completa (2568) verdes.
 - 17/11/2026 — @dev (Dex): 8 achados do portão de QA corrigidos, com 19 testes de regressão (`grupos-qa.test.ts`).
+- 17/11/2026 — @dev (Dex): 2ª rodada do QA (N0–N6) corrigida, com testes de regressão em `grupos-qa-r2.test.ts`; migração 0130 nova.

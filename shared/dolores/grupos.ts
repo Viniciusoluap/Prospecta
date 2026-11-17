@@ -103,13 +103,20 @@ export const MAX_MOTIVO_IA = 160;
  * QA E4, achado 4 — o motivo é texto LIVRE do modelo (que leu um documento de terceiro): só é gravado se for um texto curto,
  * de uma linha, sem link nem forma de host (a mesma regra de links da resposta ao dono, sem nenhum host permitido), sem
  * e-mail/menção, sem sequência longa de dígitos e sem nada com cara de decisão da fila ("aprovar"/"recusar" ou um código no
- * formato dos códigos da fila). Na dúvida → null (quem chama grava um motivo do sistema no lugar).
+ * formato dos códigos da fila). QA E4 r2, N5: antes das conferências, `normalize("NFKC")` (largura total vira ASCII) e só
+ * letras do alfabeto latino com os acentos do português (homóglifo cirílico/grego, marca combinante solta → recusa).
+ * Na dúvida → null (quem chama grava um motivo do sistema no lugar).
  */
+const LETRA_DO_PORTUGUES = /^[A-Za-zÁÀÂÃÉÊÍÓÔÕÚÜÇáàâãéêíóôõúüç]$/;
+// (pelo construtor: o alvo do tsconfig não aceita a flag "u" em literal)
+const MARCA_COMBINANTE = new RegExp(String.raw`\p{M}`, "u");
+const QUALQUER_LETRA = new RegExp(String.raw`\p{L}`, "gu");
 export function motivoDaIaSeguro(bruto: string | null | undefined): string | null {
-  const original = String(bruto ?? "");
+  const original = String(bruto ?? "").normalize("NFKC");
   if (/[\r\n\u2028\u2029]/.test(original)) return null;
-  const t = textoDeDado(umaLinha(original, 400), 400);
+  const t = textoDeDado(umaLinha(original, 400), 400).normalize("NFKC");
   if (!t || t.length > MAX_MOTIVO_IA) return null;
+  if (MARCA_COMBINANTE.test(t) || Array.from(t.matchAll(QUALQUER_LETRA)).some(m => !LETRA_DO_PORTUGUES.test(m[0]))) return null;
   if (tratarLinksDaResposta(t, null) !== t) return null;
   if (/[@\\/]|\bwww\b|\d{4,}/i.test(t)) return null;
   const semAcento = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -152,29 +159,38 @@ export const formatoSalvavel = (f: FormatoArquivo | null) => !!f && f.formato !=
  * "não sei" — e quem chama NÃO envia o arquivo à IA — quando a contagem não é confiável (QA E4, achado 2):
  * - fluxo de objetos (/ObjStm) ou tabela xref em fluxo (/Type /XRef): os objetos de página podem estar comprimidos;
  * - nome da estrutura escrito com escape "#xx" (ex.: /P#61ge = /Page): a página pode estar escondida da contagem;
+ * - lista /Kids com comentário "%" dentro (um "]" no comentário esconderia filhos) ou /Count em referência indireta ("7 0 R");
  * - nenhuma página encontrada.
  * Quando conta, vale o MAIOR entre os objetos "/Type /Page", as chaves "/Contents" (cada página com conteúdo tem a sua; não é
- * herdada), as referências nos "/Kids" e os "/Count" da árvore de páginas (comentário "%" entre as palavras também conta) —
- * contar a mais só deixa de enviar o arquivo.
+ * herdada), as chaves "/Parent" (toda página tem a sua, mesmo sem /Type), as referências nos "/Kids" e os "/Count" da árvore
+ * de páginas (com sinal "+" ou decimal) — contar a mais só deixa de enviar o arquivo. Entre as palavras vale qualquer espaço do
+ * PDF (inclusive NUL e \f) e comentário "%" (QA E4 r2, N1). Desde a r2 (N0) a trava de custo é a contagem prévia de tokens; esta
+ * estimativa continua conservadora: na dúvida, "não sei".
  */
-const ESPACO_PDF = String.raw`(?:\s|%[^\r\n]*[\r\n])*`;
-const NOMES_DA_ESTRUTURA = new Set(["Type", "Page", "Pages", "ObjStm", "XRef", "Contents", "Count", "Kids"]);
+const ESPACO_PDF = String.raw`(?:[\s\0]|%[^\r\n]*[\r\n])*`;
+const ESPACO_PDF_UM = String.raw`(?:[\s\0]|%[^\r\n]*[\r\n])+`;
+const NOMES_DA_ESTRUTURA = new Set(["Type", "Page", "Pages", "ObjStm", "XRef", "Contents", "Count", "Kids", "Parent"]);
 export function paginasPdfEstimadas(b: Uint8Array): number | null {
   const texto = new TextDecoder("latin1").decode(b);
   if (/\/ObjStm(?![\w])/.test(texto) || new RegExp(String.raw`\/Type${ESPACO_PDF}\/XRef(?![\w])`).test(texto)) return null;
-  for (const m of Array.from(texto.matchAll(/\/([^\s/<>[\]()%{}]{0,40}#[0-9A-Fa-f]{2}[^\s/<>[\]()%{}]{0,40})/g))) {
+  for (const m of Array.from(texto.matchAll(/\/([^\s\0/<>[\]()%{}]{0,40}#[0-9A-Fa-f]{2}[^\s\0/<>[\]()%{}]{0,40})/g))) {
     const nome = m[1].replace(/#([0-9A-Fa-f]{2})/g, (_: string, h: string) => String.fromCharCode(parseInt(h, 16)));
     if (NOMES_DA_ESTRUTURA.has(nome)) return null;
   }
   const objetos = (texto.match(new RegExp(String.raw`\/Type${ESPACO_PDF}\/Page(?![s\w])`, "g")) ?? []).length;
-  if (objetos <= 0) return null;
+  const pais = (texto.match(/\/Parent(?![\w])/g) ?? []).length;
+  if (objetos <= 0 && pais <= 0) return null;
   const conteudos = (texto.match(/\/Contents(?![\w])/g) ?? []).length;
   const listasDeFilhos = Array.from(texto.matchAll(new RegExp(String.raw`\/Kids${ESPACO_PDF}\[([^\]]{0,20000})\]`, "g")));
-  // lista de filhos longa demais (ou sem fechar) para contar com segurança: "não sei"
+  // lista de filhos longa demais (ou sem fechar, ou indireta) para contar com segurança: "não sei"
   if (listasDeFilhos.length !== (texto.match(/\/Kids(?![\w])/g) ?? []).length) return null;
-  const filhos = listasDeFilhos.reduce((n, m) => n + (m[1].match(/\d+\s+\d+\s+R/g) ?? []).length, 0);
-  const declarado = Array.from(texto.matchAll(new RegExp(String.raw`\/Count${ESPACO_PDF}(\d{1,9})`, "g"))).reduce((n, m) => Math.max(n, Number(m[1])), 0);
-  return Math.max(objetos, conteudos, filhos, declarado);
+  if (listasDeFilhos.some(m => m[1].includes("%"))) return null;
+  const referencia = new RegExp(String.raw`\d+${ESPACO_PDF_UM}\d+${ESPACO_PDF}R(?![\w])`, "g");
+  const filhos = listasDeFilhos.reduce((n, m) => n + (m[1].match(referencia) ?? []).length, 0);
+  // /Count em referência indireta: o valor está em outro objeto — "não sei"
+  if (new RegExp(String.raw`\/Count${ESPACO_PDF}\d+${ESPACO_PDF_UM}\d+${ESPACO_PDF}R(?![\w])`).test(texto)) return null;
+  const declarado = Array.from(texto.matchAll(new RegExp(String.raw`\/Count${ESPACO_PDF}\+?(\d{1,9})(?:\.\d*)?`, "g"))).reduce((n, m) => Math.max(n, Number(m[1]) + (m[0].includes(".") ? 1 : 0)), 0);
+  return Math.max(objetos, pais, conteudos, filhos, declarado);
 }
 
 /** Tamanho dos bytes de um base64 sem decodificar (para recusar antes de ocupar memória). */
