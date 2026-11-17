@@ -94,9 +94,9 @@ quando finalizar, sem que seja necessária a minha intervenção constante".
 2. **Já autorizado a cada etapa**: migrações aditivas no Neon de produção, merge do PR na `main` e conferência da
    publicação na Vercel.
 3. **Decisões já tomadas pelo dono (não perguntar de novo):**
-   - **Grupo Santa Fé em espera**: não mexer em nada de lá agora; a paridade será feita pelo dono depois que todas
-     estas mudanças acabarem. Só registrar no ROADMAP do Prospecta o que terá de ser portado. Isto suspende, até novo
-     aviso do dono, a regra de paridade obrigatória do topo deste arquivo.
+   - **Grupo Santa Fé**: a espera de 16/11 acabou. Em 17/11/2026 o dono autorizou a paridade (4 blocos: CRM/usuários/
+     mapa, Incorporação, financeiro/integrações, termo de consentimento) e a regra de paridade obrigatória do topo deste
+     arquivo voltou a valer. **Ficam fora do Santa Fé, por decisão dele: a Maquete 3D e a Dolores** (exceções no ROADMAP).
    - **Conta Azul**: tudo o que foi ARQUIVADO da importação do Conta Azul pode ser apagado em definitivo, para a
      reimportação funcionar. Só esses registros: lançamento ativo e de outra origem não se apaga. Antes de apagar,
      copiar as linhas para tabela de backup e conferir as quantidades.
