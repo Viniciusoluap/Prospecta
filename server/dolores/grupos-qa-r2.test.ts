@@ -55,7 +55,8 @@ import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { uploadPrivateDocument } from "../drive-documents.js";
-import { definirSorteioCodigo } from "./aprovacoes.js";
+import { appRouter } from "../routers.js";
+import { decidir, decisorDaTela, definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
 import {
   RESERVA_ENTRADA_CLASSIFICACAO, classificarPendentes, definirDependenciasClassificacao, type ContadorClassificacao, type PedidoClassificacao,
@@ -63,7 +64,7 @@ import {
 } from "./classificacao.js";
 import { reservarChamada } from "./consumo.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
-import { definirDependenciasPonte } from "./ponte.js";
+import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { credencialDaClassificacao, definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -308,5 +309,75 @@ describe("QA r2 N1: a estimativa de páginas não é furada por NUL, \\f, coment
     expect(paginasPdfEstimadas(pdfClassico(1))).toBe(1);
     expect(paginasPdfEstimadas(pdfClassico(5))).toBe(5);
     expect(paginasPdfEstimadas(pdfVariante(3))).toBe(3);
+  });
+});
+
+describe("QA r2 N2: admin que decidiu item da fila pela tela pode ser excluído (0130); o item continua encerrado e íntegro", () => {
+  const callerId = (role: string, id: number) => appRouter.createCaller({ user: { id, role, active: true, permissions: "[]", name: "x" }, req: {}, res: {} } as never) as any;
+  const pedir = (funcao: string, argumentos: unknown, n = 1) => executarFuncao({ funcao, argumentos, pedidoId: `wa:9:${n}:0` }, { canal: "whatsapp", mensagemId: 9 });
+  const fila = () => q("SELECT * FROM dolores_aprovacoes ORDER BY id");
+  /** Rotas antigas tocam tabelas que o PGlite da suíte não cria (sem relação com a Dolores): cria um esboço vazio e tenta de novo. */
+  async function comEsbocos<T>(fn: () => Promise<T>): Promise<T> {
+    for (let i = 0; ; i++) {
+      try { return await fn(); } catch (e: any) {
+        const causa = String(e?.cause?.message ?? e?.cause?.cause?.message ?? e?.message ?? "");
+        const m = /relation "(\w+)" does not exist/.exec(causa);
+        if (!m || i > 15) throw e;
+        const consulta = String(e?.cause?.query ?? e?.query ?? e?.message ?? "");
+        const cols = Array.from(new Set(Array.from(consulta.matchAll(new RegExp(`"${m[1]}"\\."(\\w+)"`, "g"))).map(x => x[1]).filter(c => c !== "id")));
+        await banco.pg.exec(`CREATE TABLE IF NOT EXISTS "${m[1]}" (id serial${cols.map(c => `, "${c}" integer`).join("")})`);
+      }
+    }
+  }
+  const linhaSemDecisor = (l: any) => { const { decidido_por_user_id: _x, ...resto } = l; return resto; };
+
+  it.each([["recusar"], ["aprovar"]] as const)("decidiu (%s) pela tela → excluir pela rota funciona; o item fica igual, só sem quem decidiu", async decisao => {
+    await banco.pg.exec("UPDATE users SET role = 'admin' WHERE id = 2");
+    definirDependenciasPonte({ agora: () => new Date() });
+    await chamar(aviso(item({ message: documento("rg.pdf", "RG") })));
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Carla Nova", telefone: "99 98888-1111" });
+    const [card] = await fila();
+    expect((await decidir([card.codigo], decisao, decisorDaTela(2)))[0]).toMatchObject({ ok: true });
+    const [antes] = await fila();
+    expect(antes).toMatchObject({ decidido_por_user_id: 2, decidido_via: "tela" });
+    expect(["recusada", "executada"]).toContain(antes.situacao);
+    await comEsbocos(() => callerId("admin", 1).configuracoes.deleteUser({ id: 2 }));
+    expect(await q("SELECT id FROM users WHERE id = 2")).toEqual([]);
+    const [depois] = await fila();
+    expect(depois.decidido_por_user_id).toBeNull();
+    expect(linhaSemDecisor(depois)).toEqual(linhaSemDecisor(antes));
+  });
+
+  it("inverso: a exceção é só a passagem para NULL de quem decidiu, sem mudar mais nada", async () => {
+    await banco.pg.exec("UPDATE users SET role = 'admin' WHERE id = 2");
+    definirDependenciasPonte({ agora: () => new Date() });
+    await chamar(aviso(item({ message: documento("rg.pdf", "RG") })));
+    await pedir("criar_card_cliente", { grupoId: 1, nome: "Carla Nova", telefone: "99 98888-1111" });
+    const [card] = await fila();
+    await decidir([card.codigo], "recusar", decisorDaTela(2));
+    const recusa = (sql: string) => expect(banco.pg.query(sql)).rejects.toThrow(/DOLORES_FILA/);
+    await recusa("UPDATE dolores_aprovacoes SET decidido_por_user_id = 1 WHERE id = 1"); // trocar quem decidiu
+    await recusa("UPDATE dolores_aprovacoes SET decidido_por_user_id = NULL, situacao = 'aguardando' WHERE id = 1"); // NULL + reabrir
+    await recusa("UPDATE dolores_aprovacoes SET decidido_por_user_id = NULL, motivo = 'outro' WHERE id = 1"); // NULL + outra coluna
+    await recusa("UPDATE dolores_aprovacoes SET decidido_por_user_id = NULL, resumo = 'x' WHERE id = 1");
+    await recusa("DELETE FROM dolores_aprovacoes WHERE id = 1");
+    await recusa("UPDATE dolores_aprovacoes SET situacao = 'aguardando' WHERE id = 1");
+    // a autora (usuária Dolores) continua sem poder ser apagada: ON DELETE RESTRICT de propósito
+    const [{ autor }] = await q<{ autor: number }>("SELECT autor_user_id autor FROM dolores_aprovacoes WHERE id = 1");
+    await expect(banco.pg.query(`DELETE FROM users WHERE id = ${autor}`)).rejects.toThrow();
+  });
+
+  it("estático: a 0130 é só CREATE OR REPLACE FUNCTION, com o corpo da 0125 e a exceção no começo", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql0130 = readFileSync(new URL("../../drizzle/0130_dolores_fila_guarda.sql", import.meta.url), "utf8");
+    const sql0125 = readFileSync(new URL("../../drizzle/0125_dolores_fila.sql", import.meta.url), "utf8");
+    const semComentario = (s: string) => s.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
+    expect(semComentario(sql0130)).not.toMatch(/ALTER\s+TABLE|DROP\s+|DELETE\s+FROM|TRUNCATE\s+[a-z"]|CREATE\s+TABLE|UPDATE\s+"/i);
+    // todas as regras da 0125 continuam
+    for (const regra of ["DOLORES_FILA_SEM_EXCLUSAO", "DOLORES_FILA_IMUTAVEL: o que será feito", "DOLORES_FILA_ENCERRADO", "DOLORES_FILA_EXECUCAO_UNICA: item aguardando",
+      "DOLORES_FILA_EXECUCAO_UNICA: item em execução", "DOLORES_FILA_IMUTAVEL: a decisão", "DOLORES_FILA_RESULTADO"]) {
+      expect(sql0125).toContain(regra);
+      expect(sql0130).toContain(regra);
+    }
   });
 });
