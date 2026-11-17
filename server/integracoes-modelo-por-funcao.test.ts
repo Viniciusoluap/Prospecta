@@ -86,7 +86,8 @@ describe("modeloDaFuncao — resolução (só nomes de modelo)", () => {
     expect(await modeloDaFuncao("dolores_whatsapp", { preferencial: "pref" }, sincrono)).toEqual({ modelo: "pref", origem: "preferencial" });
     expect(await modeloDaFuncao("maquete_leitura", { padrao: "p" }, sincrono)).toEqual({ modelo: "p", origem: "padrao" });
     expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null, anteriorSumiu: null },
-      dolores_documentos: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_notas: { modelo: null, sumiu: null, anteriorSumiu: null } });
+      dolores_documentos: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_grupo: { modelo: null, sumiu: null, anteriorSumiu: null },
+      dolores_notas: { modelo: null, sumiu: null, anteriorSumiu: null } });
   });
   it("nunca lê a chave: só as chaves de modelo de dashboard_settings", async () => {
     const l = leitor({});
@@ -104,7 +105,8 @@ describe("rotas do painel — modelo por função", () => {
     expect(r.configurado).toBe(false);
     expect(r.funcoes.map(f => [f.id, f.rotulo])).toEqual([
       ["maquete_leitura", "Leitura de plantas em PDF — Maquete 3D"], ["dolores_whatsapp", "Dolores — conversa pelo WhatsApp"],
-      ["dolores_documentos", "Dolores — classificação de documentos"], ["dolores_notas", "Dolores — leitura de notas de obra"]]);
+      ["dolores_documentos", "Dolores — classificação de documentos"], ["dolores_grupo", "Dolores — resposta em grupo quando marcada"],
+      ["dolores_notas", "Dolores — leitura de notas de obra"]]);
     expect(linha(r, "dolores_whatsapp").recomendacao).toMatch(/mais barato/);
     expect(linha(r, "maquete_leitura").recomendacao).toMatch(/mais capaz/);
     // QA S-11 achado 8: sem jargão técnico e a recomendação não repete o rótulo

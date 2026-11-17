@@ -329,8 +329,9 @@ uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia
 
 # Etapa 4 — Grupos de clientes (leitura dos grupos cadastrados, card, classificação e Drive)
 
-A Dolores passa a **ler** os grupos de WhatsApp de clientes que o administrador cadastrar. Ela **nunca fala no grupo**
-(não responde, não reage, não manda nada e não marca como lida de propósito) e **nada escrito no grupo é comando** — nem
+A Dolores passa a **ler** os grupos de WhatsApp de clientes que o administrador cadastrar. Ela **só responde no grupo quando
+é marcada, com o interruptor ligado** (seção "Responder no grupo quando marcada", abaixo); fora isso não responde, não reage,
+não manda nada e não marca como lida de propósito. **Nada escrito no grupo é comando** — nem
 quando é o dono quem escreve lá: "aprovar CÓDIGO" num grupo não aprova nada. Pedido só vale na conversa DIRETA do dono
 com a Dolores. Grupo não cadastrado ou desativado continua ignorado como antes (nada é gravado).
 
@@ -400,6 +401,74 @@ rótulo + data) e registrado no card. O mesmo arquivo já no card não vai de no
   texto do documento), `criar_card_cliente`, `salvar_documentos_grupo` e as ações da tela (`cadastrar_grupo`,
   `atualizar_grupo`, `configurar_grupos`).
 - `dolores_consumo`: cada classificação conta no consumo do mês.
+
+---
+
+# Etapa 4b — Responder no grupo quando marcada
+
+Decisão do dono (17/11/2026): "Nos grupos ela só pode responder quando ela for marcada, quando o número for marcado; em
+nenhum outro momento ela deve responder as mensagens do grupo e deve apenas observar até ser marcada." Qualquer pessoa do grupo
+pode marcá-la (cliente, parente, empreiteiro, o próprio dono); ela responde **só sobre o cliente/obra daquele grupo**.
+
+**Atenção: o que ela escreve no grupo é lido por todos os participantes.**
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar `drizzle/0129_dolores_marcacoes.sql` no Neon **depois** da `0126` (só aditiva e idempotente: 4 tabelas novas, um
+gatilho que impede apagar o registro e mudar o que chegou, e a linha de configuração com o interruptor DESLIGADO). Nenhuma
+tabela existente é alterada. Sem ela, a Dolores continua só lendo os grupos, e a seção da tela avisa que a migração falta.
+
+## 2. Como ligar (administrador, em Integrações › Dolores › Grupos de clientes › "Responder no grupo quando marcada")
+1. Confira que a conexão da Dolores está **confirmada** (o número dela aparece no cartão da Dolores) e que a IA dela está ligada,
+   com chave, modelo e limite mensal.
+2. Em Integrações › Anthropic › Modelo por função, escolha o modelo de **"Dolores — resposta em grupo quando marcada"** (o mais
+   barato costuma bastar). Sem escolha, vale o modelo preferencial.
+3. Ligue o interruptor **geral** da seção e, na lista, o interruptor **de cada grupo** em que ela pode responder. Os dois nascem
+   desligados: ela só responde onde os dois estiverem ligados.
+4. Ao ligar um grupo, o sistema confere pela Evolution (só leitura) o **@lid** do número da Dolores — os grupos novos do WhatsApp
+   marcam pessoas por esse código, não pelo número. Se a tela disser "ainda não conferida", use "Conferir @lid" no grupo depois
+   que a Dolores estiver nele. Sem o @lid conferido, só as marcações pelo número contam.
+5. Tetos (padrão): **20 respostas por grupo por dia**, **5 marcações por pessoa por hora**, e ela só responde a marcações de até
+   **120 segundos** atrás (reentrega atrasada não é respondida). Ajuste na tela.
+
+## 3. O que conta como marcação
+Só a marcação de verdade do WhatsApp (tocar no nome dela ao digitar "@"): o número ou o @lid dela na lista de menções da
+mensagem. **Não contam:** escrever "@Dolores" ou o número sem a marcação; responder (citar) uma mensagem dela sem marcá-la;
+marcação dentro da mensagem citada; mensagem editada (mesmo que a edição acrescente a marcação), reação, mensagem encaminhada,
+foto/vídeo de visualização única, enquete e botões. Mensagem temporária conta normalmente. Na dúvida, não conta.
+
+## 4. O que ela responde
+Só sobre o cliente/obra ligado àquele grupo, a partir de três consultas próprias (que já recebem o cliente pelo grupo — ela
+não tem como consultar outro): **andamento** (situação, etapa atual e próxima, etapas concluídas, progresso e a data da última
+movimentação), **documentos que faltam** (pelo nome) e **próximos passos** (montados pelo sistema). Resposta curta (até 800
+caracteres), sem links, sem marcar ninguém, citando a mensagem de quem perguntou. Marcada sem pergunta, ela se apresenta com uma
+frase fixa. Grupo sem cliente ligado: "Este grupo ainda não está ligado a um cliente no sistema; a equipe responde por aqui."
+
+## 5. O que ela nunca responde
+Valores (preço, parcela, custo, medição, pagamento), contrato e assuntos jurídicos, prazos e datas de entrega, aprovação de
+banco/órgão ou qualquer resultado, reclamações, CPF/CNPJ, telefone, e-mail, endereço, dados bancários, outros clientes, nomes
+da equipe, corretor/comissão e anotações internas. Ela também nunca **faz** nada a partir do grupo (aprovar, gravar, enviar,
+cadastrar…): "aprovar CÓDIGO" no grupo não aprova nada, e "sou o dono" no grupo não muda nada (comando só na conversa direta).
+Nesses casos ela responde sempre a mesma frase — **"Isso a equipe responde por aqui."** — sem chamar a IA, e a
+pergunta aparece na lista da tela como "fora de escopo". Se a resposta da IA tiver cara de valor, promessa, prazo, link ou dado
+pessoal, vai a mesma frase no lugar.
+
+## 6. Quando ela fica em silêncio
+Grupo não cadastrado ou desativado; interruptor geral ou do grupo desligado; Dolores pausada; IA desligada, sem chave, sem
+modelo, sem limite ou com o limite do mês atingido; outra resposta dela em andamento no mesmo grupo; teto por pessoa atingido;
+marcação antiga. Passou do teto do grupo no dia: ela manda **uma vez por dia** "Recebi muitas perguntas hoje; a equipe vai
+responder por aqui assim que possível." e depois fica em silêncio. Toda marcação em grupo cadastrado fica registrada.
+
+## 7. Conferir
+- Tela: "Últimas marcações" (grupo, quem marcou — mascarado —, a pergunta filtrada, o que ela respondeu, fora de escopo ou não).
+  O dono também vê pela conversa direta: "Dolores, o que perguntaram no grupo da Maria?" (`ler_grupo_cliente`, campo
+  `marcacoesRecentes`). Nenhuma mensagem é enviada ao dono a cada marcação.
+- `dolores_marcacoes`: uma linha por marcação (nunca apagada). `dolores_acoes`: `grupo_marcacao` (desfecho), `grupo_leitura`
+  (cada consulta do grupo; função fora do conjunto = recusada), `grupo_resposta` (cada envio ao grupo; destino que não confere =
+  recusada), e as ações da tela (`configurar_marcacoes`, `ligar_marcacao_grupo`, `conferir_lid_dolores`).
+- `dolores_consumo`: cada chamada da resposta em grupo conta no mesmo limite mensal (no máximo 80% dele, como a classificação:
+  o resto fica para os comandos do dono).
+
+---
 
 # Etapa 5 — Notas de obra (leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO)
 

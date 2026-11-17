@@ -2,7 +2,8 @@
 // pendências de classificação. SÓ o administrador (PAPEL), conferido de novo em cada procedimento (o adminProcedure só confere
 // o MÓDULO). Regras:
 // - só grupos cadastrados e ATIVOS são lidos; nada é excluído (desativa-se); o id do grupo e a instância não mudam;
-// - nada aqui envia, responde ou reage em grupo: da Evolution só se LÊ a lista de grupos da instância da Dolores;
+// - nada aqui envia, responde ou reage em grupo: da Evolution só se LÊ a lista de grupos e os participantes (para conferir o
+//   @lid da Dolores). A única fala em grupo é a do webhook quando ela é marcada (marcacao.ts), com os interruptores daqui;
 // - o nome do grupo no WhatsApp é texto de terceiro: aparece sanitizado, só para o administrador escolher;
 // - classificar pela tela passa pelas MESMAS travas do webhook (interruptores, tetos, limite com folga do dono).
 import { TRPCError } from "@trpc/server";
@@ -13,7 +14,11 @@ import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
 import { INSTANCIA_DOLORES } from "../../shared/dolores/whatsapp.js";
-import { listarGruposEvolution } from "../_core/evolution.js";
+import { listarGruposEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
+import { doloresMarcacoesConfig, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
+import { LIMITES_MARCACOES, lidValido } from "../../shared/dolores/marcacao.js";
+import { ehNumeroDoDono } from "../../shared/dolores/whatsapp.js";
+import { CONFIG_MARCACOES_PADRAO, desligamentoDaMarcacaoPorFalha, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -29,6 +34,39 @@ const soAdmin = adminProcedure.use(({ ctx, next }) => {
 });
 
 const SEM_MIGRACAO = "Grupos da Dolores indisponíveis: a migração 0126 ainda não foi aplicada.";
+const SEM_MIGRACAO_0129 = "Resposta quando marcada indisponível: a migração 0129 ainda não foi aplicada.";
+const semMigracao0129 = (e: unknown): never => {
+  if (e instanceof TRPCError) throw e;
+  throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO_0129 });
+};
+const limite = (k: keyof typeof LIMITES_MARCACOES) => z.number().int().min(LIMITES_MARCACOES[k].min).max(LIMITES_MARCACOES[k].max);
+
+/**
+ * Etapa 4b — confere o @lid da Dolores pela lista de participantes de um grupo cadastrado (Evolution, só leitura): o participante
+ * cujo número é EXATAMENTE o número conectado e confirmado da Dolores. Grava o @lid junto com o número para o qual ele vale.
+ * Sem número confirmado, sem @lid na lista ou sem o número dela: não grava nada (as menções por @lid continuam sem contar).
+ */
+async function conferirLid(grupoId: number, userId: number): Promise<{ conferido: boolean; motivo: string }> {
+  const cfg = await lerConfigWhatsapp().catch(() => null);
+  if (!cfg?.instancia || cfg.statusConexao !== "conectado" || !cfg.numeroDolores) return { conferido: false, motivo: "a conexão da Dolores ainda não foi confirmada" };
+  const [g] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupoId)).limit(1);
+  if (!g || !g.ativo || g.instancia !== cfg.instancia) return { conferido: false, motivo: "grupo não cadastrado ou desativado" };
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const configurada = await configEvolution();
+  // QA E4 r2 N4: a chamada recusa redirecionamento (o apikey não vai a outro host)
+  const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
+  if (!evo) return { conferido: false, motivo: "servidor do WhatsApp (Evolution) não configurado" };
+  let lista: Awaited<ReturnType<typeof participantesDoGrupoEvolution>>;
+  try { lista = await participantesDoGrupoEvolution(evo, cfg.instancia, g.grupoJid); }
+  catch { return { conferido: false, motivo: "a Evolution não listou os participantes agora" }; }
+  const dela = lista.filter(p => p.numero && ehNumeroDoDono(p.numero, cfg.numeroDolores));
+  if (!dela.length) return { conferido: false, motivo: "o número da Dolores não apareceu na lista de participantes" };
+  const lids = Array.from(new Set(dela.map(p => p.lid).filter(lidValido)));
+  if (lids.length !== 1) return { conferido: false, motivo: lids.length ? "mais de um @lid para o número da Dolores (não gravado)" : "este grupo não usa @lid (as menções vêm pelo número)" };
+  await getDb().update(doloresMarcacoesConfig).set({ lidDolores: lids[0], lidDoNumero: cfg.numeroDolores, lidConferidoEm: new Date(), atualizadoEm: new Date(), atualizadoPor: userId })
+    .where(eq(doloresMarcacoesConfig.id, 1));
+  return { conferido: true, motivo: "@lid da Dolores conferido" };
+}
 const semMigracao = (e: unknown): never => {
   if (e instanceof TRPCError) throw e;
   throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO });
@@ -148,6 +186,67 @@ export const gruposRouter = router({
     // QA r3 N7: o admin religou depois de conferir — some a pausa em memória desta instância (se houve)
     if (input.classificacaoLigada === true) limparPausaPorFalhaNoConsumo();
     return lerConfigGrupos();
+  }),
+
+  /**
+   * Etapa 4b — responder quando marcada: configuração (interruptor geral, tetos, janela), o interruptor de cada grupo e as
+   * últimas marcações (pergunta filtrada, resposta, fora de escopo). O que ela escreve no grupo é lido por todos os participantes.
+   */
+  marcacoes: soAdmin.input(z.object({ grupoId: id32.optional() }).strict().optional()).query(async ({ input }) => {
+    try {
+      const [config, porGrupo, lista] = await Promise.all([
+        lerConfigMarcacoes(), getDb().select().from(doloresMarcacoesGrupo), marcacoesRecentes(input?.grupoId ?? null, 50),
+      ]);
+      const numero = (await lerConfigWhatsapp().catch(() => null))?.numeroDolores ?? null;
+      // desligada sozinha (uso de uma resposta não registrado no consumo), inclusive a pausa só em memória: a tela mostra
+      const desligada = await desligamentoDaMarcacaoPorFalha().catch(() => null);
+      return {
+        desligamentoPorFalha: desligada ? { ...desligada, em: desligada.em ? new Date(desligada.em).toISOString() : null } : null,
+        config: {
+          responderLigado: config.responderLigado, tetoGrupoDia: config.tetoGrupoDia, tetoRemetenteHora: config.tetoRemetenteHora,
+          janelaFrescorSegundos: config.janelaFrescorSegundos,
+          // o @lid não é telefone, mas só o fim aparece na tela
+          lid: config.lidDolores && config.lidDoNumero === numero ? { final: config.lidDolores.replace(/@lid$/, "").slice(-4), conferidoEm: config.lidConferidoEm } : null,
+        },
+        grupos: porGrupo.map(g => ({ grupoId: g.grupoId, ligado: g.responderLigado })),
+        marcacoes: lista.map(m => ({ ...m, grupo: textoDeDado(m.grupo, 120) })),
+      };
+    } catch (e) { return semMigracao0129(e); }
+  }),
+
+  /** Interruptor geral e tetos (o interruptor nasce DESLIGADO). */
+  salvarMarcacoes: soAdmin.input(z.object({
+    responderLigado: z.boolean().optional(), tetoGrupoDia: limite("tetoGrupoDia").optional(), tetoRemetenteHora: limite("tetoRemetenteHora").optional(),
+    janelaFrescorSegundos: limite("janelaFrescorSegundos").optional(),
+  }).strict()).mutation(async ({ ctx, input }) => {
+    const r = await getDb().update(doloresMarcacoesConfig).set({ ...input, atualizadoEm: new Date(), atualizadoPor: ctx.user.id })
+      .where(eq(doloresMarcacoesConfig.id, 1)).returning({ id: doloresMarcacoesConfig.id }).catch(semMigracao0129);
+    if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO_0129 });
+    // religado pelo admin: solta a pausa em memória da falha no registro do consumo (E4b, QA E4 r3 N7)
+    if (input.responderLigado === true) limparPausaDaMarcacao();
+    await auditar(ctx.user.id, "configurar_marcacoes", null, input);
+    const c = await lerConfigMarcacoes();
+    return { ...CONFIG_MARCACOES_PADRAO, ...c, lidDolores: undefined, lidDoNumero: undefined };
+  }),
+
+  /** Interruptor de UM grupo cadastrado. Ao ligar, tenta conferir o @lid da Dolores por esse grupo (só leitura na Evolution). */
+  ligarMarcacaoGrupo: soAdmin.input(z.object({ grupoId: id32, ligado: z.boolean() }).strict()).mutation(async ({ ctx, input }) => {
+    const [g] = await getDb().select({ id: doloresGrupos.id, ativo: doloresGrupos.ativo }).from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
+    if (!g) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
+    if (input.ligado && !g.ativo) throw new TRPCError({ code: "BAD_REQUEST", message: "Reative o grupo antes de ligar a resposta quando marcada." });
+    await getDb().insert(doloresMarcacoesGrupo).values({ grupoId: g.id, responderLigado: input.ligado, atualizadoPor: ctx.user.id })
+      .onConflictDoUpdate({ target: doloresMarcacoesGrupo.grupoId, set: { responderLigado: input.ligado, atualizadoEm: new Date(), atualizadoPor: ctx.user.id } })
+      .catch(semMigracao0129);
+    await auditar(ctx.user.id, "ligar_marcacao_grupo", g.id, { ligado: input.ligado });
+    const lid = input.ligado ? await conferirLid(g.id, ctx.user.id).catch(() => ({ conferido: false, motivo: "não consegui conferir o @lid agora" })) : null;
+    return { ok: true, lid };
+  }),
+
+  /** Confere de novo o @lid da Dolores por um grupo cadastrado (só leitura na Evolution). */
+  conferirLidDolores: soAdmin.input(z.object({ grupoId: id32 }).strict()).mutation(async ({ ctx, input }) => {
+    const r = await conferirLid(input.grupoId, ctx.user.id).catch(semMigracao0129);
+    await auditar(ctx.user.id, "conferir_lid_dolores", input.grupoId, { conferido: r.conferido });
+    return r;
   }),
 
   /**
