@@ -10,7 +10,8 @@ com migração e publicação a cada etapa — o que substitui a exigência do p
 - [x] 2. WhatsApp (PR #243, migração `0124` aplicada; IA desligada por padrão) — conexão própria pela Central, comando e resposta pelo número do dono
 - [x] 3. Ações (PR #245, migração `0125` aplicada; fila de aprovação) — tarefas, acompanhamentos, cobranças preparadas, geradores, fila de aprovação
 - [x] 4. Grupos de clientes (PR #248, migrações `0126` e `0130` aplicadas; tudo desligado por padrão) — leitura dos grupos cadastrados, card, classificação e Drive
-- [ ] 5. Notas de obra — leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO
+- [x] 4b. Resposta no grupo só quando marcada (PR #251, migração `0129` aplicada; desligada por padrão, geral e por grupo)
+- [x] 5. Notas de obra (PR #250, migração `0128` aplicada; tudo desligado por padrão) — leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO
 - [ ] 6. Operação contínua — eventos, rondas, relatório diário, tela com pausa e gasto
 
 ## Suposições em vigor até o dono responder (seção 9 do prompt)
