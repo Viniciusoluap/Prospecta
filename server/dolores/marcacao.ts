@@ -82,7 +82,8 @@ const envioPadrao: EnvioAoGrupo = async ({ instancia, grupoJid, texto, citar, pr
   const c = await configEvolution();
   if (!c) return false;
   const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
-  return Boolean(await enviarTextoAoGrupoEvolution(c, instancia, grupoJid, texto, citar, comPrazo));
+  // QA E4 r2 N4: recusa redirecionamento (o apikey não vai a outro host)
+  return Boolean(await enviarTextoAoGrupoEvolution({ ...c, semRedirecionamento: true }, instancia, grupoJid, texto, citar, comPrazo));
 };
 
 type BlocoTexto = { type: "text"; text: string };

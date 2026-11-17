@@ -423,7 +423,7 @@ describe("QA r2 N4: as chamadas da Dolores à Evolution não seguem redirecionam
     const arquivos = [...readdirSync(dir).map(n => `./${n}`), ...readdirSync(new URL("./acoes/", import.meta.url)).map(n => `./acoes/${n}`)]
       .filter(n => n.endsWith(".ts") && !n.endsWith(".test.ts") && n !== "./testes-banco.ts");
     const usam = arquivos.filter(n => readFileSync(new URL(n, dir), "utf8").includes("configEvolution("));
-    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-router.ts", "./router.ts", "./whatsapp.ts"]);
+    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-router.ts", "./marcacao.ts", "./router.ts", "./whatsapp.ts"]);
     for (const n of usam) {
       const texto = readFileSync(new URL(n, dir), "utf8");
       expect(texto.split("configEvolution(").length - 1, n).toBe(texto.split("semRedirecionamento: true").length - 1);

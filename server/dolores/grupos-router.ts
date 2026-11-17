@@ -52,7 +52,9 @@ async function conferirLid(grupoId: number, userId: number): Promise<{ conferido
   const [g] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupoId)).limit(1);
   if (!g || !g.ativo || g.instancia !== cfg.instancia) return { conferido: false, motivo: "grupo não cadastrado ou desativado" };
   const { configEvolution } = await import("../whatsapp-router.js");
-  const evo = await configEvolution();
+  const configurada = await configEvolution();
+  // QA E4 r2 N4: a chamada recusa redirecionamento (o apikey não vai a outro host)
+  const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
   if (!evo) return { conferido: false, motivo: "servidor do WhatsApp (Evolution) não configurado" };
   let lista: Awaited<ReturnType<typeof participantesDoGrupoEvolution>>;
   try { lista = await participantesDoGrupoEvolution(evo, cfg.instancia, g.grupoJid); }

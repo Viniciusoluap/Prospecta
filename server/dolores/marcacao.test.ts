@@ -11,6 +11,7 @@ vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
 import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
+import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import {
   FRASE_APRESENTACAO, FRASE_FORA_DE_ESCOPO, FRASE_SEM_VINCULO, FRASE_TETO_DO_DIA, MAX_CARACTERES_GRUPO, doloresFoiMarcada, foraDeEscopo,
   respostaSeguraDoGrupo, rotuloSeguroParaGrupo,
@@ -24,7 +25,11 @@ import { configEvolution } from "../whatsapp-router.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
-import { definirDependenciasMarcacao, executarLeituraDoGrupo, type PedidoGrupo, type RespostaGrupo } from "./marcacao.js";
+import { ORCAMENTO_MARCACAO_PCT, reservarClassificacao } from "./consumo.js";
+import {
+  FUNCAO_DESLIGAMENTO_MARCACAO, MOTIVO_DESLIGAMENTO_MARCACAO, RESERVA_ENTRADA_GRUPO, definirDependenciasMarcacao, executarLeituraDoGrupo, limparPausaDaMarcacao,
+  type PedidoGrupo, type RespostaGrupo,
+} from "./marcacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
@@ -358,6 +363,64 @@ describe("custo e abuso", () => {
     expect(textos.filter(t => t === FRASE_TETO_DO_DIA)).toHaveLength(1);
     expect(textos.length).toBe(18 + 1); // 20 do dia (2 já usadas) + 1 aviso do teto
     expect(pedidos).toEqual([]);
+  });
+});
+
+describe("travas da 3ª rodada da E4 também na resposta em grupo", () => {
+  const consumoDoGrupo = async () => (await q<{ n: number }>("SELECT count(*)::int AS n FROM dolores_consumo WHERE parada LIKE 'grupo%'"))[0].n;
+
+  it("contagem prévia acima da reserva ou indisponível: a chamada não vai à IA; frase fixa; nada no consumo", async () => {
+    await ligarTudo();
+    contagem = RESERVA_ENTRADA_GRUPO + 1;
+    await chamar(aviso(item({ id: "CNT-1" })));
+    contagem = null;
+    await chamar(aviso(item({ id: "CNT-2", de: "5599966665555" })));
+    expect(pedidos).toHaveLength(0);
+    expect(await consumoDoGrupo()).toBe(0);
+    expect((await marcacoes()).map(m => [m.situacao, m.motivo])).toEqual([
+      ["fora_de_escopo", "laço parou: contagem_acima_da_reserva"], ["fora_de_escopo", "laço parou: contagem_indisponivel"]]);
+    expect(enviarAoGrupo.mock.calls.map(c => c[0].texto)).toEqual([FRASE_FORA_DE_ESCOPO, FRASE_FORA_DE_ESCOPO]);
+  });
+
+  it("uma chamada de IA dos grupos por vez: com outra resposta reservada, esta não chama; e a classificação também espera", async () => {
+    await ligarTudo();
+    await banco.pg.exec(`INSERT INTO dolores_marcacoes (grupo_id, instancia, external_id, situacao, reserva_entrada, reserva_saida, reserva_ate)
+      VALUES (3, 'prospecta-dolores', 'OUTRA', 'erro', 6000, 400, now() + interval '1 minute')`);
+    await chamar(aviso(item({ id: "VEZ-1" })));
+    expect(pedidos).toHaveLength(0);
+    expect((await marcacoes()).find(m => m.motivo?.includes("outra_chamada"))).toBeTruthy();
+    const bloqueio = await reservarClassificacao({ mes: mesFortaleza(AGORA), mensagemGrupoId: 999, limites: { entrada: 1_000_000, saida: 100_000 },
+      reserva: { entrada: 1_000, saida: 100 }, validadeMs: 60_000 });
+    expect(bloqueio).toBe("outra_classificacao");
+  });
+
+  it("orçamento próprio das respostas em grupo: atingido, não chama a IA (os comandos do dono não entram nessa conta)", async () => {
+    await ligarTudo();
+    // 10% de 1.000.000 = 100.000 de entrada: já usados pelas respostas em grupo deste mês
+    await banco.pg.exec(`INSERT INTO dolores_consumo (mes, modelo, volta, tokens_entrada, tokens_saida, parada)
+      VALUES ('${mesFortaleza(AGORA)}', 'm', 1, ${(1_000_000 * ORCAMENTO_MARCACAO_PCT) / 100}, 0, 'grupo:end_turn'), ('${mesFortaleza(AGORA)}', 'm', 1, 300000, 0, 'end_turn')`);
+    await chamar(aviso(item({ id: "ORC-1" })));
+    expect(pedidos).toHaveLength(0);
+    expect((await marcacoes())[0].motivo).toBe("laço parou: orcamento_marcacao");
+  });
+
+  it("falha fechada: o consumo não gravou → desliga o interruptor geral (auditado), nenhuma volta a mais, nada enviado", async () => {
+    await ligarTudo();
+    await banco.pg.exec(`CREATE FUNCTION falha_consumo() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'consumo fora do ar'; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER falha_consumo BEFORE INSERT ON dolores_consumo FOR EACH ROW EXECUTE FUNCTION falha_consumo();`);
+    const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      respostas = [usar("andamento_do_grupo"), texto("Está na etapa Protocolo.")];
+      await chamar(aviso(item({ id: "FALHA-1" })));
+      expect(pedidos).toHaveLength(1);
+      expect(enviarAoGrupo).not.toHaveBeenCalled();
+      expect((await q<{ responder_ligado: boolean }>("SELECT responder_ligado FROM dolores_marcacoes_config"))[0].responder_ligado).toBe(false);
+      expect((await acoes(FUNCAO_DESLIGAMENTO_MARCACAO))[0]).toMatchObject({ resultado: "erro", motivo: MOTIVO_DESLIGAMENTO_MARCACAO });
+      // a próxima marcação: silêncio, sem IA
+      await chamar(aviso(item({ id: "FALHA-2", de: "5599966665555" })));
+      expect(pedidos).toHaveLength(1);
+      expect((await marcacoes()).at(-1)).toMatchObject({ situacao: "silencio" });
+    } finally { erro.mockRestore(); limparPausaDaMarcacao(); }
   });
 });
 
