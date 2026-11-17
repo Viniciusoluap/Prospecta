@@ -1,6 +1,6 @@
 # S-12 — Termo de consentimento no primeiro acesso (criação de senha)
 
-Status: InReview (QA 17/11 = CONCERNS; achados 1, 2, 3, 5, 6, 7, 8 e 9 corrigidos; volta ao QA; migração 0127 a aplicar antes do deploy)
+Status: Done (publicada em 17/11/2026, PR #246; QA PASS na 2ª rodada; migração 0127 aplicada). Texto provisório até a revisão do jurídico.
 Epic: EPIC-024 — pedido complementar do dono (17/11/2026), ligado à Dolores (EPIC-025, opção B: dados pessoais liberados)
 Paridade: o primeiro acesso por link existe nos dois sistemas — porte para o Grupo Santa Fé fica como pendência no
 ROADMAP (Santa Fé em espera por decisão do dono).

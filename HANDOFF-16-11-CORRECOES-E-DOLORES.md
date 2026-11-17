@@ -208,3 +208,48 @@ PR, cada uma com portão de QA. 4. Relatório final ao dono.
 - Confirmar a diferença em relação ao prompt mestre: o laço da Dolores roda no servidor, não no agente do Console.
 - Conferir com o jurídico se o termo de consentimento dos clientes cobre o envio de dados à Anthropic (opção B).
 - Provedor de imagem para "Gerar com IA" do logotipo (correção 02).
+
+## Atualização — 17/11, ~00:15 UTC
+- **Publicado:** PR #244 — **S-11 modelo da IA por função** (produção `6862f03`; sem migração; QA PASS na 2ª rodada).
+  PR #245 — **Dolores etapa 3 (Ações com fila de aprovação)** (produção `8e7c21d` READY; migração `0125` aplicada
+  antes: `dolores_aprovacoes`, `dolores_autoria`, `dolores_fila_config`, fila vazia, validade 48 h). QA: 1ª FAIL,
+  2ª CONCERNS, 3ª PASS; conferência final sobre a `main` CONCERNS sem bloqueio, achados 1–3 corrigidos no próprio PR
+  (`server/dolores/correcoes-e3-final.test.ts`). Relatórios em `scratchpad/qa-dolores-e3*/RELATORIO.md`.
+- **Estado em produção:** etapas 1, 2 e 3 da Dolores no ar e DESLIGADAS (IA desligada, WhatsApp desconectado,
+  limites 0, ponte sem token). O dono pode ligar quando quiser pelo passo a passo de `docs/dolores/como-ligar.md`.
+- **Em curso — Dolores etapa 4 (Grupos de clientes):** @dev no worktree `dolores-e4`, ramo
+  `epic025-dolores-etapa4` (cópia `claude/wip-epic025-dolores-etapa4`), base `25ccea2` + falta unir `f8232ca`/`main`.
+  Migração reservada `0126` (NÃO aplicada). O ambiente reiniciou às ~23:50 UTC e matou o primeiro agente com trabalho
+  sem commit (não se perdeu: os arquivos ficaram no worktree); o agente novo faz commit e push a cada parte.
+- **Faltam:** etapa 4 (QA, `0126`, publicar), etapa 5 (notas de obra) e etapa 6 (operação contínua).
+
+## Próximo passo exato (17/11, 00:15 UTC)
+1. Receber o @dev da etapa 4 → portão de QA (segurança) → corrigir → aplicar `0126` → publicar pela receita
+   (ramo novo a partir da `main`, aplicar o diff da etapa, tsc, vitest com `--maxWorkers=2 --minWorkers=1`, vite build,
+   guarda da Vercel, prévia READY, mesclar, conferir produção). 2. Etapa 5 e etapa 6, do mesmo jeito. 3. Relatório final.
+
+## Decisões pendentes do dono (não travam)
+1. Com a opção B, o texto que ele manda a Dolores gravar (tarefa/acompanhamento) fica com CPF/telefone em claro na
+   fila e no registro — confirmar ou pedir para mascarar. 2. Confirmar que o laço da Dolores roda no servidor (e não no
+   agente do Console). 3. Ponte HTTP mascarada por padrão — confirmar ou liberar (`DOLORES_PONTE_DADOS_PESSOAIS`).
+
+## Atualização — 17/11, ~02:10 UTC
+- **Publicado:** PR #246 — **S-12 termo de consentimento no primeiro acesso** (produção `2b7f064` READY; migração
+  `0127` aplicada antes: tabela `consentimentos`, 0 aceites, 11 usuários intactos). QA: 1ª CONCERNS, 2ª PASS
+  (`scratchpad/qa-s12*/RELATORIO.md`). Texto provisório até o jurídico (pendências só na janela do admin).
+  Desligado por decisão pendente do dono: `CONSENTIMENTO_PEDIR_NO_LOGIN` (pedir a quem já tem senha).
+- **O dono confirmou em 17/11** as três decisões pendentes da Dolores (ver `CLAUDE.md`) e mandou "continuar sem parar
+  até concluir tudo".
+- **Dolores etapa 4 (Grupos de clientes):** 1ª rodada de QA FAIL (gatilho da `0126` quebrava exclusões do CRM; PDF
+  comprimido furava o teto de páginas); 8 achados corrigidos (`3901fef`…`e3e99af`, HEAD `a386300`, cópia
+  `claude/wip-epic025-dolores-etapa4`); 2ª rodada em curso (`scratchpad/qa-dolores-e4-r2/RELATORIO.md`).
+  `0126` NÃO aplicada.
+- **Dolores etapa 5 (Notas de obra):** @dev em curso no worktree `dolores-e5`, ramo `epic025-dolores-etapa5` (cópia
+  `claude/wip-epic025-dolores-etapa5`), migração reservada `0128`. Base = etapa 4 + `main`.
+- **Falta:** publicar a etapa 4; QA e publicação da etapa 5; etapa 6 (operação contínua: eventos, rondas, relatório
+  diário, tela com pausa e gasto); relatório final.
+
+## Próximo passo exato (17/11, 02:10 UTC)
+1. E4: receber o QA r2 → corrigir o que for importante → `0126` → publicar pela receita. 2. E5: receber o @dev → QA →
+`0128` → publicar. 3. E6: lançar o @dev em cima da E5, QA, migração `0129`, publicar. 4. Relatório final ao dono com
+a classificação de cada item e o que depende só dele.
