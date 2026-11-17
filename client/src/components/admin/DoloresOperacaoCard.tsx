@@ -90,6 +90,7 @@ export function DoloresOperacaoCard() {
               <p>Conexão da Dolores: <strong>{d.interruptores.conexao}</strong> · número do dono: {d.interruptores.numeroDono ?? "não cadastrado"}</p>
               <p>Classificação dos documentos dos grupos: {ligado(d.interruptores.classificacaoLigada)}</p>
               <p>Leitura das notas de obra: {ligado(d.interruptores.leituraNotasLigada)}</p>
+              <p>Resposta nos grupos quando marcada (geral): {ligado(d.interruptores.respostaGruposLigada)} (e o de cada grupo, no cartão dos grupos; com a pausa geral ligada, fica muda)</p>
               <p>Rondas: {ligado(d.interruptores.rondasLigadas)} · relatório diário: {ligado(d.interruptores.relatorioLigado)} · eventos: {ligado(d.interruptores.eventosLigados)}</p>
               <p className="text-xs text-gray-400">Eventos nas últimas 24 h: {Object.keys(d.eventos24h).length ? Object.entries(d.eventos24h).map(([k, v]) => `${k}: ${v}`).join(", ") : "nenhum"}</p>
             </section>

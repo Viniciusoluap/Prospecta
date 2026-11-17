@@ -279,6 +279,10 @@ describe("permissões (caminho completo pelo appRouter)", () => {
     const s = await admin.dolores.operacao.situacao();
     expect(s.config).toEqual({ rondasLigadas: false, relatorioLigado: false, relatorioHora: 7, eventosLigados: false });
     expect(s.gasto).toMatchObject({ tetoDonoReais: 1621, reaisEstimados: null });
+    // a resposta nos grupos (geral, etapa 4b) aparece só para leitura; nasce desligada e acompanha o cartão dos grupos
+    expect(s.interruptores.respostaGruposLigada).toBe(false);
+    await banco.pg.exec("UPDATE dolores_marcacoes_config SET responder_ligado = true WHERE id = 1");
+    expect((await admin.dolores.operacao.situacao()).interruptores.respostaGruposLigada).toBe(true);
     expect(JSON.stringify(s)).not.toContain(DONO);
     expect(JSON.stringify(s)).not.toMatch(/sk-ant/);
     await expect(admin.dolores.operacao.salvar({ relatorioLigado: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });

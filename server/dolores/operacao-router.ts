@@ -15,6 +15,7 @@ import { registrarAcao } from "./auditoria.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
 import { lerConfigGrupos } from "./grupos.js";
 import { lerConfigNotas } from "./notas-obra.js";
+import { lerConfigMarcacoes } from "./marcacao.js";
 import { lerConfigOperacao } from "./operacao.js";
 import { executarRonda, historicoParaTela, relatorioSobDemanda } from "./rondas.js";
 
@@ -38,9 +39,10 @@ async function situacao() {
   const config = await exigirConfig();
   const agora = new Date();
   const mes = mesFortaleza(agora);
-  const [pausa, wa, uso, grupos, notas, historico] = await Promise.all([
+  const [pausa, wa, uso, grupos, notas, historico, marcacoes] = await Promise.all([
     lerPausa().catch(() => null), lerConfigWhatsapp().catch(() => null), usoDoMes(mes).catch(() => ({ entrada: 0, saida: 0 })),
     lerConfigGrupos().catch(() => null), lerConfigNotas(), historicoParaTela(5).catch(() => ({ rondas: [], ultimoRelatorio: null })),
+    lerConfigMarcacoes().catch(() => null), // sem a 0129: desligado
   ]);
   const desde = new Date(agora.getTime() - 24 * 3_600_000);
   const eventos = await getDb().select({ tipo: doloresEventos.tipo, n: sql<number>`count(*)`.mapWith(Number) }).from(doloresEventos)
@@ -57,6 +59,8 @@ async function situacao() {
     interruptores: {
       iaLigada: wa?.iaLigada ?? false, conexao: wa?.statusConexao ?? "desconectado", numeroDono: mascararNumero(wa?.numeroDono ?? null),
       classificacaoLigada: grupos?.classificacaoLigada ?? false, leituraNotasLigada: notas.leituraLigada,
+      // Etapa 4b — interruptor GERAL da resposta nos grupos quando marcada (só leitura aqui; muda no cartão dos grupos)
+      respostaGruposLigada: marcacoes?.responderLigado ?? false,
       rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, eventosLigados: config.eventosLigados,
     },
     agendamento: { cron: "/api/cron/dolores", horarioUtc: "10:00", horarioBrasilia: "07:00", agoraBrasilia: relogioBrasilia(agora).hhmm },

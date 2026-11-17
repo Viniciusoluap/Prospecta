@@ -38,7 +38,9 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
       último relatório (com o resultado do envio), botões de ronda e relatório.
 - [x] AC7 — Pausa geral conferida no servidor em todas as portas: IA (bloqueioAtual — conversa, classificação, notas), ponte,
       aprovação da fila, rondas (cron e tela), relatório (cron, tela, WhatsApp), eventos, reconhecimento da resposta do
-      empreiteiro; gancho `podeFalarNoGrupo()` para a resposta nos grupos (E4b).
+      empreiteiro; e a resposta nos grupos quando marcada (E4b, `server/dolores/marcacao.ts`): `podeFalarNoGrupo()` antes da
+      vaga, dos tetos, da chave, da IA e de qualquer envio (inclusive as frases fixas), e de novo no envio — pausada ou com a
+      conta da Dolores desativada, a marcação só é registrada ("silencio") e a Dolores fica muda no grupo.
 - [x] AC8 — Rota de cron `/api/cron/dolores` autenticada pelo `CRON_SECRET` da Vercel (tempo constante; sem segredo
       configurado, recusa), ignorando query e corpo, com prazo de 45 s (função de 60 s). `vercel.json`: diária às 10:00 UTC.
 - [x] AC9 — Tudo DESLIGADO por padrão (rondas, relatório, eventos).
@@ -69,7 +71,6 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 - Fuso: o código usa UTC−3 fixo (mesmo de Imperatriz/Fortaleza); São Paulo também é UTC−3 desde 2019 (sem horário de verão).
 
 ## Só com gancho (não ligado nesta etapa)
-- Resposta nos grupos quando marcada (E4b, não está neste ramo): usar `podeFalarNoGrupo()` antes de falar.
 - Evento "pagamento sincronizado do banco" é detectado pela RONDA (movimentações não manuais nas últimas 24 h), não no momento da
   sincronização: ligar dentro de `server/bancos.ts` mexeria em outro módulo. Para ligar no ato, chamar
   `registrarEvento({ tipo: "pagamento_banco", chave: "banco-tx:<id>", origemTabela: "bank_transactions", origemId })` depois da
@@ -79,6 +80,11 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 ## Testes
 - `server/dolores/operacao-regras.test.ts` (19), `server/dolores/operacao-migracao.test.ts` (4), `server/dolores/operacao.test.ts`
   (22). Ajustados para a etapa 6: `ponte.test.ts` (etapa 6 e a ferramenta nova), `whatsapp.test.ts` (etapa 6 na auditoria).
+- Depois do merge da E4b (main `6e4b517`): `marcacao.test.ts` (bloco "Etapa 6 — pausa geral": marcação real, fora de
+  escopo, sem pergunta, sem cliente e teto do grupo com tudo ligado → sem IA, sem contagem, sem vaga, nada enviado; conta
+  desativada; pausa ligada durante a chamada → envio recusado; retomada), `grupos.test.ts` e `notas-obra.test.ts` (pausa ou
+  conta desativada → webhook e botão da tela não baixam, não contam, não chamam a IA, não enviam — já barrava pela porta
+  `bloqueioAtual`; só o teste foi escrito), `operacao.test.ts` (interruptor da resposta nos grupos na tela).
 - Pendente de validação em produção: aplicar a 0131, conferir `CRON_SECRET` na Vercel, ligar e acompanhar 7 dias.
 
 ## File List
@@ -87,13 +93,14 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 - `server/dolores/operacao.ts` (novo), `server/dolores/rondas.ts` (novo), `server/dolores/operacao-router.ts` (novo),
   `server/dolores/leitura/relatorio.ts` (novo)
 - `server/dolores/whatsapp.ts` (envio ao dono sem mensagem de origem, comando "relatório", eventos), `server/dolores/notas-obra.ts`
-  (pausa na resposta do empreiteiro), `server/dolores/router.ts`, `server/dolores/permissoes.ts`, `server/dolores/funcoes.ts`,
+  (pausa na resposta do empreiteiro), `server/dolores/marcacao.ts` (pausa geral na resposta no grupo), `server/dolores/router.ts`, `server/dolores/permissoes.ts`, `server/dolores/funcoes.ts`,
   `server/dolores/auditoria.ts` (canal "cron"), `server/dolores/testes-banco.ts`
 - `api/index.ts` (rota `/api/cron/dolores`), `vercel.json` (cron diário)
 - `client/src/components/admin/DoloresOperacaoCard.tsx` (novo), `client/src/pages/admin/AdminIntegracoes.tsx`
 - `docs/dolores/como-ligar.md` (Etapa 6), `docs/dolores/ferramentas-etapa1.json` (regerado)
 - Testes: `server/dolores/operacao-regras.test.ts`, `server/dolores/operacao-migracao.test.ts`, `server/dolores/operacao.test.ts`,
-  `server/dolores/ponte.test.ts`, `server/dolores/whatsapp.test.ts`
+  `server/dolores/ponte.test.ts`, `server/dolores/whatsapp.test.ts`, `server/dolores/marcacao.test.ts`, `server/dolores/grupos.test.ts`,
+  `server/dolores/notas-obra.test.ts`
 
 ## IDS
 - REUSE: pausa (`dolores_config`), leituras da etapa 1, filtros de saída e envio da Evolution (`whatsapp.ts`), padrão `soAdmin`,
@@ -104,3 +111,6 @@ reais (dizendo o que falta), e que exista um botão de pausa que pare tudo e a v
 ## Change Log
 - 17/11/2026 — @dev (Dex): Ready → InProgress (início da implementação no ramo `epic025-dolores-etapa6`).
 - 17/11/2026 — @dev (Dex): InProgress → InReview (migração, regras, rondas, relatório, rotas, tela, testes e docs; aguarda QA).
+- 17/11/2026 — @dev (Dex): merge da main (E4b); pausa geral ligada na resposta no grupo (`podeFalarNoGrupo` antes da vaga e no
+  envio); testes de regressão da pausa na marcação, classificação e leitura de nota; tela mostra o interruptor geral da resposta
+  nos grupos (só leitura).

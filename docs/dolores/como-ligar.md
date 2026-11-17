@@ -582,7 +582,7 @@ não chama a IA nem gasta; vale só do número do dono; repetido no mesmo minuto
 "Pausar tudo agora" grava `dolores_config.pausada` (a mesma pausa da etapa 1) e, conferido no servidor, para: IA da conversa,
 classificação dos documentos, leitura das notas, ponte, aprovação de item da fila, rondas, relatório (cron, tela e WhatsApp),
 eventos e o reconhecimento da resposta do empreiteiro. As mensagens dos grupos cadastrados continuam só REGISTRADAS (para nada
-se perder). A resposta nos grupos (etapa 4b) tem o gancho pronto: `podeFalarNoGrupo()` em `server/dolores/operacao.ts`.
+se perder). A resposta nos grupos quando marcada (etapa 4b) também para: com a pausa ligada (ou a conta da Dolores desativada) ela fica muda no grupo, e a marcação só é registrada (`podeFalarNoGrupo()` em `server/dolores/operacao.ts`).
 "Retomar a Dolores" volta cada função ao estado do próprio interruptor.
 
 ## 5. Teste de aceite (prompt mestre): "sete dias rodando sem falha, com o custo medido"
