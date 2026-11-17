@@ -1,6 +1,6 @@
 # E3 — Ações (tarefas, acompanhamentos, cobranças preparadas, geradores, fila de aprovação)
 
-Status: InReview
+Status: Done (publicada em 17/11/2026, PR #245; QA aprovado).
 Epic: EPIC-025 (Etapa 3) — "Operação Dolores — Prompt Mestre" (16/11/2026), seção 7, linha 3; seções 4.3 e 5
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP ao fechar o epic.
 Tamanho estimado: G

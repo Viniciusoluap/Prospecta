@@ -160,3 +160,38 @@ e área institucional. Essa lógica deve estar dentro do motor na hora de fazer 
    linha nesse painel. Escolher modelo nunca liga a IA de função nenhuma.
 4. A chave da Anthropic foi cadastrada pelo dono no painel em 16/11. Ela só é lida em dois pontos do código
    (`resolverCredencialIA` da maquete e `bloqueioAtual` da Dolores), vigiados por `server/integracoes-anthropic.test.ts`.
+
+## Dolores e consentimento — decisões do dono em 17/11/2026 (REGRA)
+
+1. **Confirmado pelo dono** ("As decisões pendentes minhas eu confirmo todas elas que você sugeriu"): (a) o texto que
+   ele manda a Dolores gravar (tarefa, acompanhamento) fica com CPF/telefone em claro na fila e no registro; (b) o laço
+   da Dolores roda no servidor do Prospecta com a chave do painel, e não no agente do Claude Console; (c) a ponte HTTP
+   (`/api/dolores/ponte`) fica com dados pessoais mascarados por padrão (`DOLORES_PONTE_DADOS_PESSOAIS`).
+2. **Termo de consentimento no primeiro acesso** (story `docs/stories/epics/epic-024-correcoes-16-11/S-12-termo-consentimento.md`):
+   quem cria a senha do primeiro acesso aceita um termo curto. Regra de implementação combinada com o dono: **curto e
+   rápido, nunca escondido** — caixa desmarcada por padrão, frase clara, link para o termo completo, aceite exigido
+   também no servidor e registrado (quem, quando, versão). Nada de caixa pré-marcada, letra miúda ou aceite implícito:
+   consentimento que a pessoa não percebe não vale pela LGPD.
+3. **Limites do termo, que o dono precisa resolver com o jurídico:** ele cobre só quem cria login; clientes e leads do
+   CRM que nunca acessam o sistema precisam consentir por contrato/ficha. O texto do termo é provisório até a revisão
+   do jurídico (marcadores "[A PREENCHER PELO JURÍDICO]").
+4. **Não decidido:** pedir o aceite a quem já tem senha, no próximo login — fica pronto e DESLIGADO até o dono mandar ligar.
+
+## Dolores nos grupos — só responde quando é marcada (REGRA — estabelecida pelo dono em 17/11/2026)
+
+Palavras do dono: "Nos grupos ela só pode responder quando ela for marcada, quando o número for marcado; em nenhum
+outro momento ela deve responder as mensagens do grupo e deve apenas observar até ser marcada."
+
+Respostas dele às duas perguntas feitas em seguida:
+1. **Quem pode fazê-la responder:** qualquer pessoa do grupo que a marcar (inclusive cliente e empreiteiro).
+2. **O que ela pode dizer no grupo:** só sobre o cliente/obra daquele grupo (andamento, pendências, documentos que
+   faltam). Nunca dados de outros clientes, CPF, valores internos ou anotações da equipe. Nunca executa ação a partir
+   do grupo.
+
+Isto substitui a suposição anterior ("a Dolores não atende cliente / nunca responde em grupo"). Na prática, para
+qualquer agente que mexer nisso (story `docs/stories/epics/epic-025-dolores/E4b-resposta-quando-marcada.md`):
+- A marcação é reconhecida por código (o número dela na lista de menções da mensagem), nunca pelo texto.
+- Quem marca é terceiro: nada do que escreve é comando. Comando continua só na conversa direta do dono.
+- O escopo (um cliente só, sem dados pessoais nem valores) é travado no servidor, não no prompt.
+- Sem marcação, grupo não cadastrado ou interruptor desligado: silêncio total.
+- A segurança continua prioridade: interruptor próprio desligado por padrão, tetos por grupo e por remetente, portão de QA.
