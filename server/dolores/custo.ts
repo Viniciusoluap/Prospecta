@@ -36,8 +36,10 @@ export async function lerPrecos(): Promise<PrecosCadastrados> {
  * parada "grupo…" = resposta em grupo; o resto = classificação de documentos e leitura de notas (as duas gravam igual e não dá
  * para separar uma da outra).
  */
+// o padrão do LIKE vai como literal (constante do código, só letras): com parâmetro, o Postgres não reconhece a mesma expressão
+// no SELECT e no GROUP BY
 export async function consumoDoMesDetalhado(mes: string): Promise<Array<{ modelo: string; funcao: FuncaoDoConsumo; uso: UsoDetalhado }>> {
-  const funcao = sql<string>`CASE WHEN ${doloresConsumo.mensagemId} IS NOT NULL THEN 'conversa' WHEN ${doloresConsumo.parada} LIKE ${PARADA_GRUPO + "%"} THEN 'grupos' ELSE 'documentos_e_notas' END`;
+  const funcao = sql<string>`CASE WHEN ${doloresConsumo.mensagemId} IS NOT NULL THEN 'conversa' WHEN ${doloresConsumo.parada} LIKE ${sql.raw(`'${PARADA_GRUPO.replace(/[^a-z_]/g, "")}%'`)} THEN 'grupos' ELSE 'documentos_e_notas' END`;
   const linhas = await getDb().select({
     modelo: doloresConsumo.modelo, funcao,
     entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada}), 0)`.mapWith(Number),
