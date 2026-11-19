@@ -1385,6 +1385,13 @@ export async function createAvaliacao(data: Omit<InsertAvaliacao, "numero" | "st
   return result[0];
 }
 
+/** Endereço das avaliações vinculadas a um lead (regra do endereço de 17/11 — server/avaliacao-endereco.ts). */
+export async function getAvaliacoesEnderecoDoLead(leadId: number) {
+  const db = getDb();
+  return db.select({ id: avaliacoes.id, endereco: avaliacoes.endereco, bairro: avaliacoes.bairro, cidade: avaliacoes.cidade, estado: avaliacoes.estado })
+    .from(avaliacoes).where(eq(avaliacoes.leadId, leadId));
+}
+
 export async function updateAvaliacao(id: number, data: Partial<InsertAvaliacao>): Promise<void> {
   const db = getDb();
   await db.update(avaliacoes).set({ ...data, updatedAt: new Date() }).where(eq(avaliacoes.id, id));

@@ -9,6 +9,11 @@
 // Conta criada já com senha pelo admin (portal.admin.provisionAccess, /api/auth/setup-admin) a partir de INICIO_DO_TERMO:
 // aceita o termo no PRIMEIRO LOGIN (modal ConsentimentoNoLogin), com a opção abaixo desligada (QA S-12, achado 1).
 //
+// Retirada do consentimento (texto definitivo, versão 2026-11-17.3; migração 0132): nova linha de tipo "revogacao" na
+// mesma tabela só de inclusão, registrada pelo admin ("Usuários e acesso" › Termo de consentimento) ou pelo próprio
+// titular (botão em Meu perfil). Só contam os aceites DEPOIS da última retirada: quem retirou volta a ver o termo ao
+// entrar (modal), e um aceite novo volta a valer normalmente.
+//
 // Opção "pedir o aceite uma vez no próximo login" (para TODOS): DESLIGADA por padrão. Para ligar, defina na Vercel a variável
 // CONSENTIMENTO_PEDIR_NO_LOGIN=1 e publique de novo. Ligada, quem entrar sem aceite da versão vigente vê o termo uma vez
 // (componente client/src/components/consentimento/ConsentimentoNoLogin.tsx) e o aceite fica com canal "login".
@@ -17,7 +22,7 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { consentimentos, type AparelhoDoConsentimento } from "../drizzle/schema-consentimentos.js";
 import { users } from "../drizzle/schema.js";
-import { AVISO_TEXTO_PROVISORIO, PENDENCIAS_DO_JURIDICO, VERSAO_DO_TERMO, type CanalDoConsentimento } from "../shared/termo-consentimento.js";
+import { MENSAGEM_SEM_CONSENTIMENTO_ATIVO, VERSAO_DO_TERMO, type CanalDoConsentimento, type TipoDoConsentimento } from "../shared/termo-consentimento.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb, type DrizzleDb } from "./db.js";
@@ -149,10 +154,30 @@ export function precisaAceitarNoLogin(aceites: { atual: boolean; algum: boolean 
   return pedirATodos ? !aceites.atual : !aceites.algum;
 }
 
-/** Se a conta aceitou a versão vigente e se aceitou alguma versão. */
-export async function aceitesDoUsuario(db: DrizzleDb, userId: number): Promise<{ atual: boolean; algum: boolean }> {
-  const linhas = await db.selectDistinct({ versao: consentimentos.versaoTermo }).from(consentimentos).where(eq(consentimentos.userId, userId));
-  return { atual: linhas.some(l => l.versao === VERSAO_DO_TERMO), algum: linhas.length > 0 };
+export type EventoDoTermo = { tipo: TipoDoConsentimento; versao: string; em: Date | string; id: number };
+export type AceitesDoUsuario = { atual: boolean; algum: boolean; retirado: boolean };
+
+/**
+ * Situação do consentimento a partir dos registros (ordem cronológica). Só contam os aceites depois da última retirada;
+ * `retirado` = o último registro é uma retirada.
+ */
+export function situacaoDosRegistros(eventos: readonly EventoDoTermo[]): AceitesDoUsuario {
+  const ordenados = [...eventos].sort((a, b) => new Date(a.em).getTime() - new Date(b.em).getTime() || a.id - b.id);
+  let ultimaRetirada = -1;
+  ordenados.forEach((e, i) => { if (e.tipo === "revogacao") ultimaRetirada = i; });
+  const validos = ordenados.slice(ultimaRetirada + 1).filter(e => e.tipo === "aceite");
+  return {
+    atual: validos.some(e => e.versao === VERSAO_DO_TERMO),
+    algum: validos.length > 0,
+    retirado: ordenados.length > 0 && ordenados[ordenados.length - 1].tipo === "revogacao",
+  };
+}
+
+/** Se a conta aceitou a versão vigente, se aceitou alguma versão (depois da última retirada) e se retirou. */
+export async function aceitesDoUsuario(db: DrizzleDb, userId: number): Promise<AceitesDoUsuario> {
+  const linhas = await db.select({ tipo: consentimentos.tipo, versao: consentimentos.versaoTermo, em: consentimentos.aceitoEm, id: consentimentos.id })
+    .from(consentimentos).where(eq(consentimentos.userId, userId));
+  return situacaoDosRegistros(linhas);
 }
 
 /**
@@ -190,7 +215,47 @@ export async function gravarSenhaComAceite(db: DrizzleDb, dados: {
 }
 
 async function registrarAceite(db: DrizzleDb, userId: number, canal: CanalDoConsentimento, aparelho: AparelhoDoConsentimento, comSenha: boolean) {
-  await db.insert(consentimentos).values({ userId, versaoTermo: VERSAO_DO_TERMO, canal, aparelho, comSenha });
+  await db.insert(consentimentos).values({ userId, versaoTermo: VERSAO_DO_TERMO, canal, aparelho, comSenha, tipo: "aceite" });
+}
+
+/**
+ * Registra a retirada do consentimento (linha nova de tipo "revogacao"; nada é alterado nem apagado).
+ * Só quando há consentimento ativo: retirar o que não foi dado, ou retirar duas vezes, é recusado.
+ */
+export async function registrarRetirada(db: DrizzleDb, dados: {
+  userId: number; registradoPor: number; canal: Extract<CanalDoConsentimento, "admin" | "conta">; aparelho?: AparelhoDoConsentimento;
+}): Promise<void> {
+  const situacao = await aceitesDoUsuario(db, dados.userId);
+  if (!situacao.algum) throw new TRPCError({ code: "BAD_REQUEST", message: MENSAGEM_SEM_CONSENTIMENTO_ATIVO });
+  await db.insert(consentimentos).values({
+    userId: dados.userId, versaoTermo: VERSAO_DO_TERMO, canal: dados.canal, aparelho: dados.aparelho ?? "desconhecido",
+    comSenha: false, tipo: "revogacao", registradoPor: dados.registradoPor,
+  });
+}
+
+type LinhaDoResumo = { userId: number; tipo: TipoDoConsentimento; versao: string; em: Date; canal: CanalDoConsentimento; registradoPor: number | null; id: number };
+
+/** Por usuário: último aceite válido, se cobre a versão vigente e, se houver, a retirada (quando e quem registrou). */
+export function resumoPorUsuario(linhas: readonly LinhaDoResumo[]) {
+  const porUsuario = new Map<number, LinhaDoResumo[]>();
+  for (const l of linhas) porUsuario.set(l.userId, [...(porUsuario.get(l.userId) ?? []), l]);
+  return Array.from(porUsuario.entries()).map(([userId, eventos]) => {
+    const ordenados = [...eventos].sort((a, b) => a.em.getTime() - b.em.getTime() || a.id - b.id);
+    const situacao = situacaoDosRegistros(ordenados);
+    const ultimoAceite = [...ordenados].reverse().find(e => e.tipo === "aceite");
+    const ultimaRetirada = [...ordenados].reverse().find(e => e.tipo === "revogacao");
+    return {
+      userId,
+      versao: ultimoAceite?.versao ?? null,
+      aceitoEm: ultimoAceite?.em ?? null,
+      canal: ultimoAceite?.canal ?? null,
+      aceitouVersaoAtual: situacao.atual,
+      retirado: situacao.retirado,
+      retiradoEm: situacao.retirado ? ultimaRetirada!.em : null,
+      retiradoPor: situacao.retirado ? ultimaRetirada!.registradoPor : null,
+      retiradoPeloTitular: situacao.retirado ? ultimaRetirada!.canal === "conta" : false,
+    };
+  });
 }
 
 /** adminProcedure confere o módulo; a consulta dos aceites vale pelo PAPEL: só admin. */
@@ -215,11 +280,26 @@ export const consentimentoRouter = router({
   minhaSituacao: publicProcedure.query(async ({ ctx }) => {
     if (!ctx.user) return { pedir: false, versao: VERSAO_DO_TERMO };
     const todos = pedirAceiteNoLogin();
-    if (!todos && classificarConta(ctx.user.createdAt) === "antiga") return { pedir: false, versao: VERSAO_DO_TERMO };
     const db = getDb();
-    if (!todos && !(await contaCriadaNoTermo(db, ctx.user))) return { pedir: false, versao: VERSAO_DO_TERMO };
     const aceites = await aceitesDoUsuario(db, ctx.user.id);
+    // Quem retirou o consentimento volta a ver o termo (aceitar de novo ou sair), seja a conta nova ou antiga.
+    if (aceites.retirado) return { pedir: true, versao: VERSAO_DO_TERMO };
+    if (!todos && classificarConta(ctx.user.createdAt) === "antiga") return { pedir: false, versao: VERSAO_DO_TERMO };
+    if (!todos && !(await contaCriadaNoTermo(db, ctx.user))) return { pedir: false, versao: VERSAO_DO_TERMO };
     return { pedir: precisaAceitarNoLogin(aceites, todos), versao: VERSAO_DO_TERMO };
+  }),
+
+  /** Para a página Meu perfil: se há consentimento ativo (e então o botão de retirar aparece). */
+  meuConsentimento: protectedProcedure.query(async ({ ctx }) => {
+    const aceites = await aceitesDoUsuario(getDb(), ctx.user.id);
+    return { ativo: aceites.algum, retirado: aceites.retirado, versaoAtual: VERSAO_DO_TERMO };
+  }),
+
+  /** O próprio titular retira o consentimento (botão em Meu perfil). Fica registrado: tipo "revogacao", canal "conta". */
+  retirar: protectedProcedure.input(z.object({ confirmar: z.literal(true) })).mutation(async ({ ctx }) => {
+    const ua = (ctx.req as { headers?: Record<string, string | undefined> } | undefined)?.headers?.["user-agent"];
+    await registrarRetirada(getDb(), { userId: ctx.user.id, registradoPor: ctx.user.id, canal: "conta", aparelho: aparelhoDoUserAgent(ua) });
+    return { ok: true as const };
   }),
 
   /** Aceite pelo modal do login: conta nova sem aceite, ou qualquer conta com a opção do item 4 ligada. */
@@ -227,10 +307,11 @@ export const consentimentoRouter = router({
     .mutation(async ({ ctx, input }) => {
       const todos = pedirAceiteNoLogin();
       const db = getDb();
-      if (!todos && !(await contaCriadaNoTermo(db, ctx.user))) {
+      const aceites = await aceitesDoUsuario(db, ctx.user.id);
+      if (!todos && !aceites.retirado && !(await contaCriadaNoTermo(db, ctx.user))) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O pedido de aceite no login está desligado." });
       }
-      if (!precisaAceitarNoLogin(await aceitesDoUsuario(db, ctx.user.id), todos)) return { ok: true as const, jaAceito: true };
+      if (!precisaAceitarNoLogin(aceites, todos)) return { ok: true as const, jaAceito: true };
       conferirAceite("obrigatorio", input.aceitouTermo, input.versaoDoTermo);
       const ua = (ctx.req as { headers?: Record<string, string | undefined> } | undefined)?.headers?.["user-agent"];
       await registrarAceite(db, ctx.user.id, "login", aparelhoDoUserAgent(ua), false);
@@ -238,25 +319,32 @@ export const consentimentoRouter = router({
     }),
 
   admin: router({
-    /** Por usuário: último aceite (quando e versão) e se cobre a versão vigente; total de usuários por versão. */
+    /** Por usuário: último aceite (quando e versão), se cobre a versão vigente e a retirada; total de usuários por versão. */
     resumo: soAdmin.query(async () => {
       const db = getDb();
-      const ultimos = await db.selectDistinctOn([consentimentos.userId], {
-        userId: consentimentos.userId, versao: consentimentos.versaoTermo, aceitoEm: consentimentos.aceitoEm, canal: consentimentos.canal,
-      }).from(consentimentos).orderBy(consentimentos.userId, desc(consentimentos.aceitoEm), desc(consentimentos.id));
-      const atuais = await db.selectDistinct({ userId: consentimentos.userId }).from(consentimentos)
-        .where(eq(consentimentos.versaoTermo, VERSAO_DO_TERMO));
+      const linhas = await db.select({
+        userId: consentimentos.userId, tipo: consentimentos.tipo, versao: consentimentos.versaoTermo, em: consentimentos.aceitoEm,
+        canal: consentimentos.canal, registradoPor: consentimentos.registradoPor, id: consentimentos.id,
+      }).from(consentimentos);
       const porVersao = await db.select({ versao: consentimentos.versaoTermo, usuarios: sql<number>`count(distinct ${consentimentos.userId})::int` })
-        .from(consentimentos).groupBy(consentimentos.versaoTermo).orderBy(desc(consentimentos.versaoTermo));
-      const comAtual = new Set(atuais.map(a => a.userId));
+        .from(consentimentos).where(eq(consentimentos.tipo, "aceite")).groupBy(consentimentos.versaoTermo).orderBy(desc(consentimentos.versaoTermo));
+      const usuarios = resumoPorUsuario(linhas);
       return {
         versaoAtual: VERSAO_DO_TERMO,
         pedirNoLogin: pedirAceiteNoLogin(),
-        avisoProvisorio: AVISO_TEXTO_PROVISORIO,
-        pendenciasDoJuridico: [...PENDENCIAS_DO_JURIDICO],
         porVersao: porVersao.map(v => ({ versao: v.versao, usuarios: Number(v.usuarios) })),
-        usuarios: ultimos.map(u => ({ ...u, aceitouVersaoAtual: comAtual.has(u.userId) })),
+        retirados: usuarios.filter(u => u.retirado).length,
+        usuarios,
       };
+    }),
+
+    /** O admin registra a retirada pedida pelo titular (e-mail ou telefone). Linha nova; nada é apagado. */
+    registrarRetirada: soAdmin.input(z.object({ userId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const [conta] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1);
+      if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
+      await registrarRetirada(db, { userId: input.userId, registradoPor: ctx.user.id, canal: "admin" });
+      return { ok: true as const };
     }),
   }),
 });
