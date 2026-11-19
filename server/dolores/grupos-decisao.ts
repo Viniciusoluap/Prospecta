@@ -5,11 +5,14 @@
 //   a obra (opcional). Tipos internos ficam sem vínculo.
 // - O gatilho da 0133 só deixa tipo e vínculo mudarem com `decidido_em` gravado na mesma operação — é o que esta função faz.
 // - Mensagem de grupo nunca chega aqui (o webhook trata grupo antes e nunca o transforma em comando).
+// - QA-SEG E7 (achado 6c): grupo RECUSADO ou esperando o dono dizer quem colocou a Dolores só sai desse estado pelo comando do
+//   DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
+//   mesmo ("decidido_por" começando por "whatsapp:").
 import { and, eq, isNull } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
-import { ROTULO_TIPO_GRUPO, tipoEfetivo, type DecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { ROTULO_TIPO_GRUPO, precisaDoAceiteDoDono, tipoEfetivo, type DecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -44,10 +47,15 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
   const agora = new Date();
   const decididoPor = (origem.via === "whatsapp" ? "whatsapp:dono" : `tela:${origem.userId}`).slice(0, 40);
   const nomeDoGrupo = aspas(g.nomeWhatsapp ?? g.nome);
+  const pendente = precisaDoAceiteDoDono(g);
+  if (pendente && origem.via === "tela" && d.tipo !== "ignorar") {
+    await auditar("recusada", "pela tela não se aceita grupo recusado/sem prova de quem colocou a Dolores (só o dono, no WhatsApp)", { grupoId: g.id, pedido: d.tipo });
+    return { ok: false, texto: `Dolores: só o dono aceita o grupo ${nomeDoGrupo}, pelo WhatsApp: "grupo ${g.codigo ?? "CÓDIGO"} aceitar". Pela tela dá para ver e desativar; nada mudou.`, grupoId: g.id };
+  }
   try {
-    // "aceitar": grupo em que outra pessoa colocou a Dolores (recusado) passa a valer, por decisão do dono
+    // "aceitar": grupo recusado ou esperando o dono dizer quem a colocou passa a valer, por decisão do dono
     if (d.tipo === "aceitar") {
-      if (g.situacaoConfirmacao !== "recusado") {
+      if (!pendente) {
         await auditar("recusada", "aceitar: o grupo não estava recusado; nada mudou", { grupoId: g.id });
         return { ok: true, texto: `Dolores: o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) já estava aceito; nada mudou.`, grupoId: g.id };
       }
@@ -57,15 +65,15 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
           decididoEm: agora, decididoPor, atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
         if (tipoAtual !== "indefinido") await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();
       });
-      await auditar("ok", "grupo recusado aceito pelo dono", { grupoId: g.id, tipo: tipoAtual });
+      await auditar("ok", g.situacaoConfirmacao === "recusado" ? "grupo recusado aceito pelo dono" : "grupo sem prova de quem colocou a Dolores aceito pelo dono", { grupoId: g.id, tipo: tipoAtual });
       return { ok: true, texto: tipoAtual === "indefinido"
         ? `Dolores: aceito o grupo ${nomeDoGrupo}. Ainda não sei de que tipo ele é; responda: grupo ${g.codigo} cliente <nº> | jurídico | administrativo | parceiros | engenharia.`
         : `Dolores: aceito o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${ROTULO_TIPO_GRUPO[tipoAtual]}.`, grupoId: g.id };
     }
     if (d.tipo === "ignorar") {
       await db.transaction(async tx => {
-        // recusado continua recusado (só fica também desativado)
-        await tx.update(doloresGrupos).set({ ativo: false, situacaoConfirmacao: g!.situacaoConfirmacao === "recusado" ? "recusado" : "confirmado", decididoEm: agora, decididoPor, atualizadoEm: agora,
+        // recusado continua recusado e o que espera o dono dizer quem a colocou continua esperando (só ficam também desativados)
+        await tx.update(doloresGrupos).set({ ativo: false, situacaoConfirmacao: pendente ? g!.situacaoConfirmacao : "confirmado", decididoEm: agora, decididoPor, atualizadoEm: agora,
           atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
         await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: false, atualizadoPor: origem.via === "tela" ? origem.userId : null })
           .onConflictDoUpdate({ target: doloresMarcacoesGrupo.grupoId, set: { responderLigado: false, atualizadoEm: agora } });
@@ -95,9 +103,10 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
       descricao = `engenharia da obra ${aspas(o.titulo)} (nº ${o.id})`;
     }
     await db.transaction(async tx => {
-      // definir o tipo de um grupo recusado também o aceita (é a decisão do dono)
+      // definir o tipo de um grupo recusado (ou sem prova de quem colocou a Dolores) também o aceita — é a decisão do dono no
+      // WhatsApp (pela tela, recusado acima)
       await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor,
-        ...(g!.situacaoConfirmacao === "recusado" ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
+        ...(pendente ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
         atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
       // grupo confirmado nasce com o interruptor LIGADO (se ninguém mexeu nele antes); nada fala com o interruptor geral desligado
       await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();

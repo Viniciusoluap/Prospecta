@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { jidDeGrupoParaExibir } from "@shared/dolores/grupos";
-import { ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
+import { ROTULO_AUTORIA_PENDENTE, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, precisaDoAceiteDoDono, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -284,7 +284,7 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
 type GrupoDaTela = {
   id: number; nome: string; ativo: boolean; leadId: number | null; obraId: number | null; cliente: string | null; obra: string | null;
   tipo: TipoGrupo; origem: string; situacaoConfirmacao: SituacaoConfirmacao; nomeWhatsapp: string | null; codigo: string | null;
-  criadoEm: string | Date; mensagens: number; adicionadoPor: "dono" | "outra_pessoa" | null;
+  criadoEm: string | Date; mensagens: number; adicionadoPor: AdicionadoPor | null; provaAdicao: ProvaAdicao | null;
   documentos: { aClassificar: number; classificados: number; confira: number; salvos: number; naoBaixados: number };
 };
 type ConfigEntrada = { entradaAutomaticaLigada: boolean; tetoGruposNovosDia: number; tetoAvisosGruposDia: number } | undefined;
@@ -303,7 +303,8 @@ function GruposSecao(p: {
     onSuccess: async r => { toast.success(r.texto); setEditando(null); await utils.dolores.grupos.listar.invalidate(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const aguardando = p.grupos.filter(g => g.ativo && g.situacaoConfirmacao === "aguardando_dono").length;
+  const aguardando = p.grupos.filter(g => g.ativo && g.situacaoConfirmacao === "aguardando_dono" && !autoriaPendente(g)).length;
+  const semAutoria = p.grupos.filter(g => g.ativo && autoriaPendente(g)).length;
   const precisaNumero = (t: string) => t === "cliente" || t === "pos_atendimento";
   const n = (k: string) => (tetos[k] !== undefined && tetos[k] !== "" ? Number(tetos[k]) : undefined);
   return (
@@ -334,6 +335,12 @@ function GruposSecao(p: {
           {aguardando} grupo(s) esperando você dizer de que tipo são. Enquanto isso, ela só observa (não fala nem quando é marcada).
         </p>
       )}
+      {semAutoria > 0 && (
+        <p role="status" className="rounded border border-yellow-300/40 bg-yellow-300/10 p-2 text-xs text-yellow-100">
+          {semAutoria} grupo(s) {ROTULO_AUTORIA_PENDENTE}. Só o dono aceita, pelo WhatsApp: responda "grupo CÓDIGO aceitar" à Dolores (ou remova a
+          Dolores do grupo e adicione de novo pelo seu número). Até lá ela só observa: não fala nem quando é marcada.
+        </p>
+      )}
       {!p.grupos.length ? <p className="text-sm text-gray-300">Nenhum grupo ainda. Coloque o número da Dolores no grupo pelo celular e clique em "Atualizar grupos".</p> : (
         <ul className="space-y-2">
           {p.grupos.map(g => (
@@ -349,10 +356,12 @@ function GruposSecao(p: {
               <p className="mt-1 text-xs text-gray-200">
                 Tipo: <strong>{ROTULO_TIPO_GRUPO[g.tipo] ?? g.tipo}</strong>
                 {g.leadId ? ` · cliente nº ${g.leadId}${g.cliente ? ` — ${g.cliente}` : ""}` : g.obraId ? ` · obra nº ${g.obraId}${g.obra ? ` — ${g.obra}` : ""}` : ""}
-                {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : g.situacaoConfirmacao === "recusado" ? "text-red-300" : "text-gray-300"}>{ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
+                {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : g.situacaoConfirmacao === "recusado" ? "text-red-300" : "text-gray-300"}>{autoriaPendente(g) ? ROTULO_AUTORIA_PENDENTE : ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
               </p>
               <p className="mt-1 text-xs text-gray-300">
-                Adicionada por: {g.adicionadoPor === "dono" ? "dono" : g.adicionadoPor === "outra_pessoa" ? (g.situacaoConfirmacao === "recusado" ? "outra pessoa — recusado (não lê nem fala lá)" : "outra pessoa — aceito pelo dono") : "cadastro à mão"}
+                Adicionada por: {g.adicionadoPor === "dono" ? "dono" : g.adicionadoPor === "outra_pessoa" || g.adicionadoPor === "desconhecido"
+                  ? `${g.adicionadoPor === "outra_pessoa" ? "outra pessoa" : "não ficou provado quem"} — ${g.provaAdicao === "aceito_pelo_dono" ? "aceito pelo dono" : g.situacaoConfirmacao === "recusado" ? "recusado (não lê nem fala lá)" : "só observa até o dono aceitar"}`
+                  : "cadastro à mão"}
               </p>
               <p className="mt-1 text-xs text-gray-400">
                 {g.mensagens} mensagens · a classificar {g.documentos.aClassificar} · classificados {g.documentos.classificados} · a conferir {g.documentos.confira} · salvos no card {g.documentos.salvos}
@@ -373,10 +382,15 @@ function GruposSecao(p: {
                     onClick={() => definir.mutate({ grupoId: g.id, tipo: editando.tipo as (typeof TIPOS_DA_TELA)[number], numero: editando.numero ? Number(editando.numero) : null })}>Salvar</Button>
                   <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando(null)}>Cancelar</Button>
                 </div>
+              ) : precisaDoAceiteDoDono(g) ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {/* QA-SEG E7 (6c): só o DONO aceita, pelo WhatsApp; a tela mostra e explica, mas não aceita */}
+                  <p className="text-xs text-gray-300">Para aceitar, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} aceitar</strong> (a tela não aceita grupo).</p>
+                  {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
+                </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>Corrigir tipo ou vínculo</Button>
-                  {g.situacaoConfirmacao === "recusado" && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "aceitar" })}>Aceitar este grupo</Button>}
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}

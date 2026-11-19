@@ -15,7 +15,7 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
-import { LIMITES_ENTRADA, gerarCodigoDeGrupo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { LIMITES_ENTRADA, gerarCodigoDeGrupo, precisaDoAceiteDoDono, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { entrarNoGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
@@ -168,6 +168,9 @@ export const gruposRouter = router({
     const leadId = input.leadId !== undefined ? input.leadId : g.leadId;
     const obraId = input.obraId !== undefined ? input.obraId : g.obraId;
     const mudaVinculo = (input.leadId !== undefined && input.leadId !== g.leadId) || (input.obraId !== undefined && input.obraId !== g.obraId);
+    // QA-SEG E7 (6c): grupo recusado ou sem prova de quem colocou a Dolores só o DONO aceita, no WhatsApp — trocar o vínculo
+    // pela tela seria aceitar. Desativar/reativar e o rótulo continuam (reativar não faz falar: a situação não muda).
+    if (mudaVinculo && precisaDoAceiteDoDono(g)) throw new TRPCError({ code: "FORBIDDEN", message: `Só o dono aceita este grupo, pelo WhatsApp: "grupo ${g.codigo ?? "CÓDIGO"} aceitar". Pela tela dá para ver e desativar.` });
     if (mudaVinculo) await conferirVinculo(leadId, obraId);
     // Etapa 7: mudar o vínculo é decisão do admin/dono — o tipo acompanha o vínculo (gatilho e CHECK da 0133)
     const tipoAtual = g.tipo;
@@ -228,8 +231,9 @@ export const gruposRouter = router({
   }),
 
   /**
-   * Etapa 7 — "Atualizar grupos": lê da Evolution (só leitura) os grupos em que o número da Dolores está e faz entrar sozinho o que
-   * ainda não está na lista (o mesmo caminho da primeira mensagem: tipo pelo nome, teto diário, aviso ao dono). Também dá código
+   * Etapa 7 — "Atualizar grupos": lê da Evolution (só leitura) os grupos em que o número da Dolores está e faz entrar o que ainda
+   * não está na lista (o mesmo caminho da primeira mensagem: tipo pelo nome, teto diário, aviso ao dono). Sem o aviso de quem a
+   * colocou, nenhum é aceito sozinho: ficam "aguardando você: não sei quem me colocou" até o dono responder "grupo <código> aceitar". Também dá código
    * aos grupos antigos que ainda não têm (para o comando do dono). Nada fala no grupo.
    */
   atualizarGrupos: soAdmin.mutation(async ({ ctx }) => {
@@ -255,7 +259,7 @@ export const gruposRouter = router({
     const contagem: Record<string, number> = {};
     for (const g of lista.filter(x => jidDeGrupoValido(x.id))) {
       if (Date.now() > prazoFinal - 5_000) { contagem["sem-tempo"] = (contagem["sem-tempo"] ?? 0) + 1; continue; }
-      // sem aviso de quem a adicionou: entrarNoGrupo confere pelos dados do grupo (o dono participante e criador/admin)
+      // sem aviso de quem a adicionou: no máximo "aguardando o dono" (não sei quem me colocou) — QA-SEG E7, achado 1b
       const r = await entrarNoGrupo({ instancia, grupoJid: g.id, nomeNoWhatsapp: g.nome, agora: new Date(), autor: null, prazoFinal, canal: "tela", avisar: enviarAvisoAoDono, numeroDono });
       contagem[r.resultado] = (contagem[r.resultado] ?? 0) + 1;
     }
@@ -307,9 +311,11 @@ export const gruposRouter = router({
 
   /** Interruptor de UM grupo cadastrado. Ao ligar, tenta conferir o @lid da Dolores por esse grupo (só leitura na Evolution). */
   ligarMarcacaoGrupo: soAdmin.input(z.object({ grupoId: id32, ligado: z.boolean() }).strict()).mutation(async ({ ctx, input }) => {
-    const [g] = await getDb().select({ id: doloresGrupos.id, ativo: doloresGrupos.ativo }).from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
+    const [g] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
     if (!g) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
     if (input.ligado && !g.ativo) throw new TRPCError({ code: "BAD_REQUEST", message: "Reative o grupo antes de ligar a resposta quando marcada." });
+    // QA-SEG E7 (6c): grupo recusado ou esperando o dono dizer quem colocou a Dolores fica com o interruptor desligado
+    if (input.ligado && precisaDoAceiteDoDono(g)) throw new TRPCError({ code: "BAD_REQUEST", message: `Este grupo espera o dono aceitar pelo WhatsApp ("grupo ${g.codigo ?? "CÓDIGO"} aceitar"); até lá ela só observa.` });
     await getDb().insert(doloresMarcacoesGrupo).values({ grupoId: g.id, responderLigado: input.ligado, atualizadoPor: ctx.user.id })
       .onConflictDoUpdate({ target: doloresMarcacoesGrupo.grupoId, set: { responderLigado: input.ligado, atualizadoEm: new Date(), atualizadoPor: ctx.user.id } })
       .catch(semMigracao0129);

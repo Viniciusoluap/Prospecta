@@ -21,12 +21,30 @@ export const ROTULO_TIPO_GRUPO: Record<TipoGrupo, string> = {
   parceiros: "parceiros comerciais", engenharia: "engenharia", indefinido: "não identificado",
 };
 export const ROTULO_SITUACAO_CONFIRMACAO: Record<SituacaoConfirmacao, string> = {
-  confirmado: "confirmado", avisado: "avisado ao dono", aguardando_dono: "aguardando o dono", recusado: "recusado (colocada por outra pessoa)",
+  confirmado: "confirmado", avisado: "avisado ao dono", aguardando_dono: "aguardando o dono", recusado: "recusado (não ficou provado que foi o dono)",
 };
+/** Rótulo do grupo que espera o dono dizer se foi ele quem colocou a Dolores (QA-SEG E7, achado 1b). */
+export const ROTULO_AUTORIA_PENDENTE = "aguardando você: não sei quem me colocou";
+
+/** Quem colocou a Dolores no grupo: provado o dono, provado outra pessoa, ou não provado (QA-SEG E7). Vazio = cadastro à mão. */
+export const ADICIONADO_POR = ["dono", "outra_pessoa", "desconhecido"] as const;
+export type AdicionadoPor = (typeof ADICIONADO_POR)[number];
 
 /** Como ficou provado, por código, quem colocou a Dolores no grupo (regra do dono de 19/11/2026). */
 export const PROVAS_ADICAO = ["evento_add", "criador", "metadado", "sem_prova", "aceito_pelo_dono"] as const;
 export type ProvaAdicao = (typeof PROVAS_ADICAO)[number];
+
+/**
+ * QA-SEG E7 (achados 1b e 6c) — o grupo espera o DONO dizer se foi ele quem colocou a Dolores: entrou pelo caminho de reserva
+ * (dados do grupo na Evolution, sem o aviso de quem a adicionou) e ninguém aceitou ainda. Só observa (não fala, não chama a IA,
+ * interruptor do grupo desligado) e só sai daqui pelo comando do dono no WhatsApp ("grupo <código> aceitar"/tipo) ou pela prova
+ * positiva (aviso de "add" com o autor = número do dono). A mesma regra está no gatilho da 0133.
+ */
+export function autoriaPendente(g: { origem?: string | null; situacaoConfirmacao?: string | null; adicionadoPor?: string | null; provaAdicao?: string | null }): boolean {
+  return g.origem === "automatico" && g.situacaoConfirmacao === "aguardando_dono" && g.adicionadoPor !== "dono" && g.provaAdicao !== "aceito_pelo_dono";
+}
+/** Recusado ou esperando o dono dizer quem a colocou: só o comando do dono no WhatsApp tira daqui (nunca a tela, nunca a fila). */
+export const precisaDoAceiteDoDono = (g: Parameters<typeof autoriaPendente>[0]) => g.situacaoConfirmacao === "recusado" || autoriaPendente(g);
 
 /** Padrões da entrada automática (os mesmos da migração 0133). */
 export const PADRAO_ENTRADA = { entradaAutomaticaLigada: true, tetoGruposNovosDia: 20, tetoAvisosGruposDia: 25 } as const;
@@ -174,9 +192,40 @@ export function textoDoAvisoDeEntrada(p: { nomeDoGrupo: string | null; codigo: s
 export const avisoDoTetoDeEntrada = (teto: number) =>
   `Dolores: hoje já entrei em ${teto} grupos novos (o teto do dia). Os próximos grupos novos de hoje ficam de fora — não leio nem falo neles — até amanhã, ou até você aumentar o teto em Dolores › Grupos.`;
 
-/** Aviso único do grupo RECUSADO (outra pessoa colocou a Dolores). */
-export function textoDoAvisoDeRecusa(p: { nomeDoGrupo: string | null; codigo: string }): string {
-  return `Dolores: fui colocada no grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")} por outra pessoa; ignorei (não leio nem falo nada lá). Se quiser que eu participe, me adicione você mesmo ou responda: grupo ${p.codigo} aceitar`;
+/** Aviso único do grupo RECUSADO (outra pessoa colocou a Dolores, ou o aviso de quem a colocou não provou que foi o dono). */
+export function textoDoAvisoDeRecusa(p: { nomeDoGrupo: string | null; codigo: string; provado?: boolean }): string {
+  const grupo = entreAspas(p.nomeDoGrupo, "(sem nome)");
+  const como = p.provado === false ? `fui colocada no grupo ${grupo} e não consegui confirmar que foi você` : `fui colocada no grupo ${grupo} por outra pessoa`;
+  return `Dolores: ${como}; ignorei (não leio nem falo nada lá). Se quiser que eu participe, me adicione você mesmo ou responda: grupo ${p.codigo} aceitar`;
+}
+
+/** QA-SEG E7 (achado 1b) — o grupo entrou pelo caminho de reserva: só observa até o dono dizer que foi ele. */
+export function textoDoAvisoDeAutoriaDesconhecida(p: { nomeDoGrupo: string | null; codigo: string }): string {
+  return `Dolores: estou no grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")} e não sei quem me colocou. Se foi você, responda: grupo ${p.codigo} aceitar. Até lá só observo — não falo nada lá, nem se me marcarem.`;
+}
+
+/** Máximo de avisos individuais por dia de grupos recusados/sem prova; depois, um resumo único no dia (QA-SEG E7, achado 4). */
+export const MAX_AVISOS_SEM_PROVA_DIA = 5;
+export const textoDoResumoDeSemProva = (n: number) =>
+  `Dolores: hoje já avisei de ${n} grupos em que não ficou provado que foi você quem me colocou. Os próximos de hoje não vou avisar um a um: eles aparecem em Dolores › Grupos, com o código de cada um ("grupo <código> aceitar").`;
+export const avisoDoTetoSemProva = (teto: number) =>
+  `Dolores: hoje já chegaram ${teto} grupos em que não ficou provado que foi você quem me colocou (o teto do dia). Os próximos desse tipo ficam de fora até amanhã; os grupos em que VOCÊ me adicionar continuam entrando normalmente.`;
+
+/** QA-SEG E7 (achado 6d) — alguém entrou num grupo ADMINISTRATIVO (sócios) já aceito. Sem número nem nome de quem entrou. */
+export const textoDoAvisoDeEntradaNoAdministrativo = (p: { nomeDoGrupo: string | null; quantos: number; codigo: string | null }) =>
+  `Dolores: ${p.quantos === 1 ? "uma pessoa foi adicionada" : `${p.quantos} pessoas foram adicionadas`} ao grupo administrativo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}. Lá eu respondo sobre tudo da operação (menos senhas e dados bancários). Se não foi você quem autorizou, confira o grupo${p.codigo ? ` ou responda: grupo ${p.codigo} ignorar` : ""}.`;
+
+/**
+ * QA-SEG E7 (achado 2) — o campo de criação do aviso `groups.upsert` (segundos ou milissegundos) mostra um grupo criado AGORA
+ * (no máximo `JANELA_CRIACAO_MS` atrás; relógio adiantado até 1 min)? Sem o campo, ou antigo → false (o criador não prova nada).
+ */
+export const JANELA_CRIACAO_MS = 5 * 60_000;
+export function criacaoRecente(v: unknown, agora: Date): boolean {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d{9,14}$/.test(v.trim()) ? Number(v.trim()) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return false;
+  const ms = n > 1e12 ? n : n * 1000;
+  const d = agora.getTime() - ms;
+  return d >= -60_000 && d <= JANELA_CRIACAO_MS;
 }
 
 // ── 5) Quem colocou a Dolores no grupo (regra do dono de 19/11/2026: "somente o número principal […] pode adicionar") ──
@@ -221,8 +270,9 @@ export function autorEhODono(autor: unknown, numeroDono: string | null, lidParaN
 export type MetadadoDoGrupo = { nome: string | null; criador: string[]; participantes: Participante[] };
 
 /**
- * Sem o aviso de quem adicionou (evento perdido, grupo antigo, autor em @lid não resolvido): o grupo só é aceito se o número do
- * dono for PARTICIPANTE do grupo E o grupo tiver sido criado por ele ou ele for admin. Na dúvida, não.
+ * Sem o aviso de quem adicionou (evento perdido, grupo antigo, primeira mensagem, "Atualizar grupos"): o número do dono é
+ * PARTICIPANTE do grupo E o criou ou é admin? QA-SEG E7 (achado 1b): isto NÃO prova quem colocou a Dolores — no máximo deixa o
+ * grupo "aguardando o dono" (só observa) com a pergunta "não sei quem me colocou". Na dúvida, não.
  */
 export function donoNoMetadado(m: MetadadoDoGrupo | null, numeroDono: string | null): boolean {
   if (!m || !numeroDono) return false;

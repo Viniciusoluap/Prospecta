@@ -13,7 +13,7 @@
 --   - "codigo": código curto do grupo, gerado pelo servidor, usado no comando do dono "grupo <código> <tipo> [nº]".
 --   - "adicionado_por" / "prova_adicao" (regra do dono de 19/11/2026, mais tarde no mesmo dia: "somente o número principal […]
 --     pode adicionar o número da Dolores em grupo"): quem colocou a Dolores no grupo — 'dono' ou 'outra_pessoa' (vazio nos grupos
---     cadastrados à mão) — e como isso foi provado por código: 'evento_add' (aviso group-participants.update da Evolution, autor =
+--     cadastrados à mão; 'desconhecido' = não ficou provado, QA-SEG E7) — e como isso foi provado por código: 'evento_add' (aviso group-participants.update da Evolution, autor =
 --     número do dono), 'criador' (groups.upsert com o dono como criador), 'metadado' (o dono é participante e criador/admin do
 --     grupo, conferido na Evolution), 'sem_prova' ou 'aceito_pelo_dono' (comando "grupo <código> aceitar").
 --   - "situacao_confirmacao" ganha 'recusado': grupo em que outra pessoa colocou a Dolores — não é lido nem respondido.
@@ -23,10 +23,17 @@
 --   interruptor geral da resposta, da 0129, estiver desligado) e os tetos diários de grupos novos e de avisos ao dono.
 -- Gatilho "dolores_grupos_guarda" (CREATE OR REPLACE, mantém TUDO o que já protegia — sem DELETE/TRUNCATE; id do grupo,
 --   instância e criado_em imutáveis) e acrescenta:
---   - tipo e vínculo (cliente/obra) só mudam quando "decidido_em" muda na MESMA operação (decisão do dono). Exceção única: o
---     vínculo VIRAR NULL — é o ON DELETE SET NULL do Postgres quando o CRM exclui o cliente ou a obra (exclusões legítimas);
+--   - tipo e vínculo (cliente/obra) só mudam quando "decidido_em" muda na MESMA operação (decisão do dono) — SÓ nas linhas da
+--     etapa 7 (origem 'automatico' ou tipo preenchido, antes ou depois). As linhas manuais antigas (origem 'manual', tipo vazio)
+--     seguem a regra antiga: o código ANTERIOR à etapa 7 (que não conhece "decidido_em") continua funcionando com a 0133 já
+--     aplicada (QA-SEG E7, janela de migração). Exceção única nas da etapa 7: o vínculo VIRAR NULL — é o ON DELETE SET NULL do
+--     Postgres quando o CRM exclui o cliente ou a obra (exclusões legítimas);
+--   - "origem" 'automatico' não volta a 'manual' (seria a fuga da regra acima);
 --   - "nome_whatsapp" e "codigo", depois de preenchidos, não mudam (renomear o grupo no WhatsApp nunca muda tipo nem vínculo);
---   - grupo 'recusado' só sai desse estado por decisão do dono (decidido_em na mesma operação).
+--   - grupo 'recusado', ou automático 'aguardando_dono' que espera o dono dizer quem colocou a Dolores (adicionado_por diferente
+--     de 'dono' e prova_adicao diferente de 'aceito_pelo_dono'), só sai desse estado — situação, quem adicionou ou a prova — por
+--     decisão do DONO pelo WhatsApp ("decidido_em" na mesma operação e "decidido_por" começando por 'whatsapp:'). Ir PARA
+--     'recusado' é sempre permitido (é o rebaixamento quando o aviso mostra que outra pessoa a colocou).
 -- Somente aditiva e idempotente: ADD COLUMN IF NOT EXISTS (com padrão: não dispara o gatilho de UPDATE), CHECKs e índice criados
 -- só se faltarem, função trocada por CREATE OR REPLACE. Nenhuma linha existente é alterada; nada é ligado.
 -- Reversão: as colunas novas não atrapalham a versão anterior do código; para voltar a guarda antiga, reexecutar a função da 0126.
@@ -57,7 +64,7 @@ BEGIN
     ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_codigo_check" CHECK ("codigo" IS NULL OR "codigo" ~ '^[A-Z0-9]{4,8}$');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_adicionado_por_check') THEN
-    ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_adicionado_por_check" CHECK ("adicionado_por" IS NULL OR "adicionado_por" IN ('dono', 'outra_pessoa'));
+    ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_adicionado_por_check" CHECK ("adicionado_por" IS NULL OR "adicionado_por" IN ('dono', 'outra_pessoa', 'desconhecido'));
   END IF;
   -- cliente e pós-atendimento só com cliente ligado; tipos internos nunca com cliente (o vínculo do grupo de cliente é o escopo dele)
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_tipo_vinculo_check') THEN
@@ -72,6 +79,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "dolores_grupos_codigo_unico" ON "dolores_grup
 CREATE INDEX IF NOT EXISTS "dolores_grupos_aguardando_idx" ON "dolores_grupos" ("situacao_confirmacao") WHERE "situacao_confirmacao" = 'aguardando_dono';
 
 CREATE OR REPLACE FUNCTION dolores_grupos_guarda() RETURNS trigger AS $$
+DECLARE
+  decidiu boolean;
 BEGIN
   IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_SEM_EXCLUSAO: grupo cadastrado não é apagado (desative)';
@@ -80,23 +89,34 @@ BEGIN
      OR NEW."criado_em" IS DISTINCT FROM OLD."criado_em" THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_IMUTAVEL: o id do grupo e a instância não mudam depois do cadastro';
   END IF;
-  -- Etapa 7: o nome visto na entrada e o código, uma vez preenchidos, não mudam
+  -- Etapa 7: o nome visto na entrada e o código, uma vez preenchidos, não mudam; automático não vira manual
   IF (OLD."nome_whatsapp" IS NOT NULL AND NEW."nome_whatsapp" IS DISTINCT FROM OLD."nome_whatsapp")
-     OR (OLD."codigo" IS NOT NULL AND NEW."codigo" IS DISTINCT FROM OLD."codigo") THEN
-    RAISE EXCEPTION 'DOLORES_GRUPOS_IMUTAVEL: o nome visto na entrada e o código do grupo não mudam';
+     OR (OLD."codigo" IS NOT NULL AND NEW."codigo" IS DISTINCT FROM OLD."codigo")
+     OR (OLD."origem" = 'automatico' AND NEW."origem" IS DISTINCT FROM OLD."origem") THEN
+    RAISE EXCEPTION 'DOLORES_GRUPOS_IMUTAVEL: o nome visto na entrada, o código e a origem do grupo não mudam';
   END IF;
-  -- Etapa 7: tipo e vínculo só mudam por decisão do dono (decidido_em gravado na mesma operação). O vínculo pode VIRAR NULL sem
-  -- decisão: é o ON DELETE SET NULL do Postgres quando o CRM exclui o cliente ou a obra.
-  IF (NEW."tipo" IS DISTINCT FROM OLD."tipo"
+  decidiu := NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em";
+  -- Etapa 7: tipo e vínculo só mudam por decisão do dono (decidido_em gravado na mesma operação), nas linhas da etapa 7. O
+  -- vínculo pode VIRAR NULL sem decisão: é o ON DELETE SET NULL do Postgres quando o CRM exclui o cliente ou a obra. Linha
+  -- manual antiga (origem 'manual' e tipo vazio antes e depois): regra antiga (o código anterior à etapa 7 continua valendo).
+  IF (OLD."origem" = 'automatico' OR OLD."tipo" IS NOT NULL OR NEW."tipo" IS NOT NULL)
+     AND (NEW."tipo" IS DISTINCT FROM OLD."tipo"
       OR (NEW."lead_id" IS DISTINCT FROM OLD."lead_id" AND NEW."lead_id" IS NOT NULL)
       OR (NEW."obra_id" IS DISTINCT FROM OLD."obra_id" AND NEW."obra_id" IS NOT NULL))
-     AND NOT (NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em") THEN
+     AND NOT decidiu THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: tipo e vínculo do grupo só mudam por decisão do dono';
   END IF;
-  -- Etapa 7: grupo RECUSADO (outra pessoa colocou a Dolores) só deixa de ser recusado por decisão do dono
-  IF OLD."situacao_confirmacao" = 'recusado' AND NEW."situacao_confirmacao" IS DISTINCT FROM 'recusado'
-     AND NOT (NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em") THEN
-    RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado só é aceito pelo dono';
+  -- Etapa 7 (QA-SEG E7): grupo RECUSADO, ou esperando o dono dizer quem colocou a Dolores, só sai desse estado pelo DONO no
+  -- WhatsApp. Ir para 'recusado' (rebaixar) é sempre permitido.
+  IF (OLD."situacao_confirmacao" = 'recusado'
+      OR (OLD."origem" = 'automatico' AND OLD."situacao_confirmacao" = 'aguardando_dono'
+          AND OLD."adicionado_por" IS DISTINCT FROM 'dono' AND OLD."prova_adicao" IS DISTINCT FROM 'aceito_pelo_dono'))
+     AND NEW."situacao_confirmacao" IS DISTINCT FROM 'recusado'
+     AND (NEW."situacao_confirmacao" IS DISTINCT FROM OLD."situacao_confirmacao"
+      OR NEW."adicionado_por" IS DISTINCT FROM OLD."adicionado_por"
+      OR NEW."prova_adicao" IS DISTINCT FROM OLD."prova_adicao")
+     AND NOT (decidiu AND coalesce(NEW."decidido_por", '') LIKE 'whatsapp:%') THEN
+    RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado ou sem prova de quem colocou a Dolores só é aceito pelo dono, no WhatsApp';
   END IF;
   RETURN NEW;
 END;

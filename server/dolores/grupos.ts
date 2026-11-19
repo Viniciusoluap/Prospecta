@@ -51,6 +51,10 @@ export function grupoLeDocumentos(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obr
 /** A mesma regra de `grupoLeDocumentos`, em SQL (pendências, classificação pela tela e ronda). */
 export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR ${doloresGrupos.tipo} IS NULL OR (${doloresGrupos.leadId} IS NOT NULL AND ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento'))) AND ${doloresGrupos.situacaoConfirmacao} NOT IN ('aguardando_dono', 'recusado'))`;
 
+/** QA-SEG E7 — a linha NÃO espera o aceite do dono (nem recusada, nem "não sei quem me colocou"). A mesma regra de `precisaDoAceiteDoDono`. */
+export const sqlSemAceitePendente = () => sql`NOT (${doloresGrupos.situacaoConfirmacao} = 'recusado' OR (${doloresGrupos.origem} = 'automatico' AND ${doloresGrupos.situacaoConfirmacao} = 'aguardando_dono'
+  AND ${doloresGrupos.adicionadoPor} IS DISTINCT FROM 'dono' AND ${doloresGrupos.provaAdicao} IS DISTINCT FROM 'aceito_pelo_dono'))`;
+
 export async function lerConfigGrupos(conexao: DrizzleDb = getDb()): Promise<typeof CONFIG_GRUPOS_PADRAO> {
   const [c] = await conexao.select().from(doloresGruposConfig).where(eq(doloresGruposConfig.id, 1)).limit(1);
   return c ?? CONFIG_GRUPOS_PADRAO;
@@ -168,7 +172,9 @@ export async function ligarGrupoAoCliente(tx: DrizzleDb, grupoId: number, leadId
     decididoPor: `fila:${aprovacaoId ?? "aprovada"}`.slice(0, 40), atualizadoEm: agora, atualizadoPorUserId: userId })
     .where(and(eq(doloresGrupos.id, grupoId), eq(doloresGrupos.ativo, true), isNull(doloresGrupos.leadId), isNull(doloresGrupos.obraId),
       // grupo interno (jurídico, administrativo, parceiros, engenharia) nunca vira grupo de cliente pela fila
-      or(isNull(doloresGrupos.tipo), inArray(doloresGrupos.tipo, ["indefinido", "cliente", "pos_atendimento"]))))
+      or(isNull(doloresGrupos.tipo), inArray(doloresGrupos.tipo, ["indefinido", "cliente", "pos_atendimento"])),
+      // QA-SEG E7 (6c): grupo recusado ou sem prova de quem colocou a Dolores não é aceito pela fila (só o dono, no WhatsApp)
+      sqlSemAceitePendente()))
     .returning({ id: doloresGrupos.id });
   return r.length === 1;
 }
