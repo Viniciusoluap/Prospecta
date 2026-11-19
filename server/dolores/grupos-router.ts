@@ -6,12 +6,18 @@
 //   @lid da Dolores). A única fala em grupo é a do webhook quando ela é marcada (marcacao.ts), com os interruptores daqui;
 // - o nome do grupo no WhatsApp é texto de terceiro: aparece sanitizado, só para o administrador escolher;
 // - classificar pela tela passa pelas MESMAS travas do webhook (interruptores, tetos, limite com folga do dono).
+// - Etapa 7 (regra do dono de 19/11/2026): os grupos entram SOZINHOS (webhook ou "Atualizar grupos"); a tela serve para VER e
+//   CORRIGIR o tipo/vínculo (decisão do dono, gravada com `decidido_em` — o gatilho da 0133 só aceita assim) e desativar.
 import { TRPCError } from "@trpc/server";
+import { randomInt } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
+import { LIMITES_ENTRADA, gerarCodigoDeGrupo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { entrarNoGrupo } from "./grupos-entrada.js";
+import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
 import { INSTANCIA_DOLORES } from "../../shared/dolores/whatsapp.js";
 import { listarGruposEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
@@ -25,7 +31,7 @@ import { registrarAcao } from "./auditoria.js";
 import { classificarPendentes, desligamentoPorFalha, limparPausaPorFalhaNoConsumo } from "./classificacao.js";
 import { lerConfigWhatsapp } from "./consumo.js";
 import { CONFIG_GRUPOS_PADRAO, lerConfigGrupos, listarGruposParaTela, pendenciasDeClassificacao } from "./grupos.js";
-import { credencialDaClassificacao } from "./whatsapp.js";
+import { credencialDaClassificacao, enviarAvisoAoDono } from "./whatsapp.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -140,8 +146,11 @@ export const gruposRouter = router({
     const instancia = await instanciaDaDolores();
     let linha: { id: number } | undefined;
     try {
+      // Etapa 7: o cadastro manual (raro, agora que os grupos entram sozinhos) já nasce com o tipo pelo vínculo e decidido pelo admin
       [linha] = await getDb().insert(doloresGrupos).values({
         instancia, grupoJid: input.grupoJid, nome: input.nome, leadId: input.leadId ?? null, obraId: input.obraId ?? null,
+        tipo: input.leadId ? "cliente" : input.obraId ? "engenharia" : "indefinido", situacaoConfirmacao: input.leadId || input.obraId ? "confirmado" : "aguardando_dono",
+        codigo: gerarCodigoDeGrupo(() => randomInt(0, 1_000_000) / 1_000_000), decididoEm: new Date(), decididoPor: `tela:${ctx.user.id}`,
         criadoPorUserId: ctx.user.id, atualizadoPorUserId: ctx.user.id,
       }).onConflictDoNothing().returning({ id: doloresGrupos.id });
     } catch (e) { return semMigracao(e); }
@@ -157,10 +166,17 @@ export const gruposRouter = router({
     if (!g) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.id} não cadastrado.` });
     const leadId = input.leadId !== undefined ? input.leadId : g.leadId;
     const obraId = input.obraId !== undefined ? input.obraId : g.obraId;
-    if (input.leadId !== undefined || input.obraId !== undefined) await conferirVinculo(leadId, obraId);
+    const mudaVinculo = (input.leadId !== undefined && input.leadId !== g.leadId) || (input.obraId !== undefined && input.obraId !== g.obraId);
+    if (mudaVinculo) await conferirVinculo(leadId, obraId);
+    // Etapa 7: mudar o vínculo é decisão do admin/dono — o tipo acompanha o vínculo (gatilho e CHECK da 0133)
+    const tipoAtual = g.tipo;
+    const tipo: TipoGrupo | null | undefined = !mudaVinculo ? undefined : leadId ? (tipoAtual === "pos_atendimento" ? "pos_atendimento" : "cliente") : obraId ? "engenharia"
+      : (tipoAtual === null || tipoAtual === "cliente" || tipoAtual === "pos_atendimento" || (tipoAtual === "engenharia" && g.obraId)) ? "indefinido" : tipoAtual;
+    const agora = new Date();
     await db.update(doloresGrupos).set({
       ...(input.nome !== undefined ? { nome: input.nome } : {}), ...(input.ativo !== undefined ? { ativo: input.ativo } : {}),
-      leadId, obraId, atualizadoEm: new Date(), atualizadoPorUserId: ctx.user.id,
+      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: tipo === "indefinido" ? "aguardando_dono" as const : "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
+      atualizadoEm: agora, atualizadoPorUserId: ctx.user.id,
     }).where(eq(doloresGrupos.id, g.id));
     await auditar(ctx.user.id, "atualizar_grupo", g.id, { ativo: input.ativo ?? g.ativo, leadId, obraId, rotuloMudou: input.nome !== undefined });
     return { ok: true };
@@ -176,6 +192,10 @@ export const gruposRouter = router({
     retencaoDias: z.number().int().min(1).max(365).optional(),
     // QA E4 r2, N0.3: orçamento próprio da classificação (% do limite mensal)
     orcamentoClassificacaoPct: z.number().int().min(1).max(50).optional(),
+    // Etapa 7: entrada automática de grupos e os tetos diários dela
+    entradaAutomaticaLigada: z.boolean().optional(),
+    tetoGruposNovosDia: z.number().int().min(LIMITES_ENTRADA.tetoGruposNovosDia.min).max(LIMITES_ENTRADA.tetoGruposNovosDia.max).optional(),
+    tetoAvisosGruposDia: z.number().int().min(LIMITES_ENTRADA.tetoAvisosGruposDia.min).max(LIMITES_ENTRADA.tetoAvisosGruposDia.max).optional(),
   }).strict()).mutation(async ({ ctx, input }) => {
     const { tamanhoMaximoMb, ...resto } = input;
     const dados = { ...resto, ...(tamanhoMaximoMb !== undefined ? { tamanhoMaximoBytes: tamanhoMaximoMb * 1_048_576 } : {}) };
@@ -186,6 +206,58 @@ export const gruposRouter = router({
     // QA r3 N7: o admin religou depois de conferir — some a pausa em memória desta instância (se houve)
     if (input.classificacaoLigada === true) limparPausaPorFalhaNoConsumo();
     return lerConfigGrupos();
+  }),
+
+  /**
+   * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
+   * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
+   */
+  definirTipo: soAdmin.input(z.object({
+    grupoId: id32,
+    tipo: z.enum(["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar"]),
+    numero: id32.nullable().optional(),
+  }).strict()).mutation(async ({ ctx, input }) => {
+    const tipo = input.tipo;
+    if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
+    if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
+    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
+    if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
+    return { ok: true, texto: r.texto.replace(/^Dolores: /, "") };
+  }),
+
+  /**
+   * Etapa 7 — "Atualizar grupos": lê da Evolution (só leitura) os grupos em que o número da Dolores está e faz entrar sozinho o que
+   * ainda não está na lista (o mesmo caminho da primeira mensagem: tipo pelo nome, teto diário, aviso ao dono). Também dá código
+   * aos grupos antigos que ainda não têm (para o comando do dono). Nada fala no grupo.
+   */
+  atualizarGrupos: soAdmin.mutation(async ({ ctx }) => {
+    const { configEvolution } = await import("../whatsapp-router.js");
+    const configurada = await configEvolution();
+    const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
+    if (!evo) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp (Evolution) não configurado: Integrações › WhatsApp." });
+    const instancia = await instanciaDaDolores();
+    let lista: Awaited<ReturnType<typeof listarGruposEvolution>>;
+    try { lista = await listarGruposEvolution(evo, instancia); }
+    catch { throw new TRPCError({ code: "BAD_REQUEST", message: "A Evolution não listou os grupos agora. Confira a conexão da Dolores." }); }
+    const db = getDb();
+    const sem = await db.select({ id: doloresGrupos.id }).from(doloresGrupos).where(isNull(doloresGrupos.codigo)).limit(500).catch(semMigracao);
+    for (const g of sem) {
+      for (let i = 0; i < 6; i++) {
+        const r = await db.update(doloresGrupos).set({ codigo: gerarCodigoDeGrupo(() => randomInt(0, 1_000_000) / 1_000_000) })
+          .where(and(eq(doloresGrupos.id, g.id), isNull(doloresGrupos.codigo))).returning({ id: doloresGrupos.id }).catch(() => null);
+        if (r) break; // colisão do código (índice único): sorteia de novo
+      }
+    }
+    const prazoFinal = Date.now() + 45_000;
+    const contagem: Record<string, number> = {};
+    for (const g of lista.filter(x => jidDeGrupoValido(x.id))) {
+      if (Date.now() > prazoFinal - 5_000) { contagem["sem-tempo"] = (contagem["sem-tempo"] ?? 0) + 1; continue; }
+      const r = await entrarNoGrupo({ instancia, grupoJid: g.id, nomeNoWhatsapp: g.nome, agora: new Date(), autor: null, prazoFinal, canal: "tela", avisar: enviarAvisoAoDono });
+      contagem[r.resultado] = (contagem[r.resultado] ?? 0) + 1;
+    }
+    await auditar(ctx.user.id, "atualizar_grupos", null, { naEvolution: lista.length, ...contagem, codigosNovos: sem.length });
+    return { naEvolution: lista.length, novos: contagem.criado ?? 0, jaNaLista: contagem.existente ?? 0, foraPeloTeto: contagem["entrada-teto"] ?? 0,
+      entradaDesligada: (contagem["entrada-desligada"] ?? 0) > 0, erros: (contagem["entrada-erro"] ?? 0) + (contagem["sem-tempo"] ?? 0) };
   }),
 
   /**

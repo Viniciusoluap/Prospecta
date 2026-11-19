@@ -9,7 +9,7 @@ import {
   operationalProjects, regularizacoes, tasks, whatsappMessages,
 } from "../../../drizzle/schema.js";
 import { diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
-import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
+import { type CanalDoFiltro, campoPessoal } from "../dados-pessoais.js";
 import { proximaProvidencia } from "../../../shared/dolores/regras.js";
 import { FINANCIAMENTO_STATUS_LABELS } from "../../../shared/financiamento.js";
 import { LEAD_PIPELINE_STAGES, LEGACY_STAGE_LABELS, leadAceitaVencimento } from "../../../shared/lead-pipeline.js";
@@ -18,7 +18,7 @@ import { obraStatusLabel } from "../../../shared/obra-status.js";
 import { rotuloStatusProcesso } from "../../../shared/financeiro/regularizacao.js";
 import { db, docClientePendente, idPositivo, nomesDeUsuarios, paginacao, tarefaAberta, type Resultado } from "./comum.js";
 
-type Ctx = { agora: Date; canal: CanalDolores };
+type Ctx = { agora: Date; canal: CanalDoFiltro };
 
 const ETAPAS_CRM: Record<string, string> = { ...LEGACY_STAGE_LABELS, ...Object.fromEntries(LEAD_PIPELINE_STAGES.map(s => [s.key, s.label])) };
 export const rotuloEtapaCrm = (stage: string) => ETAPAS_CRM[stage] ?? stage;
