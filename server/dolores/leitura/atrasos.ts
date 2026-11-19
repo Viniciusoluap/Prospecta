@@ -21,13 +21,20 @@ export const entradaListarAtrasos = z.object({
   ...paginacao,
 }).strict();
 
-type Item = {
+/** O canal que as leituras de cada módulo aceitam (segue o tipo delas: o filtro de dados pessoais é o mesmo). */
+export type CanalDosAtrasos = Parameters<typeof carregarProcessos>[2];
+
+export type ItemDeAtraso = {
   modulo: string; id: number; cliente: string | null; descricao: string | null; situacao: string | null;
   atrasado: boolean; diasDeAtraso: number | null; parado: boolean; diasSemMovimentacao: number | null;
   prazo: string | null; responsavel: string | null; motivoRegistrado: string | null;
 };
 
-export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora, canal }: { agora: Date; canal: CanalDolores }): Promise<Resultado> {
+/**
+ * Etapa 8 — os itens de atraso de todos os módulos (os MESMOS critérios), já ordenados do mais atrasado para o menos. Fonte
+ * única de `listar_atrasos` e de `plano_de_atrasos`.
+ */
+export async function carregarItensDeAtraso(args: Pick<z.infer<typeof entradaListarAtrasos>, "modulo" | "diasParado">, { agora, canal }: { agora: Date; canal: CanalDosAtrasos }): Promise<ItemDeAtraso[]> {
   const quer = (m: string) => args.modulo === "todos" || args.modulo === m;
   const hoje = diaFortaleza(agora)!;
   const [regs, obras, fins, cards, servicos] = await Promise.all([
@@ -44,7 +51,7 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
       .limit(MAX_LINHAS_LIDAS) : [],
   ]);
   const nomes = await nomesDeUsuarios(cards.map(c => c.responsibleUserId));
-  const itens: Item[] = [
+  return [
     ...regs.filter(p => !p.encerrado && (p.atrasado || p.parado)).map(p => ({
       modulo: "Regularização", id: p.id, cliente: p.cliente, descricao: p.servico, situacao: `${p.status}${p.etapaAtual ? ` — etapa: ${p.etapaAtual.nome}` : ""}`,
       atrasado: p.atrasado, diasDeAtraso: p.diasDeAtraso, parado: p.parado, diasSemMovimentacao: p.diasSemMovimentacao, prazo: p.prazo,
@@ -72,6 +79,15 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
       prazo: diaDoPrazo(s.dueAt), responsavel: null, motivoRegistrado: null,
     })),
   ].sort((a, b) => Number(b.atrasado) - Number(a.atrasado) || (b.diasDeAtraso ?? 0) - (a.diasDeAtraso ?? 0) || (b.diasSemMovimentacao ?? 0) - (a.diasSemMovimentacao ?? 0));
+}
+
+/** Etapa 8 — item enxuto para o modelo: sem campos vazios (null) nem "false" (menos tokens; ausente = não registrado). */
+export function itemEnxuto(i: ItemDeAtraso): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(i).filter(([, v]) => v !== null && v !== undefined && v !== false));
+}
+
+export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora, canal }: { agora: Date; canal: CanalDolores }): Promise<Resultado> {
+  const itens = await carregarItensDeAtraso(args, { agora, canal });
   const porModulo: Record<string, { atrasados: number; parados: number }> = {};
   for (const i of itens) {
     const m = porModulo[i.modulo] ?? { atrasados: 0, parados: 0 };
@@ -81,8 +97,8 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
   const pagina = paginar(itens, args.pagina, args.limite);
   return {
     dados: {
-      criterios: { atrasado: "prazo registrado anterior a hoje e processo não encerrado", parado: `sem movimentação há ${args.diasParado} dias ou mais`, motivo: "motivoRegistrado só aparece quando há observação gravada; null = motivo não registrado" },
-      porModulo, ...pagina,
+      criterios: { atrasado: "prazo registrado anterior a hoje e processo não encerrado", parado: `sem movimentação há ${args.diasParado} dias ou mais`, motivo: "motivoRegistrado só aparece quando há observação gravada; ausente = motivo não registrado", campos: "campo vazio é omitido (ausente = não registrado; atrasado/parado ausente = não)" },
+      porModulo, ...pagina, itens: pagina.itens.map(itemEnxuto),
     },
     resumo: { encontrados: itens.length, devolvidos: pagina.itens.length },
   };

@@ -7,10 +7,10 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import type { Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
-import { PEDIDO_DE_FECHAMENTO, promptSistemaWhatsapp } from "./prompt.js";
+import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
 import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
-import { funcaoPorNome } from "./funcoes.js";
+import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
 
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
@@ -27,8 +27,22 @@ export function contaminaOComando(nome: string): boolean {
 export const MAX_VOLTAS = 6;
 /** Consultas executadas por volta; as demais voltam como erro ("não executada"). */
 export const MAX_FERRAMENTAS_POR_VOLTA = 6;
-/** Saída máxima de uma chamada (a resposta do WhatsApp é cortada em ~3.800 caracteres). */
-export const MAX_TOKENS_SAIDA = 2000;
+/**
+ * Saída máxima de uma chamada. Etapa 8: a resposta ao dono pode ir em até 3 mensagens de ~3.800 caracteres (~11.400
+ * caracteres ≈ 3.500 tokens em português); 5.000 dá folga sem passar do que cabe no prazo (ver tokensDeSaidaNoPrazo).
+ */
+export const MAX_TOKENS_SAIDA = 5000;
+/** Piso da saída de uma chamada (abaixo disso não vale chamar: MINIMO_PARA_CHAMAR_MS já barra antes). */
+export const MINIMO_TOKENS_SAIDA = 1000;
+/**
+ * Velocidade de escrita assumida, por baixo (tokens por segundo). A chamada não é em fluxo: se o prazo acabar no meio, perde-se
+ * tudo. Por isso a saída de cada chamada é limitada ao que cabe no tempo que resta — passou disso, o modelo para em
+ * "max_tokens" e o texto parcial é ENVIADO (nunca descartado).
+ */
+export const TOKENS_POR_SEGUNDO_ESTIMADO = 100;
+/** Saída da próxima chamada: o que cabe no prazo restante (descontados 3 s de ida e volta), entre o piso e MAX_TOKENS_SAIDA. */
+export const tokensDeSaidaNoPrazo = (restanteMs: number) =>
+  Math.max(MINIMO_TOKENS_SAIDA, Math.min(MAX_TOKENS_SAIDA, Math.floor(((restanteMs - 3_000) / 1000) * TOKENS_POR_SEGUNDO_ESTIMADO)));
 /** Entrada acumulada por pedido (o contexto cresce a cada volta); passou, fecha com o que tem. */
 export const TETO_ENTRADA_POR_PEDIDO = 150_000;
 /** Não começa uma chamada ao modelo com menos que isso de prazo. */
@@ -109,6 +123,29 @@ const usoDe = (r: RespostaModelo): UsoDaChamada => ({
   entrada: Number(r.usage?.input_tokens ?? 0), saida: Number(r.usage?.output_tokens ?? 0),
   cacheEscrita: Number(r.usage?.cache_creation_input_tokens ?? 0), cacheLeitura: Number(r.usage?.cache_read_input_tokens ?? 0),
 });
+/**
+ * Etapa 8 (custo): no laço do WhatsApp, o aviso do filtro que se repete em TODAS as descrições de leitura (~120 tokens × 17)
+ * vai UMA vez no texto do sistema (prompt.ts, "Como responder"); a ponte HTTP e docs/dolores/ferramentas-*.json continuam
+ * com a descrição inteira. Nada muda na regra: o filtro roda igual em toda resposta.
+ */
+export function ferramentasParaOModelo<T extends { description: string }>(lista: readonly T[]): T[] {
+  return lista.map(f => (f.description.endsWith(AVISO_DADOS) ? { ...f, description: f.description.slice(0, -AVISO_DADOS.length) } : f));
+}
+
+/**
+ * Etapa 8 — texto parcial (a resposta parou em "max_tokens"): corta no fim da última linha COMPLETA (a linha do meio, cortada,
+ * sai). Sem nenhuma quebra de linha, corta no fim da última frase; sem frase completa, fica o que veio.
+ */
+export function cortarNaUltimaLinhaCompleta(texto: string): string {
+  const t = texto.replace(/\s+$/, "");
+  const quebra = t.lastIndexOf("\n");
+  if (quebra > 0) return t.slice(0, quebra).trimEnd();
+  const frase = Math.max(t.lastIndexOf(". "), t.lastIndexOf("! "), t.lastIndexOf("? "));
+  return frase > 0 ? t.slice(0, frase + 1) : t;
+}
+/** Aviso curto no fim da resposta cortada por tamanho (o dono pede o resto em partes; ver a story E8 sobre "continuar"). */
+export const AVISO_RESPOSTA_CORTADA = "(continua — a resposta passou do tamanho; peça o restante em partes, ex.: \"a partir do item 20\" ou \"só a próxima semana\".)";
+
 const textoDe = (blocos: Bloco[]) => blocos.filter((b): b is BlocoTexto => b.type === "text" && typeof (b as BlocoTexto).text === "string").map(b => b.text).join("\n").trim();
 
 export async function executarComando(p: PedidoComando): Promise<ResultadoComando> {
@@ -117,7 +154,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // Reforço (portão de QA): as ferramentas de ação só são oferecidas quando a mensagem do dono tem intenção de ação,
   // reconhecida por código; sem ela, o laço é só de leitura (e a porta recusa ação mesmo que o modelo a peça).
   const comAcoes = intencaoDeAcao(p.comando);
-  const ferramentas = comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas();
+  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -140,11 +177,14 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const restante = () => p.prazoFinal - relogio() - FOLGA_FINAL_MS;
 
   let ultimaEntrada = 0;
+  /** Saída da próxima chamada (fixada na reserva: a chamada nunca pede mais do que reservou). */
+  let saidaDaChamada = MAX_TOKENS_SAIDA;
   /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */
   const reservar = async (): Promise<boolean> => {
+    saidaDaChamada = tokensDeSaidaNoPrazo(restante());
     try {
       const b = await reservarChamada({ mes: p.mes, mensagemId: p.mensagemId, limites: p.limites, validadeMs: VALIDADE_RESERVA_MS,
-        reserva: { entrada: Math.max(RESERVA_MINIMA_ENTRADA, ultimaEntrada), saida: MAX_TOKENS_SAIDA } });
+        reserva: { entrada: Math.max(RESERVA_MINIMA_ENTRADA, ultimaEntrada), saida: saidaDaChamada } });
       if (b) { parou = b === "outro_pedido" ? "outro_pedido" : "limite_mensal"; return false; }
       return true;
     } catch (e) {
@@ -160,7 +200,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     try {
       const r = await chamar({
         apiKey: p.apiKey, modelo: p.modelo, sistema: promptSistemaWhatsapp(mascararDadosPessoais("whatsapp")), ferramentas, mensagens,
-        maxTokens: MAX_TOKENS_SAIDA, timeoutMs: Math.max(1000, restante()), semFerramentas,
+        maxTokens: saidaDaChamada, timeoutMs: Math.max(1000, restante()), semFerramentas,
       });
       const uso = usoDe(r);
       ultimaEntrada = uso.entrada + uso.cacheEscrita + uso.cacheLeitura;
@@ -184,12 +224,24 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     if (!(await reservar())) break;
     const r = await umaChamada(false);
     if (!r) break;
-    mensagens.push({ role: "assistant", content: r.content });
     const texto = textoDe(r.content);
     if (texto) ultimoTexto = texto;
+    // Etapa 8 — parou por tamanho: o texto parcial NUNCA é descartado. Um pedido de consulta cortado no meio (tool_use
+    // incompleto) não é executado. Sem texto nenhum, uma última chamada SEM ferramentas pede a resposta curta.
+    if (r.stop_reason === "max_tokens") {
+      parou = "max_tokens";
+      if (texto) { final = texto; break; }
+      const pendenteMax = mensagens[mensagens.length - 1];
+      if (pendenteMax.role === "user" && restante() >= MINIMO_PARA_CHAMAR_MS && (await reservar())) {
+        pendenteMax.content.push({ type: "text", text: PEDIDO_DE_RESUMO });
+        const r2 = await umaChamada(true);
+        if (r2) { const t2 = textoDe(r2.content); if (t2) final = t2; if (r2.stop_reason !== "max_tokens" && t2) parou = null; }
+      }
+      break;
+    }
+    mensagens.push({ role: "assistant", content: r.content });
     if (r.stop_reason !== "tool_use") {
       if (r.stop_reason === "refusal") parou = "recusa";
-      else if (r.stop_reason === "max_tokens") parou = "max_tokens";
       final = texto;
       break;
     }
@@ -232,7 +284,11 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const corpo = (final ?? ultimoTexto).trim();
   let texto: string;
   if (!parou) texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
-  else {
+  else if (parou === "max_tokens" && corpo) {
+    // Etapa 8: o parcial vai ao dono (pelos mesmos filtros de saída, em whatsapp.ts), cortado na última linha completa
+    const fezAcao = consultas.some(c => ACOES_NOMES.has(c));
+    texto = `${cortarNaUltimaLinhaCompleta(corpo)}\n\n${AVISO_RESPOSTA_CORTADA}${fezAcao ? " Confira abaixo o que foi registrado ou ficou na fila." : ""}`;
+  } else {
     const consultou = consultas.length ? ` Consultei: ${Array.from(new Set(consultas)).join(", ")}.` : "";
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou} ${consultas.some(c => ACOES_NOMES.has(c)) ? "Confira abaixo o que foi registrado ou ficou na fila." : "Nada foi alterado no sistema."})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
