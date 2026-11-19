@@ -42,12 +42,14 @@ export const CONFIG_GRUPOS_PADRAO: Omit<DoloresGruposConfig, "atualizadoEm" | "a
 export function grupoLeDocumentos(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obraId" | "situacaoConfirmacao">): boolean {
   if (g.situacaoConfirmacao === "aguardando_dono") return false;
   if (g.obraId !== null) return true;
+  // grupo cadastrado à mão antes da etapa 7, sem tipo: segue a etapa 4 (grupo de cliente, mesmo "sem card ainda")
+  if (g.tipo === null) return true;
   const t = tipoEfetivo(g);
   return (t === "cliente" || t === "pos_atendimento") && g.leadId !== null;
 }
 
 /** A mesma regra de `grupoLeDocumentos`, em SQL (pendências, classificação pela tela e ronda). */
-export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR (${doloresGrupos.leadId} IS NOT NULL AND (${doloresGrupos.tipo} IS NULL OR ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento')))) AND ${doloresGrupos.situacaoConfirmacao} <> 'aguardando_dono')`;
+export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR ${doloresGrupos.tipo} IS NULL OR (${doloresGrupos.leadId} IS NOT NULL AND ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento'))) AND ${doloresGrupos.situacaoConfirmacao} <> 'aguardando_dono')`;
 
 export async function lerConfigGrupos(conexao: DrizzleDb = getDb()): Promise<typeof CONFIG_GRUPOS_PADRAO> {
   const [c] = await conexao.select().from(doloresGruposConfig).where(eq(doloresGruposConfig.id, 1)).limit(1);

@@ -28,12 +28,15 @@ export const PADRAO_ENTRADA = { entradaAutomaticaLigada: true, tetoGruposNovosDi
 export const LIMITES_ENTRADA = { tetoGruposNovosDia: { min: 0, max: 200 }, tetoAvisosGruposDia: { min: 0, max: 200 } } as const;
 
 /**
- * Tipo que vale para um grupo. Grupos cadastrados antes da etapa 7 têm o tipo vazio (a migração não preenche em massa): com
- * cliente ligado valem como "cliente", com obra como "engenharia", sem vínculo como "indefinido" (só observa).
+ * Tipo que vale para um grupo. Grupos cadastrados à mão antes da etapa 7 têm o tipo vazio (a migração não preenche em massa): com
+ * cliente ligado valem como "cliente", com obra como "engenharia" e, sem vínculo, continuam como na etapa 4 — grupo de cliente
+ * "sem card ainda" (o admin o cadastrou como grupo de cliente; o card vem pela fila). Grupo que entra sozinho sempre tem o tipo
+ * gravado (o que não bate com nada nasce "indefinido").
  */
 export function tipoEfetivo(g: { tipo?: string | null; leadId: number | null; obraId: number | null }): TipoGrupo {
   if (g.tipo && (TIPOS_GRUPO as readonly string[]).includes(g.tipo)) return g.tipo as TipoGrupo;
-  return g.leadId ? "cliente" : g.obraId ? "engenharia" : "indefinido";
+  if (g.tipo) return "indefinido"; // valor desconhecido: falha fechada (só observa)
+  return g.obraId ? "engenharia" : "cliente";
 }
 
 // ── 1) Normalização do nome ──
@@ -129,8 +132,8 @@ export function lerDecisaoDeGrupo(texto: string | null | undefined): DecisaoDeGr
   const n = normalizarNome(bruto.replace(/[º°]/g, " "));
   const m = COMANDO.exec(n);
   if (!m) return null;
+  // código fora do alfabeto ainda é o comando (o dono errou o código): a resposta é "não achei", nunca a IA
   const codigo = m[1].toUpperCase();
-  if (!codigoDeGrupoValido(codigo)) return null;
   const tipo = TIPO_DO_COMANDO[m[2]];
   const numero = m[3] ? Number(m[3]) : null;
   if (numero !== null && (!Number.isSafeInteger(numero) || numero <= 0 || numero > 2_147_483_647)) return null;

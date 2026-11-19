@@ -149,7 +149,8 @@ export const gruposRouter = router({
       // Etapa 7: o cadastro manual (raro, agora que os grupos entram sozinhos) já nasce com o tipo pelo vínculo e decidido pelo admin
       [linha] = await getDb().insert(doloresGrupos).values({
         instancia, grupoJid: input.grupoJid, nome: input.nome, leadId: input.leadId ?? null, obraId: input.obraId ?? null,
-        tipo: input.leadId ? "cliente" : input.obraId ? "engenharia" : "indefinido", situacaoConfirmacao: input.leadId || input.obraId ? "confirmado" : "aguardando_dono",
+        // sem vínculo: como na etapa 4, grupo de cliente "sem card ainda" (tipo vazio; o card vem pela fila)
+        tipo: input.leadId ? "cliente" : input.obraId ? "engenharia" : null, situacaoConfirmacao: "confirmado",
         codigo: gerarCodigoDeGrupo(() => randomInt(0, 1_000_000) / 1_000_000), decididoEm: new Date(), decididoPor: `tela:${ctx.user.id}`,
         criadoPorUserId: ctx.user.id, atualizadoPorUserId: ctx.user.id,
       }).onConflictDoNothing().returning({ id: doloresGrupos.id });
@@ -171,11 +172,12 @@ export const gruposRouter = router({
     // Etapa 7: mudar o vínculo é decisão do admin/dono — o tipo acompanha o vínculo (gatilho e CHECK da 0133)
     const tipoAtual = g.tipo;
     const tipo: TipoGrupo | null | undefined = !mudaVinculo ? undefined : leadId ? (tipoAtual === "pos_atendimento" ? "pos_atendimento" : "cliente") : obraId ? "engenharia"
-      : (tipoAtual === null || tipoAtual === "cliente" || tipoAtual === "pos_atendimento" || (tipoAtual === "engenharia" && g.obraId)) ? "indefinido" : tipoAtual;
+      // tirou o vínculo de um grupo de cliente/obra: volta a ser grupo de cliente "sem card ainda" (como na etapa 4)
+      : (tipoAtual === null || tipoAtual === "cliente" || tipoAtual === "pos_atendimento" || (tipoAtual === "engenharia" && g.obraId)) ? null : tipoAtual;
     const agora = new Date();
     await db.update(doloresGrupos).set({
       ...(input.nome !== undefined ? { nome: input.nome } : {}), ...(input.ativo !== undefined ? { ativo: input.ativo } : {}),
-      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: tipo === "indefinido" ? "aguardando_dono" as const : "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
+      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
       atualizadoEm: agora, atualizadoPorUserId: ctx.user.id,
     }).where(eq(doloresGrupos.id, g.id));
     await auditar(ctx.user.id, "atualizar_grupo", g.id, { ativo: input.ativo ?? g.ativo, leadId, obraId, rotuloMudou: input.nome !== undefined });
