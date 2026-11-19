@@ -31,6 +31,7 @@ import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { lerConfigWhatsapp, usoDoMes } from "./consumo.js";
+import { consumoDoMesDetalhado, lerPrecos } from "./custo.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { listarAtrasos } from "./leitura/atrasos.js";
@@ -176,7 +177,9 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     const mes = mesFortaleza(agora);
     const cfg = await lerConfigWhatsapp();
     const uso = await usoDoMes(mes);
-    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0 } } };
+    // Etapa 8: o detalhe por modelo e função (4 tipos de token) para a estimativa por modelo do relatório
+    const linhas = await consumoDoMesDetalhado(mes);
+    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas } } };
   })],
 ];
 
@@ -261,8 +264,9 @@ export async function enviarRelatorio(p: {
   const autor = await idDaDoloresSemCriar().catch(() => null);
   const bloqueio = await bloqueioDaOperacao();
   if (bloqueio) return { ok: false, situacao: "bloqueado", motivo: motivoDoBloqueio(bloqueio.motivo), relatorioId: null };
+  const precosPorModelo = await lerPrecos();
   const texto = montarRelatorio({ tipo: p.tipo, geradoEm: p.agora, totais: p.ronda.totais as TotaisRonda, destaques: p.ronda.destaques as DestaquesRonda,
-    falhas: p.ronda.falhas ?? [], precos: { entradaMilhao: p.config.precoEntradaMilhao, saidaMilhao: p.config.precoSaidaMilhao } });
+    falhas: p.ronda.falhas ?? [], precos: { entradaMilhao: p.config.precoEntradaMilhao, saidaMilhao: p.config.precoSaidaMilhao }, precosPorModelo });
   const registro = sanitizarTexto(texto, FILTRO_DO_REGISTRO).slice(0, 4000);
   let relatorioId: number | null = null;
   try {

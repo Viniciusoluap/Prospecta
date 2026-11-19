@@ -196,3 +196,46 @@ export function cortarResposta(texto: string, max = MAX_CARACTERES_WHATSAPP): st
   const corte = t.lastIndexOf("\n", limite);
   return `${t.slice(0, corte > limite * 0.6 ? corte : limite).trimEnd()}${aviso}`;
 }
+
+/** Etapa 8 — a resposta ao dono pode sair em até 3 mensagens seguidas (cada uma dentro de MAX_CARACTERES_WHATSAPP). */
+export const MAX_PARTES_RESPOSTA = 3;
+/** "(1/3)\n" — a numeração de cada mensagem quando a resposta vai em mais de uma. */
+const TAMANHO_NUMERACAO = 6;
+
+/** Corta `t` em pedaços de até `cap` caracteres, de preferência numa quebra de linha (senão num espaço), no máximo `maxPartes`. */
+function pedacos(t: string, cap: number, maxPartes: number): string[] {
+  const r: string[] = [];
+  let resto = t.trim();
+  while (resto && r.length < maxPartes - 1 && resto.length > cap) {
+    let corte = resto.lastIndexOf("\n", cap);
+    if (corte < cap * 0.5) corte = resto.lastIndexOf(" ", cap);
+    if (corte < cap * 0.5) corte = cap;
+    r.push(resto.slice(0, corte).trimEnd());
+    resto = resto.slice(corte).trimStart();
+  }
+  if (resto) r.push(resto.length <= cap ? resto : cortarResposta(resto, cap));
+  return r;
+}
+
+/**
+ * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
+ * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber nas 3 é cortado na última com o aviso
+ * de sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado: vai
+ * no fim da última mensagem se couber, senão numa mensagem própria — e o texto do modelo fica com as outras.
+ */
+export function partesDaResposta(texto: string, quadros: string | null = null, max = MAX_CARACTERES_WHATSAPP, maxPartes = MAX_PARTES_RESPOSTA): string[] {
+  const t = texto.trim();
+  const q = (quadros ?? "").trim();
+  const inteiro = q ? (t ? `${t}\n\n${q}` : q) : t;
+  if (inteiro.length <= max) return [inteiro];
+  const cap = max - TAMANHO_NUMERACAO;
+  let partes: string[];
+  if (!q) partes = pedacos(t, cap, maxPartes);
+  else {
+    partes = t ? pedacos(t, cap, Math.max(1, maxPartes - 1)) : [];
+    const ultima = partes[partes.length - 1];
+    if (ultima !== undefined && ultima.length + 2 + q.length <= cap) partes[partes.length - 1] = `${ultima}\n\n${q}`;
+    else partes.push(q.length <= cap ? q : cortarResposta(q, cap));
+  }
+  return partes.length === 1 ? [partes[0].length <= max ? partes[0] : cortarResposta(partes[0], max)] : partes.map((p, i) => `(${i + 1}/${partes.length})\n${p}`);
+}
