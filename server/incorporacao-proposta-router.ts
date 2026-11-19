@@ -88,6 +88,19 @@ function emailDaProposta(d: DadosPropostaTerreno) {
   };
 }
 
+export const ERRO_PROPOSTA_MUDOU = "A proposta mudou desde a prévia; gere a prévia de novo.";
+
+/**
+ * Revisão do PR #263 do Santa Fé (mesma regra aqui): o anexo tem de ser o PDF que a pessoa conferiu. A prévia devolve o
+ * `sha256` do PDF gerado no servidor; a confirmação manda esse hash de volta e o servidor recusa se o PDF gerado agora
+ * for outro (a negociação mudou depois da prévia). Hash ausente ou malformado também recusa. Nada é enviado nem
+ * registrado nesse caso (como as demais validações de entrada, que também não gravam envio).
+ */
+export function conferirPdfDaPrevia(pdfSha256Previa: unknown, pdfSha256Atual: string) {
+  if (typeof pdfSha256Previa !== "string" || !/^[0-9a-f]{64}$/.test(pdfSha256Previa) || pdfSha256Previa !== pdfSha256Atual)
+    throw new TRPCError({ code: "CONFLICT", message: ERRO_PROPOSTA_MUDOU });
+}
+
 export const incorporationProposalRouter = router({
   /** PDF para baixar (e prévia antes do envio). */
   pdf: protectedProcedure.input(entrada).mutation(async ({ ctx, input }) => {
@@ -97,13 +110,16 @@ export const incorporationProposalRouter = router({
     return { base64: Buffer.from(r.pdf).toString("base64"), nomeArquivo: r.nomeArquivo, dataEmissao, sha256: r.sha256 };
   }),
 
-  /** Envia o PDF (o mesmo da prévia: mesma data de emissão) e registra data, destinatário e situação. */
+  /** Envia o PDF (o mesmo da prévia: mesma data de emissão e mesmo hash) e registra data, destinatário e situação. */
   enviar: protectedProcedure.input(entrada.extend({
     destinatario: z.string().trim().toLowerCase().email("E-mail do destinatário inválido.").max(254),
+    /** Hash do PDF da prévia; conferido no servidor (ausente ou diferente → recusa). */
+    pdfSha256: z.string().max(128).optional(),
   })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     const dataEmissao = conferirEmissao(input.dataEmissao);
     const r = await montarPdfProposta(input.studyId, input.propostaId, dataEmissao, ctx.user);
+    conferirPdfDaPrevia(input.pdfSha256, r.sha256);
     const { subject, html } = emailDaProposta(r.dados);
     const smtpConfigurado = !!(ENV.smtpHost && ENV.smtpUser && ENV.smtpPassword);
     const ok = await sendEmail({

@@ -1,7 +1,8 @@
 // Lote 02, correção 05 — regras do Mapa Operacional (alfinetes, agrupamento,
 // camadas). Mesmo conteúdo em Grupo-Santa-Fe/web/src/lib/__tests__/mapa-alfinetes.test.ts.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CAMADAS_MAPA, CATEGORIAS_PONTO, categoriaDoPonto, coordenadaValida, estiloAgrupamento, htmlAlfinete, limitesDosPontos } from "../shared/mapa-alfinetes.js";
+import { CAMADAS_MAPA, CATEGORIAS_PONTO, categoriaDoPonto, chaveDoMarcador, coordenadaValida, estiloAgrupamento, htmlAlfinete, limitesDosPontos } from "../shared/mapa-alfinetes.js";
 
 describe("Mapa Operacional — alfinetes e camadas", () => {
   it("cor por tipo/status: obra, imóvel disponível, reservado e outros", () => {
@@ -55,5 +56,28 @@ describe("Mapa Operacional — alfinetes e camadas", () => {
     const [o, s, l, n] = limitesDosPontos([{ lat: -5.5, lng: -47.4 }])!;
     expect(l - o).toBeCloseTo(0.002, 6);
     expect(n - s).toBeCloseTo(0.002, 6);
+  });
+});
+
+// Revisão do PR #263 do Santa Fé (mesma regra aqui): o cluster_id se repete entre conjuntos de dados; depois de filtrar
+// ou buscar, o marcador antigo (posição, contagem e clique) não pode ser reaproveitado.
+describe("marcadores de agrupamento depois de trocar os dados", () => {
+  it("mesmo cluster_id em gerações diferentes → chaves diferentes; mesma geração → mesma chave", () => {
+    const grupo = { cluster: true, cluster_id: 0, point_count: 12 };
+    expect(chaveDoMarcador(grupo, 1)).toBe(chaveDoMarcador({ ...grupo, point_count: 99 }, 1));
+    expect(chaveDoMarcador(grupo, 1)).not.toBe(chaveDoMarcador(grupo, 2));
+    expect(chaveDoMarcador({ chave: "imovel-1" }, 1)).not.toBe(chaveDoMarcador({ chave: "imovel-1" }, 2));
+    // ponto e grupo nunca colidem
+    expect(chaveDoMarcador({ chave: "0" }, 1)).not.toBe(chaveDoMarcador({ cluster: true, cluster_id: 0 }, 1));
+    expect(chaveDoMarcador(null, 3)).toBe("3:pundefined");
+  });
+
+  it("o mapa troca a geração e limpa o cache de marcadores antes de cada setData", () => {
+    const fonte = readFileSync(new URL("../client/src/pages/admin/AdminMapa.tsx", import.meta.url), "utf8");
+    expect(fonte).toContain("chaveDoMarcador(f.properties, geracao.current)");
+    expect(fonte).not.toMatch(/`g\$\{f\.properties\.cluster_id\}`/);
+    const efeitoDosPinos = fonte.slice(fonte.indexOf("porId.current = new Map();"), fonte.indexOf(".setData("));
+    expect(efeitoDosPinos).toContain("geracao.current += 1;");
+    expect(efeitoDosPinos).toContain("m.limparMarcadores();");
   });
 });

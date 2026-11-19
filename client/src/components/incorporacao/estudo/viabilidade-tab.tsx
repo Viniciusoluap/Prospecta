@@ -170,7 +170,9 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   const anosVenda = useMemo(() => vendasPorAno(r), [r]);
   const anosFluxo = useMemo(() => fluxoPorAno(r), [r]);
 
-  const { salvar, pending, salvo: salvoOk } = useSalvamento({ formBase, mixBase }, async snapshot => {
+  // Revisão do PR #263 do Santa Fé (paridade): sem premissas gravadas, o formulário abre com os padrões; isso não conta
+  // como "salvo" — o botão grava na primeira vez mesmo sem alteração, e abrir a aba continua sem gravar nada.
+  const { salvar, pending, salvo: salvoOk, alterado, registrado, erro: erroSalvar } = useSalvamento({ formBase, mixBase }, async snapshot => {
     const premissas = sincronizarUrbanismo(estudo, snapshot.formBase);
     const itensMix = premissas.mixModo === "cenario" ? defaultsMix(estudo) : snapshot.mixBase;
     const app = premissas.areaBrutaM2 > 0 ? appDaViabilidade(estudo, premissas) / premissas.areaBrutaM2 : 0;
@@ -179,7 +181,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
       ...premissas, custoInfraFonte: config.custoInfraFonte, marketingFonte: config.marketingFonte,
       terrenoFonte: config.terrenoFonte, considerarCaptacao: config.considerarCaptacao, itensMix,
     })));
-  });
+  }, { semRegistro: !salvo });
 
   const CENARIO_META: { id: CenarioId; label: string; cor: string }[] = [
     { id: "conservador", label: "Conservador", cor: "border-orange-300" },
@@ -203,6 +205,9 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
           {pending ? "Salvando..." : salvoOk ? "Premissas salvas" : "Salvar premissas"}
         </button>
       </div>
+      {!registrado && !alterado && !pending && !erroSalvar && (
+        <p role="status" className="text-xs text-amber-800">Premissas ainda não gravadas — clique em Salvar premissas para registrá-las.</p>
+      )}
       {fontes.avisos.length > 0 && (
         <div className="border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
           {fontes.avisos.map((a) => <p key={a}>{a}</p>)}
