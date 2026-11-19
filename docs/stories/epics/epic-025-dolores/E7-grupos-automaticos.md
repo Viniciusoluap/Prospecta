@@ -10,6 +10,10 @@ Palavras dele: "eu não quero ter que cadastrar grupo por grupo; todos os grupos
 participar […] esse número é exclusivo pra Dolores, então não vai existir entrada de grupos aleatórios". Especificação completa:
 `CLAUDE.md`, seção "Dolores — grupos entram sozinhos, por tipo (19/11/2026)".
 
+**Mudança do dono no mesmo dia (19/11/2026), que substitui "qualquer grupo vale automaticamente":** "somente o número principal,
+que no caso foi cadastrado meu lá na integração, pode adicionar o número da Dolores em grupo, e assim nós não corremos risco de
+qualquer pessoa adicionar ela em outros grupos". Ver AC14–AC18.
+
 ## Critérios de aceite
 - [x] AC1 — Entrada automática: a primeira mensagem (válida e recente) de um grupo desconhecido daquela instância cria o grupo em
       `dolores_grupos` (origem `automatico`), e a mensagem passa a ser registrada. O botão "Atualizar grupos" faz o mesmo para os
@@ -47,6 +51,21 @@ participar […] esse número é exclusivo pra Dolores, então não vai existir 
 - [x] AC13 — Migração 0133 aditiva e idempotente; gatilho `dolores_grupos_guarda` mantém tudo o que protegia e passa a exigir
       `decidido_em` para mudar tipo/vínculo; nome visto na entrada e código não mudam; exclusões de cliente/obra/usuário continuam.
 
+- [x] AC14 — Autoria provada por CÓDIGO, nesta ordem: aviso `group-participants.update` da Evolution (action "add", a Dolores —
+      número conectado ou `@lid` conferido — entre os `participants`) com `author`/`authorPn` = número do dono (`ehNumeroDoDono`);
+      autor em `@lid` só vale resolvido para telefone pelos participantes do grupo na Evolution (`findGroupInfos`); aviso
+      `groups.upsert` com `owner` = dono e a Dolores dentro; sem aviso: dados do grupo na Evolution — dono participante E (criador
+      OU admin). Os avisos chegam pelo webhook autenticado (HMAC próprio da Dolores); texto e campos do item de mensagem nunca contam.
+- [x] AC15 — Sem prova → `recusado` (novo valor de `situacao_confirmacao`; `adicionado_por = outra_pessoa`): não lê, não registra
+      mensagens nem marcações, não responde, documento não vai à IA. UM aviso ao dono com "grupo <código> aceitar". Conta no teto
+      diário de grupos novos e de avisos.
+- [x] AC16 — `grupo <código> aceitar` (só o dono, conversa direta, por código) aceita; o dono adicionando a Dolores depois (aviso
+      provado) também aceita; na tela, "Aceitar este grupo" (só admin). O gatilho só deixa sair de `recusado` com `decidido_em`.
+- [x] AC17 — Trocar o número do dono depois não desfaz grupos já aceitos (a prova vale na entrada); os novos seguem o número novo.
+- [x] AC18 — A instância da Dolores assina também `GROUP_PARTICIPANTS_UPDATE` e `GROUPS_UPSERT` (`EVENTOS_WEBHOOK_DOLORES`); a
+      Central de Vendas continua com os 3 avisos de antes. Instância já conectada: reaplicar pelo botão "Reativar recebimento"
+      (Integrações › Dolores; documentado em como-ligar.md). A tela mostra "Adicionada por: dono / outra pessoa — recusado".
+
 ## [AUTO-DECISION]
 - Número da migração → `0133` (reason: a `0132` já é `0132_consentimentos_retirada.sql`, em produção; não editar migração aplicada).
 - Grupos já cadastrados à mão, SEM vínculo, depois da 0133 → continuam "grupo de cliente sem card ainda" (tipo vazio = como na E4:
@@ -74,14 +93,24 @@ participar […] esse número é exclusivo pra Dolores, então não vai existir 
 - A aprovação "criar card do cliente" pela fila (E4) grava a decisão junto (`decidido_por = fila:<id>`) e nunca transforma grupo
   interno em grupo de cliente.
 
+- Sem os dados do grupo na Evolution (fora do ar, sem tempo no prazo do aviso) e sem aviso de autoria → recusado (reason: "se não
+  der para provar que é o dono → NÃO é o dono"); o dono aceita com um comando.
+- Aviso de participantes cujo autor é outro número → recusado mesmo que o dono seja admin do grupo (reason: o aviso prova quem
+  adicionou; foi outra pessoa).
+- Os dados do grupo também são conferidos no botão "Atualizar grupos" (a lista da Evolution não traz participantes).
+
 ## Pendências (não inventadas — dependem de decisão ou de etapa futura)
+- Opção futura (NÃO implementada): a Dolores sair sozinha do grupo recusado.
 - Grupo "engenharia" geral (sem obra única) NÃO lê nota sozinho: falta identificar a obra pela própria nota (story futura).
 - Papel "correspondente" não existe no sistema: hoje só corretor é identificado no grupo de parceiros.
 - Aviso de entrada que falhar não é reenviado (ver decisão acima); se o dono quiser, um "reenviar avisos pendentes" na tela.
 - Aplicar a `0133` no Neon antes de publicar o código (sem ela, as leituras de grupo falham fechado: grupos ignorados).
 
 ## Testes
-- `server/dolores/grupos-automaticos.test.ts` (novo): função pura do tipo (acentos, homônimos, nome curto, dois clientes, "pós",
+- `server/dolores/grupos-automaticos.test.ts` (novo): autoria (adicionada pelo dono → aceito; por outro número → recusado, nada
+  lido, um aviso só; sem aviso → dados do grupo; autor forjado no corpo da mensagem não conta; @lid resolvido e não resolvido;
+  groups.upsert com o dono criador; `aceitar` de outro número ou no grupo não faz nada; o dono adicionando depois aceita; gatilho;
+  recusado no teto; troca do número do dono), função pura do tipo (acentos, homônimos, nome curto, dois clientes, "pós",
   internos), comando (formatos válidos e inválidos), aviso (nomes limpos), migração 0133 duas vezes sobre banco com grupos (nada
   muda; gatilho; CHECK; exclusões de lead/obra/usuário), entrada automática (tipo pelo nome da Evolution, aviso único só ao dono,
   teto diário com aviso único, entrada desligada, histórico/própria não criam, desativado ignorado, documento interno sem IA),
@@ -105,7 +134,9 @@ participar […] esse número é exclusivo pra Dolores, então não vai existir 
 - `server/dolores/grupos.ts`, `server/dolores/grupos-router.ts`, `server/dolores/marcacao.ts`, `server/dolores/whatsapp.ts`
 - `server/dolores/classificacao.ts`, `server/dolores/rondas.ts`, `server/dolores/documentos-cliente.ts`, `server/dolores/funcoes.ts`
 - `server/dolores/leitura/grupo-marcado.ts` (leitura do parceiro), `server/dolores/leitura/{atrasos,clientes,financeiro,notas,regularizacoes}.ts` (tipo do canal)
-- `server/_core/evolution.ts` (`nomeDoGrupoEvolution`, só leitura)
+- `server/_core/evolution.ts` (`metadadoDoGrupoEvolution`, só leitura; `EVENTOS_WEBHOOK_DOLORES`), `server/dolores/router.ts` (assinatura dos avisos de grupo)
+- `CLAUDE.md` (item 1 da regra "grupos entram sozinhos": só o número do dono adiciona)
+- `server/dolores/router.test.ts` (a assinatura do aviso da Dolores inclui os avisos de grupo)
 - `server/dolores/testes-banco.ts`, `server/dolores/grupos-automaticos.test.ts` (novo) e os testes atualizados acima
 - `client/src/components/admin/DoloresGruposCard.tsx`
 - `docs/dolores/como-ligar.md`, `docs/stories/epics/epic-025-dolores/EPIC.md`, `docs/stories/epics/ROADMAP.md`
