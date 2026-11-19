@@ -186,10 +186,18 @@ describe("sem marcação real: comportamento da etapa 4 intacto", () => {
   });
   it("menção real em grupo não cadastrado ou desativado: silêncio e nada gravado na lista de marcações", async () => {
     await ligarTudo();
+    // Etapa 7: com a entrada automática desligada, grupo desconhecido continua ignorado como antes
+    await banco.pg.exec("UPDATE dolores_grupos_config SET entrada_automatica_ligada = false");
     await chamar(aviso(item({ jid: DESCONHECIDO }), item({ jid: INATIVO })));
     expect(enviarAoGrupo).not.toHaveBeenCalled();
     expect(pedidos).toEqual([]);
     expect(await marcacoes()).toEqual([]);
+    // Etapa 7: com ela ligada (padrão), o grupo entra sozinho, mas sem nome reconhecido fica aguardando o dono: continua MUDO
+    await banco.pg.exec("UPDATE dolores_grupos_config SET entrada_automatica_ligada = true");
+    await chamar(aviso(item({ jid: DESCONHECIDO }), item({ jid: INATIVO })));
+    expect(enviarAoGrupo).not.toHaveBeenCalled();
+    expect(pedidos).toEqual([]);
+    expect((await marcacoes()).map(m => m.situacao)).toEqual(["silencio"]);
   });
   it("menção real com o interruptor geral ou o do grupo desligado (padrão): silêncio registrado, sem IA", async () => {
     const r1 = await chamar(aviso(item()));

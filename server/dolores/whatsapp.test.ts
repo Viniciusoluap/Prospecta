@@ -179,6 +179,8 @@ describe("o que não é comando", () => {
     expect(enviar).not.toHaveBeenCalled();
   });
   it("grupo, status e mensagem da própria Dolores: ignorados sem registro", async () => {
+    // Etapa 7: grupo desconhecido agora ENTRA SOZINHO (grupos-automaticos.test.ts); com a entrada automática desligada, ignorado como antes
+    await banco.pg.exec("UPDATE dolores_grupos_config SET entrada_automatica_ligada = false");
     const r = await chamar({ event: "messages.upsert", instance: "prospecta-dolores", data: [
       aviso({ jid: "120363@g.us" }).data, aviso({ jid: "status@broadcast" }).data, aviso({ fromMe: true }).data,
     ] });
