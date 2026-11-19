@@ -195,3 +195,29 @@ qualquer agente que mexer nisso (story `docs/stories/epics/epic-025-dolores/E4b-
 - O escopo (um cliente só, sem dados pessoais nem valores) é travado no servidor, não no prompt.
 - Sem marcação, grupo não cadastrado ou interruptor desligado: silêncio total.
 - A segurança continua prioridade: interruptor próprio desligado por padrão, tetos por grupo e por remetente, portão de QA.
+
+## Dolores — grupos entram sozinhos, por tipo (REGRA — estabelecida pelo dono em 19/11/2026)
+
+Palavras do dono: "eu não quero ter que cadastrar grupo por grupo; todos os grupos que a Dolores participar é porque ela
+deve participar […] esse número é exclusivo pra Dolores, então não vai existir entrada de grupos aleatórios".
+
+Isto substitui o cadastro manual de grupo no painel (o painel passa a servir para ver e corrigir). Decisões dele:
+1. **Qualquer grupo em que ela for colocada vale automaticamente** (sem trava por participante). A proteção fica nos
+   tetos de custo, nos interruptores e no escopo por tipo — nunca em cadastro manual.
+2. **O tipo do grupo é descoberto por código, pelo nome** (nunca pela IA, nunca pelo texto das mensagens):
+   - nome igual ao de **um único** cliente do CRM → grupo de **cliente** ou **pós-atendimento** (vale a regra de 17/11:
+     só fala daquele cliente);
+   - nome com Jurídico, Administrativo, Parceiros ou Engenharia → grupo **interno** daquele tipo.
+   Ela **avisa o dono no WhatsApp** o que entendeu de cada grupo novo; ele só responde se estiver errado.
+3. **Nome que não bate com nada:** ela só observa e **pergunta ao dono** no WhatsApp; enquanto ele não responder, não
+   fala nada naquele grupo.
+4. **O que ela pode responder quando marcada, por tipo** (escopo travado no servidor, não no prompt):
+   - **Administrativo (sócios):** tudo, menos senhas, tokens, chaves e dados bancários;
+   - **Jurídico:** processos, regularizações e documentos;
+   - **Engenharia:** obras, medições e notas;
+   - **Parceiros comerciais (corretores e correspondentes):** só o andamento dos clientes que o próprio corretor que
+     perguntou indicou — nunca cliente de outro parceiro;
+   - **Cliente / pós-atendimento:** só aquele cliente (regra de 17/11).
+5. Continua valendo em todos: só responde quando marcada; **nunca age a partir de grupo**; mensagem de grupo nunca é
+   comando; mudar o nome do grupo depois não muda o tipo nem o vínculo sem o dono confirmar.
+6. Story: `docs/stories/epics/epic-025-dolores/E7-grupos-automaticos.md`.
