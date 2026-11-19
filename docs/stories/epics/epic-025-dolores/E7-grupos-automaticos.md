@@ -140,3 +140,9 @@ qualquer pessoa adicionar ela em outros grupos". Ver AC14–AC18.
 - `server/dolores/testes-banco.ts`, `server/dolores/grupos-automaticos.test.ts` (novo) e os testes atualizados acima
 - `client/src/components/admin/DoloresGruposCard.tsx`
 - `docs/dolores/como-ligar.md`, `docs/stories/epics/epic-025-dolores/EPIC.md`, `docs/stories/epics/ROADMAP.md`
+
+## Change Log
+- 19/11/2026 — @dev (Dex): InProgress → InReview. `npx tsc --noEmit` limpo; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1` → 36 arquivos, 655 testes, 0 falhas;
+  `npx vite build` ok. Migração 0133 NÃO aplicada em banco real (fica para a publicação). Portão de QA de segurança pendente.
