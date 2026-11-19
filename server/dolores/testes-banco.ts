@@ -16,7 +16,8 @@ const TABELAS = [
 ];
 
 let ddl: string | null = null;
-export async function criarBanco() {
+/** `semEtapa7`: para o teste da migração 0133 sobre um banco que já tem grupos (ela é aplicada pelo próprio teste). */
+export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   if (!ddl) {
     const { generateDrizzleJson, generateMigration } = createRequire(import.meta.url)("drizzle-kit/api");
     const escolhidas: Record<string, unknown> = {};
@@ -56,8 +57,16 @@ export async function criarBanco() {
   const operacao = readFileSync(new URL("../../drizzle/0131_dolores_operacao.sql", import.meta.url), "utf8");
   await pg.exec(operacao);
   await pg.exec(operacao);
+  // Etapa 7 (grupos automáticos, por tipo): migração 0133, também duas vezes.
+  if (!opcoes.semEtapa7) {
+    const tipo = MIGRACAO_0133();
+    await pg.exec(tipo);
+    await pg.exec(tipo);
+  }
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0133 = () => readFileSync(new URL("../../drizzle/0133_dolores_grupos_tipo.sql", import.meta.url), "utf8");
 
 /** "Agora" dos testes: 16/11/2026 09:00 em Imperatriz. */
 export const AGORA = new Date("2026-11-16T12:00:00Z");

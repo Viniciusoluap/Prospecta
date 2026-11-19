@@ -17,7 +17,8 @@ import { and, desc, eq, gt, gte, inArray, isNull, like, ne, notInArray, sql } fr
 import { bankTransactions, leadServices, leads, whatsappMessages } from "../../drizzle/schema.js";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresAprovacoes, doloresAutoria } from "../../drizzle/schema-dolores-fila.js";
-import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresGrupoMensagens, doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
+import { sqlGrupoLeDocumentos } from "./grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { doloresEventos, doloresRelatorioReenvios, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
 import {
@@ -133,8 +134,13 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
       aConferir: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'confira')`.mapWith(Number),
       prontos: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'classificado')`.mapWith(Number),
       erro: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'erro')`.mapWith(Number),
-    }).from(doloresGrupoMensagens).where(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "confira", "classificado", "erro"]));
-    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro) } } };
+    }).from(doloresGrupoMensagens).innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
+      // Etapa 7: só documentos de grupo que lê documentos (cliente/pós com cliente ligado, ou obra)
+      .where(and(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "confira", "classificado", "erro"]), sqlGrupoLeDocumentos()));
+    // Etapa 7: grupos novos esperando a resposta do dono (nome que não bateu com nada: só observam)
+    const [a] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
+      .where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono")));
+    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n) } } };
   })],
   ["notas", lerSecao(async () => {
     const [r] = await bancoDaLeitura().select({

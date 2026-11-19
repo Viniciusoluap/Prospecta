@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, numeric, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import type { SituacaoDocumentoGrupo, TipoDocumentoGrupo, TipoMensagemGrupo } from "../shared/dolores/grupos.js";
+import type { OrigemGrupo, SituacaoConfirmacao, TipoGrupo } from "../shared/dolores/grupos-tipo.js";
 import { constructionProjects, leadDocuments, leads, users } from "./schema.js";
 
 export const doloresGrupos = pgTable("dolores_grupos", {
@@ -17,9 +18,22 @@ export const doloresGrupos = pgTable("dolores_grupos", {
   criadoPorUserId: integer("criado_por_user_id").references(() => users.id, { onDelete: "set null" }),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPorUserId: integer("atualizado_por_user_id").references(() => users.id, { onDelete: "set null" }),
+  // Etapa 7 (migração 0133): grupo automático, por tipo. "tipo" vazio = grupo anterior à etapa 7 (ver tipoEfetivo).
+  tipo: varchar("tipo", { length: 20 }).$type<TipoGrupo>(),
+  origem: varchar("origem", { length: 12 }).$type<OrigemGrupo>().default("manual").notNull(),
+  situacaoConfirmacao: varchar("situacao_confirmacao", { length: 16 }).$type<SituacaoConfirmacao>().default("confirmado").notNull(),
+  /** Nome do grupo no WhatsApp visto na ENTRADA (texto de terceiro, filtrado). Não muda depois (gatilho). */
+  nomeWhatsapp: varchar("nome_whatsapp", { length: 120 }),
+  /** Código curto do comando do dono "grupo <código> <tipo> [nº]". Não muda depois (gatilho). */
+  codigo: varchar("codigo", { length: 8 }),
+  /** Decisão do dono sobre tipo/vínculo (o gatilho só deixa tipo e vínculo mudarem com este campo mudando junto). */
+  decididoEm: timestamp("decidido_em", { withTimezone: true }),
+  decididoPor: varchar("decidido_por", { length: 40 }),
 }, t => [
   uniqueIndex("dolores_grupos_jid_unico").on(t.instancia, t.grupoJid),
   index("dolores_grupos_lead_idx").on(t.leadId),
+  uniqueIndex("dolores_grupos_codigo_unico").on(t.codigo).where(sql`${t.codigo} IS NOT NULL`),
+  index("dolores_grupos_aguardando_idx").on(t.situacaoConfirmacao).where(sql`${t.situacaoConfirmacao} = 'aguardando_dono'`),
 ]);
 
 export const doloresGrupoMensagens = pgTable("dolores_grupo_mensagens", {
@@ -77,6 +91,10 @@ export const doloresGruposConfig = pgTable("dolores_grupos_config", {
   retencaoDias: integer("retencao_dias").default(30).notNull(),
   /** Orçamento próprio da classificação: % do limite mensal (uso real da classificação + reservas). QA E4 r2, N0. */
   orcamentoClassificacaoPct: integer("orcamento_classificacao_pct").default(20).notNull(),
+  /** Etapa 7 (0133): entrada automática de grupos (nasce LIGADA; nada fala com o interruptor geral da resposta desligado). */
+  entradaAutomaticaLigada: boolean("entrada_automatica_ligada").default(true).notNull(),
+  tetoGruposNovosDia: integer("teto_grupos_novos_dia").default(20).notNull(),
+  tetoAvisosGruposDia: integer("teto_avisos_grupos_dia").default(25).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
 });

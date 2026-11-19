@@ -213,6 +213,19 @@ export async function listarGruposEvolution(c: EvolutionConfig, instancia: strin
 }
 
 /**
+ * EPIC-025 (Dolores, etapa 7) — SÓ LEITURA: o NOME de um grupo (GET /group/findGroupInfos/{instância}?groupJid=…), para o grupo
+ * entrar sozinho com o tipo descoberto pelo nome. O nome é texto de terceiro (quem chama filtra). Id fora da forma → null.
+ */
+export async function nomeDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch, prazoMs = 5_000): Promise<string | null> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return null;
+  const r = await chamar<unknown>(c, `/group/findGroupInfos/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(prazoMs) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não informou o grupo (HTTP ${r.status})${motivo(r.data)}.`);
+  const d = (Array.isArray(r.data) ? r.data[0] : r.data) as { id?: unknown; subject?: unknown } | null;
+  if (!d || (typeof d.id === "string" && d.id !== grupoJid)) return null;
+  return typeof d.subject === "string" && d.subject.trim() ? d.subject.slice(0, 200) : null;
+}
+
+/**
  * EPIC-025 (Dolores, etapa 4b) — o ÚNICO envio a GRUPO do sistema (POST /message/sendText/{instância} com o id do grupo em
  * `number`): só quando a Dolores foi marcada num grupo cadastrado e ativo (server/dolores/marcacao.ts confere o destino duas
  * vezes antes). Sem prévia de link, sem menção a ninguém (`mentioned` vazio, `mentionsEveryOne` false) e citando a mensagem que
