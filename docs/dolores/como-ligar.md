@@ -626,31 +626,42 @@ envio "enviado" e o gasto do mês. O custo da IA é o de `dolores_consumo` (as r
 # Etapa 7 — Grupos automáticos, por tipo (regra do dono de 19/11/2026)
 
 Palavras do dono: "eu não quero ter que cadastrar grupo por grupo". **Todo grupo em que o DONO colocar o número da Dolores
-entra sozinho** na lista (no aviso de que ela foi adicionada, na primeira mensagem ou pelo botão "Atualizar grupos"). A tela
-passa a servir para VER e CORRIGIR.
+entra sozinho** na lista (pelo aviso de que ela foi adicionada). A primeira mensagem e o botão "Atualizar grupos" também põem o
+grupo na lista, mas sem provar quem a colocou: aí ele fica **aguardando você** (ver abaixo). A tela passa a servir para VER e
+CORRIGIR.
 
 **Só vale grupo em que a Dolores foi adicionada pelo número do dono** (o cadastrado em Integrações › Dolores). Palavras dele:
 "somente o número principal, que no caso foi cadastrado meu lá na integração, pode adicionar o número da Dolores em grupo, e
-assim nós não corremos risco de qualquer pessoa adicionar ela em outros grupos". Como o sistema prova isso (por código):
+assim nós não corremos risco de qualquer pessoa adicionar ela em outros grupos". Ela só aceita um grupo sozinha com **prova
+positiva** (por código, nunca pelo texto das mensagens):
 1. o aviso `group-participants.update` da Evolution (ação "add", com a Dolores entre os adicionados) traz o **autor**
-   (`author`): ele precisa ser o número do dono (autor em `@lid` só vale se os participantes do grupo na Evolution mostrarem que
-   aquele `@lid` é o número do dono);
-2. ou o aviso `groups.upsert` (grupo criado já com a Dolores) traz o **criador** (`owner`) = o dono;
-3. sem esses avisos (perdidos, grupo antigo): pelos dados do grupo na Evolution — o dono precisa ser **participante** e
-   **criador ou admin** do grupo.
-Sem prova, o grupo fica **recusado**: ela não lê, não registra mensagens e não responde, e você recebe UM aviso ("Fui
-colocada no grupo «X» por outra pessoa; ignorei…"). Para aceitar: adicione-a você mesmo, responda `grupo <código> aceitar` na
-conversa direta com ela, ou clique em "Aceitar este grupo" na tela. Grupo recusado conta no teto diário. Se o número do dono for
-trocado depois, os grupos já aceitos continuam aceitos; os novos seguem o número novo.
+   (`author`) = o número do dono (autor em `@lid` só vale se os participantes do grupo na Evolution mostrarem que aquele `@lid` é
+   o número do dono). Aviso de "add" cujo autor não dá para provar (sem autor, `@lid` desconhecido) → **recusado**;
+2. ou o aviso `groups.upsert` de um grupo **criado agora** (nos últimos minutos) pelo dono, já com a Dolores dentro. O criador de
+   um grupo antigo não prova quem colocou a Dolores.
+Sem esses avisos (primeira mensagem, "Atualizar grupos", grupos em que ela já estava): se os dados do grupo na Evolution mostram
+o dono participante e criador/admin, o grupo fica **aguardando você: não sei quem me colocou** — ela só observa (não fala, nem
+marcada; nada vai à IA) e manda: "Estou no grupo «X» e não sei quem me colocou. Se foi você, responda: grupo <código> aceitar".
+Senão, **recusado**: ela não lê, não registra mensagens e não responde, e você recebe UM aviso ("fui colocada no grupo «X» por
+outra pessoa; ignorei…"). Se chegar o aviso de que outra pessoa a adicionou a um grupo que você ainda não decidiu, ele passa a
+recusado. **Só você aceita**: responda `grupo <código> aceitar` na conversa direta com ela, ou adicione-a você mesmo (remova e
+adicione de novo pelo seu número). A tela mostra e explica, deixa desativar, mas não aceita. Se o número do dono for trocado
+depois, os grupos já aceitos continuam aceitos; os novos seguem o número novo.
+
+**Depois da publicação, os grupos em que a Dolores JÁ está vão ficar aguardando você.** Sem o aviso de quem a adicionou (eles são
+anteriores), nenhum é aceito sozinho: na primeira mensagem de cada um (ou no "Atualizar grupos") você recebe a pergunta com o
+código. Aceite cada um com `grupo <código> aceitar`, ou remova a Dolores do grupo e adicione de novo pelo seu número (o aviso de
+"add" prova que foi você). Até lá eles só observam.
 
 **Instância já conectada: reaplique os avisos.** Os avisos de grupo (`GROUP_PARTICIPANTS_UPDATE`, `GROUPS_UPSERT`) passaram a
 ser assinados pela instância da Dolores. Quem já estava conectado precisa clicar em **"Reativar recebimento"** em
-Integrações › Dolores (o mesmo botão de antes) depois da publicação. Sem isso, ainda vale a conferência pelos dados do grupo (3).
+Integrações › Dolores (o mesmo botão de antes) depois da publicação. Sem isso, os grupos novos ficam aguardando você (sem prova).
 
 ## 1. Banco (equipe técnica, já autorizado)
 Aplicar `drizzle/0133_dolores_grupos_tipo.sql` no Neon **antes** de publicar o código (inclui as colunas de quem adicionou a Dolores e a situação `recusado`) (só aditiva e idempotente: colunas novas em
 `dolores_grupos` e `dolores_grupos_config`, CHECKs e índices só se faltarem, e a guarda `dolores_grupos_guarda` trocada por
-`CREATE OR REPLACE`, mantendo tudo o que já protegia). Nenhuma linha existente muda e nada é ligado: o interruptor geral de
+`CREATE OR REPLACE`, mantendo tudo o que já protegia; a exigência de decisão do dono para tipo/vínculo vale só para as linhas da
+Etapa 7, então o código antigo continua funcionando sobre os grupos cadastrados à mão enquanto a publicação não termina). Nenhuma linha existente muda e nada é ligado: o interruptor geral de
 "responder quando marcada" continua como está (desligado por padrão). Sem a 0133, as leituras de grupo falham fechado
 (grupos ignorados).
 
@@ -670,25 +681,30 @@ responda: …". Para corrigir ou definir, responda na conversa direta com ela, a
 - `grupo K7HM jurídico` · `grupo K7HM administrativo` · `grupo K7HM parceiros`
 - `grupo K7HM engenharia` (geral) ou `grupo K7HM engenharia 12` (ligado à obra nº 12)
 - `grupo K7HM ignorar` (desativa: não lê nem fala; nada é apagado)
-- `grupo K7HM aceitar` (aceita um grupo recusado, em que outra pessoa colocou a Dolores)
+- `grupo K7HM aceitar` (aceita um grupo recusado ou "aguardando você: não sei quem me colocou")
 O código de 4 letras de cada grupo está no aviso e na tela. A mesma frase escrita dentro de um grupo, ou mandada por outro
-número, não faz nada. Também dá para corrigir na tela ("Corrigir tipo ou vínculo", "Ignorar este grupo" — só admin).
+número, não faz nada. Também dá para corrigir na tela ("Corrigir tipo ou vínculo", "Ignorar este grupo" — só admin), menos
+aceitar: grupo recusado ou aguardando você só sai desse estado pelo seu comando no WhatsApp.
 
 ## 4. O que ela responde quando marcada, por tipo (travado no servidor)
 - **Cliente / pós-atendimento:** só aquele cliente (andamento, etapas, documentos que faltam), como na Etapa 4b.
 - **Administrativo (sócios):** as consultas gerais da Dolores, com CPF/telefone/e-mail **sempre mascarados** neste canal e nunca
   senhas, tokens, chaves ou dados bancários. Valores só os que vierem das consultas.
-- **Jurídico:** processos, regularizações e documentos (sem valores).
-- **Engenharia:** obras, medições e notas (sem valores). Grupo ligado a uma obra (com o empreiteiro) continua só com aquela obra.
-- **Parceiros:** só o andamento dos clientes que o **corretor que marcou** indicou (identificado pelo telefone do cadastro dele,
-  usuário ativo de papel corretor). Sem identificar, responde uma frase fixa. Nunca cliente de outro parceiro, valores ou comissão.
+- **Jurídico:** processos, regularizações e documentos (sem valores: os campos de dinheiro saem no servidor antes de chegar à IA,
+  e resposta com palavra de valor — saldo, parcela, orçamento… — vira a frase fixa).
+- **Engenharia:** obras, medições e notas (sem valores, do mesmo jeito). Grupo ligado a uma obra (com o empreiteiro) continua só com aquela obra.
+- **Parceiros:** só o andamento dos clientes que o **corretor que marcou** indicou (identificado pelo telefone do cadastro dele —
+  número completo com 55, só a variação do 9º dígito —, usuário ativo de papel corretor). Sem identificar, responde uma frase fixa. Nunca cliente de outro parceiro, valores ou comissão.
 - **Não identificado / desativado / recusado:** silêncio.
 Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos, o orçamento e a pausa geral.
 
 ## 5. Interruptores e tetos (Integrações › Dolores — grupos)
 - **Entrada automática de grupos:** nasce ligada (pedido do dono). Desligada, grupo novo é ignorado.
 - **Teto de grupos novos por dia** (padrão 20) e **de avisos por dia** (padrão 25): passou, os grupos novos do dia ficam de fora e
-  você recebe um aviso, uma vez.
+  você recebe um aviso, uma vez. Os grupos sem prova (recusados ou aguardando você) têm a contagem deles, separada: quem coloca a
+  Dolores em grupos à toa não tira a vaga dos grupos que VOCÊ adiciona. Deles você recebe no máximo 5 avisos por dia e depois um
+  resumo único (os demais aparecem na tela, com o código).
+- **Alguém entrou no grupo administrativo:** você recebe um aviso (um por grupo por dia), porque lá ela responde sobre tudo.
 - O interruptor de cada grupo já nasce **ligado** nos grupos reconhecidos; nada fala enquanto o interruptor GERAL de "responder
   quando marcada" estiver desligado.
 - Documentos só vão à classificação em grupo de cliente/pós com cliente ligado (ou de obra, para a nota); em grupo interno ficam
@@ -696,5 +712,5 @@ Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos,
 - O relatório diário mostra quantos grupos novos aguardam a sua resposta.
 
 ## 6. Conferir
-`dolores_acoes`: `grupo_entrada` (entrou / recusado / aceito / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
+`dolores_acoes`: `grupo_entrada` (entrou / aguardando / recusado / rebaixado / aceito / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
 `grupo_leitura` (consultas feitas quando marcada, com o tipo), `atualizar_grupos` (botão da tela).
