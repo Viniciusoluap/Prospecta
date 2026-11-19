@@ -330,6 +330,27 @@ export function respostaSeguraDoGrupo(bruto: string | null | undefined, urlDoSis
 
 /** Etapa 7 — o que sai num grupo INTERNO: promessa, resultado de aprovação e cara de comando da fila nunca; valores só onde o tipo permite. */
 const SAIDA_PROIBIDA_INTERNA: RegExp[] = [SAIDA_PROIBIDA[1], SAIDA_PROIBIDA[2], SAIDA_PROIBIDA[3], SAIDA_PROIBIDA[5]];
+/**
+ * QA-SEG E7 (achado 3) — nos grupos internos SEM valores (jurídico, engenharia geral): além de "R$"/",00", as palavras de dinheiro
+ * (o modelo pode escrever "saldo a receber de 12500"). Sobre o texto já sem acento e minúsculo.
+ */
+const SAIDA_VALORES: RegExp = /\b(valor|valores|parcelas?|orcamentos?|saldos?|precos?|custos?|comiss(ao|oes)|vgv|financeiro|pagamentos?|pagas?|pagos?|recebimentos?|a receber|a pagar|quitad[oa]s?|dinheiro|mil reais|faturad[oa]s?|faturamento)\b/;
+
+/**
+ * QA-SEG E7 (achado 3) — campos de dinheiro que as leituras gerais devolvem; nos grupos internos sem valores saem NO SERVIDOR,
+ * antes de chegar ao modelo (o filtro de saída é a segunda trava, não a única). Pelo nome do campo, em qualquer nível.
+ */
+const CAMPO_DE_VALOR = /^(financeiro|moeda|valor\w*|orcamento\w*|vgv|saldo\w*|preco\w*|parcela\w*|custo\w*|comissao\w*|recebimentos?|pagamentos?\w*|totalPago|totalRecebido|textoSugeridoParaODonoEnviar)$/i;
+export function semCamposDeValor(v: unknown, nivel = 0): unknown {
+  if (nivel > 12) return null;
+  if (Array.isArray(v)) return v.map(x => semCamposDeValor(x, nivel + 1));
+  if (v && typeof v === "object" && !(v instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (!CAMPO_DE_VALOR.test(k)) out[k] = semCamposDeValor(x, nivel + 1);
+    return out;
+  }
+  return v;
+}
 
 /**
  * Etapa 7 — saída a um grupo INTERNO (administrativo, jurídico, engenharia geral). Como `respostaSeguraDoGrupo`: sinal de fora do
@@ -347,7 +368,7 @@ export function respostaSeguraInterna(bruto: string | null | undefined, urlDoSis
   if (!t) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "modelo: sem texto" };
   const s = sem(t);
   if (SAIDA_PROIBIDA_INTERNA.some(re => re.test(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com promessa, resultado de aprovação ou comando" };
-  if (!opcoes.permiteValores && SAIDA_PROIBIDA[0].test(s)) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com valor (não permitido neste tipo de grupo)" };
+  if (!opcoes.permiteValores && (SAIDA_PROIBIDA[0].test(s) || SAIDA_VALORES.test(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com valor (não permitido neste tipo de grupo)" };
   if (numeroSemFonte(s, opcoes.fontes) !== null) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com número ou data que não veio das consultas" };
   return { texto: cortar(t, opcoes.max ?? MAX_CARACTERES_GRUPO), foraDeEscopo: false, motivo: null };
 }
