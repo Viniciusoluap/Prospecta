@@ -42,7 +42,8 @@ function ModalDoTermo({ versao }: { versao: string }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [saindo, setSaindo] = useState(false);
   const aceitar = trpc.consentimento.aceitar.useMutation({
-    onSuccess: () => utils.consentimento.minhaSituacao.invalidate(),
+    // QA PR #255: o perfil ("Meu consentimento") também volta a mostrar o aceite depois de aceitar de novo.
+    onSuccess: () => Promise.all([utils.consentimento.minhaSituacao.invalidate(), utils.consentimento.meuConsentimento.invalidate()]),
     onError: e => setAviso(e.message),
   });
   async function sair() {
