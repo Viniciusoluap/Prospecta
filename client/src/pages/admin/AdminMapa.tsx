@@ -11,7 +11,7 @@ import {
 } from "./OperationalUI";
 import type { Map as MapaMl } from "maplibre-gl";
 import { rotulo } from "@shared/rotulos";
-import { CATEGORIAS_PONTO, categoriaDoPonto, coordenadaValida, estiloAgrupamento, htmlAlfinete, limitesDosPontos } from "@shared/mapa-alfinetes";
+import { CATEGORIAS_PONTO, categoriaDoPonto, chaveDoMarcador, coordenadaValida, estiloAgrupamento, htmlAlfinete, limitesDosPontos } from "@shared/mapa-alfinetes";
 import { aplicarBase, criarMapaBase, type BaseMapa } from "@/components/incorporacao/estudo/mapa-base-ml";
 
 type Point = {
@@ -59,7 +59,9 @@ const FONTE = "pontos";
  */
 function PropertyMap({ points }: { points: Point[] }) {
   const container = useRef<HTMLDivElement>(null);
-  const motor = useRef<{ ml: typeof import("maplibre-gl"); map: MapaMl } | null>(null);
+  const motor = useRef<{ ml: typeof import("maplibre-gl"); map: MapaMl; limparMarcadores: () => void } | null>(null);
+  // Geração dos dados da fonte: muda a cada setData (filtro/busca), para nenhum marcador antigo ser reaproveitado.
+  const geracao = useRef(0);
   const porId = useRef(new Map<string, Point>());
   const [pronto, setPronto] = useState(false);
   const [base, setBase] = useState<BaseMapa>("satelite");
@@ -104,7 +106,7 @@ function PropertyMap({ points }: { points: Point[] }) {
           if (geometria.type !== "Point") continue;
           const lngLat = geometria.coordinates as [number, number];
           const agrupado = !!f.properties?.cluster;
-          const chave = agrupado ? `g${f.properties.cluster_id}` : `p${f.properties?.chave}`;
+          const chave = chaveDoMarcador(f.properties, geracao.current);
           if (vistos.has(chave)) continue;
           vistos.add(chave);
           if (marcadores.has(chave)) continue;
@@ -135,7 +137,7 @@ function PropertyMap({ points }: { points: Point[] }) {
         map.addSource(FONTE, { type: "geojson", data: { type: "FeatureCollection", features: [] }, cluster: true, clusterRadius: 48, clusterMaxZoom: 22 });
         // Camada invisível: mantém os ladrilhos da fonte carregados para a consulta dos pontos visíveis.
         map.addLayer({ id: "pontos-base", type: "circle", source: FONTE, paint: { "circle-radius": 1, "circle-opacity": 0 } });
-        motor.current = { ml, map };
+        motor.current = { ml, map, limparMarcadores: () => { marcadores.forEach(mk => mk.remove()); marcadores.clear(); } };
         setPronto(true);
       });
       map.on("render", atualizar);
@@ -152,6 +154,9 @@ function PropertyMap({ points }: { points: Point[] }) {
     const m = motor.current;
     if (!pronto || !m) return;
     porId.current = new Map();
+    // Revisão do PR #263 do Santa Fé: dados novos → marcadores do conjunto anterior saem (o cluster_id se repete).
+    geracao.current += 1;
+    m.limparMarcadores();
     const pontos = points.flatMap(p => {
       const c = p.hasCoordinates ? coordenadaValida(p.latitude, p.longitude) : null;
       if (!c) return [];
