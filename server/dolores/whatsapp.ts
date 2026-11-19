@@ -37,11 +37,11 @@ import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { registrarEvento } from "./operacao.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
-import { entrarNoGrupo } from "./grupos-entrada.js";
+import { entrarNoGrupo, tratarEventoDeGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { lerDecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
-import { tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
+import { identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
 import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas-obra.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -479,6 +479,17 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     await getDb().update(doloresWhatsappConfig).set({ statusConexao: status }).where(eq(doloresWhatsappConfig.id, 1)).catch(() => undefined);
     return { status: 200, body: { ok: true, r: "conexao" } };
   }
+  // Etapa 7 — avisos de grupo (quem adicionou a Dolores; criação do grupo): só provam QUEM a colocou no grupo (regra do dono de
+  // 19/11: só o número dele pode) e criam o grupo. Nada é lido, respondido ou executado a partir deles.
+  const eventoDeGrupo = evento.replace(/-/g, ".");
+  if (eventoDeGrupo === "group.participants.update" || eventoDeGrupo === "groups.upsert") {
+    const autorDolores = await idDaDoloresSemCriar().catch(() => null);
+    const conf = await lerConfigMarcacoes().catch(() => null);
+    const r = await tratarEventoDeGrupo(cfg, eventoDeGrupo === "groups.upsert" ? "criacao" : "participantes", ev.data, {
+      agora, autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS, avisar: enviarAvisoAoDono, identidade: identidadeDaDolores(cfg, conf),
+    }).catch(e => { console.error("[dolores/whatsapp] falha no aviso de grupo", erroCurto(e)); return "grupo-evento-erro"; });
+    return { status: 200, body: { ok: true, r } };
+  }
   if (evento !== "messages.upsert") return { status: 200, body: { ok: true, r: "ignorado" } };
 
   const itens = (Array.isArray(ev.data) ? ev.data : [ev.data]).slice(0, MAX_ITENS);
@@ -502,7 +513,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       // Etapa 7 — grupo desconhecido entra sozinho (tipo pelo nome da Evolution, teto diário, aviso ao dono); nunca fala nele
       const instancia = cfg.instancia;
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor,
-        entrar: async jid => (await entrarNoGrupo({ instancia, grupoJid: jid, agora: deps.agora(), autor, prazoFinal, canal: "whatsapp", avisar: enviarAvisoAoDono })).grupo });
+        entrar: async jid => (await entrarNoGrupo({ instancia, grupoJid: jid, agora: deps.agora(), autor, prazoFinal, canal: "whatsapp", avisar: enviarAvisoAoDono, numeroDono: cfg.numeroDono })).grupo });
       contar(g.resultado);
       // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
       if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);

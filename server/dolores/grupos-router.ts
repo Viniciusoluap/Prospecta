@@ -216,13 +216,13 @@ export const gruposRouter = router({
    */
   definirTipo: soAdmin.input(z.object({
     grupoId: id32,
-    tipo: z.enum(["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar"]),
+    tipo: z.enum(["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar", "aceitar"]),
     numero: id32.nullable().optional(),
   }).strict()).mutation(async ({ ctx, input }) => {
     const tipo = input.tipo;
     if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
     if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
-    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
+    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
     return { ok: true, texto: r.texto.replace(/^Dolores: /, "") };
   }),
@@ -251,10 +251,12 @@ export const gruposRouter = router({
       }
     }
     const prazoFinal = Date.now() + 45_000;
+    const numeroDono = (await lerConfigWhatsapp().catch(() => null))?.numeroDono ?? null;
     const contagem: Record<string, number> = {};
     for (const g of lista.filter(x => jidDeGrupoValido(x.id))) {
       if (Date.now() > prazoFinal - 5_000) { contagem["sem-tempo"] = (contagem["sem-tempo"] ?? 0) + 1; continue; }
-      const r = await entrarNoGrupo({ instancia, grupoJid: g.id, nomeNoWhatsapp: g.nome, agora: new Date(), autor: null, prazoFinal, canal: "tela", avisar: enviarAvisoAoDono });
+      // sem aviso de quem a adicionou: entrarNoGrupo confere pelos dados do grupo (o dono participante e criador/admin)
+      const r = await entrarNoGrupo({ instancia, grupoJid: g.id, nomeNoWhatsapp: g.nome, agora: new Date(), autor: null, prazoFinal, canal: "tela", avisar: enviarAvisoAoDono, numeroDono });
       contagem[r.resultado] = (contagem[r.resultado] ?? 0) + 1;
     }
     await auditar(ctx.user.id, "atualizar_grupos", null, { naEvolution: lista.length, ...contagem, codigosNovos: sem.length });

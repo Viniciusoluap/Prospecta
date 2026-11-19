@@ -7,12 +7,13 @@
 // - O comando do dono para corrigir ("grupo <código> <tipo> [nº]") é reconhecido por CÓDIGO: a mensagem inteira, regex estrita.
 // - O aviso ao dono é montado pelo SISTEMA (nome do grupo e do cliente são texto de terceiro: limpos e entre aspas angulares).
 import { limparNomeDeTerceiro } from "./operacao.js";
+import { ehNumeroDoDono } from "./whatsapp.js";
 
 export const TIPOS_GRUPO = ["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "indefinido"] as const;
 export type TipoGrupo = (typeof TIPOS_GRUPO)[number];
 export const ORIGENS_GRUPO = ["manual", "automatico"] as const;
 export type OrigemGrupo = (typeof ORIGENS_GRUPO)[number];
-export const SITUACOES_CONFIRMACAO = ["confirmado", "avisado", "aguardando_dono"] as const;
+export const SITUACOES_CONFIRMACAO = ["confirmado", "avisado", "aguardando_dono", "recusado"] as const;
 export type SituacaoConfirmacao = (typeof SITUACOES_CONFIRMACAO)[number];
 
 export const ROTULO_TIPO_GRUPO: Record<TipoGrupo, string> = {
@@ -20,8 +21,12 @@ export const ROTULO_TIPO_GRUPO: Record<TipoGrupo, string> = {
   parceiros: "parceiros comerciais", engenharia: "engenharia", indefinido: "não identificado",
 };
 export const ROTULO_SITUACAO_CONFIRMACAO: Record<SituacaoConfirmacao, string> = {
-  confirmado: "confirmado", avisado: "avisado ao dono", aguardando_dono: "aguardando o dono",
+  confirmado: "confirmado", avisado: "avisado ao dono", aguardando_dono: "aguardando o dono", recusado: "recusado (colocada por outra pessoa)",
 };
+
+/** Como ficou provado, por código, quem colocou a Dolores no grupo (regra do dono de 19/11/2026). */
+export const PROVAS_ADICAO = ["evento_add", "criador", "metadado", "sem_prova", "aceito_pelo_dono"] as const;
+export type ProvaAdicao = (typeof PROVAS_ADICAO)[number];
 
 /** Padrões da entrada automática (os mesmos da migração 0133). */
 export const PADRAO_ENTRADA = { entradaAutomaticaLigada: true, tetoGruposNovosDia: 20, tetoAvisosGruposDia: 25 } as const;
@@ -112,14 +117,15 @@ export function gerarCodigoDeGrupo(aleatorio: () => number): string {
 
 // ── 3) O comando do dono ──
 
-export type DecisaoDeGrupo = { codigo: string; tipo: Exclude<TipoGrupo, "indefinido">; numero: number | null } | { codigo: string; tipo: "ignorar"; numero: null };
+export type DecisaoDeGrupo = { codigo: string; tipo: Exclude<TipoGrupo, "indefinido">; numero: number | null } | { codigo: string; tipo: "ignorar" | "aceitar"; numero: null };
 
-const TIPO_DO_COMANDO: Record<string, Exclude<TipoGrupo, "indefinido"> | "ignorar"> = {
+const TIPO_DO_COMANDO: Record<string, Exclude<TipoGrupo, "indefinido"> | "ignorar" | "aceitar"> = {
+  aceitar: "aceitar",
   cliente: "cliente", pos: "pos_atendimento", "pos atendimento": "pos_atendimento", "pos venda": "pos_atendimento", posvenda: "pos_atendimento",
   juridico: "juridico", administrativo: "administrativo", parceiros: "parceiros", parceiro: "parceiros", engenharia: "engenharia", ignorar: "ignorar",
 };
 // a mensagem INTEIRA (já normalizada: sem acento, minúscula, pontuação virou espaço): "grupo <código> <tipo> [nº]"
-const COMANDO = /^grupo ([a-z0-9]{4}) (cliente|pos atendimento|pos venda|posvenda|pos|juridico|administrativo|parceiros|parceiro|engenharia|ignorar)(?: (?:n|no|numero)? ?(\d{1,9}))?$/;
+const COMANDO = /^grupo ([a-z0-9]{4}) (cliente|pos atendimento|pos venda|posvenda|pos|juridico|administrativo|parceiros|parceiro|engenharia|ignorar|aceitar)(?: (?:n|no|numero)? ?(\d{1,9}))?$/;
 
 /**
  * "grupo K7QM cliente 456", "grupo K7QM pós 456", "grupo K7QM jurídico", "grupo K7QM engenharia 12" (obra nº 12, opcional),
@@ -167,3 +173,62 @@ export function textoDoAvisoDeEntrada(p: { nomeDoGrupo: string | null; codigo: s
 /** Aviso único do dia quando o teto de grupos novos foi atingido. */
 export const avisoDoTetoDeEntrada = (teto: number) =>
   `Dolores: hoje já entrei em ${teto} grupos novos (o teto do dia). Os próximos grupos novos de hoje ficam de fora — não leio nem falo neles — até amanhã, ou até você aumentar o teto em Dolores › Grupos.`;
+
+/** Aviso único do grupo RECUSADO (outra pessoa colocou a Dolores). */
+export function textoDoAvisoDeRecusa(p: { nomeDoGrupo: string | null; codigo: string }): string {
+  return `Dolores: fui colocada no grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")} por outra pessoa; ignorei (não leio nem falo nada lá). Se quiser que eu participe, me adicione você mesmo ou responda: grupo ${p.codigo} aceitar`;
+}
+
+// ── 5) Quem colocou a Dolores no grupo (regra do dono de 19/11/2026: "somente o número principal […] pode adicionar") ──
+
+const JID_NUMERO = /^(\d{10,15})(?::\d+)?@s\.whatsapp\.net$/;
+const JID_LID = /^\d{5,25}@lid$/;
+/** Número de um JID de telefone ("5599…@s.whatsapp.net"); @lid, grupo ou qualquer outra coisa → null. */
+export const numeroDoJid = (v: unknown): string | null => (typeof v === "string" ? JID_NUMERO.exec(v.trim())?.[1] ?? null : null);
+export const lidDoJid = (v: unknown): string | null => (typeof v === "string" && JID_LID.test(v.trim()) ? v.trim() : null);
+
+/** Participante como vem da Evolution: texto (JID) ou objeto ({ id, jid, lid, phoneNumber, pn, admin }). */
+export type ParticipanteBruto = unknown;
+export type Participante = { numero: string | null; lid: string | null; admin: boolean };
+export function lerParticipante(p: ParticipanteBruto): Participante {
+  if (typeof p === "string") return { numero: numeroDoJid(p), lid: lidDoJid(p), admin: false };
+  const x = (p ?? {}) as Record<string, unknown>;
+  const campos = [x.id, x.jid, x.lid, x.phoneNumber, x.pn].filter((v): v is string => typeof v === "string");
+  return {
+    numero: campos.map(numeroDoJid).find(Boolean) ?? null,
+    lid: campos.map(lidDoJid).find(Boolean) ?? null,
+    admin: x.admin === "admin" || x.admin === "superadmin" || x.isAdmin === true || x.isSuperAdmin === true,
+  };
+}
+
+/** O participante é a Dolores? Número estrito (o da conexão confirmada) ou o @lid conferido para esse número. */
+export const ehADolores = (p: Participante, id: { numero: string | null; lid: string | null }) =>
+  (!!p.numero && !!id.numero && ehNumeroDoDono(p.numero, id.numero)) || (!!p.lid && !!id.lid && p.lid === id.lid);
+
+/**
+ * O autor (quem executou a ação, campo do aviso da Evolution) é o DONO? Número: a mesma comparação estrita do dono. @lid: só se
+ * `lidParaNumero` (participantes do grupo pela Evolution) resolver para o número do dono. Sem autor, ou sem provar → false.
+ */
+export function autorEhODono(autor: unknown, numeroDono: string | null, lidParaNumero: ReadonlyMap<string, string> = new Map()): boolean {
+  if (!numeroDono) return false;
+  const n = numeroDoJid(autor);
+  if (n) return ehNumeroDoDono(n, numeroDono);
+  const l = lidDoJid(autor);
+  const resolvido = l ? lidParaNumero.get(l) : undefined;
+  return !!resolvido && ehNumeroDoDono(resolvido, numeroDono);
+}
+
+export type MetadadoDoGrupo = { nome: string | null; criador: string[]; participantes: Participante[] };
+
+/**
+ * Sem o aviso de quem adicionou (evento perdido, grupo antigo, autor em @lid não resolvido): o grupo só é aceito se o número do
+ * dono for PARTICIPANTE do grupo E o grupo tiver sido criado por ele ou ele for admin. Na dúvida, não.
+ */
+export function donoNoMetadado(m: MetadadoDoGrupo | null, numeroDono: string | null): boolean {
+  if (!m || !numeroDono) return false;
+  const dono = m.participantes.filter(p => p.numero && ehNumeroDoDono(p.numero, numeroDono));
+  if (!dono.length) return false;
+  const lidParaNumero = new Map(m.participantes.filter(p => p.lid && p.numero).map(p => [p.lid!, p.numero!]));
+  const criou = m.criador.some(c => autorEhODono(c, numeroDono, lidParaNumero));
+  return criou || dono.some(p => p.admin);
+}

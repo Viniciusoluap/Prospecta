@@ -40,7 +40,7 @@ export const CONFIG_GRUPOS_PADRAO: Omit<DoloresGruposConfig, "atualizadoEm" | "a
  * pós-atendimento COM cliente ligado (classificação, etapa 4). Internos e "aguardando o dono": não.
  */
 export function grupoLeDocumentos(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obraId" | "situacaoConfirmacao">): boolean {
-  if (g.situacaoConfirmacao === "aguardando_dono") return false;
+  if (g.situacaoConfirmacao === "aguardando_dono" || g.situacaoConfirmacao === "recusado") return false;
   if (g.obraId !== null) return true;
   // grupo cadastrado à mão antes da etapa 7, sem tipo: segue a etapa 4 (grupo de cliente, mesmo "sem card ainda")
   if (g.tipo === null) return true;
@@ -49,7 +49,7 @@ export function grupoLeDocumentos(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obr
 }
 
 /** A mesma regra de `grupoLeDocumentos`, em SQL (pendências, classificação pela tela e ronda). */
-export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR ${doloresGrupos.tipo} IS NULL OR (${doloresGrupos.leadId} IS NOT NULL AND ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento'))) AND ${doloresGrupos.situacaoConfirmacao} <> 'aguardando_dono')`;
+export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR ${doloresGrupos.tipo} IS NULL OR (${doloresGrupos.leadId} IS NOT NULL AND ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento'))) AND ${doloresGrupos.situacaoConfirmacao} NOT IN ('aguardando_dono', 'recusado'))`;
 
 export async function lerConfigGrupos(conexao: DrizzleDb = getDb()): Promise<typeof CONFIG_GRUPOS_PADRAO> {
   const [c] = await conexao.select().from(doloresGruposConfig).where(eq(doloresGruposConfig.id, 1)).limit(1);
@@ -90,7 +90,8 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
   try {
     const [g] = cfg.instancia ? await getDb().select().from(doloresGrupos).where(and(eq(doloresGrupos.instancia, cfg.instancia), eq(doloresGrupos.grupoJid, jid))).limit(1) : [];
     existe = !!g;
-    grupo = g?.ativo ? g : null;
+    // Etapa 7: grupo RECUSADO (outra pessoa colocou a Dolores) é como desativado: nada gravado
+    grupo = g?.ativo && g.situacaoConfirmacao !== "recusado" ? g : null;
   } catch (e) {
     // banco sem a 0126/0133 ou fora do ar: ignora como antes (nada gravado)
     console.error("[dolores/grupos] não consegui conferir o cadastro do grupo", erroParaLog(e));
@@ -105,7 +106,7 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
   if (!grupo) {
     if (!ctx.entrar || !jidDeGrupoValido(jid)) return { resultado: "grupo" };
     grupo = await ctx.entrar(jid).catch(e => { console.error("[dolores/grupos] falha na entrada automática", erroParaLog(e)); return null; });
-    if (!grupo || !grupo.ativo) return { resultado: "grupo" };
+    if (!grupo || !grupo.ativo || grupo.situacaoConfirmacao === "recusado") return { resultado: "grupo" };
   }
   try {
     const db = getDb();
@@ -188,7 +189,7 @@ export async function listarGruposParaTela() {
     id: doloresGrupos.id, grupoJid: doloresGrupos.grupoJid, nome: doloresGrupos.nome, ativo: doloresGrupos.ativo, leadId: doloresGrupos.leadId,
     obraId: doloresGrupos.obraId, criadoEm: doloresGrupos.criadoEm, cliente: leads.name, obra: constructionProjects.title,
     tipo: doloresGrupos.tipo, origem: doloresGrupos.origem, situacaoConfirmacao: doloresGrupos.situacaoConfirmacao, nomeWhatsapp: doloresGrupos.nomeWhatsapp,
-    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm,
+    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao,
   }).from(doloresGrupos).leftJoin(leads, eq(leads.id, doloresGrupos.leadId)).leftJoin(constructionProjects, eq(constructionProjects.id, doloresGrupos.obraId))
     .orderBy(desc(doloresGrupos.ativo), asc(doloresGrupos.nome)).limit(200);
   const ids = grupos.map(g => g.id);

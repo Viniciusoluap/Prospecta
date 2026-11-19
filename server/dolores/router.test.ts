@@ -116,7 +116,9 @@ describe("conexão própria (QR code)", () => {
     expect(await admin().dolores.statusConexao()).toEqual({ status: "conectado", numeroDolores: null, precisaConfirmar: true });
     const s = await admin().dolores.confirmarConexao();
     expect(s).toEqual({ status: "conectado", numeroDolores: "(99) *****-1111" });
-    expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores", URL_WEBHOOK_DOLORES(), segredoWebhookDolores());
+    // Etapa 7: a instância da Dolores assina também os avisos de grupo (quem a adicionou, criação do grupo)
+    expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores", URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch,
+      ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT"]);
     expect((await cfg()).numero_dolores).toBe("5599900001111");
     // não vira conexão da Central (a Central de Vendas nunca envia pelo número dela)
     expect((await banco.pg.query("SELECT * FROM whatsapp_connections")).rows).toEqual([]);

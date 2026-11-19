@@ -11,6 +11,12 @@
 --     do que ela entendeu) ou aguardando_dono (nome não bateu com nada: só observa, não fala nem quando marcada).
 --   - "nome_whatsapp": o nome do grupo visto no WhatsApp NA ENTRADA (metadado da Evolution; texto de terceiro, já filtrado).
 --   - "codigo": código curto do grupo, gerado pelo servidor, usado no comando do dono "grupo <código> <tipo> [nº]".
+--   - "adicionado_por" / "prova_adicao" (regra do dono de 19/11/2026, mais tarde no mesmo dia: "somente o número principal […]
+--     pode adicionar o número da Dolores em grupo"): quem colocou a Dolores no grupo — 'dono' ou 'outra_pessoa' (vazio nos grupos
+--     cadastrados à mão) — e como isso foi provado por código: 'evento_add' (aviso group-participants.update da Evolution, autor =
+--     número do dono), 'criador' (groups.upsert com o dono como criador), 'metadado' (o dono é participante e criador/admin do
+--     grupo, conferido na Evolution), 'sem_prova' ou 'aceito_pelo_dono' (comando "grupo <código> aceitar").
+--   - "situacao_confirmacao" ganha 'recusado': grupo em que outra pessoa colocou a Dolores — não é lido nem respondido.
 --   - "decidido_em" / "decidido_por": quando e por onde o dono decidiu o tipo/vínculo ("whatsapp:dono", "tela:<id do admin>",
 --     "fila:<id do item>"). Sem chave estrangeira (texto): excluir usuário não dispara nada aqui.
 -- "dolores_grupos_config" ganha o interruptor "entrada_automatica_ligada" (nasce LIGADO — é o pedido do dono; nada FALA enquanto o
@@ -19,7 +25,8 @@
 --   instância e criado_em imutáveis) e acrescenta:
 --   - tipo e vínculo (cliente/obra) só mudam quando "decidido_em" muda na MESMA operação (decisão do dono). Exceção única: o
 --     vínculo VIRAR NULL — é o ON DELETE SET NULL do Postgres quando o CRM exclui o cliente ou a obra (exclusões legítimas);
---   - "nome_whatsapp" e "codigo", depois de preenchidos, não mudam (renomear o grupo no WhatsApp nunca muda tipo nem vínculo).
+--   - "nome_whatsapp" e "codigo", depois de preenchidos, não mudam (renomear o grupo no WhatsApp nunca muda tipo nem vínculo);
+--   - grupo 'recusado' só sai desse estado por decisão do dono (decidido_em na mesma operação).
 -- Somente aditiva e idempotente: ADD COLUMN IF NOT EXISTS (com padrão: não dispara o gatilho de UPDATE), CHECKs e índice criados
 -- só se faltarem, função trocada por CREATE OR REPLACE. Nenhuma linha existente é alterada; nada é ligado.
 -- Reversão: as colunas novas não atrapalham a versão anterior do código; para voltar a guarda antiga, reexecutar a função da 0126.
@@ -31,6 +38,8 @@ ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "nome_whatsapp" varchar(12
 ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "codigo" varchar(8);
 ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "decidido_em" timestamp with time zone;
 ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "decidido_por" varchar(40);
+ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "adicionado_por" varchar(14);
+ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "prova_adicao" varchar(20);
 
 DO $$
 BEGIN
@@ -42,10 +51,13 @@ BEGIN
     ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_origem_check" CHECK ("origem" IN ('manual', 'automatico'));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_situacao_confirmacao_check') THEN
-    ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_situacao_confirmacao_check" CHECK ("situacao_confirmacao" IN ('confirmado', 'avisado', 'aguardando_dono'));
+    ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_situacao_confirmacao_check" CHECK ("situacao_confirmacao" IN ('confirmado', 'avisado', 'aguardando_dono', 'recusado'));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_codigo_check') THEN
     ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_codigo_check" CHECK ("codigo" IS NULL OR "codigo" ~ '^[A-Z0-9]{4,8}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_adicionado_por_check') THEN
+    ALTER TABLE "dolores_grupos" ADD CONSTRAINT "dolores_grupos_adicionado_por_check" CHECK ("adicionado_por" IS NULL OR "adicionado_por" IN ('dono', 'outra_pessoa'));
   END IF;
   -- cliente e pós-atendimento só com cliente ligado; tipos internos nunca com cliente (o vínculo do grupo de cliente é o escopo dele)
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'dolores_grupos'::regclass AND conname = 'dolores_grupos_tipo_vinculo_check') THEN
@@ -80,6 +92,11 @@ BEGIN
       OR (NEW."obra_id" IS DISTINCT FROM OLD."obra_id" AND NEW."obra_id" IS NOT NULL))
      AND NOT (NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em") THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: tipo e vínculo do grupo só mudam por decisão do dono';
+  END IF;
+  -- Etapa 7: grupo RECUSADO (outra pessoa colocou a Dolores) só deixa de ser recusado por decisão do dono
+  IF OLD."situacao_confirmacao" = 'recusado' AND NEW."situacao_confirmacao" IS DISTINCT FROM 'recusado'
+     AND NOT (NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em") THEN
+    RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado só é aceito pelo dono';
   END IF;
   RETURN NEW;
 END;

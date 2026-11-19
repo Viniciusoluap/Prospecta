@@ -192,12 +192,14 @@ describe("sem marcação real: comportamento da etapa 4 intacto", () => {
     expect(enviarAoGrupo).not.toHaveBeenCalled();
     expect(pedidos).toEqual([]);
     expect(await marcacoes()).toEqual([]);
-    // Etapa 7: com ela ligada (padrão), o grupo entra sozinho, mas sem nome reconhecido fica aguardando o dono: continua MUDO
+    // Etapa 7: com ela ligada (padrão), o grupo desconhecido entra, mas sem prova de que foi o DONO quem colocou a Dolores (aqui a
+    // Evolution não informa o grupo) fica RECUSADO: continua mudo e nada é gravado
     await banco.pg.exec("UPDATE dolores_grupos_config SET entrada_automatica_ligada = true");
     await chamar(aviso(item({ jid: DESCONHECIDO }), item({ jid: INATIVO })));
     expect(enviarAoGrupo).not.toHaveBeenCalled();
     expect(pedidos).toEqual([]);
-    expect((await marcacoes()).map(m => m.situacao)).toEqual(["silencio"]);
+    expect(await marcacoes()).toEqual([]);
+    expect((await q<{ situacao_confirmacao: string }>(`SELECT situacao_confirmacao FROM dolores_grupos WHERE grupo_jid = '${DESCONHECIDO}'`))[0].situacao_confirmacao).toBe("recusado");
   });
   it("menção real com o interruptor geral ou o do grupo desligado (padrão): silêncio registrado, sem IA", async () => {
     const r1 = await chamar(aviso(item()));

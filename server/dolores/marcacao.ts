@@ -338,6 +338,7 @@ export type EscopoDoGrupo = {
  */
 export async function escopoDoGrupo(grupo: DoloresGrupo, m: { participante: string | null }, agora: Date): Promise<{ escopo: EscopoDoGrupo } | { frase: string; motivo: string; chave: string } | { silencio: string }> {
   const tipo = tipoEfetivo(grupo);
+  if (grupo.situacaoConfirmacao === "recusado") return { silencio: "grupo recusado (outra pessoa colocou a Dolores)" };
   if (grupo.situacaoConfirmacao === "aguardando_dono" || tipo === "indefinido") return { silencio: "grupo aguardando o dono definir o tipo: só observa" };
   const url = urlDoSistemaParaLinks();
   const base = { agora, grupoId: grupo.id };
@@ -451,7 +452,7 @@ async function responderNoGrupo(grupo: DoloresGrupo, m: Marcada, texto: string, 
   const [atual] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupo.id)).limit(1).catch(() => []);
   if (!atual || !atual.ativo || atual.instancia !== ctx.instancia || atual.grupoJid !== m.grupoJid || atual.grupoJid !== grupo.grupoJid) return recusar("destino não confere com o grupo cadastrado e ativo da mensagem");
   // Etapa 7: o tipo pode ter mudado durante a chamada (dono respondeu "ignorar" ou o grupo voltou a aguardar): confere de novo
-  if (atual.situacaoConfirmacao === "aguardando_dono" || tipoEfetivo(atual) === "indefinido" || tipoEfetivo(atual) !== tipoEfetivo(grupo)) return recusar("tipo do grupo mudou ou aguarda o dono no momento do envio");
+  if (atual.situacaoConfirmacao === "aguardando_dono" || atual.situacaoConfirmacao === "recusado" || tipoEfetivo(atual) === "indefinido" || tipoEfetivo(atual) !== tipoEfetivo(grupo)) return recusar("tipo do grupo mudou ou aguarda o dono no momento do envio");
   const ligados = await Promise.all([lerConfigMarcacoes().then(c => c.responderLigado).catch(() => false), grupoLigado(grupo.id).catch(() => false)]);
   if (pausadaPorFalhaNoConsumo || !ligados[0] || !ligados[1]) return recusar("interruptor de responder quando marcada desligado no momento do envio");
   // Etapa 6 — a pausa geral confere de novo no envio (pode ter sido ligada durante a chamada à IA)
@@ -601,6 +602,8 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
   let grupo: DoloresGrupo | null;
   try { grupo = await grupoAtivo(cfg.instancia, m.grupoJid); } catch { return "marcacao-indisponivel"; }
   if (!grupo) return "marcacao-grupo-nao-cadastrado";
+  // Etapa 7: grupo RECUSADO (outra pessoa colocou a Dolores): silêncio e nada gravado, como grupo não cadastrado
+  if (grupo.situacaoConfirmacao === "recusado") return "marcacao-grupo-recusado";
   try {
     conf ??= await lerConfigMarcacoes();
   } catch (e) {

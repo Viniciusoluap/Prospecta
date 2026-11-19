@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, numeric, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import type { SituacaoDocumentoGrupo, TipoDocumentoGrupo, TipoMensagemGrupo } from "../shared/dolores/grupos.js";
-import type { OrigemGrupo, SituacaoConfirmacao, TipoGrupo } from "../shared/dolores/grupos-tipo.js";
+import type { OrigemGrupo, ProvaAdicao, SituacaoConfirmacao, TipoGrupo } from "../shared/dolores/grupos-tipo.js";
 import { constructionProjects, leadDocuments, leads, users } from "./schema.js";
 
 export const doloresGrupos = pgTable("dolores_grupos", {
@@ -29,6 +29,9 @@ export const doloresGrupos = pgTable("dolores_grupos", {
   /** Decisão do dono sobre tipo/vínculo (o gatilho só deixa tipo e vínculo mudarem com este campo mudando junto). */
   decididoEm: timestamp("decidido_em", { withTimezone: true }),
   decididoPor: varchar("decidido_por", { length: 40 }),
+  /** Quem colocou a Dolores no grupo ('dono' | 'outra_pessoa'; vazio = cadastrado à mão) e como foi provado por código. */
+  adicionadoPor: varchar("adicionado_por", { length: 14 }).$type<"dono" | "outra_pessoa">(),
+  provaAdicao: varchar("prova_adicao", { length: 20 }).$type<ProvaAdicao>(),
 }, t => [
   uniqueIndex("dolores_grupos_jid_unico").on(t.instancia, t.grupoJid),
   index("dolores_grupos_lead_idx").on(t.leadId),

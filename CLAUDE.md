@@ -202,8 +202,15 @@ Palavras do dono: "eu não quero ter que cadastrar grupo por grupo; todos os gru
 deve participar […] esse número é exclusivo pra Dolores, então não vai existir entrada de grupos aleatórios".
 
 Isto substitui o cadastro manual de grupo no painel (o painel passa a servir para ver e corrigir). Decisões dele:
-1. **Qualquer grupo em que ela for colocada vale automaticamente** (sem trava por participante). A proteção fica nos
-   tetos de custo, nos interruptores e no escopo por tipo — nunca em cadastro manual.
+1. **Só vale grupo em que a Dolores foi adicionada PELO NÚMERO DO DONO** (o número principal cadastrado em Integrações ›
+   Dolores). Mudança do dono no mesmo dia 19/11, palavras dele: "somente o número principal, que no caso foi cadastrado meu
+   lá na integração, pode adicionar o número da Dolores em grupo, e assim nós não corremos risco de qualquer pessoa adicionar
+   ela em outros grupos". Provado por código (nunca pela IA nem pelo texto das mensagens): o autor do aviso
+   `group-participants.update` da Evolution (ou o criador no `groups.upsert`) é o número do dono; sem esse aviso, o dono
+   precisa ser participante e criador/admin do grupo (dados do grupo na Evolution). Sem prova, o grupo fica **recusado**
+   (não lê, não registra, não responde) e o dono recebe UM aviso; só ele aceita ("grupo <código> aceitar" ou adicionando-a
+   ele mesmo). Trocar o número do dono depois não desfaz os grupos já aceitos. Fora isso, nada de cadastro manual: a
+   proteção fica nos tetos de custo, nos interruptores e no escopo por tipo.
 2. **O tipo do grupo é descoberto por código, pelo nome** (nunca pela IA, nunca pelo texto das mensagens):
    - nome igual ao de **um único** cliente do CRM → grupo de **cliente** ou **pós-atendimento** (vale a regra de 17/11:
      só fala daquele cliente);

@@ -70,8 +70,9 @@ export function DoloresGruposCard() {
       <CardHeader><CardTitle className="flex items-center gap-2 text-[#C9A961]"><Users className="h-5 w-5" /> Dolores — grupos</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-gray-300">
-          Não é preciso cadastrar grupo: quando o número da Dolores é colocado num grupo, ele entra sozinho nesta lista na primeira
-          mensagem (ou ao clicar em "Atualizar grupos"). O tipo é descoberto pelo NOME do grupo: com Jurídico, Administrativo,
+          Não é preciso cadastrar grupo: quando VOCÊ (o número do dono cadastrado na integração) coloca o número da Dolores num grupo,
+          ele entra sozinho nesta lista (ou ao clicar em "Atualizar grupos"). Se outra pessoa a colocar, o grupo fica recusado: ela não
+          lê nem fala lá e avisa você — só você aceita. O tipo é descoberto pelo NOME do grupo: com Jurídico, Administrativo,
           Parceiros ou Engenharia no nome, é um grupo interno daquele tipo; com o nome de um único cliente do CRM, é grupo de cliente
           (ou de pós-atendimento, se tiver "pós" no nome). Ela avisa você no WhatsApp o que entendeu; se não reconhecer o nome, pergunta
           e só observa até você responder. Mudar o nome do grupo depois não muda o tipo. Ela só responde num grupo quando alguém a
@@ -283,7 +284,7 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
 type GrupoDaTela = {
   id: number; nome: string; ativo: boolean; leadId: number | null; obraId: number | null; cliente: string | null; obra: string | null;
   tipo: TipoGrupo; origem: string; situacaoConfirmacao: SituacaoConfirmacao; nomeWhatsapp: string | null; codigo: string | null;
-  criadoEm: string | Date; mensagens: number;
+  criadoEm: string | Date; mensagens: number; adicionadoPor: "dono" | "outra_pessoa" | null;
   documentos: { aClassificar: number; classificados: number; confira: number; salvos: number; naoBaixados: number };
 };
 type ConfigEntrada = { entradaAutomaticaLigada: boolean; tetoGruposNovosDia: number; tetoAvisosGruposDia: number } | undefined;
@@ -348,7 +349,10 @@ function GruposSecao(p: {
               <p className="mt-1 text-xs text-gray-200">
                 Tipo: <strong>{ROTULO_TIPO_GRUPO[g.tipo] ?? g.tipo}</strong>
                 {g.leadId ? ` · cliente nº ${g.leadId}${g.cliente ? ` — ${g.cliente}` : ""}` : g.obraId ? ` · obra nº ${g.obraId}${g.obra ? ` — ${g.obra}` : ""}` : ""}
-                {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : "text-gray-300"}>{ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
+                {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : g.situacaoConfirmacao === "recusado" ? "text-red-300" : "text-gray-300"}>{ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
+              </p>
+              <p className="mt-1 text-xs text-gray-300">
+                Adicionada por: {g.adicionadoPor === "dono" ? "dono" : g.adicionadoPor === "outra_pessoa" ? (g.situacaoConfirmacao === "recusado" ? "outra pessoa — recusado (não lê nem fala lá)" : "outra pessoa — aceito pelo dono") : "cadastro à mão"}
               </p>
               <p className="mt-1 text-xs text-gray-400">
                 {g.mensagens} mensagens · a classificar {g.documentos.aClassificar} · classificados {g.documentos.classificados} · a conferir {g.documentos.confira} · salvos no card {g.documentos.salvos}
@@ -372,6 +376,7 @@ function GruposSecao(p: {
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>Corrigir tipo ou vínculo</Button>
+                  {g.situacaoConfirmacao === "recusado" && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "aceitar" })}>Aceitar este grupo</Button>}
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}
