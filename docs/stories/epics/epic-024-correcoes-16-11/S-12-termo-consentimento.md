@@ -162,7 +162,26 @@ demais a rota `consentimento.aceitar` recusa.
 - `client/src/pages/TermoConsentimento.tsx` (nova), `client/src/pages/DefinirSenha.tsx`, `client/src/App.tsx`
 - `client/src/pages/admin/AdminConfiguracoes.tsx` (botão e janela do termo, situação por usuário)
 
+## Texto definitivo e retirada do consentimento (17/11/2026, ordem do dono)
+"Corrija esse termo, faça você mesmo o termo e corrija nos dois repositórios." Versão `2026-11-17.3` (histórico em
+`HISTORICO_DO_TERMO`); `PENDENCIAS_DO_JURIDICO` e o aviso "Texto provisório" saíram.
+- Encarregado (art. 41): o canal de atendimento ao titular — atendimento@prospectaconstrucoes.com e (99) 98139-2210
+  (não há pessoa nomeada no repositório).
+- Guarda: enquanto durar a relação; depois, prazos legais (ex.: 5 anos fiscais/contábeis; prescrição para defesa de
+  direitos); então eliminação ou anonimização (feita pela equipe — o sistema não apaga sozinho). Registro do termo
+  guardado como prova.
+- Resposta: confirmação simples ao receber; declaração completa em até 15 dias (art. 19, II). Lista de direitos do
+  art. 18 e menção à ANPD.
+- Retirada registrada de verdade (migração `0132_consentimentos_retirada.sql`, aditiva, NÃO aplicada): linha nova de
+  tipo `revogacao` com `registrado_por` e canal `admin` ("Usuários e acesso" › Termo de consentimento) ou `conta`
+  (botão "Retirar consentimento" em Meu perfil). Só contam os aceites depois da última retirada; quem retirou volta a
+  ver o termo ao entrar (aceitar de novo ou sair). Rotas novas: `consentimento.retirar`, `consentimento.meuConsentimento`,
+  `consentimento.admin.registrarRetirada`. A tabela continua só de inclusão.
+- Porte ao Grupo Santa Fé: branch `claude/paridade17-b4-termo` (migração `20261117400000_consentimentos`).
+
 ## Testes
+- 17/11 (texto definitivo + retirada): `server/consentimento.test.ts` 45/45 (7 testes novos de retirada; textos
+  definitivos); `tsc --noEmit` ok. Ver `HANDOFF-17-11-TERMO-E-ENDERECO.md` para a suíte completa e o build.
 - Depois das correções do QA (17/11): (a) automáticos — `server/consentimento.test.ts` 35/35; suítes pedidas
   (`consentimento`, `auth*`, `admin*`, `portal*`, `imports-esm`, `api-rotas-producao`) 8 arquivos, 73/73; testes do QA
   8/10 — os 2 que falham são os que reproduziam os achados 1 e 5 (agora corrigidos). `tsc --noEmit` ok; `vite build` ok.
@@ -191,3 +210,5 @@ demais a rota `consentimento.aceitar` recusa.
 - [x] Verificação (tsc, vitest, vite build, Playwright)
 - [x] Correções do QA (achados 1, 2, 3, 5, 6, 7, 8, 9; 4 mantido por decisão do dono)
 - [ ] Re-QA → aplicar 0127 → publicar
+- [x] Texto definitivo (versão `.3`) e retirada registrada (0132) — 17/11
+- [ ] Aplicar 0132 no Neon ANTES de publicar o código da retirada

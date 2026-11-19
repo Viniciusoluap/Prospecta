@@ -76,7 +76,8 @@ import {
   leadServicesRouter,
   linkRecordToLead,
 } from "./lead-services-router.js";
-import { leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
+import { enderecoAoVincular, leadContact, leadFullAddress } from "../shared/lead-snapshot.js";
+import { propagarEnderecoDoLeadParaAvaliacoes } from "./avaliacao-endereco.js";
 import { leadServices } from "../drizzle/schema.js";
 import {
   LEAD_SERVICE_MODULE,
@@ -143,7 +144,18 @@ function generateTicketNumber(): string {
   return `TKT${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 }
 
-/** Campos de cliente da avaliação derivados do lead (EPIC-017). */
+/** Identificação do cliente na avaliação, sempre do lead vinculado (EPIC-017). O endereço não entra: ver abaixo. */
+function avaliacaoIdentityFields(lead: Parameters<typeof leadContact>[0]) {
+  const contact = leadContact(lead);
+  return {
+    clienteNome: contact.name,
+    clienteCpf: contact.cpf ?? undefined,
+    clienteTel: contact.phone,
+    clienteEmail: contact.email ?? undefined,
+  };
+}
+
+/** Campos de cliente da avaliação derivados do lead na CRIAÇÃO (EPIC-017): identificação e endereço. */
 function avaliacaoClientFields(lead: Parameters<typeof leadContact>[0]) {
   const contact = leadContact(lead);
   return {
@@ -1650,6 +1662,14 @@ export const appRouter = router({
         } else {
           await db.updateLead(id, dbData);
         }
+        // Endereço do lead mudou (regra de 17/11): as avaliações vinculadas acompanham só onde ainda seguem o lead.
+        if (data.address !== undefined || data.neighborhood !== undefined || data.city !== undefined || data.state !== undefined) {
+          const antes = { address: lead.address, neighborhood: lead.neighborhood, city: lead.city, state: lead.state };
+          await propagarEnderecoDoLeadParaAvaliacoes(id, antes, {
+            address: data.address ?? lead.address, neighborhood: data.neighborhood ?? lead.neighborhood,
+            city: data.city ?? lead.city, state: data.state ?? lead.state,
+          });
+        }
         // VGV das obras do cliente acompanha o VGV simulado.
         if (data.simulationValue !== undefined || data.approvedValue !== undefined) {
           const { sincronizarVgvDoLead } = await import("./obra-financeiro-router.js");
@@ -2407,9 +2427,13 @@ export const appRouter = router({
         const lead = leadId ? await db.getLeadById(leadId) : undefined;
         if (data.leadId != null && current.leadId == null && (!lead || lead.deletedAt))
           throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado no CRM" });
+        // Endereço (regra de 17/11): vem do lead ao criar ou ao vincular agora; depois disso o endereço salvo na
+        // avaliação é o que a tela mandou — edição manual nunca é sobrescrita pelo lead ao salvar.
+        const vinculandoAgora = !!lead && current.leadId == null && data.leadId != null;
         await db.updateAvaliacao(id, {
           ...data,
-          ...(lead ? avaliacaoClientFields(lead) : {}),
+          ...(lead ? avaliacaoIdentityFields(lead) : {}),
+          ...(lead && vinculandoAgora ? enderecoAoVincular(lead) : {}),
           areaConstruida: data.areaConstruida?.toString(),
           areaTerreno: data.areaTerreno?.toString(),
           valorEstimado: data.valorEstimado?.toString(),
