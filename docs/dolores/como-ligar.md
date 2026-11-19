@@ -329,11 +329,15 @@ uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia
 
 # Etapa 4 — Grupos de clientes (leitura dos grupos cadastrados, card, classificação e Drive)
 
+> **Desde a Etapa 7 (19/11/2026), não é mais preciso cadastrar grupo**: o grupo entra sozinho, com o tipo descoberto pelo nome
+> (ver "Etapa 7", no fim). O cadastro manual abaixo continua existindo, recolhido na tela, para casos raros.
+
 A Dolores passa a **ler** os grupos de WhatsApp de clientes que o administrador cadastrar. Ela **só responde no grupo quando
 é marcada, com o interruptor ligado** (seção "Responder no grupo quando marcada", abaixo); fora isso não responde, não reage,
 não manda nada e não marca como lida de propósito. **Nada escrito no grupo é comando** — nem
 quando é o dono quem escreve lá: "aprovar CÓDIGO" num grupo não aprova nada. Pedido só vale na conversa DIRETA do dono
-com a Dolores. Grupo não cadastrado ou desativado continua ignorado como antes (nada é gravado).
+com a Dolores. Grupo desativado continua ignorado (nada é gravado); grupo desconhecido entra sozinho (Etapa 7), salvo com a
+"entrada automática de grupos" desligada.
 
 ## 1. Banco (equipe técnica, já autorizado)
 Aplicar `drizzle/0126_dolores_grupos.sql` no Neon (só aditiva e idempotente: 5 tabelas novas, gatilhos que impedem
@@ -352,7 +356,7 @@ ou demorar mais de 5 s, o arquivo não vai e a classificação sai só pelo nome
 O dono adiciona o número da Dolores ao grupo do cliente, no próprio WhatsApp. O sistema nunca entra em grupo sozinho.
 Combinado: **um grupo por cliente**.
 
-## 3. Cadastrar o grupo (administrador, em Integrações › Dolores — grupos de clientes)
+## 3. Cadastrar o grupo (raro desde a Etapa 7 — em Integrações › Dolores — grupos › "Cadastrar um grupo à mão")
 1. "Ver os grupos em que a Dolores está" lista os grupos pela Evolution (só leitura) → "Usar este id"; ou digite o id
    (termina em `@g.us`).
 2. Dê um rótulo (como a equipe chama o grupo) e, se já existir, o nº do cliente no CRM (ou o nº da obra). Pode deixar sem
@@ -453,7 +457,7 @@ pergunta aparece na lista da tela como "fora de escopo". Se a resposta da IA tiv
 pessoal, vai a mesma frase no lugar.
 
 ## 6. Quando ela fica em silêncio
-Grupo não cadastrado ou desativado; interruptor geral ou do grupo desligado; Dolores pausada; IA desligada, sem chave, sem
+Grupo desativado ou aguardando o dono definir o tipo (Etapa 7); interruptor geral ou do grupo desligado; Dolores pausada; IA desligada, sem chave, sem
 modelo, sem limite ou com o limite do mês atingido; outra resposta dela em andamento no mesmo grupo; teto por pessoa atingido;
 marcação antiga. Passou do teto do grupo no dia: ela manda **uma vez por dia** "Recebi muitas perguntas hoje; a equipe vai
 responder por aqui assim que possível." e depois fica em silêncio. Toda marcação em grupo cadastrado fica registrada.
@@ -489,7 +493,8 @@ Exclusões que já existiam continuam funcionando: excluir a obra, o usuário em
 transação do banco removida) só esvazia o vínculo na nota (`ON DELETE SET NULL`, aceito pelo gatilho); a nota fica.
 
 ## 2. Grupo da obra (administrador, em Integrações › Dolores — grupos de clientes)
-Cadastre o grupo da obra com o **nº da obra** (não o do cliente). Um grupo ligado a obra passa a mandar os documentos para a
+Ligue o grupo da obra ao **nº da obra** (não o do cliente) — desde a Etapa 7, pelo comando do dono
+`grupo <código> engenharia <nº da obra>` ou em "Corrigir tipo ou vínculo" na tela. Um grupo ligado a obra passa a mandar os documentos para a
 leitura de nota; grupo de cliente continua na classificação da etapa 4, igual. O empreiteiro que pode confirmar é o
 **empreiteiro vinculado à obra** (tela da obra), com o **telefone** cadastrado no usuário dele (papel empreiteiro, ativo).
 
@@ -615,3 +620,61 @@ envio "enviado" e o gasto do mês. O custo da IA é o de `dolores_consumo` (as r
 - `dolores_acoes`: `ronda` (ok/erro com as seções sem leitura, ou recusada pela pausa), `relatorio_envio` (ok, ou recusada:
   sem número do dono / desconectada / pausada), `pausa_geral` e `operacao_config` (tela).
 - Ferramenta nova para a conversa: `relatorio_diario` (só lê a última ronda e o último relatório; não faz ronda).
+
+---
+
+# Etapa 7 — Grupos automáticos, por tipo (regra do dono de 19/11/2026)
+
+Palavras do dono: "eu não quero ter que cadastrar grupo por grupo". **Qualquer grupo em que o número da Dolores for colocado
+entra sozinho** na lista (na primeira mensagem, ou pelo botão "Atualizar grupos"). A tela passa a servir para VER e CORRIGIR.
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar `drizzle/0133_dolores_grupos_tipo.sql` no Neon **antes** de publicar o código (só aditiva e idempotente: colunas novas em
+`dolores_grupos` e `dolores_grupos_config`, CHECKs e índices só se faltarem, e a guarda `dolores_grupos_guarda` trocada por
+`CREATE OR REPLACE`, mantendo tudo o que já protegia). Nenhuma linha existente muda e nada é ligado: o interruptor geral de
+"responder quando marcada" continua como está (desligado por padrão). Sem a 0133, as leituras de grupo falham fechado
+(grupos ignorados).
+
+## 2. Como ela descobre o tipo (por código, pelo NOME do grupo no WhatsApp; nunca pela IA nem pelas mensagens)
+- Nome com **Jurídico**, **Administrativo**, **Parceiros** ou **Engenharia** (palavra inteira; acento e maiúscula não importam)
+  → grupo interno daquele tipo.
+- Nome igual ao de **um único** cliente do CRM (ou contendo o nome completo dele) → grupo de **cliente**; com "pós",
+  "pós-atendimento" ou "pós venda" no nome → **pós-atendimento**.
+- Dois clientes com o mesmo nome, nome curto (menos de 2 palavras ou 6 letras), dois tipos no nome ou nada casando →
+  **não identificado**: ela pergunta a você e **só observa** (não fala nada lá, nem marcada) até você responder.
+- Mudar o nome do grupo depois **não muda** o tipo nem o vínculo.
+
+## 3. O aviso e a correção (o dono, no WhatsApp da Dolores)
+Para cada grupo novo ela manda **um** aviso: "entrei no grupo «X». Entendi: cliente «Fulano» (nº 123). Se estiver errado,
+responda: …". Para corrigir ou definir, responda na conversa direta com ela, a mensagem inteira:
+- `grupo K7HM cliente 456` · `grupo K7HM pós 456` (nº do cliente no CRM)
+- `grupo K7HM jurídico` · `grupo K7HM administrativo` · `grupo K7HM parceiros`
+- `grupo K7HM engenharia` (geral) ou `grupo K7HM engenharia 12` (ligado à obra nº 12)
+- `grupo K7HM ignorar` (desativa: não lê nem fala; nada é apagado)
+O código de 4 letras de cada grupo está no aviso e na tela. A mesma frase escrita dentro de um grupo, ou mandada por outro
+número, não faz nada. Também dá para corrigir na tela ("Corrigir tipo ou vínculo", "Ignorar este grupo" — só admin).
+
+## 4. O que ela responde quando marcada, por tipo (travado no servidor)
+- **Cliente / pós-atendimento:** só aquele cliente (andamento, etapas, documentos que faltam), como na Etapa 4b.
+- **Administrativo (sócios):** as consultas gerais da Dolores, com CPF/telefone/e-mail **sempre mascarados** neste canal e nunca
+  senhas, tokens, chaves ou dados bancários. Valores só os que vierem das consultas.
+- **Jurídico:** processos, regularizações e documentos (sem valores).
+- **Engenharia:** obras, medições e notas (sem valores). Grupo ligado a uma obra (com o empreiteiro) continua só com aquela obra.
+- **Parceiros:** só o andamento dos clientes que o **corretor que marcou** indicou (identificado pelo telefone do cadastro dele,
+  usuário ativo de papel corretor). Sem identificar, responde uma frase fixa. Nunca cliente de outro parceiro, valores ou comissão.
+- **Não identificado / desativado:** silêncio.
+Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos, o orçamento e a pausa geral.
+
+## 5. Interruptores e tetos (Integrações › Dolores — grupos)
+- **Entrada automática de grupos:** nasce ligada (pedido do dono). Desligada, grupo novo é ignorado.
+- **Teto de grupos novos por dia** (padrão 20) e **de avisos por dia** (padrão 25): passou, os grupos novos do dia ficam de fora e
+  você recebe um aviso, uma vez.
+- O interruptor de cada grupo já nasce **ligado** nos grupos reconhecidos; nada fala enquanto o interruptor GERAL de "responder
+  quando marcada" estiver desligado.
+- Documentos só vão à classificação em grupo de cliente/pós com cliente ligado (ou de obra, para a nota); em grupo interno ficam
+  só registrados.
+- O relatório diário mostra quantos grupos novos aguardam a sua resposta.
+
+## 6. Conferir
+`dolores_acoes`: `grupo_entrada` (entrou / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
+`grupo_leitura` (consultas feitas quando marcada, com o tipo), `atualizar_grupos` (botão da tela).
