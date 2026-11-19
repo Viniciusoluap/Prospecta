@@ -81,7 +81,7 @@ a `0132` já é a de consentimentos — o número `0133` pedido para esta etapa 
 - `docs/dolores/como-ligar.md` (Etapa 8).
 
 ## Testes
-Ver o relatório da entrega (números da última execução) — `server/dolores/e8-respostas-e-custo.test.ts` cobre: caso real (2ª
+Última execução (19/11): `npx tsc --noEmit` ok; vitest (server/dolores + anthropic, modelo por função, auth-session, imports-esm, api-rotas-producao; `--maxWorkers=2 --minWorkers=1`) 36 arquivos, 652 testes, 0 falhas; `npx vite build` ok. `server/dolores/e8-respostas-e-custo.test.ts` cobre: caso real (2ª
 volta em `max_tokens` → o dono recebe o parcial), `max_tokens` sem texto, resposta em 2–3 mensagens só para o dono e filtrada,
 falha de envio no meio, `plano_de_atrasos` (11/11, 25/10, 3/10, dias úteis, fim de mês, soma), custo real no Haiku (centavos)
 contra a conta antiga (~US$ 1,85), reserva com aviso, relatório com a mesma conta, permissões pelo `appRouter`, migração 3×.
