@@ -15,7 +15,7 @@
 // - Texto livre que sobra (nome de documento do cadastro antigo, item do checklist, nome de etapa) passa por
 //   `rotuloSeguroParaGrupo`: com dígitos, link, "@", marcador de dado mascarado ou palavra fora do escopo, vira um rótulo
 //   genérico. Na dúvida, não devolve.
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   constructionProjects, constructionStages, financiamentoChecklistItems, financiamentos, leadDocuments, leadServices, leads,
@@ -26,11 +26,15 @@ import { diaFortaleza } from "../../../shared/dolores/formato.js";
 import { primeiroNome } from "../../../shared/dolores/fila.js";
 import { rotuloSeguroParaGrupo, situacaoNeutraDoGrupo } from "../../../shared/dolores/marcacao.js";
 import { STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente } from "../../../shared/dolores/regras.js";
+import { LEAD_FINALIZED_STAGE } from "../../../shared/lead-pipeline.js";
 import { LEAD_SERVICE_LABELS, type LeadServiceType } from "../../../shared/lead-services.js";
 import { SITUACAO_DOC_CLIENTE, db, docClientePendente, docRegularizacaoRecebido, rotuloDocumento, type Resultado } from "./comum.js";
 
-/** Contexto do SERVIDOR: o vínculo do grupo cadastrado e ativo da mensagem que marcou a Dolores. */
-export type ContextoDoGrupo = { agora: Date; grupoId: number; leadId: number | null; obraId: number | null };
+/**
+ * Contexto do SERVIDOR: o vínculo do grupo cadastrado e ativo da mensagem que marcou a Dolores. Etapa 7: no grupo de PARCEIROS,
+ * `parceiroUserId` é o usuário corretor ativo identificado pelo telefone de quem marcou (servidor do WhatsApp), nunca pelo texto.
+ */
+export type ContextoDoGrupo = { agora: Date; grupoId: number; leadId: number | null; obraId: number | null; parceiroUserId?: number | null };
 
 /** As funções do grupo não recebem argumento (objeto vazio, estrito). */
 export const entradaSemArgumentos = z.object({}).strict();
@@ -195,4 +199,43 @@ export async function proximosPassosDoGrupo(_args: z.infer<typeof entradaSemArgu
   }
   if (!passos.length) passos.push("Nada pendente do lado do cliente no cadastro; a equipe segue com o atendimento.");
   return { dados: { passos: passos.slice(0, 8) }, resumo: { passos: passos.length } };
+}
+
+// ── Etapa 7 — grupo de PARCEIROS: só os clientes de QUEM MARCOU ──
+
+/** Teto de clientes do parceiro consultados por marcação (a resposta é curta; o resto, a equipe responde). */
+export const MAX_CLIENTES_DO_PARCEIRO = 10;
+
+/** "Maria S." — primeiro nome e a inicial do último sobrenome (o grupo é lido por outros parceiros). */
+function nomeCurto(nome: string | null | undefined): string | null {
+  const p = primeiroNome(nome);
+  if (!p) return null;
+  const ultimo = String(nome ?? "").trim().split(/\s+/).slice(1).pop() ?? "";
+  const inicial = /^[A-Za-zÀ-ÖØ-öø-ÿ]/.test(ultimo) ? `${ultimo[0].toUpperCase()}.` : "";
+  return inicial ? `${p} ${inicial}` : p;
+}
+
+/**
+ * Andamento dos clientes que o PARCEIRO (corretor) de quem marcou indicou: só os leads ativos com `broker_id` = esse usuário, até
+ * {@link MAX_CLIENTES_DO_PARCEIRO}, mais recentes primeiro. Por cliente, só o nome curto e a MESMA lista de campos permitidos do
+ * grupo de cliente (situação neutra, etapas, progresso, última movimentação). Nunca valores, comissão, CPF, telefone, etapa
+ * comercial, anotações nem cliente de outro parceiro. Sem parceiro identificado: nada.
+ */
+export async function andamentoDosClientesDoParceiro(_args: z.infer<typeof entradaSemArgumentos>, ctx: ContextoDoGrupo): Promise<Resultado> {
+  if (!ctx.parceiroUserId) return { dados: { semParceiro: true, observacao: "Quem perguntou não foi identificado como parceiro." }, resumo: { parceiro: false } };
+  const meus = await db().select({ id: leads.id, name: leads.name }).from(leads)
+    .where(and(eq(leads.brokerId, ctx.parceiroUserId), isNull(leads.deletedAt), ne(leads.stage, LEAD_FINALIZED_STAGE)))
+    .orderBy(desc(leads.updatedAt)).limit(MAX_CLIENTES_DO_PARCEIRO);
+  const clientes: Array<Record<string, unknown>> = [];
+  for (const l of meus) {
+    const a = await andamento({ agora: ctx.agora, grupoId: ctx.grupoId, leadId: l.id, obraId: null });
+    clientes.push({ cliente: nomeCurto(l.name) ?? "cliente", processos: a.processos });
+  }
+  return {
+    dados: clientes.length ? {
+      clientes,
+      observacao: "Só os clientes indicados por quem perguntou: situação (em análise, em andamento, aguardando dados, concluído, pausado ou encerrado), etapas e datas de movimento. Valores, comissões, prazos e resultado de aprovação não são informados no grupo.",
+    } : { clientes: [], observacao: "Nenhum cliente em andamento indicado por quem perguntou." },
+    resumo: { parceiro: true, clientes: clientes.length },
+  };
 }

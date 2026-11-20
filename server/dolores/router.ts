@@ -12,7 +12,7 @@ import {
 } from "../../shared/dolores/whatsapp.js";
 import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
-import { estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
+import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
@@ -179,7 +179,7 @@ export const doloresRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. A Dolores precisa de um número próprio (o dono escreve para ela)." });
     }
     if (c.statusConexao !== "conectado" || numero !== c.numeroDolores) {
-      try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
+      try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
       catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
       await gravar({ statusConexao: "conectado", numeroDolores: numero }, ctx.user.id);
     }
@@ -205,7 +205,7 @@ export const doloresRouter = router({
     if (!numero || numero !== c.numeroDolores) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado não é o que foi confirmado; ${conferir}` });
     if ((await numeroDeOutraConexao(numero)) || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado é de uma conexão da empresa ou o do dono; ${conferir}` });
-    try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
+    try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
     catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
     return { ok: true, mensagem: "Recebimento de mensagens da Dolores ativo." };
   }),

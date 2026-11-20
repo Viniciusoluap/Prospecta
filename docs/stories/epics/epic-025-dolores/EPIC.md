@@ -13,6 +13,7 @@ com migração e publicação a cada etapa — o que substitui a exigência do p
 - [x] 4b. Resposta no grupo só quando marcada (PR #251, migração `0129` aplicada; desligada por padrão, geral e por grupo)
 - [x] 5. Notas de obra (PR #250, migração `0128` aplicada; tudo desligado por padrão) — leitura da nota, rascunho, confirmação do empreiteiro, conciliação com o BPO
 - [x] 6. Operação contínua (PR #252, migração `0131` aplicada; tudo desligado por padrão) — eventos, rondas, relatório diário, tela com pausa e gasto
+- [ ] 7. Grupos automáticos, por tipo (regra do dono de 19/11; story `E7-grupos-automaticos.md`, migração `0133`) — grupo entra sozinho, tipo pelo nome, aviso e comando do dono, escopo por tipo
 
 ## Suposições em vigor até o dono responder (seção 9 do prompt)
 1. Só operação interna (não atende cliente). 2. Um grupo de WhatsApp por cliente. 3. A IA pode abrir os documentos.

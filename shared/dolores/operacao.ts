@@ -96,7 +96,7 @@ export type TotaisRonda = {
   documentos?: { pendentes: number; clientes: number };
   recebiveis?: { cobrancas: number; emAberto: number; vencidas: number; vencido: number; regularizacoesComSaldo: number; saldoRegularizacoes: number };
   conversas?: { semLeitura: number };
-  grupos?: { aClassificar: number; aConferir: number; prontosParaSalvar: number; comErro: number };
+  grupos?: { aClassificar: number; aConferir: number; prontosParaSalvar: number; comErro: number; aguardandoDono?: number };
   notas?: { semConfirmacao: number; confirmadasSemConciliacao: number; correcao: number; naoLidas: number };
   banco?: { sincronizadas24h: number; aClassificar: number };
   feitos24h?: { cobrancas: number; documentos: number; tarefas: number; acompanhamentos: number };
@@ -205,7 +205,10 @@ export function montarRelatorio(p: {
   }
   if (t.conversas) sec("Clientes sem retorno", [`${n(t.conversas.semLeitura)} conversa(s) de cliente com mensagem recebida ainda não lida.`]);
   if (t.grupos) {
-    sec("Documentos dos grupos", [`${n(t.grupos.aClassificar)} a classificar, ${n(t.grupos.aConferir)} a conferir (confiança baixa), ${n(t.grupos.prontosParaSalvar)} classificado(s) aguardando salvar no card, ${n(t.grupos.comErro)} com erro.`]);
+    const linhas = [`${n(t.grupos.aClassificar)} a classificar, ${n(t.grupos.aConferir)} a conferir (confiança baixa), ${n(t.grupos.prontosParaSalvar)} classificado(s) aguardando salvar no card, ${n(t.grupos.comErro)} com erro.`];
+    // Etapa 7: grupos novos que ela não soube identificar (só observam até o dono responder "grupo CÓDIGO tipo")
+    if (t.grupos.aguardandoDono) linhas.push(`${n(t.grupos.aguardandoDono)} grupo(s) novo(s) aguardando sua resposta (responda "grupo CÓDIGO tipo"; os códigos estão no aviso de entrada e em Dolores › Grupos).`);
+    sec("Documentos dos grupos", linhas);
   }
   if (t.notas) {
     sec("Notas de obra", [`${n(t.notas.semConfirmacao)} sem confirmação do empreiteiro, ${n(t.notas.confirmadasSemConciliacao)} confirmada(s) sem conciliação com o banco, ${n(t.notas.correcao)} com pedido de correção, ${n(t.notas.naoLidas)} não lida(s)/ilegível(is).`]);

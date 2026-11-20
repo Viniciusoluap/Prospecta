@@ -263,4 +263,7 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
   código; conciliar com pagamento do BPO e salvar no Drive só pela fila; o BPO nunca é alterado) (`0128`)
 - (não portar — exceção) Etapa 6 — operação contínua (rondas por código, eventos, relatório diário e sob demanda só para o dono, pausa
   geral que barra todas as portas, gasto do mês; cron diário próprio) (`0131`)
+- (não portar — exceção) Etapa 7 — grupos automáticos, por tipo (regra do dono de 19/11): grupo entra sozinho com o tipo pelo nome
+  (cliente, pós-atendimento, jurídico, administrativo, parceiros, engenharia), aviso e comando "grupo CÓDIGO tipo [nº]" do dono,
+  escopo da resposta por tipo travado no servidor (`0133`)
 - [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**
