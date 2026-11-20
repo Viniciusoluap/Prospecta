@@ -291,5 +291,6 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
 Grupo Santa Fé em espera por ordem do dono; portar quando ele retomar a paridade. O que é da Dolores (C4, C5) é exceção.
 - [ ] C2 — recebimento do WhatsApp: leitura tolerante do aviso da Evolution, nenhuma mensagem descartada sem registro,
   remetente não identificado visível na Central (só admin até confirmar o número) e quadro "Recebimento nas últimas 24 h" (`0136`).
-- [ ] C3 — saudação da campanha com imagem e áudio (quando publicada aqui).
+- [ ] C3 — saudação da campanha com imagem e áudio (publicada aqui em 20/11, PR #267, `0137`): mídia no banco, conferida pelos bytes, uma saudação por número, sem duplicata quando o envio fica sem confirmação.
+- [ ] C6 — botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central (publicado aqui em 20/11, PR #266, `0138`). A parte da Dolores é exceção; no Santa Fé só faz sentido se houver atendimento automático.
 - [ ] C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).
