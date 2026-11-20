@@ -129,6 +129,7 @@ export const whatsappLidNumeros = pgTable("whatsapp_lid_numeros", {
   instancia: varchar("instancia", { length: 80 }).notNull(),
   lid: varchar("lid", { length: 40 }).notNull(),
   numero: varchar("numero", { length: 20 }).notNull(),
-  origem: varchar("origem", { length: 12 }).default("aviso").notNull(),
+  /** "aviso" (confirmado), "evolution" (provável) ou "nao_resolvido" (consulta sem resultado; número vazio; vale 10 min). */
+  origem: varchar("origem", { length: 16 }).default("aviso").notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
 }, t => [primaryKey({ columns: [t.instancia, t.lid] })]);

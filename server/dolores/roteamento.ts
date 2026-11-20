@@ -251,6 +251,28 @@ export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; nu
   }
 }
 
+/** QA-SEG C2 achado 4: por quanto tempo um "@lid" que a Evolution não soube resolver não é consultado de novo. */
+export const CACHE_LID_NAO_RESOLVIDO_MS = 10 * 60_000;
+
+/** O "@lid" foi consultado sem resultado há menos de 10 min (nesta instância)? Falha ao ler → não (a consulta segue limitada por aviso). */
+export async function lidNaoResolvidoHaPouco(instancia: string, lid: string): Promise<boolean> {
+  try {
+    const [r] = await getDb().select({ em: whatsappLidNumeros.atualizadoEm }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.lid, lid.slice(0, 40)), eq(whatsappLidNumeros.origem, "nao_resolvido"))).limit(1);
+    return !!r && deps.agora().getTime() - new Date(r.em).getTime() < CACHE_LID_NAO_RESOLVIDO_MS;
+  } catch { return false; }
+}
+
+/** Guarda "não resolvido" (número vazio) para o "@lid"; nunca sobrescreve um par com número. Nunca lança. */
+export async function lembrarLidNaoResolvido(instancia: string, lid: string): Promise<void> {
+  if (!/^\d{1,25}@lid$/.test(lid)) return;
+  const t = whatsappLidNumeros;
+  const agora = deps.agora();
+  await getDb().insert(t).values({ instancia, lid, numero: "", origem: "nao_resolvido", atualizadoEm: agora })
+    .onConflictDoUpdate({ target: [t.instancia, t.lid], set: { atualizadoEm: agora }, setWhere: sql`${t.origem} = 'nao_resolvido'` })
+    .catch(e => console.error("[dolores/roteamento] falha ao guardar o @lid não resolvido", erroParaLog(e)));
+}
+
 /** QA-SEG C2 achado 2: os números PROVÁVEIS (só da consulta à Evolution, não confirmados) dos "@lid" desta instância. Falha → vazio. */
 export async function numerosProvaveisDosLids(instancia: string, lids: string[]): Promise<Map<string, string>> {
   if (!lids.length) return new Map();

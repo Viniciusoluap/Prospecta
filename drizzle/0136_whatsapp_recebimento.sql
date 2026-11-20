@@ -11,7 +11,9 @@
 -- "whatsapp_lid_numeros": o número real de um endereço "@lid" do WhatsApp, aprendido do próprio aviso (quando a Evolution manda
 --   os dois juntos) ou consultado na Evolution. Serve para (1) nunca mostrar na Central a conversa do dono que chegue só com o
 --   "@lid" e (2) a conversa de "número não identificado" passar a mostrar o número quando ele for conhecido. Nunca serve para
---   comando: comando continua exigindo o número no próprio endereço da mensagem.
+--   comando: comando continua exigindo o número no próprio endereço da mensagem. Origem: "aviso" (número no endereço: confirmado),
+--   "evolution" (só a consulta de contatos: provável — a conversa continua "não identificada" para envio e vínculo) ou
+--   "nao_resolvido" (a consulta não achou o número; número vazio; a consulta não se repete por 10 minutos).
 --
 -- Somente ADITIVA e IDEMPOTENTE (CREATE ... IF NOT EXISTS). Nenhum dado existente é alterado ou apagado.
 -- Reversão: DROP TABLE "whatsapp_recebimento_contagem", "whatsapp_lid_numeros" (nada depende delas).
@@ -31,7 +33,7 @@ CREATE TABLE IF NOT EXISTS "whatsapp_lid_numeros" (
   "instancia" varchar(80) NOT NULL,
   "lid" varchar(40) NOT NULL,
   "numero" varchar(20) NOT NULL,
-  "origem" varchar(12) NOT NULL DEFAULT 'aviso' CHECK ("origem" IN ('aviso', 'evolution')),
+  "origem" varchar(16) NOT NULL DEFAULT 'aviso' CHECK ("origem" IN ('aviso', 'evolution', 'nao_resolvido')),
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY ("instancia", "lid")
 );

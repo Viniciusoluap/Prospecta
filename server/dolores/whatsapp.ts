@@ -47,7 +47,8 @@ import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas
 import { decidirRota, ehSoAudio, lerParaRoteamento, type ItemRoteado } from "../../shared/dolores/roteamento.js";
 import { conexaoDaEmpresa, type ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
 import {
-  consultarNumeroDoLid, enviarAviso, enviarSaudacao, gravarEntradaNaCentral, identificarRemetente, lembrarNumeroDoLid, lerConfigAtendimento, lerLigacao, numeroConhecidoDoLid,
+  consultarNumeroDoLid, enviarAviso, enviarSaudacao, gravarEntradaNaCentral, identificarRemetente, lembrarLidNaoResolvido, lembrarNumeroDoLid, lerConfigAtendimento, lerLigacao,
+  lidNaoResolvidoHaPouco, numeroConhecidoDoLid,
   reivindicarRoteamento, textoDaEntrada, tratarPropria, type Remetente,
 } from "./roteamento.js";
 import { tratarAtendimento } from "./atendimento.js";
@@ -539,7 +540,7 @@ type PendenteDoAviso = { tipo: "cliente" | "audio"; item: Direta; quem: Remetent
  * conexão da empresa (mesmo antiga — histórico; a Central não duplica); só mensagem NOVA recebe saudação (desconhecido) ou entra na fila
  * do aviso para a Dolores (cliente cadastrado) e para a transcrição (áudio de cliente ou desconhecido).
  */
-async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number; pendentes: PendenteDoAviso[] }): Promise<string[]> {
+async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number; pendentes: PendenteDoAviso[]; consultasLid: { feitas: number } }): Promise<string[]> {
   if (!d.numero) return tratarSemNumero(cfg, bruto, d, ctx);
   if (ehNumeroDoDono(d.numero, cfg.numeroDolores)) return ["propria-numero"];
   let nova = false;
@@ -581,6 +582,8 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
 /** Com menos que isto até o fim do prazo do aviso, o número de um "@lid" não é consultado na Evolution. */
 const MINIMO_PARA_CONSULTAR_LID_MS = 12_000;
 const PRAZO_CONSULTA_LID_MS = 3_000;
+/** QA-SEG C2 achado 4: teto de consultas do número de "@lid" à Evolution por aviso. */
+const MAX_CONSULTAS_LID_POR_AVISO = 2;
 
 /**
  * EPIC-026 C2 (regra do dono de 20/11/2026: nenhuma mensagem é descartada sem registro visível) — conversa direta de terceiro cujo
@@ -593,7 +596,7 @@ const PRAZO_CONSULTA_LID_MS = 3_000;
  * Nunca é comando, nunca recebe saudação (o controle "uma vez por número" exige número) nem resposta da Dolores, mesmo quando o
  * número foi descoberto pela consulta (não veio no endereço da mensagem).
  */
-async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number }): Promise<string[]> {
+async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number; consultasLid: { feitas: number } }): Promise<string[]> {
   const instancia = cfg.instancia!;
   if (!d.lid) { await auditarRemetenteEstranho(null, ctx.autor, d.texto.length); return ["sem-numero"]; }
   const par = await numeroConhecidoDoLid(instancia, d.lid);
@@ -601,9 +604,13 @@ async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Di
   // QA-SEG C2 achado 2: só o par confirmado por um aviso (número no endereço) identifica a conversa; o da Evolution é "provável"
   const confirmado = par?.origem === "aviso";
   let consultado = false;
-  if (!numero && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_CONSULTAR_LID_MS) {
+  // QA-SEG C2 achado 4: no máximo 2 consultas por aviso e nenhuma para o "@lid" que a Evolution não resolveu há menos de 10 min
+  if (!numero && ctx.consultasLid.feitas < MAX_CONSULTAS_LID_POR_AVISO && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_CONSULTAR_LID_MS
+    && !(await lidNaoResolvidoHaPouco(instancia, d.lid))) {
+    ctx.consultasLid.feitas++;
     numero = await consultarNumeroDoLid(instancia, d.lid, PRAZO_CONSULTA_LID_MS);
     consultado = !!numero;
+    if (!numero) await lembrarLidNaoResolvido(instancia, d.lid);
   }
   if (numero && (ehNumeroDoDono(numero, cfg.numeroDono) || ehNumeroDoDono(numero, cfg.numeroDolores))) return ["lid-do-dono"];
   let nova = false;
@@ -617,6 +624,12 @@ async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Di
   try { await gravarEntradaNaCentral(conn, bruto, confirmado && numero ? { numero } : { semNumero: d.lid }); }
   catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem sem número na Central", erroCurto(e)); return ["central-erro"]; }
   return confirmado ? ["central-lid-resolvido"] : numero ? ["central-sem-numero", "lid-provavel"] : ["central-sem-numero"];
+}
+
+/** QA-SEG C2 achado 4: os itens de conversa direta do dono (mesma leitura estrita do comando) primeiro; os demais na ordem de chegada. */
+function donoPrimeiro(itens: unknown[], numeroDono: string | null | undefined): unknown[] {
+  const doDono = (x: unknown) => { if (ehDeGrupo(x)) return false; const m = lerMensagemEvolution(x); return m.tipo === "direta" && ehNumeroDoDono(m.numero, numeroDono); };
+  return [...itens.filter(doDono), ...itens.filter(x => !doDono(x))];
 }
 
 /** EPIC-026 C2: o destino de um item de terceiro, para o registro do recebimento (sem conteúdo). */
@@ -763,7 +776,10 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
   const marcacoesDoAviso: unknown[] = [];
   // Etapa 9: o que fica para depois do dono (resposta a cliente, áudio)
   const pendentes: PendenteDoAviso[] = [];
-  for (const item of itens) {
+  const consultasLid = { feitas: 0 };
+  // QA-SEG C2 achado 4: os itens do DONO vêm antes dos demais neste aviso (o comando dele não cai em "sem tempo" por causa da
+  // consulta do número de um "@lid" de terceiro); a ordem entre os demais fica a mesma.
+  for (const item of donoPrimeiro(itens, cfg.numeroDono)) {
     // Etapa 4 — GRUPO: registrado (se cadastrado e ativo); nunca vira comando, aprovação nem ação — nem quando quem escreveu
     // no grupo é o dono. Etapa 7: grupo desconhecido entra sozinho (grupos-entrada.ts); desativado continua ignorado ("grupo").
     // Etapa 4b — a ÚNICA fala no grupo: quando a Dolores é MARCADA (menção real, por código), em grupo cadastrado e ativo e com
@@ -826,7 +842,7 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
     // Etapa 9 — direta de quem não é o dono: roteamento (Central, saudação, cliente cadastrado, áudio). Nunca comando.
     if (!doDono && roteado.tipo === "direta") {
-      const ks = await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes })
+      const ks = await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes, consultasLid })
         .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a mensagem de terceiro", erroCurto(e)); return ["erro"]; });
       // em `r`, como antes: não é comando ("nao-autorizado"), ou reentrega/erro
       contar(ks[0] === "repetida" || ks[0] === "erro" ? ks[0] : "nao-autorizado");

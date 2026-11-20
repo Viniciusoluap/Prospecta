@@ -246,6 +246,43 @@ describe("achado 2 — número só da consulta à Evolution é 'provável': não
   });
 });
 
+describe("achado 4 — custo: cache de 'não resolvido', teto por aviso e dono primeiro", () => {
+  it("@lid que a Evolution não resolveu não é consultado de novo por 10 min (por instância + @lid); depois, sim", async () => {
+    await chamar(aviso(item({ key: { remoteJid: LID } })));
+    await chamar(aviso(item({ key: { remoteJid: LID } })));
+    expect(resolverLid).toHaveBeenCalledTimes(1);
+    expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: "", origem: "nao_resolvido" }]);
+    // o "não resolvido" nunca vira número: as duas mensagens ficam como não identificadas
+    expect((await q<{ destinatario: string }>("SELECT destinatario FROM whatsapp_messages WHERE id > 2")).map(r => r.destinatario)).toEqual([LID, LID]);
+    expect(await caller("admin", 1).whatsapp.conversas()).toMatchObject([{ numero: LID, semNumero: true, provavel: null }]);
+    // 11 minutos depois, consulta de novo (e um resultado agora substitui o "não resolvido", como provável)
+    const depois = new Date(AGORA.getTime() + 11 * 60_000);
+    definirDependenciasRoteamento({ agora: () => depois });
+    resolverLid.mockResolvedValueOnce(ESTRANHO);
+    await chamar(aviso(item({ key: { remoteJid: LID } })));
+    expect(resolverLid).toHaveBeenCalledTimes(2);
+    expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: ESTRANHO, origem: "evolution" }]);
+    // um aviso com o número no endereço vence o "não resolvido" também
+    await chamar(aviso(item({ key: { remoteJid: "205555555555555@lid" } })));
+    await chamar(aviso(item({ key: { remoteJid: "205555555555555@lid", senderPn: jid(EMPRESA.replace(/1111$/, "2222")) } })));
+    expect(await q("SELECT origem FROM whatsapp_lid_numeros WHERE lid = '205555555555555@lid'")).toEqual([{ origem: "aviso" }]);
+  });
+  it("no máximo 2 consultas por aviso; o comando do dono no mesmo aviso é tratado ANTES dos itens de terceiros", async () => {
+    const comandosNaHora: number[] = [];
+    resolverLid.mockImplementation(async () => { comandosNaHora.push(await comandos()); return null; });
+    const terceiros = ["201111111111111@lid", "202222222222222@lid", "203333333333333@lid", "204444444444444@lid"].map(l => item({ key: { remoteJid: l } }));
+    const doDono = item({ key: { remoteJid: jid(DONO) }, message: { conversation: "relatório do mês" } });
+    await chamar(aviso([...terceiros, doDono]));
+    expect(resolverLid).toHaveBeenCalledTimes(2);
+    expect(comandosNaHora).toEqual([1, 1]); // o comando do dono já estava registrado quando a primeira consulta saiu
+    expect(await comandos()).toBe(1);
+    expect((await q<{ motivo: string | null }>("SELECT motivo FROM dolores_mensagens"))[0].motivo ?? "").not.toMatch(/sem tempo/);
+    // os 4 terceiros continuam na Central como não identificados (nada some), e só 2 ganharam o "não resolvido"
+    expect((await q("SELECT id FROM whatsapp_messages WHERE id > 2 AND destinatario LIKE '%@lid'")).length).toBe(4);
+    expect((await q("SELECT lid FROM whatsapp_lid_numeros WHERE origem = 'nao_resolvido'")).length).toBe(2);
+  });
+});
+
 describe("achado 5 — conversa sem número nunca procura vínculo pela chave vazia", () => {
   it("um vínculo com phone_key vazio (lixo) não é aplicado à conversa @lid na lista nem no histórico", async () => {
     await chamar(aviso(item({ key: { remoteJid: LID } })));
