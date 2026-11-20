@@ -1,6 +1,6 @@
 # E9 — Conexão única do WhatsApp, atendimento e campanhas
 
-Status: InReview (implementação concluída; aguarda o portão de QA de segurança — @qa)
+Status: InReview (portão de QA de segurança de 20/11: FAIL → InProgress; achados 1–7 corrigidos pelo @dev → InReview; aguarda a nova revisão do @qa)
 Epic: EPIC-025 (Etapa 9). Regra do dono: CLAUDE.md, seção "WhatsApp — uma conexão só, atendimento e campanhas (20/11/2026)",
 itens 1 a 8 ("Autorizo os itens 1 a 7, pode executar").
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP o que portar.
@@ -78,11 +78,46 @@ Migração: **`0135_whatsapp_conexao_unica.sql`** (0117–0134 já em produção
   recebida pelo número da empresa não é baixada na hora (botão "baixar de novo" da Central).
 - [AUTO-DECISION] Cadastro com telefone mas sem lead do CRM → equipe (as leituras fechadas são do lead). Usuário ATIVO do sistema
   com o telefone → só Central.
-- [AUTO-DECISION] A checagem "número já usado por outra conexão" do `confirmarConexao` passa a olhar só conexões de CORRETOR
-  (a do admin é a mesma conexão da empresa) — senão a confirmação removeria a instância da empresa.
+- ~~[AUTO-DECISION] A checagem "número já usado por outra conexão" do `confirmarConexao` passa a olhar só conexões de CORRETOR~~
+  Substituída pelo QA-SEG achado 2 (c): conta também a linha de admin/colaborador ENQUANTO ela tiver instância (a antiga); nesse
+  caso recusa ("Remova a conexão antiga…") SEM remover a instância da empresa. A linha do admin sem instância não conta.
 - [AUTO-DECISION] Saudação, avisos e respostas a cliente também param com a pausa geral da Dolores.
 - Ligação do dono: nada (não recebe aviso). Mensagem de terceiro continua auditada uma vez por remetente por hora
   (`dolores_remetentes_estranhos`), com o motivo atualizado.
+
+## Correções do portão de QA de segurança (20/11/2026, FAIL)
+1. **BLOQUEIA — Central escrevia ao dono pelo número da empresa.** `server/whatsapp-conexao-empresa.ts` (`numerosReservados`,
+   `ehNumeroReservado`: estrita, sobre o número como sai pela Evolution) + `server/whatsapp-router.ts`: para admin/colaborador
+   (conexão da empresa), `responder`, `enviar` (Enviar mensagem e Templates; telefone do lead = do dono), `excluirConversa(s)`, prévia
+   da exclusão, `vincularLead`, `desvincularLead` e `criarLeadDaConversa` recusam o número do dono e o da própria empresa; `conversas`,
+   `mensagensConversa`, `historico` e o acesso à mensagem/mídia (`acessoMensagemWhatsapp`) não mostram essas conversas (inclusive o
+   histórico já gravado). Falha ao ler a configuração → fecha (não envia, não lista). Corretor (conexão própria): sem mudança. Os
+   envios automáticos já recusavam (`enviarAoContato`).
+2. **BLOQUEIA — instância antiga da Central do 1º admin.** (a) `processarEventoEvolution` ignora (`instancia-antiga-da-empresa`) o aviso
+   de qualquer instância gravada em linha de admin/colaborador — nem mensagem, nem notificação, nem situação. (b) Integrações › cartão
+   "WhatsApp da empresa": aviso "Ainda existe a conexão antiga da Central" + botão só-admin (papel) **"Remover a conexão antiga da
+   Central"** (`dolores.conexaoAntiga`, `dolores.removerConexaoAntiga`): desliga e apaga a instância antiga na Evolution (sem seguir
+   redirecionamento) e limpa na linha SÓ `instancia` (null) e `status` ("desconectado"); a linha fica (é o `connectionId` do
+   histórico); a instância da empresa nunca entra; registrado em `dolores_acoes` ("remover_conexao_antiga_central").
+   **Alteração de dado existente feita só quando o ADMIN clica (ação do dono, não migração).** Em produção a linha do admin (id 1)
+   tem `instancia` preenchida e `status='desconectado'`: o botão aparece até ele clicar. (c) `numeroDeOutraConexao` conta a linha
+   antiga enquanto tiver instância (ver Decisões).
+3. Avisos de ligação/áudio: interruptor próprio `avisos_ligados` (LIGADO por padrão, pedido do dono; sem a linha/migração: desligado)
+   e teto global diário `aviso_teto_global_dia` (50; ligação e áudio somam), conferidos em `enviarAviso` antes do envio; recusa
+   auditada. Tela: Integrações › "Atendimento pelo WhatsApp da empresa". Colunas novas DENTRO do CREATE TABLE da 0135 (ainda não aplicada).
+4. `identificarRemetente`: cada cadastro filtrado no SQL pelos 8 finais (`right(regexp_replace(coalesce(col,''),'\D','','g'),8)`), sem
+   limite; conferência estrita em memória; os leads candidatos são reaproveitados em `gravarItemNaCentral` (que, sem eles, também
+   filtra no banco — vale para o aviso dos corretores). Índices de expressão nas seis tabelas, na 0135 (`CREATE INDEX IF NOT EXISTS`).
+5. Envios manuais pela conexão da empresa (`responder` e `enviar`): teto de 10 por minuto e 200 por dia, somando todos os usuários,
+   no servidor (`reservarEnvioManualDaEmpresa`, `server/whatsapp-canais.ts`); falha ao contar → recusa; mensagem clara na tela.
+6. `enviar` (Enviar mensagem e Templates) pela empresa também chama `silenciarConversa` (só quando o envio foi aceito).
+7. ROADMAP: a parte da Dolores fica "(não portar — exceção)"; a parte da Central WhatsApp virou pendência "[ ] portar ao Santa Fé
+   quando o dono retomar a paridade".
+- Testes: `server/dolores/e9-qa-seg.test.ts` (provas do QA, invertidas), `server/dolores/e9-qa-seg-correcoes.test.ts` (novo — um bloco
+  por achado), `e9-conexao-unica.test.ts` (achado 3); ajustados sem afrouxar: `router.test.ts` (a linha antiga do admin COM instância
+  agora bloqueia, sem derrubar a da empresa), `whatsapp-noite.test.ts` (o aviso de mídia é de um corretor), `whatsapp-lote3.test.ts`
+  (o banco de teste ganha a configuração da Dolores, que a Central agora confere).
+- Residual: com a empresa DESCONECTADA em Integrações (`numero_dolores` vazio) só o número do dono continua filtrado.
 
 ## Pendências
 - Conferir na documentação oficial da Cloudflare o corpo/resposta do Whisper (host bloqueado neste ambiente; testes simulados).
@@ -120,7 +155,15 @@ Migração: **`0135_whatsapp_conexao_unica.sql`** (0117–0134 já em produção
 - Testes: `server/dolores/e9-conexao-unica.test.ts` (novo), `server/dolores/testes-banco.ts`, `router.test.ts`, `grupos-qa-r2.test.ts`,
   `server/integracoes-modelo-por-funcao.test.ts`, `server/whatsapp-noite.test.ts`
 - Docs: `docs/dolores/como-ligar.md` (Etapa 9), `docs/stories/epics/ROADMAP.md`, `docs/stories/epics/epic-025-dolores/EPIC.md`
+- Correções do QA-SEG: `server/whatsapp-conexao-empresa.ts`, `server/whatsapp-router.ts`, `server/whatsapp-evolution-webhook.ts`,
+  `server/whatsapp-canais.ts`, `server/dolores/router.ts`, `server/dolores/roteamento.ts`, `server/dolores/whatsapp.ts`,
+  `server/dolores/atendimento-router.ts`, `drizzle/0135_whatsapp_conexao_unica.sql`, `drizzle/schema-whatsapp-atendimento.ts`,
+  `client/src/components/admin/WhatsappEmpresaCard.tsx`, `client/src/components/admin/AtendimentoEmpresaCard.tsx`;
+  testes `server/dolores/e9-qa-seg-correcoes.test.ts` (novo), `e9-qa-seg.test.ts`, `e9-conexao-unica.test.ts`, `router.test.ts`,
+  `server/whatsapp-noite.test.ts`, `server/whatsapp-lote3.test.ts`
 
 ## Change Log
 - 20/11/2026 — @dev (Dex): Ready → InProgress; levantamento e migração 0135.
 - 20/11/2026 — @dev (Dex): InProgress → InReview; AC1–AC8 implementados e testados; merge da `main` (#259, #260) sem mudança de conteúdo.
+- 20/11/2026 — @qa (Quinn): portão de segurança FAIL (achados 1–7) → InProgress.
+- 20/11/2026 — @dev (Dex): InProgress → InReview; achados 1–7 corrigidos, um teste de regressão por achado; provas do QA invertidas.

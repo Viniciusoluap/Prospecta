@@ -790,12 +790,21 @@ Regra do dono: CLAUDE.md, "WhatsApp — uma conexão só, atendimento e campanha
    `rejectCall`). Sem isso, o aviso "não atendo ligações" não sai.
 3. A Central (Conversas, Enviar mensagem, Templates) do admin e do colaborador passa a usar esse número. A aba "Minha conexão"
    do admin mostra só as conexões dos corretores; corretores continuam conectando o próprio número ali.
+4. Se o cartão mostrar **"Ainda existe a conexão antiga da Central"**, clique **"Remover a conexão antiga da Central"** (só o
+   administrador vê). Ele desliga e apaga no servidor do WhatsApp a instância que o admin/colaborador tinha conectado pela Central
+   antes da conexão única, e limpa só a instância e a situação daquela linha (o histórico das conversas continua). A conexão da
+   empresa não é tocada. Enquanto a antiga existir com o mesmo número, "Conferir conexão"/"Reativar recebimento" recusam (sem
+   derrubar nada). Ela já não grava nada na Central.
+5. Pelo número da empresa a Central nunca escreve ao dono nem ao próprio número, nem mostra essas conversas; envios manuais têm
+   teto de 10 por minuto e 200 por dia (somando todos os usuários).
 
 ## 3. Ordem para ligar (cada passo é opcional; nada liga sozinho)
 1. **Saudação de campanha** — Central › Templates › "Saudação de campanha": cadastre a campanha (nome, empreendimento
    opcional, texto FIXO, sem `{{…}}`) e clique **Ativar** (só uma fica ativa). Vai UMA vez por número a quem não está
    cadastrado. Teto diário em Integrações › "Atendimento pelo WhatsApp da empresa" (padrão 50/dia).
-2. **Avisos de ligação e de áudio** — textos na mesma tela (padrão já preenchido); no máximo 1 a cada 3 h por número.
+2. **Avisos de ligação e de áudio** — textos na mesma tela (padrão já preenchido); no máximo 1 a cada 3 h por número. LIGADOS
+   por padrão (pedido do dono), com interruptor próprio e teto de 50 por dia no total, em Integrações › "Atendimento pelo WhatsApp
+   da empresa".
 3. **Dolores responde clientes cadastrados** — Integrações › "Atendimento pelo WhatsApp da empresa" › Ligar. Exige a IA da
    Dolores ligada, a chave da Anthropic e os limites mensais. Modelo: Integrações › Anthropic › Modelo por função ›
    "Dolores — resposta a cliente cadastrado" (o mais barato basta). Tetos: 10 por cliente/dia, 100 por dia; orçamento
