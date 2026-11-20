@@ -5,10 +5,10 @@ autorizo as correções"). Execução pelo AIOX: story → @dev → portão de Q
 migração aditiva → publicação. Alterar dado existente em produção exige confirmação do dono.
 
 ## Correções
-- [ ] C2. Mensagem recebida de outro número não aparece na Central (defeito em produção). Nenhuma mensagem pode ser
+- [x] C2. (publicada em 20/11, PR #264, migração 0136) Mensagem recebida de outro número não aparece na Central (defeito em produção). Nenhuma mensagem pode ser
   descartada sem registro visível; remetente não identificado também aparece na Central. Sem puxar histórico antigo.
-- [ ] C4. Relatório diário: o dono escolhe a hora entre 07:00 e 14:00 (uma vez por dia).
-- [ ] C5. Valores padrão (limites 15.000.000 / 1.000.000; preços Haiku 5.5 e Opus 5.5; dólar 6,00 — já gravados em
+- [x] C4. (publicada em 20/11, PR #263) Relatório diário: o dono escolhe a hora entre 07:00 e 14:00 (uma vez por dia).
+- [x] C5. (publicada em 20/11, PR #263) Valores padrão (limites 15.000.000 / 1.000.000; preços Haiku 5.5 e Opus 5.5; dólar 6,00 — já gravados em
   produção em 20/11 a pedido do dono) como padrão do sistema, e limite mostrado também em reais, com aviso acima do teto.
 - [ ] C3. Saudação de campanha com imagem (legenda = texto) e áudio (mensagem de voz); imagem até 5 MB, áudio até 2 min.
 - [ ] C1A. Conexão pela API oficial da Meta no cartão "WhatsApp da empresa" (com aviso: sozinha, não entrega grupos).
