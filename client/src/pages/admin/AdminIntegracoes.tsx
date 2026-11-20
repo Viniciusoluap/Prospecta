@@ -15,6 +15,8 @@ import { SubPciAtual } from "@/components/admin/SubPciAtual";
 import { MapboxCard } from "@/components/admin/MapboxCard";
 import { AnthropicCard } from "@/components/admin/AnthropicCard";
 import { DoloresCard } from "@/components/admin/DoloresCard";
+import { WhatsappEmpresaCard } from "@/components/admin/WhatsappEmpresaCard";
+import { AtendimentoEmpresaCard } from "@/components/admin/AtendimentoEmpresaCard";
 import { DoloresFilaCard } from "@/components/admin/DoloresFilaCard";
 import { DoloresGruposCard } from "@/components/admin/DoloresGruposCard";
 import { DoloresNotasCard } from "@/components/admin/DoloresNotasCard";
@@ -188,7 +190,7 @@ export default function AdminIntegracoes() {
             titulo="WhatsApp — servidor da Evolution (QR code)"
             servico="whatsapp"
             salvo={<p>{whatsapp?.configurado ? `Endereço ${whatsapp.url} · chave terminando em ${whatsapp.final}${FONTE(whatsapp.fonte)}.` : "Endereço e chave do servidor não salvos."}</p>}
-            extra={<p className="text-xs text-gray-300">A conexão do número (QR code), as conexões dos corretores, as conversas e os envios ficam na <Link href="/admin/whatsapp?aba=conexao" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
+            extra={<p className="text-xs text-gray-300">O número da empresa (Dolores e Central) é conectado aqui, no cartão "WhatsApp da empresa" logo abaixo — uma conexão só. As conexões dos corretores, as conversas e os envios ficam na <Link href="/admin/whatsapp?aba=conexao" className="underline text-[#C9A961]">Central WhatsApp</Link>.</p>}
             campos={[
               { nome: "url", rotulo: "Endereço do servidor", placeholder: "https://evolution-xxxx.up.railway.app" },
               { nome: "apiKey", rotulo: "Chave de acesso (AUTHENTICATION_API_KEY)", segredo: true },
@@ -196,11 +198,13 @@ export default function AdminIntegracoes() {
             salvando={salvarEvolution.isPending}
             onSalvar={v => salvarEvolution.mutateAsync({ url: v.url ?? "", apiKey: v.apiKey ?? "" })}
           />
-          {/* Lote 03, correção 09: "Minha Conexão WhatsApp" e "Conexões dos Corretores" ficam só na Central WhatsApp (aba Minha conexão). */}
+          {/* EPIC-025 E9: a conexão ÚNICA do número da empresa (Dolores e Central). As dos corretores ficam na Central › Minha conexão. */}
+          <WhatsappEmpresaCard />
           <GoogleDriveCard />
           <MapboxCard />
           <AnthropicCard />
           <DoloresCard />
+          <AtendimentoEmpresaCard />
           <DoloresOperacaoCard />
           <DoloresFilaCard />
           <DoloresGruposCard />

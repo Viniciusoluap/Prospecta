@@ -229,3 +229,39 @@ Isto substitui o cadastro manual de grupo no painel (o painel passa a servir par
 5. Continua valendo em todos: só responde quando marcada; **nunca age a partir de grupo**; mensagem de grupo nunca é
    comando; mudar o nome do grupo depois não muda o tipo nem o vínculo sem o dono confirmar.
 6. Story: `docs/stories/epics/epic-025-dolores/E7-grupos-automaticos.md`.
+
+## WhatsApp — uma conexão só, atendimento e campanhas (REGRA — estabelecida pelo dono em 20/11/2026)
+
+Palavras do dono: "Não, eu quero uma conexão só" e, ao aprovar a estrutura, "Autorizo os itens 1 a 7, pode executar".
+O número conectado em Integrações é o da empresa: serve a Dolores E a Central WhatsApp. Isto substitui a ideia de
+"número exclusivo da Dolores" e a regra "a Dolores nunca envia nada a cliente" (agora ela responde cliente cadastrado,
+dentro dos limites do item 4). Story: `docs/stories/epics/epic-025-dolores/E9-conexao-unica-e-atendimento.md`.
+
+1. **Conexão única, feita só em Configurações › Integrações** (QR code pela Evolution; a conexão que já existe é
+   reaproveitada, sem novo QR). A Central (Conversas, Enviar mensagem, Templates) usa essa conexão. Na aba "Minha
+   conexão" da Central, o admin vê só "Conexões dos Corretores"; corretor e colaborador continuam conectando o próprio
+   número ali.
+2. **Roteamento por código** (nunca pela IA) de quem escreve para o número da empresa:
+   - número do dono → Dolores (comandos); nunca aparece na Central;
+   - cliente já cadastrado (telefone de um único cliente em obra, financiamento, incorporação, regularização,
+     avaliação ou jurídico) → Dolores responde sobre o caso dele (item 4) e a conversa aparece na Central;
+   - número desconhecido → saudação da campanha ativa (item 3) e Central (atendimento humano);
+   - grupos → Dolores, pelas regras de 17/11 e 19/11.
+3. **Saudação de campanha**: texto salvo em Templates, uma campanha ativa por vez, enviado UMA vez por número por
+   campanha a quem não está cadastrado; sem campanha ativa, nada sai. Texto fixo, sem IA.
+4. **Dolores atende cliente cadastrado**: só sobre o caso daquela pessoa (andamento, pendências, documentos que faltam);
+   sem valores em dinheiro; nunca age; nunca fala de outro cliente; telefone ligado a mais de um cadastro → equipe;
+   quando alguém da equipe responde na conversa, ela fica calada nela por algumas horas; interruptor próprio desligado
+   por padrão; teto de respostas por cliente por dia, dentro do teto de gasto.
+5. **Ligação**: não é atendida; a pessoa recebe por texto que a Dolores não atende ligações e pode escrever.
+   **Áudio**: transcrito (item 6) e respondido por texto; com a transcrição desligada ou falhando, o mesmo aviso
+   pedindo para escrever. Aviso no máximo uma vez a cada poucas horas por pessoa; texto editável em Templates.
+   Nos grupos, silêncio (só fala quando marcada).
+6. **Transcrição de áudio pela Cloudflare (Workers AI, Whisper)**, faixa gratuita; chave cadastrada pelo dono em
+   Integrações; limite de duração e de quantidade por pessoa por dia; interruptor desligado por padrão. O áudio vai a
+   esse serviço: entra no termo de consentimento (pendência do jurídico).
+7. **Preparado para dois canais**: receber tudo pelo WhatsApp Web (Evolution) e reservar a API oficial da Meta para
+   disparos de campanha. A coexistência no mesmo número é FASE SEPARADA (credenciamento próprio na Meta), só depois de
+   confirmar Brasil, grupos e requisitos; até lá, sem disparo em massa pelo número principal.
+8. Continua valendo: só o número do dono comanda; mensagem de cliente ou de grupo nunca é comando; conversa do dono com
+   a Dolores, avisos e relatórios dela nunca ficam visíveis a corretor/colaborador; chaves nunca saem.
