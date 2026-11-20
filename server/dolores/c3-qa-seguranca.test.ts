@@ -301,9 +301,10 @@ describe("rodada 2 — imagem: o parser novo", () => {
     const b = jpg(app1ComMiniatura(), sof(0xc0, 30_000, 30_000), sos(), dados(500));
     expect(conferirMidiaSaudacao("imagem", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/grande demais em pixels/) });
   });
-  it("ACHADO R2-2: DOIS quadros SOF — o 1º gigante e o 2º pequeno: o parser fica com o ÚLTIMO e aceita", () => {
+  it("CORRIGIDO R2-2: DOIS quadros SOF (o 1º gigante e o 2º pequeno) são recusados como estrutura inválida", () => {
     const b = jpg(sof(0xc0, 60_000, 60_000), sof(0xc0, 100, 100), sos(), dados(500));
-    expect(conferirMidiaSaudacao("imagem", b)).toMatchObject({ ok: true }); // deveria recusar (2 SOF) ou usar o 1º
+    expect(conferirMidiaSaudacao("imagem", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/incompleta ou tem algo a mais/) });
+    expect(conferirMidiaSaudacao("imagem", jpg(sof(0xc0, 100, 100), sof(0xc2, 100, 100), sos(), dados(500))).ok).toBe(false);
   });
   it("segmento de tamanho 0 ou 1, marcador solto e lixo depois do FF D9 são recusados", () => {
     expect(conferirMidiaSaudacao("imagem", Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]), Buffer.alloc(40), Buffer.from([0xff, 0xd9])])).ok).toBe(false);
@@ -311,9 +312,14 @@ describe("rodada 2 — imagem: o parser novo", () => {
     const ok = jpg(sof(0xc0, 100, 100), sos(), dados(200));
     expect(conferirMidiaSaudacao("imagem", Buffer.concat([ok, Buffer.from("<html>")])).ok).toBe(false);
   });
-  it("ACHADO R2-3 (usabilidade): foto de celular com dados DEPOIS do FF D9 (foto com movimento / MPF / Samsung) é recusada", () => {
-    const motion = Buffer.concat([jpg(sof(0xc0, 4000, 3000), sos(), dados(2000)), caixa("ftyp", Buffer.from("mp42\0\0\0\0", "latin1")), Buffer.alloc(5000, 1)]);
-    expect(conferirMidiaSaudacao("imagem", motion)).toMatchObject({ ok: false, erro: expect.stringMatching(/salve de novo/) });
+  it("CORRIGIDO R2-3 (usabilidade): foto de celular com dados DEPOIS do FF D9 (foto com movimento / MPF / Samsung) passa, cortada no fim da imagem", () => {
+    const imagem = jpg(sof(0xc0, 4000, 3000), sos(), dados(2000));
+    const motion = Buffer.concat([imagem, caixa("ftyp", Buffer.from("mp42\0\0\0\0", "latin1")), Buffer.alloc(5000, 1)]);
+    expect(conferirMidiaSaudacao("imagem", motion)).toMatchObject({ ok: true, mime: "image/jpeg", tamanho: imagem.length, fim: imagem.length });
+    const mpf = Buffer.concat([imagem, jpg(sof(0xc0, 320, 240), sos(), dados(100))]);
+    expect(conferirMidiaSaudacao("imagem", mpf)).toMatchObject({ ok: true, tamanho: imagem.length });
+    const samsung = Buffer.concat([imagem, Buffer.from("SEFH"), Buffer.alloc(300, 2), Buffer.from("\0\0\0\x10SEFT", "latin1")]);
+    expect(conferirMidiaSaudacao("imagem", samsung)).toMatchObject({ ok: true, tamanho: imagem.length });
   });
   it("PNG com muitos blocos legítimos passa; 5 MB de blocos mínimos e entradas degeneradas terminam rápido", () => {
     const bloco = (t: string, n: number) => { const h = Buffer.alloc(8); h.writeUInt32BE(n, 0); h.write(t, 4, "latin1"); return Buffer.concat([h, Buffer.alloc(n, 1), Buffer.alloc(4)]); };
@@ -347,7 +353,7 @@ describe("rodada 2 — áudio: forjados e legítimos", () => {
     for (let s = 1; s <= 40; s++) paginas.push(paginaOgg(s * 48_000 + 312, Buffer.alloc(250, 7)));
     expect(conferirMidiaSaudacao("audio", Buffer.concat(paginas))).toMatchObject({ ok: true, mime: "audio/ogg", duracaoS: 40 });
   });
-  it("ACHADO R2-4: Opus de 30 min a baixa taxa com as posições de amostra 'comprimidas' (todas ≤ 40 s) passa como 40 s", () => {
+  it("CORRIGIDO R2-4: Opus de 30 min a baixa taxa com as posições de amostra 'comprimidas' (todas ≤ 40 s) vale pela soma dos pacotes e é recusado", () => {
     // 90 000 pacotes de 20 ms (= 30 min) a ~6 kbit/s, em páginas cujo granule só vai até 40 s; o decodificador toca os pacotes
     const toc20ms = 0x08 << 3 | 0x00; // config de 20 ms (SILK), 1 quadro
     const paginas = [paginaOgg(0, opusHead()), paginaOgg(0, Buffer.concat([Buffer.from("OpusTags"), Buffer.alloc(16)]))];
@@ -360,7 +366,7 @@ describe("rodada 2 — áudio: forjados e legítimos", () => {
     }
     const b = Buffer.concat(paginas);
     expect(b.length / 40).toBeLessThan(64 * 1024);
-    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: true, duracaoS: 40 });
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/máximo é 2 minutos/) });
   });
   it("MP3 VBR (quadros de taxas diferentes) e com capa de 200 kB em 10 s", () => {
     const quadro = (idx: number) => { const n = Math.floor(144 * [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320][idx] * 1000 / 44_100); const q = Buffer.alloc(n, 0x55); q[0] = 0xff; q[1] = 0xfb; q[2] = idx << 4; return q; };
@@ -369,13 +375,13 @@ describe("rodada 2 — áudio: forjados e legítimos", () => {
     const capa = 200 * 1024;
     const tam = Buffer.from([(capa >> 21) & 0x7f, (capa >> 14) & 0x7f, (capa >> 7) & 0x7f, capa & 0x7f]);
     const comCapa = Buffer.concat([Buffer.from("ID3\x03\x00\x00", "latin1"), tam, Buffer.alloc(capa, 1), Buffer.concat(Array.from({ length: Math.ceil(10 * 44_100 / 1152) }, () => quadro(9)))]);
-    // ACHADO R2-5 (usabilidade): (200 kB + 160 kB) / 10 s ≈ 36 kB/s passa; uma capa de 600 kB num jingle de 10 s seria recusada
+    // R2-5 (usabilidade, limitação registrada na story): (200 kB + 160 kB) / 10 s ≈ 36 kB/s passa; uma capa de 600 kB num jingle de 10 s seria recusada
     expect(conferirMidiaSaudacao("audio", comCapa).ok).toBe(true);
   });
 });
 
 describe("rodada 2 — eco durante o envio e sem confirmação", () => {
-  it("ACHADO R2-1: áudio da EQUIPE pelo celular DURANTE o envio automático (status 'enviando') é tido como automático e o id da equipe é sobrescrito", async () => {
+  it("CORRIGIDO R2-1: áudio da EQUIPE pelo celular DURANTE o envio automático: ao terminar o envio vira mensagem da equipe e cala a Dolores, sem perder ids", async () => {
     const id = await campanhaAtiva();
     const admin = caller("admin");
     const up = await subir(admin, id, "audio", OGG10, "voz.ogg");
@@ -387,12 +393,26 @@ describe("rodada 2 — eco durante o envio e sem confirmação", () => {
       return "EVO-AUTOMATICO";
     });
     await chamar(aviso(direta()));
-    expect(rotaDaEquipe).toMatchObject({ "propria-automatica": 1 });
-    expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]);
-    expect(await q("SELECT external_id FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ external_id: "EVO-AUTOMATICO" }]); // o id da equipe sumiu
-    // o eco verdadeiro do automático chega depois e é reconhecido pelo id; o áudio da equipe nunca aparece como da equipe
+    expect(rotaDaEquipe).toMatchObject({ "propria-automatica": 1 }); // no instante do eco não dá para saber; o fim do envio desfaz
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1);
+    expect(await q("SELECT external_id, automatica, status FROM whatsapp_messages WHERE mensagem = '[áudio]' ORDER BY id")).toEqual([
+      { external_id: "EVO-AUTOMATICO", automatica: true, status: "enviada" }, { external_id: "EQUIPE-DURANTE", automatica: false, status: "enviada" }]);
+    // o eco verdadeiro do automático chega depois e é reconhecido pelo id: nada duplica
     await chamar(aviso(direta({ fromMe: true, id: "EVO-AUTOMATICO", message: { audioMessage: { seconds: 10, ptt: true } } })));
-    expect(await q("SELECT count(*)::int AS n FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ n: 1 }]);
+    expect(await q("SELECT count(*)::int AS n FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ n: 2 }]);
+  });
+  it("R2-1: eco que casou durante um envio que FALHOU ou ficou sem confirmação também vira da equipe (na dúvida, lado humano)", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: await subir(admin, id, "audio", OGG10, "voz.ogg"), nome: "voz.ogg" });
+    enviarMidia.mockImplementation(async () => {
+      await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-NA-FALHA", message: { audioMessage: { seconds: 8, ptt: true } } })));
+      throw new DOMException("timeout", "TimeoutError");
+    });
+    await chamar(aviso(direta()));
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1);
+    expect(await q("SELECT external_id, automatica, status FROM whatsapp_messages WHERE mensagem = '[áudio]' ORDER BY id")).toEqual([
+      { external_id: null, automatica: true, status: "falhou" }, { external_id: "EQUIPE-NA-FALHA", automatica: false, status: "enviada" }]);
   });
   it("imagem sem confirmação (exceção no envio): texto e áudio NÃO vão; registrada; reentrega não reenvia", async () => {
     const id = await campanhaAtiva();

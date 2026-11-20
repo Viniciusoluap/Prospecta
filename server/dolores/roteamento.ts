@@ -411,11 +411,36 @@ export async function enviarAoContatoComResultado(p: PedidoAoContato): Promise<R
     if (!externalId) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)";
   } catch (e) { motivo = `sem confirmação do envio (tempo esgotado ou conexão caiu): ${erroParaLog(e)}`; semConfirmacao = true; }
   if (linha) {
-    await db.update(whatsappMessages).set({ status: externalId ? "enviada" : "falhou", ...(externalId ? { externalId } : { erroMsg: semConfirmacao ? "Sem confirmação do envio (pode ter chegado)" : "Erro ao enviar" }), updatedAt: new Date() })
-      .where(eq(whatsappMessages.id, linha.id)).catch(e => console.error("[dolores/roteamento] falha ao atualizar a mensagem automática", erroParaLog(e)));
+    // QA-SEG C3 R2-1: durante o envio, um eco com o rótulo da mídia pode ter casado com esta linha e gravado o id dele. Se esse id
+    // não é o que a Evolution devolveu (ou o envio não foi confirmado), o eco NÃO era nosso: na dúvida é da EQUIPE — vira mensagem
+    // própria (não automática) com aquele id, a Dolores fica calada na conversa e a linha automática fica com o id real (ou nenhum).
+    const [atual] = await db.select({ externalId: whatsappMessages.externalId }).from(whatsappMessages).where(eq(whatsappMessages.id, linha.id)).limit(1)
+      .catch(() => [] as { externalId: string | null }[]);
+    const idDoEco = atual?.externalId ?? null;
+    const ecoDeOutro = idDoEco !== null && idDoEco !== externalId;
+    await db.update(whatsappMessages).set({
+      status: externalId ? "enviada" : "falhou",
+      ...(externalId ? { externalId } : { erroMsg: semConfirmacao ? "Sem confirmação do envio (pode ter chegado)" : "Erro ao enviar", ...(ecoDeOutro ? { externalId: null } : {}) }),
+      updatedAt: new Date(),
+    }).where(eq(whatsappMessages.id, linha.id)).catch(e => console.error("[dolores/roteamento] falha ao atualizar a mensagem automática", erroParaLog(e)));
+    if (ecoDeOutro) await mensagemDaEquipeNoEnvio(p, { connectionId: p.conn.id, destino, mensagem: naCentral, externalId: idDoEco })
+      .catch(e => console.error("[dolores/roteamento] falha ao separar a mensagem da equipe", erroParaLog(e)));
   }
   await auditar(externalId ? "ok" : "erro", motivo, { caracteres: final.length, duracaoMs: deps.ms() - inicio, ...(semConfirmacao ? { semConfirmacao: true } : {}) });
   return externalId ? "ok" : semConfirmacao ? "sem_confirmacao" : "falhou";
+}
+
+/** QA-SEG C3 R2-1: a mensagem da equipe que casou por engano com um envio automático em andamento: grava como da equipe e cala a Dolores. */
+async function mensagemDaEquipeNoEnvio(p: PedidoAoContato, m: { connectionId: number; destino: string; mensagem: string; externalId: string }) {
+  const db = getDb();
+  const [ja] = await db.select({ id: whatsappMessages.id }).from(whatsappMessages)
+    .where(and(eq(whatsappMessages.connectionId, m.connectionId), eq(whatsappMessages.externalId, m.externalId))).limit(1);
+  if (!ja) await db.insert(whatsappMessages).values({
+    connectionId: m.connectionId, leadId: p.leadId ?? null, destinatario: m.destino, nomeDestinatario: p.nome ?? null, mensagem: m.mensagem,
+    status: "enviada", externalId: m.externalId, direcao: "saida", lida: true, automatica: false,
+  });
+  const config = await lerConfigAtendimento();
+  await silenciarConversa(p.numero, config.silencioHoras);
 }
 
 /** EPIC-026 C3: o texto da mídia automática na Central — igual ao das mídias recebidas (textoDaMensagem da Evolution). */

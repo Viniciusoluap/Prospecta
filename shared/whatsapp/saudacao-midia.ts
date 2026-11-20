@@ -41,11 +41,25 @@ const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
 /** QA-SEG C3 achado 2: teto de pixels (contra "bomba de descompressão"): 8 000 px por lado e 40 megapixels. */
 export const MAX_LADO_IMAGEM_SAUDACAO = 8_000;
 export const MAX_PIXELS_IMAGEM_SAUDACAO = 40_000_000;
-/** Depois do fim da imagem só se aceita um preenchimento curto de zeros (nada escondido depois do fim). */
-const SOBRA_MAXIMA = 64;
-const soZerosDepois = (b: Uint8Array, de: number) => b.length - de <= SOBRA_MAXIMA && b.subarray(de).every(x => x === 0);
+/**
+ * Depois do fim da imagem (EOI / IEND). QA-SEG C3 R2-3: o que o CELULAR põe depois do fim é CORTADO antes de gravar e enviar —
+ * zeros de preenchimento, imagens extras do MPF (iPhone/câmeras: outro JPG, "FF D8 FF"), o vídeo da foto com movimento (caixa
+ * MP4 "ftyp") e o rodapé da Samsung ("SEFH"/"SEFT"). Qualquer outra coisa (HTML, ZIP, script…) continua RECUSADA: não é de câmera.
+ */
+function sobraDeCelular(b: Uint8Array, de: number): boolean {
+  if (de >= b.length) return true;
+  const resto = b.subarray(de);
+  if (resto.every(x => x === 0)) return true;
+  let i = 0;
+  while (i < resto.length && resto[i] === 0) i++; // zeros antes do apêndice
+  if (comeca(resto, [0xff, 0xd8, 0xff], i)) return true;
+  // caixa MP4 (4 bytes de tamanho + "ftyp"), logo depois do fim ou de zeros de preenchimento (o tamanho começa com zeros)
+  for (let j = 0; j <= Math.min(i, 64); j++) if (ascii(resto, j + 4, 4) === "ftyp") return true;
+  const fim = ascii(resto, Math.max(0, resto.length - 8), 8);
+  return fim.includes("SEFT") || ascii(resto, i, 4) === "SEFH";
+}
 
-type ImagemLida = { mime: MimeImagemSaudacao; largura: number; altura: number } | { erro: "formato" | "estrutura" | "dimensao" };
+type ImagemLida = { mime: MimeImagemSaudacao; largura: number; altura: number; fim: number } | { erro: "formato" | "estrutura" | "dimensao" };
 
 /** PNG: assinatura, IHDR primeiro (13 bytes), ao menos um IDAT e o IEND no fim; blocos encadeados até o fim, sem lixo depois. */
 function lerPng(b: Uint8Array): ImagemLida {
@@ -62,8 +76,8 @@ function lerPng(b: Uint8Array): ImagemLida {
     if (tipo === "IDAT") idat = true;
     i += 12 + n;
     if (tipo === "IEND") {
-      if (!idat || n !== 0 || !soZerosDepois(b, i)) return { erro: "estrutura" };
-      return { mime: "image/png", largura, altura };
+      if (!idat || n !== 0 || !sobraDeCelular(b, i)) return { erro: "estrutura" };
+      return { mime: "image/png", largura, altura, fim: i };
     }
   }
   return { erro: "estrutura" };
@@ -87,7 +101,7 @@ function lerJpg(b: Uint8Array): ImagemLida {
     const n = (b[i + 2] << 8) | b[i + 3];
     if (n < 2 || i + 2 + n > b.length) return { erro: "estrutura" };
     if (m === 0xc0 || m === 0xc1 || m === 0xc2) {
-      if (n < 8) return { erro: "estrutura" };
+      if (n < 8 || sof) return { erro: "estrutura" }; // QA-SEG C3 R2-2: um quadro só (segundo SOF = estrutura inválida)
       altura = (b[i + 5] << 8) | b[i + 6];
       largura = (b[i + 7] << 8) | b[i + 8];
       sof = true;
@@ -106,8 +120,8 @@ function lerJpg(b: Uint8Array): ImagemLida {
     }
     if (i + 1 >= b.length) return { erro: "estrutura" };
     if (b[i + 1] === 0xd9) {
-      if (!soZerosDepois(b, i + 2)) return { erro: "estrutura" };
-      return largura && altura ? { mime: "image/jpeg", largura, altura } : { erro: "estrutura" };
+      if (!sobraDeCelular(b, i + 2)) return { erro: "estrutura" };
+      return largura && altura ? { mime: "image/jpeg", largura, altura, fim: i + 2 } : { erro: "estrutura" };
     }
     // outro segmento (ex.: SOS seguinte de JPG progressivo): continua o laço
   }
@@ -136,6 +150,18 @@ export function tipoDaImagemSaudacao(b: Uint8Array): MimeImagemSaudacao | null {
  * início do fluxo com "OpusHead"; UM fluxo só (mesmo número de série, nenhum segundo início). Duração = MAIOR posição de
  * amostra − pre-skip, a 48 kHz.
  */
+/** Duração (s) de UM pacote Opus pelo byte TOC (RFC 6716 §3.1): tamanho do quadro pela config × número de quadros. null = inválido. */
+function duracaoDoPacoteOpus(primeiros: number[], tamanho: number): number | null {
+  if (tamanho === 0) return 0; // pacote vazio (DTX)
+  const toc = primeiros[0];
+  const config = toc >> 3;
+  const quadroMs = config < 12 ? [10, 20, 40, 60][config % 4] : config < 16 ? [10, 20][config % 2] : [2.5, 5, 10, 20][config % 4];
+  const codigo = toc & 0x03;
+  const quadros = codigo === 0 ? 1 : codigo < 3 ? 2 : (tamanho >= 2 && primeiros.length >= 2 ? primeiros[1] & 0x3f : 0);
+  if (!quadros || quadros * quadroMs > 120) return null; // o Opus não passa de 120 ms por pacote
+  return quadros * quadroMs / 1000;
+}
+
 function duracaoOggOpus(b: Uint8Array): number | null {
   if (!comeca(b, [0x4f, 0x67, 0x67, 0x53]) || b.length < 47) return null; // "OggS"
   let i = 0;
@@ -143,6 +169,12 @@ function duracaoOggOpus(b: Uint8Array): number | null {
   let preSkip = 0;
   let maior = 0;
   let paginas = 0;
+  // QA-SEG C3 R2-4: além da posição de amostra (forjável), soma a duração REAL dos pacotes de áudio pelo byte TOC de cada um; vale
+  // a MAIOR das duas. Os pacotes são remontados pelo "lacing" (segmento < 255 fecha o pacote; pacote pode atravessar páginas).
+  let pacotes = 0;
+  let tamanhoDoPacote = 0;
+  let primeiros: number[] = [];
+  let somaDosPacotes = 0;
   while (i < b.length) {
     if (i + 27 > b.length || b[i] !== 0x4f || b[i + 1] !== 0x67 || b[i + 2] !== 0x67 || b[i + 3] !== 0x53 || b[i + 4] !== 0) return null;
     const flags = b[i + 5];
@@ -153,6 +185,23 @@ function duracaoOggOpus(b: Uint8Array): number | null {
     for (let k = 0; k < nseg; k++) corpo += b[i + 27 + k];
     const inicio = i + 27 + nseg;
     if (inicio + corpo > b.length) return null;
+    let pos = inicio;
+    for (let k = 0; k < nseg; k++) {
+      const len = b[i + 27 + k];
+      for (let t = 0; t < len && primeiros.length < 2; t++) primeiros.push(b[pos + t]);
+      tamanhoDoPacote += len;
+      pos += len;
+      if (len < 255) {
+        if (pacotes >= 2) { // os dois primeiros são cabeçalhos (OpusHead, OpusTags)
+          const d = duracaoDoPacoteOpus(primeiros, tamanhoDoPacote);
+          if (d === null) return null;
+          somaDosPacotes += d;
+        }
+        pacotes++;
+        tamanhoDoPacote = 0;
+        primeiros = [];
+      }
+    }
     if (paginas === 0) {
       if (!(flags & 0x02) || corpo < 19 || ascii(b, inicio, 8) !== "OpusHead") return null;
       serial = s;
@@ -173,7 +222,7 @@ function duracaoOggOpus(b: Uint8Array): number | null {
     i = inicio + corpo;
   }
   if (paginas < 2 || maior <= preSkip) return null;
-  return (maior - preSkip) / 48_000;
+  return Math.max((maior - preSkip) / 48_000, somaDosPacotes - preSkip / 48_000);
 }
 
 const BITRATES_V1_L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
@@ -269,6 +318,17 @@ function duracaoM4a(b: Uint8Array): number | null {
     if (!mdhd || !mdhd.escala) return null;
     const daFaixa = mdhd.duracao / mdhd.escala;
     if (Math.abs(daFaixa - segundos) > Math.max(1, segundos * 0.05)) return null; // cabeçalhos que não concordam
+    // QA-SEG C3 R2-4: a tabela de tempos das amostras (stts) da faixa de som, quando existe, precisa somar a mesma duração
+    const minf = dentroMdia.find(c => c.tipo === "minf");
+    const stbl = minf ? caixas(b, minf.inicio, minf.fim).find(c => c.tipo === "stbl") : undefined;
+    const stts = stbl ? caixas(b, stbl.inicio, stbl.fim).find(c => c.tipo === "stts") : undefined;
+    if (stts) {
+      const n = stts.fim - stts.inicio >= 8 ? u32(b, stts.inicio + 4) : -1;
+      if (n < 0 || stts.inicio + 8 + n * 8 > stts.fim) return null;
+      let total = 0;
+      for (let k = 0; k < n; k++) total += u32(b, stts.inicio + 8 + k * 8) * u32(b, stts.inicio + 12 + k * 8);
+      if (Math.abs(total / mdhd.escala - daFaixa) > Math.max(1, daFaixa * 0.05)) return null;
+    }
   }
   return som === 1 ? segundos : null;
 }
@@ -287,7 +347,8 @@ export function lerAudioSaudacao(b: Uint8Array): { mime: MimeAudioSaudacao; dura
 const mb = (n: number) => `${(n / (1024 * 1024)).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} MB`;
 
 export type MidiaConferida =
-  | { ok: true; tipo: "imagem"; mime: MimeImagemSaudacao; tamanho: number; duracaoS: null }
+  /** `tamanho` = só a imagem validada (até o fim dela); `fim` = onde cortar (o apêndice do celular não é gravado nem enviado). */
+  | { ok: true; tipo: "imagem"; mime: MimeImagemSaudacao; tamanho: number; duracaoS: null; fim: number }
   | { ok: true; tipo: "audio"; mime: MimeAudioSaudacao; tamanho: number; duracaoS: number }
   | { ok: false; erro: string };
 
@@ -302,7 +363,7 @@ export function conferirMidiaSaudacao(tipo: TipoMidiaSaudacao, b: Uint8Array): M
       : img.erro === "estrutura"
         ? "Esta imagem está incompleta ou tem algo a mais depois do fim. Abra a foto e salve de novo como JPG ou PNG comum."
         : "Este arquivo não é uma imagem JPG ou PNG. Envie uma foto em JPG ou PNG." };
-    return { ok: true, tipo, mime: img.mime, tamanho: b.length, duracaoS: null };
+    return { ok: true, tipo, mime: img.mime, tamanho: img.fim, duracaoS: null, fim: img.fim };
   }
   if (b.length > LIMITE_AUDIO_SAUDACAO) return { ok: false, erro: `O áudio passa de ${mb(LIMITE_AUDIO_SAUDACAO)}. Envie um áudio menor.` };
   const audio = lerAudioSaudacao(b);

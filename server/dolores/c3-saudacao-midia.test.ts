@@ -1,5 +1,6 @@
 // EPIC-026 C3 — saudação de campanha com imagem e áudio. Cada regra: tentativa → resultado conferido no banco e no que saiu.
 // PGlite; nada sai para a rede (Evolution simulada pelas dependências do roteamento).
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn(), getDashboardSetting: vi.fn(), saveDashboardSetting: vi.fn() }));
@@ -83,6 +84,14 @@ function m4a(segundos: number, manipulador = "soun") {
   const mdhd = Buffer.alloc(24); mdhd.writeUInt32BE(44_100, 12); mdhd.writeUInt32BE(Math.round(segundos * 44_100), 16);
   return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")),
     caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("mdhd", mdhd), caixa("hdlr", hdlr)))), caixa("mdat", Buffer.alloc(4000, 0x21))]);
+}
+
+/** M4A de 10 s com o conteúdo da "mdia" depois do mdhd trocado (hdlr + minf/stbl/stts). */
+function m4aCom(restoDaMdia: Buffer) {
+  const mvhd = Buffer.alloc(100); mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(10_000, 16);
+  const mdhd = Buffer.alloc(24); mdhd.writeUInt32BE(44_100, 12); mdhd.writeUInt32BE(441_000, 16);
+  return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")),
+    caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("mdhd", mdhd), restoDaMdia))), caixa("mdat", Buffer.alloc(4000, 0x21))]);
 }
 
 describe("conferência pelos bytes (tela e servidor)", () => {
@@ -288,6 +297,26 @@ describe("gravação pela tela do administrador", () => {
     await expect(anexar(admin, id, "audio", m4a(30, "vide"), "video.m4a")).rejects.toThrow(/Não reconheci este áudio/);
     expect(await q("SELECT * FROM whatsapp_campanha_midias")).toEqual([]);
   });
+  it("QA-SEG R2-3: foto com movimento — só a imagem é guardada (tamanho e hash do corte) e só ela vai à Evolution", async () => {
+    const admin = caller("admin");
+    const id = await campanhaAtiva();
+    const apendice = Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from("ftypmp42\0\0\0\0", "latin1"), Buffer.alloc(3000, 5)]);
+    const r = await anexar(admin, id, "imagem", Buffer.concat([JPG, apendice]), "movimento.jpg");
+    expect(r.campanhas[0].imagem).toMatchObject({ tamanho: JPG.length, versao: createHash("sha256").update(JPG).digest("hex") });
+    await chamar(aviso(direta()));
+    expect(Buffer.from(enviarMidia.mock.calls[0][0].midia.base64, "base64").equals(JPG)).toBe(true);
+  });
+  it("QA-SEG R2-4: M4A com a tabela de tempos (stts) que não soma a duração do mdhd é recusado", () => {
+    const stts = (amostras: number) => { const c = Buffer.alloc(16); c.writeUInt32BE(1, 4); c.writeUInt32BE(amostras, 8); c.writeUInt32BE(1024, 12); return caixa("stts", c); };
+    const comStts = (amostras: number) => {
+      const b = m4a(10);
+      const i = b.indexOf(Buffer.from("hdlr")) - 4;
+      const hdlr = b.subarray(i, i + b.readUInt32BE(i));
+      return m4aCom(Buffer.concat([hdlr, caixa("minf", caixa("stbl", stts(amostras)))]));
+    };
+    expect(lerAudioSaudacao(comStts(Math.round(10 * 44_100 / 1024)))).toMatchObject({ mime: "audio/mp4" });
+    expect(lerAudioSaudacao(comStts(Math.round(600 * 44_100 / 1024)))).toBeNull();
+  });
   it("criar campanha devolve o id (a tela já oferece anexar)", async () => {
     const r = await caller("admin").dolores.atendimento.criarCampanha({ nome: "Nova", texto: "Olá, nova campanha!" });
     expect(r.criadaId).toBe((await q<{ id: number }>("SELECT id FROM whatsapp_campanhas WHERE nome = 'Nova'"))[0].id);
@@ -397,13 +426,16 @@ describe("envio da saudação: ordem, queda para texto e uma vez por número", (
     const ecos: Promise<unknown>[] = [];
     enviarMidia.mockImplementation(async (p: { midia: { tipo: string }; legenda: string }) => {
       const message = p.midia.tipo === "imagem" ? { imageMessage: { caption: p.legenda } } : { audioMessage: { seconds: 10, ptt: true } };
-      ecos.push(chamar(aviso(direta({ fromMe: true, message }))));
+      // o eco de verdade traz o MESMO id que a Evolution devolve no fim do envio
+      const idDaEvolution = `EVO${++seq}`;
+      ecos.push(chamar(aviso(direta({ fromMe: true, id: idDaEvolution, message }))));
       await ecos[ecos.length - 1];
-      return `EVO${++seq}`;
+      return idDaEvolution;
     });
     await chamar(aviso(direta()));
     expect(ecos).toHaveLength(2);
     expect((await central()).map(x => x.automatica)).toEqual([true, true]);
+    expect((await central()).map(x => x.status)).toEqual(["enviada", "enviada"]);
     expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]);
   });
 });

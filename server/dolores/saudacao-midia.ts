@@ -32,9 +32,11 @@ export async function metasDasMidias(): Promise<MetaDaMidia[]> {
 export async function gravarMidiaDaCampanha(p: { campanhaId: number; tipo: TipoMidiaSaudacao; nome: string; bytes: Buffer; userId: number }): Promise<MidiaConferida> {
   const c = conferirMidiaSaudacao(p.tipo, p.bytes);
   if (!c.ok) return c;
+  // QA-SEG C3 R2-3: da imagem fica só até o fim dela (o apêndice do celular é cortado); tamanho e hash do que foi guardado
+  const guardado = c.tipo === "imagem" ? Buffer.from(p.bytes.subarray(0, c.fim)) : p.bytes;
   const dados = {
-    mime: c.mime, nome: nomeSeguroDaMidia(p.nome, c.mime), tamanho: c.tamanho, duracaoS: c.duracaoS,
-    sha256: createHash("sha256").update(p.bytes).digest("hex"), conteudo: p.bytes, enviadoPor: p.userId, criadoEm: new Date(),
+    mime: c.mime, nome: nomeSeguroDaMidia(p.nome, c.mime), tamanho: guardado.length, duracaoS: c.duracaoS,
+    sha256: createHash("sha256").update(guardado).digest("hex"), conteudo: guardado, enviadoPor: p.userId, criadoEm: new Date(),
   };
   await getDb().insert(whatsappCampanhaMidias).values({ campanhaId: p.campanhaId, tipo: p.tipo, ...dados })
     .onConflictDoUpdate({ target: [whatsappCampanhaMidias.campanhaId, whatsappCampanhaMidias.tipo], set: dados });
@@ -78,7 +80,8 @@ export async function midiasParaEnvio(campanhaId: number): Promise<{ imagem: Mid
     const bytes = Buffer.from(l.conteudo);
     const c = conferirMidiaSaudacao(l.tipo, bytes);
     if (!c.ok || c.tipo !== l.tipo) continue;
-    r[l.tipo] = { tipo: l.tipo, mime: c.mime, nome: nomeSeguroDaMidia(l.nome, c.mime), base64: bytes.toString("base64") };
+    const enviado = c.tipo === "imagem" ? bytes.subarray(0, c.fim) : bytes; // nenhum byte depois do fim da imagem vai à Evolution
+    r[l.tipo] = { tipo: l.tipo, mime: c.mime, nome: nomeSeguroDaMidia(l.nome, c.mime), base64: Buffer.from(enviado).toString("base64") };
   }
   return r;
 }

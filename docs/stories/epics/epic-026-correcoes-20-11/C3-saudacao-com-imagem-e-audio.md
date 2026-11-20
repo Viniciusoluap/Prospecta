@@ -78,6 +78,26 @@ vez, enviado UMA vez por número a quem escreve e não está cadastrado (`enviar
       aplicada).
 - Achados 4 (teto de envio em partes por usuário, pré-existente) e 6 (aplicar 0137 antes da publicação): com a sessão principal.
 
+## Correções da rodada 2 do portão de QA (CONCERNS, 20/11)
+- [x] R2-1 (médio) — mídia da EQUIPE mandada DURANTE o envio automático: o eco pode casar com a linha "enviando". Ao gravar o
+      resultado do envio, se a linha já tem um id de eco DIFERENTE do devolvido pela Evolution (ou o envio falhou / ficou sem
+      confirmação), aquele eco não era nosso: vira mensagem própria NÃO automática com aquele id (aparece na Central como da
+      equipe), a Dolores fica calada na conversa e a linha automática fica com o id real (ou sem id, se não saiu). Os dois ids
+      ficam, nada duplica; na dúvida, lado humano (`mensagemDaEquipeNoEnvio` em `server/dolores/roteamento.ts`).
+- [x] R2-2 (médio) — JPG com dois quadros SOF é recusado (estrutura inválida).
+- [x] R2-3 (baixo) — foto de celular com dados depois do fim (vídeo da foto com movimento, imagens extras do MPF, rodapé da
+      Samsung, zeros) não é mais recusada: é CORTADA no fim da imagem (EOI/IEND) antes de gravar; tamanho e hash são do corte e só
+      a imagem vai à Evolution. Conteúdo de outro tipo depois do fim (HTML, ZIP, script) continua recusado — não é de câmera.
+- [x] R2-4 (baixo) — Ogg/Opus: além da posição de amostra, soma a duração REAL dos pacotes de áudio pelo byte TOC (config →
+      duração do quadro; código → número de quadros; pacotes remontados pelo lacing, inclusive entre páginas) e vale a MAIOR das
+      duas; pacote inválido (mais de 120 ms, código 3 sem contagem) recusa o arquivo. M4A: quando a faixa de som tem a tabela de
+      tempos (`stts`), a soma dela precisa bater com o `mdhd` (até 1 s ou 5 %).
+- Limitações conhecidas (aceitas; só o administrador envia, e o arquivo é conferido de novo no envio):
+  - R2-5: MP3 com capa grande (ID3) num áudio curto pode passar do teto de 64 kB/s e ser recusado — a mensagem pede para exportar
+    de novo; ALAC (M4A sem perda) costuma passar de 64 kB/s e é recusado.
+  - M4A sem `stts` (incomum; arquivo fragmentado) tem a duração conferida só por mvhd/mdhd e pela taxa de bytes; não há
+    decodificação de verdade dos quadros AAC.
+
 ## Tarefas
 - [x] Regras puras: `shared/whatsapp/saudacao-midia.ts` (tipo pelos bytes, duração Ogg/MP3/M4A, limites, nome seguro, escopo).
 - [x] Migração aditiva `drizzle/0137_saudacao_midia.sql` + schema Drizzle (`whatsappCampanhaMidias`, colunas novas de `whatsappSaudacoes`).
@@ -93,7 +113,7 @@ vez, enviado UMA vez por número a quem escreve e não está cadastrado (`enviar
 - [ ] Aplicar `0137` no Neon de produção (feito pela sessão principal) e conferir na tela publicada com um número de teste.
 
 ## Testes
-(a) automáticos — `server/dolores/c3-saudacao-midia.test.ts` (22 testes) e `server/dolores/c3-qa-seguranca.test.ts` (17, do portão de QA, com os
+(a) automáticos — `server/dolores/c3-saudacao-midia.test.ts` (22 testes) e `server/dolores/c3-qa-seguranca.test.ts` (do portão de QA, rodadas 1 e 2, com os
 "ACHADO" invertidos para "CORRIGIDO"): validação pelos bytes (PNG/JPG, arquivo falso, SVG,
 GIF, áudio no lugar da imagem e o contrário), duração de OGG/MP3/M4A, vídeo MP4 recusado, limites de 5 MB e 2 minutos, nome
 sanitizado, corpo dos pedidos à Evolution (base64, legenda, `encoding`), permissão por papel pelo `appRouter`, partes de outro
@@ -124,3 +144,4 @@ automáticas. Conferir também o tempo do envio de uma imagem de 5 MB.
 ## Change Log
 - 20/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementação completa; aguarda portão de QA.
 - 20/11/2026 — @dev (Dex): correções dos achados 1, 2, 3 e 5 do portão de QA de segurança; volta para InReview.
+- 20/11/2026 — @dev (Dex): correções R2-1 a R2-4 da rodada 2 do portão de QA; R2-5 registrado como limitação; volta para InReview.
