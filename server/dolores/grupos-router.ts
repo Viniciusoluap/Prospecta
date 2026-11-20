@@ -315,7 +315,7 @@ export const gruposRouter = router({
     if (!g) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
     if (input.ligado && !g.ativo) throw new TRPCError({ code: "BAD_REQUEST", message: "Reative o grupo antes de ligar a resposta quando marcada." });
     // QA-SEG E7 (6c): grupo recusado ou esperando o dono dizer quem colocou a Dolores fica com o interruptor desligado
-    if (input.ligado && precisaDoAceiteDoDono(g)) throw new TRPCError({ code: "BAD_REQUEST", message: `Este grupo espera o dono aceitar pelo WhatsApp ("grupo ${g.codigo ?? "CÓDIGO"} aceitar"); até lá ela só observa.` });
+    if (input.ligado && precisaDoAceiteDoDono(g)) throw new TRPCError({ code: "BAD_REQUEST", message: `Este grupo espera o dono pelo WhatsApp ("grupo ${g.codigo ?? "CÓDIGO"} aceitar" ou "grupo ${g.codigo ?? "CÓDIGO"} <tipo>"); até lá ela só observa.` });
     await getDb().insert(doloresMarcacoesGrupo).values({ grupoId: g.id, responderLigado: input.ligado, atualizadoPor: ctx.user.id })
       .onConflictDoUpdate({ target: doloresMarcacoesGrupo.grupoId, set: { responderLigado: input.ligado, atualizadoEm: new Date(), atualizadoPor: ctx.user.id } })
       .catch(semMigracao0129);

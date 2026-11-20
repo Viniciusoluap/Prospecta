@@ -51,9 +51,8 @@ export function grupoLeDocumentos(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obr
 /** A mesma regra de `grupoLeDocumentos`, em SQL (pendências, classificação pela tela e ronda). */
 export const sqlGrupoLeDocumentos = () => sql`((${doloresGrupos.obraId} IS NOT NULL OR ${doloresGrupos.tipo} IS NULL OR (${doloresGrupos.leadId} IS NOT NULL AND ${doloresGrupos.tipo} IN ('cliente', 'pos_atendimento'))) AND ${doloresGrupos.situacaoConfirmacao} NOT IN ('aguardando_dono', 'recusado'))`;
 
-/** QA-SEG E7 — a linha NÃO espera o aceite do dono (nem recusada, nem "não sei quem me colocou"). A mesma regra de `precisaDoAceiteDoDono`. */
-export const sqlSemAceitePendente = () => sql`NOT (${doloresGrupos.situacaoConfirmacao} = 'recusado' OR (${doloresGrupos.origem} = 'automatico' AND ${doloresGrupos.situacaoConfirmacao} = 'aguardando_dono'
-  AND ${doloresGrupos.adicionadoPor} IS DISTINCT FROM 'dono' AND ${doloresGrupos.provaAdicao} IS DISTINCT FROM 'aceito_pelo_dono'))`;
+/** QA-SEG E7 — a linha NÃO espera o dono no WhatsApp (nem recusada, nem automática "aguardando o dono"). A mesma regra de `precisaDoAceiteDoDono`. */
+export const sqlSemAceitePendente = () => sql`NOT (${doloresGrupos.situacaoConfirmacao} = 'recusado' OR (${doloresGrupos.origem} = 'automatico' AND ${doloresGrupos.situacaoConfirmacao} = 'aguardando_dono'))`;
 
 export async function lerConfigGrupos(conexao: DrizzleDb = getDb()): Promise<typeof CONFIG_GRUPOS_PADRAO> {
   const [c] = await conexao.select().from(doloresGruposConfig).where(eq(doloresGruposConfig.id, 1)).limit(1);

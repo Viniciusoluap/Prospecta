@@ -91,13 +91,24 @@ describe("QA-SEG E7 r2 — autoria", () => {
     expect(g2).toMatchObject({ situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" }); // decisão do dono vale
   });
 
-  it("R2-3 (interpretação): grupo 'aguardando_dono' que o DONO provadamente adicionou (tipo indefinido) pode ter o tipo definido por QUALQUER admin pela tela", async () => {
+  it("R2-3 (corrigido): grupo 'aguardando_dono' que o DONO adicionou (tipo indefinido) NÃO tem o tipo definido pela tela; só pelo comando dele no WhatsApp", async () => {
     nomes[NOVO] = "Turma do churrasco";
     await chamar(eventoAdd(NOVO, `${DONO}@s.whatsapp.net`));
     const [g] = await grupos();
     expect(g).toMatchObject({ tipo: "indefinido", situacao_confirmacao: "aguardando_dono", adicionado_por: "dono" });
-    await caller("admin").dolores.grupos.definirTipo({ grupoId: g.id, tipo: "administrativo" });
-    expect((await grupos())[0]).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado", decidido_por: "tela:1" });
+    await expect(caller("admin").dolores.grupos.definirTipo({ grupoId: g.id, tipo: "administrativo" })).rejects.toThrow(/só o dono define, pelo WhatsApp/);
+    expect((await grupos())[0]).toMatchObject({ tipo: "indefinido", situacao_confirmacao: "aguardando_dono" });
+    expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([]);
+    // nem o interruptor do grupo pela tela, nem o gatilho com decisão 'tela:'
+    await expect(caller("admin").dolores.grupos.ligarMarcacaoGrupo({ grupoId: g.id, ligado: true })).rejects.toThrow();
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = ${g.id}`))
+      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO/);
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = 'fila:1' WHERE id = ${g.id}`))
+      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO/);
+    // o comando do dono no WhatsApp define
+    await chamar({ event: "messages.upsert", instance: "prospecta-dolores", data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "DM-R2-3" },
+      message: { conversation: `grupo ${g.codigo} administrativo` }, messageTimestamp: Math.floor((AGORA.getTime() - 10_000) / 1000) } });
+    expect((await grupos())[0]).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono", prova_adicao: "evento_add" });
     expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([{ responder_ligado: true }]);
   });
 

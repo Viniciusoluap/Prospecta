@@ -30,8 +30,8 @@
 --     Postgres quando o CRM exclui o cliente ou a obra (exclusões legítimas);
 --   - "origem" 'automatico' não volta a 'manual' (seria a fuga da regra acima);
 --   - "nome_whatsapp" e "codigo", depois de preenchidos, não mudam (renomear o grupo no WhatsApp nunca muda tipo nem vínculo);
---   - grupo 'recusado', ou automático 'aguardando_dono' que espera o dono dizer quem colocou a Dolores (adicionado_por diferente
---     de 'dono' e prova_adicao diferente de 'aceito_pelo_dono'), só sai desse estado — situação, quem adicionou ou a prova — por
+--   - grupo 'recusado', ou automático 'aguardando_dono' (sem prova de quem colocou a Dolores ou, QA-SEG E7 r2, adicionado pelo
+--     dono mas de tipo indefinido), só sai desse estado — situação, quem adicionou ou a prova — por
 --     decisão do DONO pelo WhatsApp ("decidido_em" na mesma operação e "decidido_por" começando por 'whatsapp:'). Ir PARA
 --     'recusado' é sempre permitido (é o rebaixamento quando o aviso mostra que outra pessoa a colocou).
 -- Somente aditiva e idempotente: ADD COLUMN IF NOT EXISTS (com padrão: não dispara o gatilho de UPDATE), CHECKs e índice criados
@@ -108,15 +108,15 @@ BEGIN
   END IF;
   -- Etapa 7 (QA-SEG E7): grupo RECUSADO, ou esperando o dono dizer quem colocou a Dolores, só sai desse estado pelo DONO no
   -- WhatsApp. Ir para 'recusado' (rebaixar) é sempre permitido.
+  -- QA-SEG E7 r2 (R2-3): vale para TODO automático 'aguardando_dono' (também o que o dono adicionou, de tipo indefinido).
   IF (OLD."situacao_confirmacao" = 'recusado'
-      OR (OLD."origem" = 'automatico' AND OLD."situacao_confirmacao" = 'aguardando_dono'
-          AND OLD."adicionado_por" IS DISTINCT FROM 'dono' AND OLD."prova_adicao" IS DISTINCT FROM 'aceito_pelo_dono'))
+      OR (OLD."origem" = 'automatico' AND OLD."situacao_confirmacao" = 'aguardando_dono'))
      AND NEW."situacao_confirmacao" IS DISTINCT FROM 'recusado'
      AND (NEW."situacao_confirmacao" IS DISTINCT FROM OLD."situacao_confirmacao"
       OR NEW."adicionado_por" IS DISTINCT FROM OLD."adicionado_por"
       OR NEW."prova_adicao" IS DISTINCT FROM OLD."prova_adicao")
      AND NOT (decidiu AND coalesce(NEW."decidido_por", '') LIKE 'whatsapp:%') THEN
-    RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado ou sem prova de quem colocou a Dolores só é aceito pelo dono, no WhatsApp';
+    RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado ou aguardando o dono só é aceito (ou tem o tipo definido) pelo dono, no WhatsApp';
   END IF;
   RETURN NEW;
 END;

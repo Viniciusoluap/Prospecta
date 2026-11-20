@@ -528,7 +528,8 @@ describe("escopo por tipo (travado no servidor)", () => {
 
 describe("rotas novas: só o admin (PAPEL), pelo appRouter", () => {
   it("colaborador com o módulo não define tipo nem atualiza grupos; admin define e a decisão é gravada", async () => {
-    nomes[NOVO] = "Família";
+    // QA-SEG E7 r2 (R2-3): grupo de tipo indefinido (aguardando o dono) a tela não define; aqui, um grupo já aceito e reconhecido
+    nomes[NOVO] = "Engenharia";
     await peloDono(NOVO);
     const [g] = await grupos();
     const bia = caller("colaborador", [...ADMIN_MODULES]);

@@ -5,14 +5,14 @@
 //   a obra (opcional). Tipos internos ficam sem vínculo.
 // - O gatilho da 0133 só deixa tipo e vínculo mudarem com `decidido_em` gravado na mesma operação — é o que esta função faz.
 // - Mensagem de grupo nunca chega aqui (o webhook trata grupo antes e nunca o transforma em comando).
-// - QA-SEG E7 (achado 6c): grupo RECUSADO ou esperando o dono dizer quem colocou a Dolores só sai desse estado pelo comando do
-//   DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
+// - QA-SEG E7 (achado 6c; r2, R2-3): grupo RECUSADO ou automático "aguardando o dono" (sem prova de quem colocou a Dolores, ou
+//   adicionado pelo dono mas de tipo indefinido) só sai desse estado pelo comando do DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
 //   mesmo ("decidido_por" começando por "whatsapp:").
 import { and, eq, isNull } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
-import { ROTULO_TIPO_GRUPO, precisaDoAceiteDoDono, tipoEfetivo, type DecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { ROTULO_TIPO_GRUPO, precisaDoAceiteDoDono, semProvaDoDono, tipoEfetivo, type DecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
@@ -47,17 +47,25 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
   const agora = new Date();
   const decididoPor = (origem.via === "whatsapp" ? "whatsapp:dono" : `tela:${origem.userId}`).slice(0, 40);
   const nomeDoGrupo = aspas(g.nomeWhatsapp ?? g.nome);
+  // pendente: recusado ou automático "aguardando o dono" (inclusive o que o dono adicionou mas ficou de tipo indefinido — QA-SEG
+  // E7 r2, R2-3); semProva: recusado ou sem prova de quem colocou a Dolores (o que o "aceitar" resolve)
   const pendente = precisaDoAceiteDoDono(g);
+  const semProva = semProvaDoDono(g);
   if (pendente && origem.via === "tela" && d.tipo !== "ignorar") {
-    await auditar("recusada", "pela tela não se aceita grupo recusado/sem prova de quem colocou a Dolores (só o dono, no WhatsApp)", { grupoId: g.id, pedido: d.tipo });
-    return { ok: false, texto: `Dolores: só o dono aceita o grupo ${nomeDoGrupo}, pelo WhatsApp: "grupo ${g.codigo ?? "CÓDIGO"} aceitar". Pela tela dá para ver e desativar; nada mudou.`, grupoId: g.id };
+    await auditar("recusada", semProva ? "pela tela não se aceita grupo recusado/sem prova de quem colocou a Dolores (só o dono, no WhatsApp)"
+      : "pela tela não se define o tipo de grupo aguardando o dono (só o dono, no WhatsApp)", { grupoId: g.id, pedido: d.tipo });
+    return { ok: false, texto: semProva
+      ? `Dolores: só o dono aceita o grupo ${nomeDoGrupo}, pelo WhatsApp: "grupo ${g.codigo ?? "CÓDIGO"} aceitar". Pela tela dá para ver e desativar; nada mudou.`
+      : `Dolores: o tipo do grupo ${nomeDoGrupo} só o dono define, pelo WhatsApp: "grupo ${g.codigo ?? "CÓDIGO"} <tipo>" (cliente <nº> | jurídico | administrativo | parceiros | engenharia). Pela tela dá para ver e desativar; nada mudou.`, grupoId: g.id };
   }
   try {
     // "aceitar": grupo recusado ou esperando o dono dizer quem a colocou passa a valer, por decisão do dono
     if (d.tipo === "aceitar") {
-      if (!pendente) {
+      if (!semProva) {
         await auditar("recusada", "aceitar: o grupo não estava recusado; nada mudou", { grupoId: g.id });
-        return { ok: true, texto: `Dolores: o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) já estava aceito; nada mudou.`, grupoId: g.id };
+        return { ok: true, texto: tipoEfetivo(g) === "indefinido"
+          ? `Dolores: o grupo ${nomeDoGrupo} já estava aceito; falta só o tipo. Responda: grupo ${g.codigo} cliente <nº> | jurídico | administrativo | parceiros | engenharia.`
+          : `Dolores: o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) já estava aceito; nada mudou.`, grupoId: g.id };
       }
       const tipoAtual = tipoEfetivo(g);
       await db.transaction(async tx => {
@@ -106,7 +114,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
       // definir o tipo de um grupo recusado (ou sem prova de quem colocou a Dolores) também o aceita — é a decisão do dono no
       // WhatsApp (pela tela, recusado acima)
       await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor,
-        ...(pendente ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
+        ...(semProva ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
         atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
       // grupo confirmado nasce com o interruptor LIGADO (se ninguém mexeu nele antes); nada fala com o interruptor geral desligado
       await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();

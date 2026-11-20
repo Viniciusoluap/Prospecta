@@ -223,9 +223,11 @@ describe("QA-SEG E7 — escopo por tipo", () => {
     const r = respostaSeguraInterna("O processo tem saldo a receber de 12500 e já entrou 5500.", null, { fontes, permiteValores: false });
     expect(r.foraDeEscopo).toBe(true);
     expect(r.texto).toBe(FRASE_FORA_DE_ESCOPO);
-    for (const t of ["A parcela de 3 está em aberto.", "O orçamento da obra 2 é 350000.", "Faltam 2 pagamentos.", "O valor previsto é 18000."]) {
+    for (const t of ["A parcela de 3 está em aberto.", "O orçamento da obra 2 é 350000.", "Faltam 2 pagamentos de 18000.", "O valor previsto é 18000."]) {
       expect(respostaSeguraInterna(t, null, { fontes: ["2 3 350000 18000"], permiteValores: false }).texto, t).toBe(FRASE_FORA_DE_ESCOPO);
     }
+    // QA-SEG E7 r2 (R2-6): palavra de SITUAÇÃO sem número de dinheiro passa ("faltam 2 pagamentos" é situação, não quantia)
+    expect(respostaSeguraInterna("Faltam 2 pagamentos.", null, { fontes: ["2"], permiteValores: false }).foraDeEscopo).toBe(false);
     // o administrativo (com valores) continua informando o que veio das consultas
     expect(respostaSeguraInterna("O saldo a receber é 12500.", null, { fontes, permiteValores: true }).foraDeEscopo).toBe(false);
     // o que não é dinheiro continua passando no jurídico

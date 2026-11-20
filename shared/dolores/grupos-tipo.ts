@@ -43,8 +43,15 @@ export type ProvaAdicao = (typeof PROVAS_ADICAO)[number];
 export function autoriaPendente(g: { origem?: string | null; situacaoConfirmacao?: string | null; adicionadoPor?: string | null; provaAdicao?: string | null }): boolean {
   return g.origem === "automatico" && g.situacaoConfirmacao === "aguardando_dono" && g.adicionadoPor !== "dono" && g.provaAdicao !== "aceito_pelo_dono";
 }
-/** Recusado ou esperando o dono dizer quem a colocou: só o comando do dono no WhatsApp tira daqui (nunca a tela, nunca a fila). */
-export const precisaDoAceiteDoDono = (g: Parameters<typeof autoriaPendente>[0]) => g.situacaoConfirmacao === "recusado" || autoriaPendente(g);
+/**
+ * Recusado, ou grupo automático "aguardando o dono" (seja porque não se sabe quem colocou a Dolores, seja porque o dono a colocou
+ * mas o tipo ficou indefinido — QA-SEG E7 r2, R2-3): só o comando do dono no WhatsApp tira daqui (nunca a tela, nunca a fila).
+ * A mesma regra está em `sqlSemAceitePendente` (server/dolores/grupos.ts) e no gatilho da 0133.
+ */
+export const precisaDoAceiteDoDono = (g: Parameters<typeof autoriaPendente>[0]) =>
+  g.situacaoConfirmacao === "recusado" || (g.origem === "automatico" && g.situacaoConfirmacao === "aguardando_dono");
+/** Recusado ou sem prova de quem colocou a Dolores (o que o "grupo <código> aceitar" resolve). */
+export const semProvaDoDono = (g: Parameters<typeof autoriaPendente>[0]) => g.situacaoConfirmacao === "recusado" || autoriaPendente(g);
 
 /** Padrões da entrada automática (os mesmos da migração 0133). */
 export const PADRAO_ENTRADA = { entradaAutomaticaLigada: true, tetoGruposNovosDia: 20, tetoAvisosGruposDia: 25 } as const;

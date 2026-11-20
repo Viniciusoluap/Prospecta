@@ -385,7 +385,9 @@ function GruposSecao(p: {
               ) : precisaDoAceiteDoDono(g) ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {/* QA-SEG E7 (6c): só o DONO aceita, pelo WhatsApp; a tela mostra e explica, mas não aceita */}
-                  <p className="text-xs text-gray-300">Para aceitar, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} aceitar</strong> (a tela não aceita grupo).</p>
+                  {g.situacaoConfirmacao === "recusado" || autoriaPendente(g)
+                    ? <p className="text-xs text-gray-300">Para aceitar, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} aceitar</strong> (a tela não aceita grupo).</p>
+                    : <p className="text-xs text-gray-300">Para definir o tipo, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} cliente &lt;nº&gt; | jurídico | administrativo | parceiros | engenharia</strong> (a tela não define o tipo de grupo aguardando o dono).</p>}
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               ) : (
