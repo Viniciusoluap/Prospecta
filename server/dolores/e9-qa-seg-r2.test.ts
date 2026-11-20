@@ -89,14 +89,22 @@ describe("r2 — achado 2: instância antiga", () => {
     expect(await q("SELECT instancia FROM whatsapp_connections WHERE user_id = 3")).toEqual([{ instancia: "prospecta-u3" }]);
   });
 
-  it("CONCERN: a Evolution recusa o logout/delete (500) e mesmo assim a tela diz 'removida' e a linha perde a instância (fica órfã na Evolution)", async () => {
+  it("CORRIGIDO (era CONCERN): a Evolution recusa a remoção (500) → erro claro na tela e a linha CONTINUA com a instância (dá para tentar de novo)", async () => {
     await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, instancia, status) VALUES (1, 'evolution', 'prospecta-u1', 'desconectado')`);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => { enviados.push({ url: String(url), corpo: null }); return new Response("{}", { status: 500 }); }));
+    await expect(caller("admin", 1).dolores.removerConexaoAntiga()).rejects.toThrow(/não confirmou a remoção/);
+    expect(await q("SELECT instancia FROM whatsapp_connections WHERE user_id = 1")).toEqual([{ instancia: "prospecta-u1" }]);
+    // mesmo viva, o aviso dela continua sem gravar nada na Central da empresa
+    expect(await processarEventoEvolution({ event: "messages.upsert", instance: "prospecta-u1",
+      data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "O1" }, message: { conversation: "x" } } })).not.toBe("ok");
+  });
+
+  it("a Evolution confirma (200) ou a instância já não existe (404) → linha limpa e a tela diz removida", async () => {
+    await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, instancia, status) VALUES (1, 'evolution', 'prospecta-u1', 'desconectado')`);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => { enviados.push({ url: String(url), corpo: null });
+      return new Response("{}", { status: String(url).includes("/instance/delete/") ? 404 : 200 }); }));
     expect(await caller("admin", 1).dolores.removerConexaoAntiga()).toEqual({ ok: true, removidas: 1 });
     expect(await q("SELECT instancia FROM whatsapp_connections WHERE user_id = 1")).toEqual([{ instancia: null }]);
-    // e o aviso que ela ainda mandar não grava nada (conexão desconhecida) — sem vazamento, só a instância viva na Evolution
-    expect(await processarEventoEvolution({ event: "messages.upsert", instance: "prospecta-u1",
-      data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "O1" }, message: { conversation: "x" } } })).toBe("conexao-desconhecida");
   });
 
   it("aviso da instância gravada na linha do COLABORADOR (papel da conexão da empresa): nada grava, nem do dono", async () => {

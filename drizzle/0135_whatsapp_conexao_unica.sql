@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS "whatsapp_atendimento_config" (
   "atualizado_por" integer REFERENCES "users"("id") ON DELETE SET NULL
 );
 INSERT INTO "whatsapp_atendimento_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
+-- QA-SEG E9 r2 (achado 2): as colunas dos avisos também entram em banco onde a tabela já exista
+ALTER TABLE "whatsapp_atendimento_config" ADD COLUMN IF NOT EXISTS "avisos_ligados" boolean NOT NULL DEFAULT true;
+ALTER TABLE "whatsapp_atendimento_config" ADD COLUMN IF NOT EXISTS "aviso_teto_global_dia" integer NOT NULL DEFAULT 50;
 
 CREATE TABLE IF NOT EXISTS "whatsapp_campanhas" (
   "id" serial PRIMARY KEY NOT NULL,

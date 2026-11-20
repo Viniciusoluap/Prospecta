@@ -12,7 +12,7 @@ import {
 } from "../../shared/dolores/whatsapp.js";
 import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
-import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, rejeitarLigacoesEvolution, removerInstancia } from "../_core/evolution.js";
+import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, rejeitarLigacoesEvolution, removerInstancia, removerInstanciaConfirmada } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
@@ -257,14 +257,23 @@ export const doloresRouter = router({
     const antigas = await conexoesAntigasDaCentral(c.instancia);
     if (!antigas.length) return { ok: true, removidas: 0 };
     const evo = await exigirEvolution();
+    // QA-SEG E9 r2 (achado 1): só limpa a linha quando a Evolution CONFIRMA a remoção; senão a linha continua e o botão também.
+    const removidas: number[] = [];
+    const falharam: number[] = [];
     for (const a of antigas) {
-      await removerInstancia(evo, a.instancia);
+      if (!(await removerInstanciaConfirmada(evo, a.instancia))) { falharam.push(a.id); continue; }
       await getDb().update(whatsappConnections).set({ instancia: null, status: "desconectado", updatedAt: new Date() })
         .where(and(eq(whatsappConnections.id, a.id), eq(whatsappConnections.instancia, a.instancia)));
+      removidas.push(a.id);
     }
-    await registrarAcao({ funcao: "remover_conexao_antiga_central", resultado: "ok", motivo: "instância antiga da Central (admin/colaborador) removida pelo administrador",
-      autorUserId: ctx.user.id, canal: "tela", resumo: { conexoes: antigas.map(a => a.id) } });
-    return { ok: true, removidas: antigas.length };
+    await registrarAcao({ funcao: "remover_conexao_antiga_central", resultado: falharam.length ? "erro" : "ok",
+      motivo: falharam.length ? "a Evolution não confirmou a remoção de parte das conexões antigas; elas continuam registradas"
+        : "instância antiga da Central (admin/colaborador) removida pelo administrador",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { removidas, falharam } });
+    if (falharam.length) {
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "A Evolution não confirmou a remoção da conexão antiga. Nada foi apagado dessa conexão; tente de novo em alguns minutos." });
+    }
+    return { ok: true, removidas: removidas.length };
   }),
 
   desconectar: soAdmin.mutation(async ({ ctx }) => {

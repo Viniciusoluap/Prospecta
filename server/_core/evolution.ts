@@ -79,6 +79,18 @@ export async function numeroConectado(c: EvolutionConfig, instancia: string, fet
   return jid ? jid.split("@")[0] : null;
 }
 
+/**
+ * Como `removerInstancia`, mas diz se a Evolution CONFIRMOU a remoção (2xx; 404 = já não existe, conta como removida).
+ * Falha de rede ou outro erro → false (quem chama não deve dar a instância por removida).
+ */
+export async function removerInstanciaConfirmada(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<boolean> {
+  await chamar(c, `/instance/logout/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
+  try {
+    const r = await chamar(c, `/instance/delete/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl);
+    return r.ok || r.status === 404;
+  } catch { return false; }
+}
+
 export async function removerInstancia(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<void> {
   await chamar(c, `/instance/logout/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
   await chamar(c, `/instance/delete/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
