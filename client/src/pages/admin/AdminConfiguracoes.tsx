@@ -153,7 +153,7 @@ export default function AdminConfiguracoes() {
         <p className="pb-2 text-xs text-gray-400">{visiveis.length} de {usuarios.length}</p>
       </div>
       {isLoading ? <p className="text-gray-300">Carregando…</p> : visiveis.length === 0 ? <p className="rounded-lg bg-[#1A2332] p-4 text-sm text-gray-300">Nenhum usuário com esses filtros.</p> : visiveis.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
-        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p>{termo && <LinhaDoTermo aceite={aceiteDe.get(item.id)} />}</div></div>
+        <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p>{termo && <LinhaDoTermo aceite={aceiteDe.get(item.id)} nomeDe={id => usuarios.find(u => u.id === id)?.name ?? null} />}</div></div>
         <div className="text-right"><p className="text-sm text-[#C9A961]">{item.engenheiro ? ROLE_LABEL.engenheiro : ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {item.role === "corretor" ? `CRECI ${item.creci || "—"}${item.defaultCommissionPct ? ` · comissão ${Number(item.defaultCommissionPct).toLocaleString("pt-BR")}%` : ""}` : `${parsePermissions(item.permissions).length} permissões`}</p></div>
       </button>)}
     </CardContent></Card>
@@ -161,18 +161,15 @@ export default function AdminConfiguracoes() {
 
     <Dialog open={verTermo} onOpenChange={setVerTermo}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Termo de consentimento</DialogTitle></DialogHeader>
       {termo ? <div className="space-y-4">
-        <p role="note" className="rounded-md border border-amber-400/50 bg-amber-400/10 p-3 text-sm font-semibold text-amber-200">{termo.avisoProvisorio}</p>
         <div className="rounded-md bg-[#2C3E50] p-3 text-sm text-gray-100">
           <p>Versão vigente: <strong>{termo.versaoAtual}</strong></p>
           <p className="mt-1">Aceites por versão: {termo.porVersao.length === 0 ? "nenhum ainda" : termo.porVersao.map(v => `${v.versao} — ${v.usuarios} ${v.usuarios === 1 ? "usuário" : "usuários"}`).join(" · ")}</p>
+          <p className="mt-1">Consentimentos retirados: <strong>{termo.retirados}</strong></p>
           <p className="mt-1">Pedir o aceite no próximo login: <strong>{termo.pedirNoLogin ? "ligado" : "desligado"}</strong> (quem já tinha senha não é perguntado enquanto estiver desligado).</p>
         </div>
-        {termo.pendenciasDoJuridico.length > 0 && <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-sm text-amber-100">
-          <p className="font-semibold text-amber-200">Pontos para o jurídico revisar (não aparecem para o público):</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5">{termo.pendenciasDoJuridico.map(p => <li key={p}>{p}</li>)}</ul>
-        </div>}
+        <RetiradaDoConsentimento usuarios={usuarios} aceiteDe={aceiteDe} />
         <TextoDoTermo />
-      </div> : <p className="text-sm text-gray-300">Carregando… (se não abrir, confira se a migração 0127 foi aplicada)</p>}
+      </div> : <p className="text-sm text-gray-300">Carregando… (se não abrir, confira se as migrações 0127 e 0132 foram aplicadas)</p>}
     </DialogContent></Dialog>
 
     <Dialog open={novo} onOpenChange={setNovo}><DialogContent className="border-[#C9A961]/30 bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Novo usuário</DialogTitle></DialogHeader>
@@ -211,9 +208,48 @@ function Campo({ name, label, type = "text", required, defaultValue, value, onCh
   return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} required={required} readOnly={readOnly} {...controlado} className="mt-1 read-only:opacity-80 border-[#C9A961]/30 bg-[#2C3E50] text-white placeholder:text-gray-400" /></div>;
 }
 
+type AceiteDoTermo = {
+  userId: number; versao: string | null; aceitoEm: Date | string | null; aceitouVersaoAtual: boolean;
+  retirado: boolean; retiradoEm: Date | string | null; retiradoPor: number | null; retiradoPeloTitular: boolean;
+};
+const quandoFoi = (d: Date | string) => new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
 /** EPIC-024 S-12: situação do termo de um usuário (só leitura). */
-function LinhaDoTermo({ aceite }: { aceite?: { versao: string; aceitoEm: Date | string; aceitouVersaoAtual: boolean } }) {
+function LinhaDoTermo({ aceite, nomeDe }: { aceite?: AceiteDoTermo; nomeDe: (id: number) => string | null }) {
   if (!aceite) return <p className="text-xs text-gray-400">Termo: não aceito</p>;
-  const quando = new Date(aceite.aceitoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
-  return <p className={`text-xs ${aceite.aceitouVersaoAtual ? "text-green-300" : "text-amber-200"}`}>Termo: aceito em {quando} · versão {aceite.versao}{aceite.aceitouVersaoAtual ? "" : " (anterior)"}</p>;
+  if (aceite.retirado) {
+    const quem = aceite.retiradoPeloTitular ? "pelo próprio usuário" : `por ${aceite.retiradoPor != null ? nomeDe(aceite.retiradoPor) ?? `usuário nº ${aceite.retiradoPor}` : "administrador"}`;
+    return <p className="text-xs text-red-300">Termo: consentimento retirado em {aceite.retiradoEm ? quandoFoi(aceite.retiradoEm) : "—"} (registrado {quem})</p>;
+  }
+  if (!aceite.aceitoEm || !aceite.versao) return <p className="text-xs text-gray-400">Termo: não aceito</p>;
+  return <p className={`text-xs ${aceite.aceitouVersaoAtual ? "text-green-300" : "text-amber-200"}`}>Termo: aceito em {quandoFoi(aceite.aceitoEm)} · versão {aceite.versao}{aceite.aceitouVersaoAtual ? "" : " (anterior)"}</p>;
+}
+
+/**
+ * Texto definitivo do termo (17/11): o admin registra a retirada pedida pelo titular (e-mail ou telefone).
+ * Grava uma linha nova (tipo revogação, quem registrou e quando); nada é apagado.
+ */
+function RetiradaDoConsentimento({ usuarios, aceiteDe }: { usuarios: { id: number; name: string | null; email: string | null }[]; aceiteDe: Map<number, AceiteDoTermo> }) {
+  const utils = trpc.useUtils();
+  const [escolhido, setEscolhido] = useState("");
+  const comConsentimento = usuarios.filter(u => { const a = aceiteDe.get(u.id); return !!a && !a.retirado && !!a.aceitoEm; });
+  const registrar = trpc.consentimento.admin.registrarRetirada.useMutation({
+    onSuccess: () => { toast.success("Retirada do consentimento registrada."); setEscolhido(""); void utils.consentimento.admin.resumo.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
+  const alvo = comConsentimento.find(u => String(u.id) === escolhido);
+  return <div className="rounded-md border border-red-400/30 bg-red-400/5 p-3 text-sm text-gray-100">
+    <p className="font-semibold text-red-200">Registrar retirada do consentimento</p>
+    <p className="mt-1 text-xs text-gray-300">Use quando o titular pedir a retirada por e-mail ou telefone. Fica registrado quem registrou e quando; o usuário volta a ver o termo ao entrar.</p>
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <select aria-label="Usuário que pediu a retirada" value={escolhido} onChange={e => setEscolhido(e.target.value)} className="h-9 min-w-[220px] flex-1 rounded-md border border-[#C9A961]/30 bg-[#2C3E50] px-2 text-sm">
+        <option value="">Selecione o usuário</option>
+        {comConsentimento.map(u => <option key={u.id} value={u.id}>{u.name || "Sem nome"}{u.email ? ` · ${u.email}` : ""}</option>)}
+      </select>
+      <Button type="button" variant="destructive" disabled={!alvo || registrar.isPending}
+        onClick={() => alvo && confirm(`Registrar a retirada do consentimento de ${alvo.name || alvo.email}?`) && registrar.mutate({ userId: alvo.id })}>
+        Registrar retirada
+      </Button>
+    </div>
+  </div>;
 }

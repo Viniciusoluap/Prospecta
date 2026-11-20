@@ -164,7 +164,8 @@ describe("QA-B (achado 1): a 0126 não quebra nenhuma exclusão legítima que j�
   });
 
   it("obra excluída: o grupo ligado a ela fica sem vínculo (o SET NULL passa pelo gatilho do grupo)", async () => {
-    await banco.pg.exec("UPDATE dolores_grupos SET obra_id = 2 WHERE id = 1");
+    // Etapa 7 (0133): ligar o grupo à obra é decisão do dono — vai com decidido_em na mesma operação
+    await banco.pg.exec("UPDATE dolores_grupos SET obra_id = 2, decidido_em = now(), decidido_por = 'tela:1' WHERE id = 1");
     await banco.pg.exec("DELETE FROM construction_projects WHERE id = 2");
     expect((await q("SELECT obra_id, grupo_jid FROM dolores_grupos WHERE id = 1"))[0]).toEqual({ obra_id: null, grupo_jid: GRUPO });
   });

@@ -188,18 +188,18 @@ describe("QA E6 — achado 2: tempo-limite por seção da ronda", () => {
   });
 });
 
-describe("QA E6 — achado 4: hora do relatório não passa da hora do cron diário", () => {
-  it("o vercel.json agenda o cron com a mesma agenda da constante; hora > 07 é recusada pelo servidor e o cron das 07:00 envia", async () => {
+describe("QA E6 — achado 4 (revisto no EPIC-026 C4): hora do relatório só entre as que o cron alcança", () => {
+  it("o vercel.json tem uma entrada diária por hora (07 a 14 de Brasília); fora disso o servidor recusa; hora gravada fora da lista vale 07", async () => {
     const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")) as { crons: Array<{ path: string; schedule: string }> };
     expect(vercel.crons.find(c => c.path === "/api/cron/dolores")?.schedule).toBe(CRON_DOLORES_AGENDA);
-    expect(HORA_MAX_RELATORIO).toBe(7);
+    expect(HORA_MAX_RELATORIO).toBe(14);
     const admin = caller("admin");
-    for (const hora of [8, 12, 23]) await expect(admin.dolores.operacao.salvar({ relatorioHora: hora })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    for (const hora of [0, 6, 15, 23]) await expect(admin.dolores.operacao.salvar({ relatorioHora: hora })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await q<any>("SELECT relatorio_hora FROM dolores_operacao_config"))[0].relatorio_hora).toBe(7);
-    const s = await admin.dolores.operacao.salvar({ relatorioHora: 6 });
-    expect(s.config.relatorioHora).toBe(6);
-    expect(s.agendamento).toMatchObject({ horarioUtc: "10:00", horarioBrasilia: "07:00", horaMaxRelatorio: 7 });
-    // uma hora gravada fora da faixa (à mão, no banco) é limitada a 07 no servidor: o cron das 07:00 manda o relatório
+    const s = await admin.dolores.operacao.salvar({ relatorioHora: 14 });
+    expect(s.config.relatorioHora).toBe(14);
+    expect(s.agendamento).toMatchObject({ horarioUtc: "10:00", horarioBrasilia: "07:00", horasDoRelatorio: [7, 8, 9, 10, 11, 12, 13, 14], chamadasPorDia: 8 });
+    // uma hora gravada fora da lista (à mão, no banco) vale 07 no servidor: o cron das 07:00 manda o relatório
     await ligarTudo();
     await banco.pg.exec(`UPDATE dolores_operacao_config SET relatorio_hora = 20`);
     definirRelogioCron({ agora: () => new Date("2026-11-17T10:00:30Z") });

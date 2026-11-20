@@ -346,3 +346,112 @@ a classificação de cada item e o que depende só dele.
 
 ## Próximo passo exato
 Nada pendente de código. Acompanhar a validação do dono em produção (lista (c) acima) e corrigir o que ele apontar.
+
+## Atualização — 20/11, ~01:50 UTC
+
+### Concluído e publicado
+- **Etapa 8 — respostas longas e custo real** — PR #258 (`c5c05ff`), migração `0134` aplicada. Resposta cortada nunca é
+  descartada (até 3 mensagens, quadros do sistema na primeira); `plano_de_atrasos` divide atrasos por dia por código;
+  custo por modelo e por tipo de token (caso real: 3 perguntas no Haiku 5.5 = US$ 0,0088).
+- **Etapa 7 — grupos automáticos, por tipo** — PR #259 (`b58e4b3`), migração `0133` aplicada. Só vale grupo em que o
+  número do dono adicionou a Dolores (prova positiva pelo evento de add); sem prova → aguardando o dono; recusado/
+  aguardando só é aceito por comando dele no WhatsApp. Duas rodadas de QA de segurança (FAIL → CONCERNS, reforços feitos).
+- Banco de produção: 0117–0134 aplicadas.
+
+### Em andamento
+- **Etapa 9 — conexão única, roteamento, saudação de campanha, Dolores atende cliente cadastrado, aviso de ligação,
+  transcrição de áudio (Cloudflare), dois canais preparados** — autorizada pelo dono ("Autorizo os itens 1 a 7").
+  Worktree `dolores-e9`, ramo `epic025-dolores-etapa9b`, cópia `claude/wip-epic025-dolores-etapa9b`, migração `0135`.
+  Regra no CLAUDE.md desse ramo. (O ramo antigo `claude/wip-epic025-dolores-etapa9` ficou obsoleto.)
+- Coexistência (WhatsApp Web + API oficial no mesmo número): fase separada, depois de confirmar Brasil/grupos/requisitos.
+
+### Pendente do dono
+- Em Integrações › Dolores: clicar "Reativar recebimento" (eventos de grupo); aceitar os grupos atuais pelo comando.
+- Corrigir os limites mensais (estão 24.000.000/120.000.000; para R$ 500: 15.000.000 de entrada e 1.000.000 de saída).
+- Preencher preços por modelo (Haiku 5.5: 0,10/0,50; Opus 5.5: 4/20 US$/milhão) e cotação do dólar na tela da operação.
+- Depois da etapa 9: criar conta na Cloudflare e cadastrar a chave.
+
+### Testes
+- (a) automáticos: E8 37 arquivos/666 testes; E7 40 arquivos/722 testes; tsc e vite build ok; prévias READY.
+- (b) manuais: nenhum.
+- (c) produção, pelo dono: comando "relatório" e o pedido de divisão de atrasos; adicionar a Dolores num grupo novo.
+
+## Próximo passo exato (20/11, 01:50 UTC)
+Receber a etapa 9 do @dev → QA de segurança → corrigir → aplicar 0135 → publicar.
+
+## Atualização — 20/11, ~10:50 UTC
+
+### Concluído e publicado
+- **Etapa 9 — WhatsApp com conexão única, atendimento e campanhas** — PR #261 (`7ae8fd2`), migração `0135` aplicada
+  (com `lock_timeout`; tabelas pequenas). Autorizada pelo dono ("Autorizo os itens 1 a 7"); regra no CLAUDE.md
+  ("WhatsApp — uma conexão só, atendimento e campanhas"). Conexão da empresa em Integrações (instância já conectada,
+  sem novo QR); roteamento por código (dono → Dolores; lead → Central e Dolores se ligado; vários cadastros/usuário →
+  Central; desconhecido → Central + saudação; grupo → Dolores); saudação de campanha; Dolores atende cliente cadastrado
+  (desligado); ligação recusada com aviso e áudio transcrito pela Cloudflare (transcrição desligada; avisos ligados com
+  teto); disparo em massa pelo número principal bloqueado (10/min, 200/dia). Duas rodadas de QA (FAIL → CONCERNS).
+- Banco de produção: 0117–0135 aplicadas.
+
+### Pendente do dono (produção)
+1. Integrações › WhatsApp da empresa: "Reativar recebimento" (assina ligação e eventos de grupo).
+2. "Remover a conexão antiga da Central" (instância antiga da linha do admin; só limpa com confirmação da Evolution).
+3. Cloudflare: criar token com o modelo "Workers AI" e copiar o Account ID; cadastrar no cartão de transcrição.
+   (O dono pediu que eu cadastrasse; não é possível: a conexão da Cloudflare desta sessão não cria tokens, e chaves são
+   digitadas por ele.)
+4. Ligar quando quiser: "Dolores responde clientes", "transcrição"; criar a primeira campanha em Templates.
+5. Limites mensais da Dolores (15.000.000 / 1.000.000) e preços por modelo + cotação, se ainda não corrigidos.
+
+### Pendências técnicas (não travam)
+- Limpeza periódica de `whatsapp_roteamento_vistos` e dos contadores por minuto.
+- Conferir em produção o formato real da resposta do Whisper da Cloudflare (host bloqueado no ambiente de testes).
+- Dados antigos da instância antiga em `user_notifications` / Central de Vendas / mídias: contar pelo número do dono
+  (só leitura) antes de qualquer limpeza — limpeza exige confirmação do dono.
+- Coexistência (WhatsApp Web + API oficial): fase separada.
+
+### Testes
+- (a) automáticos: E9 no ramo de publicação — 50 arquivos / 843 testes; tsc e vite build ok; prévia READY.
+- (b) manuais: nenhum.
+- (c) produção, pelo dono: ligar para o número (deve recusar e mandar aviso); mandar mensagem de um número
+  desconhecido com campanha ativa; cliente cadastrado perguntando do andamento com o interruptor ligado.
+
+## Próximo passo exato (20/11, 10:50 UTC)
+Nada pendente de código no EPIC-025. Acompanhar a validação do dono em produção e corrigir o que ele apontar.
+
+## Atualização — 20/11, ~19:15 UTC — EPIC-026 (correções de 20/11)
+
+Epic novo: `docs/stories/epics/epic-026-correcoes-20-11/EPIC.md`. Ordem: C2 → C4/C5 → C3 → C1A → C1B.
+
+### Concluído e publicado (produção READY conferida na Vercel)
+- **C4 + C5 — PR #263** (squash `89efee7`): hora do relatório diário de 07:00 a 14:00 (10 crons diários no
+  `vercel.json`, uma rotina só, um reenvio por dia se o envio falhar), preços sugeridos por modelo e limite mensal
+  mostrado em reais. Sem migração. Arquivos: `shared/dolores/{operacao,precos-padrao}.ts`, `server/dolores/rondas.ts`,
+  `DoloresCard.tsx`, `DoloresOperacaoCard.tsx`.
+- **C2 — PR #264** (squash `356afeb`): leitura tolerante do aviso da Evolution (nome do evento, `{messages}`, sufixo de
+  aparelho, `@lid`), contagem de tudo o que chega e quadro "Recebimento nas últimas 24 h" no cartão "WhatsApp da
+  empresa". Migração **0136** (`whatsapp_recebimento_contagem`, `whatsapp_lid_numeros`) aplicada no Neon antes do
+  deploy. Arquivos: `server/whatsapp-recebimento.ts`, `server/dolores/{whatsapp,roteamento}.ts`,
+  `server/whatsapp-evolution-webhook.ts`, `server/whatsapp-conexao-empresa.ts`, `ConversasWhatsApp.tsx`.
+
+### Em andamento
+- **C3** (saudação da campanha com imagem e áudio): @dev no worktree `epic026-c3` (wip em `claude/wip-epic026-c3`,
+  migração prevista `0137_saudacao_midia.sql`, ainda NÃO aplicada). Depois: portão de QA de segurança → aplicar 0137 →
+  publicar.
+
+### Pendente do dono
+1. Repetir o teste: mandar mensagem de outro número e enviar o print do quadro "Recebimento nas últimas 24 h"
+   (Integrações › WhatsApp da empresa). "Central/não identificado: 1" = resolvido; "Ignoradas" = o motivo diz o ajuste;
+   "Chegaram: 0" = a Evolution não entregou (olhar a Evolution na Railway).
+2. YCloud (C1B): conta criada no plano gratuito. Ele é administrador dos portfólios "Grupo Eficaz" (o da campanha —
+   usar este) e "Vinicius VFX". Falta o print de Contas › Contas do WhatsApp do Grupo Eficaz. **Só vincular a
+   coexistência depois do teste do item 1** (passo a passo já enviado).
+
+### Testes
+- (a) Automáticos: #263 — tsc limpo, 47 arquivos / 832 testes, build ok. #264 (já com a #263 junto) — tsc limpo,
+  51 arquivos / 890 testes (`server/dolores`, `server/whatsapp`, guarda da Anthropic), build ok.
+- (b) Manuais: nenhum nesta etapa.
+- (c) Pendentes em produção: teste do outro número (C2); conferir amanhã que o relatório sai uma vez na hora escolhida.
+
+## Próximo passo exato (20/11, 19:15 UTC)
+Receber o agente da C3 → QA de segurança → aplicar 0137 no Neon → publicar pela receita de sempre. Depois C1A (campos
+da API oficial no cartão, com aviso sobre grupos) e C1B (integração YCloud: chave digitada pelo dono em Integrações;
+disparo de campanha pela YCloud; recebimento continua pela Evolution). Ler o resultado do teste do dono antes de
+liberar a vinculação.

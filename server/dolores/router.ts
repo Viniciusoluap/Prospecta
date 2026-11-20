@@ -3,19 +3,20 @@
 // procedimento confere o papel de novo. Nada aqui devolve chave, segredo do webhook ou número completo; o QR code sai
 // só na hora de conectar, para a tela, e não é guardado.
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
-import { whatsappConnections } from "../../drizzle/schema.js";
+import { users, whatsappConnections } from "../../drizzle/schema.js";
 import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import {
   INSTANCIA_DOLORES, bloqueioDoLimite, mascararNumero, mesFortaleza, normalizarNumeroDono, pareceMesmoTelefone,
 } from "../../shared/dolores/whatsapp.js";
 import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
-import { estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
+import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, rejeitarLigacoesEvolution, removerInstancia, removerInstanciaConfirmada } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
+import { registrarAcao } from "./auditoria.js";
 import { URL_WEBHOOK_DOLORES, segredoWebhookDolores } from "./whatsapp.js";
 import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
 import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
@@ -23,6 +24,13 @@ import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas 
 import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
+import { atendimentoRouter } from "./atendimento-router.js";
+import { resumoDoRecebimento } from "../whatsapp-recebimento.js";
+import { agoraDoRoteamento } from "./roteamento.js";
+import { lerPrecos, previsaoDoLimiteAtual } from "./custo.js";
+import { lerConfigOperacao } from "./operacao.js";
+import { COTACAO_SUGERIDA, LIMITES_PADRAO } from "../../shared/dolores/precos-padrao.js";
+import { TETO_DONO_REAIS } from "../../shared/dolores/operacao.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -48,11 +56,31 @@ async function exigirEvolution() {
 const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userId: number) =>
   getDb().update(doloresWhatsappConfig).set({ ...dados, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
 
-/** O número conectado não pode ser o de uma conexão da empresa ou de corretor (a Dolores tem número próprio). */
-async function numeroDeOutraConexao(numero: string): Promise<boolean> {
-  const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections);
-  return conns.some(c => pareceMesmoTelefone(c.numero, numero));
+/**
+ * QA-SEG E9 achado 2: as linhas de admin/colaborador em whatsapp_connections que ainda guardam uma instância — a conexão da Central
+ * de ANTES da conexão única (QR feito pela aba "Minha conexão"). A instância da empresa nunca entra (nem pelo nome padrão, nem pela
+ * da configuração). O aviso dessas instâncias já não grava nada (whatsapp-evolution-webhook.ts); a remoção é só pelo botão do admin.
+ */
+async function conexoesAntigasDaCentral(instanciaDaEmpresa: string | null) {
+  const linhas = await getDb().select({ id: whatsappConnections.id, instancia: whatsappConnections.instancia, numero: whatsappConnections.numero, status: whatsappConnections.status })
+    .from(whatsappConnections).innerJoin(users, eq(users.id, whatsappConnections.userId))
+    .where(and(inArray(users.role, ["admin", "colaborador"]), isNotNull(whatsappConnections.instancia)));
+  return linhas.filter((l): l is typeof l & { instancia: string } => !!l.instancia && l.instancia !== INSTANCIA_DOLORES && l.instancia !== instanciaDaEmpresa);
 }
+
+/**
+ * O número conectado não pode ser o de uma conexão de CORRETOR na Central ("corretor") nem o da instância ANTIGA da Central do
+ * admin/colaborador enquanto ela existir ("antiga") — o mesmo número em duas instâncias. Etapa 9: a linha do admin SEM instância
+ * (só o `connectionId` da Central da empresa) não conta.
+ */
+async function numeroDeOutraConexao(numero: string, instanciaDaEmpresa: string | null): Promise<"corretor" | "antiga" | null> {
+  const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections)
+    .innerJoin(users, eq(users.id, whatsappConnections.userId)).where(eq(users.role, "corretor"));
+  if (conns.some(c => pareceMesmoTelefone(c.numero, numero))) return "corretor";
+  const antigas = await conexoesAntigasDaCentral(instanciaDaEmpresa);
+  return antigas.some(c => pareceMesmoTelefone(c.numero, numero)) ? "antiga" : null;
+}
+const MENSAGEM_CONEXAO_ANTIGA = "Esse número ainda está na conexão antiga da Central. Use \"Remover a conexão antiga da Central\" no cartão do WhatsApp da empresa e confira de novo; nada foi ativado.";
 
 /** O que falta para a Dolores responder pela IA (a tela mostra a lista). */
 function pendencias(p: { conectado: boolean; numeroDono: boolean; chave: boolean; modelo: boolean; limites: boolean; iaLigada: boolean; pausada: boolean }) {
@@ -78,13 +106,35 @@ async function situacao() {
   const resolvido = await modeloDaFuncao("dolores_whatsapp", { anterior: c.modelo, preferencial: painel?.modelo ?? null });
   const modeloEmUso = resolvido.modelo;
   const limites = { entrada: c.limiteMensalTokensEntrada, saida: c.limiteMensalTokensSaida };
+  // EPIC-026 C5: os limites em reais (pior caso e só a conversa), com os preços CADASTRADOS — o sugerido não entra na conta
+  const previsao = await previsaoEmReais(limites, c.modelo);
   return {
     instancia: c.instancia, statusConexao: c.statusConexao, numeroDolores: mascararNumero(c.numeroDolores), numeroDono: mascararNumero(c.numeroDono),
     iaLigada: c.iaLigada, pausada: pausa?.pausada ?? null, chaveAnthropic: Boolean(painel), modeloPainel: painel?.modelo ?? null, modelo: c.modelo,
     modeloEmUso, origemModelo: resolvido.origem, limites, mes, uso, bloqueioDoLimite: bloqueioDoLimite(uso, limites), webhookUrl: URL_WEBHOOK_DOLORES(),
     pendencias: pendencias({ conectado: c.statusConexao === "conectado", numeroDono: Boolean(c.numeroDono), chave: Boolean(painel), modelo: Boolean(modeloEmUso),
       limites: limites.entrada > 0 && limites.saida > 0, iaLigada: c.iaLigada, pausada: Boolean(pausa?.pausada) }),
+    previsao, limitesPadrao: { ...LIMITES_PADRAO }, tetoDonoReais: TETO_DONO_REAIS, cotacaoSugerida: COTACAO_SUGERIDA,
   };
+}
+
+/**
+ * EPIC-026 C5 — previsão dos limites em reais para o cartão, e os dados para a tela refazer a MESMA conta enquanto o admin
+ * digita (preços cadastrados dos modelos em uso, reserva e cotação). Sem as migrações de preço: null (a tela diz).
+ */
+async function previsaoEmReais(limites: { entrada: number; saida: number }, anteriorDaConversa: string | null) {
+  try {
+    const [precos, op] = await Promise.all([lerPrecos(), lerConfigOperacao()]);
+    const reserva = { entradaMilhao: op?.precoEntradaMilhao ?? null, saidaMilhao: op?.precoSaidaMilhao ?? null };
+    const r = await previsaoDoLimiteAtual({ limites, reserva, anteriorDaConversa, precos });
+    return {
+      ...r, reserva, precosDisponiveis: precos.disponivel,
+      precosEmUso: r.modelos.emUso.map(m => ({ modelo: m, preco: precos.tabela.get(m) ?? null })),
+    };
+  } catch (e) {
+    console.error("[dolores/router] falha ao prever o limite em reais", e instanceof Error ? e.name : "erro");
+    return null;
+  }
 }
 
 /**
@@ -117,6 +167,7 @@ export const doloresRouter = router({
   grupos: gruposRouter,
   notas: notasRouter,
   operacao: operacaoRouter,
+  atendimento: atendimentoRouter,
   status: soAdmin.query(() => situacao()),
 
   /** Cria a instância própria da Dolores (se não existir) e devolve o QR code para escanear com o celular DELA. */
@@ -168,18 +219,21 @@ export const doloresRouter = router({
       if (c.statusConexao === "conectado") await gravar({ statusConexao: "aguardando_qr" }, ctx.user.id);
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não consegui ler o número conectado na Evolution; nada foi ativado. Desconecte e conecte de novo." });
     }
-    if (await numeroDeOutraConexao(numero)) {
+    const outra = await numeroDeOutraConexao(numero, c.instancia);
+    // a instância da EMPRESA não é removida por causa da antiga (seria derrubar a conexão que funciona): recusa e manda remover a antiga
+    if (outra === "antiga") throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_CONEXAO_ANTIGA });
+    if (outra === "corretor") {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão da empresa ou de um corretor. Conecte o número próprio da Dolores." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão de corretor na Central. Conecte o número da empresa." });
     }
     if (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. A Dolores precisa de um número próprio (o dono escreve para ela)." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. Conecte o número da empresa (o dono escreve para ele)." });
     }
     if (c.statusConexao !== "conectado" || numero !== c.numeroDolores) {
-      try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
+      try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
       catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
       await gravar({ statusConexao: "conectado", numeroDolores: numero }, ctx.user.id);
     }
@@ -203,11 +257,57 @@ export const doloresRouter = router({
     const lido = await numeroConectado(evo, c.instancia).catch(() => null);
     const numero = lido ? lido.replace(/\D/g, "").slice(0, 20) : "";
     if (!numero || numero !== c.numeroDolores) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado não é o que foi confirmado; ${conferir}` });
-    if ((await numeroDeOutraConexao(numero)) || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
+    const outra = await numeroDeOutraConexao(numero, c.instancia);
+    if (outra === "antiga") throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_CONEXAO_ANTIGA });
+    if (outra || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado é de uma conexão da empresa ou o do dono; ${conferir}` });
-    try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores()); }
+    try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
     catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
-    return { ok: true, mensagem: "Recebimento de mensagens da Dolores ativo." };
+    // Etapa 9: ligações recusadas na hora (o aviso por texto é do sistema). Falha aqui não desfaz o recebimento.
+    const rejeita = await rejeitarLigacoesEvolution(evo, c.instancia).catch(() => false);
+    return { ok: true, mensagem: `Recebimento de mensagens, grupos e ligações do WhatsApp da empresa ativo.${rejeita ? " Ligações são recusadas automaticamente." : " (A Evolution não confirmou a recusa automática de ligações; o aviso por texto vale do mesmo jeito.)"}` };
+  }),
+
+  /** QA-SEG E9 achado 2: a conexão antiga da Central (admin/colaborador) ainda existe? Só a situação e o número mascarado. */
+  /**
+   * EPIC-026 C2 — "Recebimento nas últimas 24 h" (só ADMIN por papel): quantos avisos/mensagens chegaram ao webhook da empresa e o
+   * que foi feito com eles (Central, Dolores, grupos, ignoradas e por quê). Só contagens, sem conteúdo nem número.
+   */
+  recebimento: soAdmin.query(() => resumoDoRecebimento(agoraDoRoteamento(), 24)),
+
+  conexaoAntiga: soAdmin.query(async () => {
+    const c = await lerConfigWhatsapp().catch(() => null);
+    const antigas = await conexoesAntigasDaCentral(c?.instancia ?? null);
+    return { existe: antigas.length > 0, conexoes: antigas.map(a => ({ id: a.id, status: a.status, numero: mascararNumero(a.numero) })) };
+  }),
+
+  /**
+   * QA-SEG E9 achado 2 — botão do ADMIN (papel) "Remover a conexão antiga da Central": desliga e apaga na Evolution a instância antiga
+   * de cada linha de admin/colaborador (sem seguir redirecionamento) e LIMPA na linha só `instancia` e `status` (a linha continua: ela é
+   * o `connectionId` do histórico da Central). A instância da empresa nunca é tocada. Só grava quando o admin clica — não é migração.
+   */
+  removerConexaoAntiga: soAdmin.mutation(async ({ ctx }) => {
+    const c = await exigirConfig();
+    const antigas = await conexoesAntigasDaCentral(c.instancia);
+    if (!antigas.length) return { ok: true, removidas: 0 };
+    const evo = await exigirEvolution();
+    // QA-SEG E9 r2 (achado 1): só limpa a linha quando a Evolution CONFIRMA a remoção; senão a linha continua e o botão também.
+    const removidas: number[] = [];
+    const falharam: number[] = [];
+    for (const a of antigas) {
+      if (!(await removerInstanciaConfirmada(evo, a.instancia))) { falharam.push(a.id); continue; }
+      await getDb().update(whatsappConnections).set({ instancia: null, status: "desconectado", updatedAt: new Date() })
+        .where(and(eq(whatsappConnections.id, a.id), eq(whatsappConnections.instancia, a.instancia)));
+      removidas.push(a.id);
+    }
+    await registrarAcao({ funcao: "remover_conexao_antiga_central", resultado: falharam.length ? "erro" : "ok",
+      motivo: falharam.length ? "a Evolution não confirmou a remoção de parte das conexões antigas; elas continuam registradas"
+        : "instância antiga da Central (admin/colaborador) removida pelo administrador",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { removidas, falharam } });
+    if (falharam.length) {
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "A Evolution não confirmou a remoção da conexão antiga. Nada foi apagado dessa conexão; tente de novo em alguns minutos." });
+    }
+    return { ok: true, removidas: removidas.length };
   }),
 
   desconectar: soAdmin.mutation(async ({ ctx }) => {

@@ -11,10 +11,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { trpc } from "@/lib/trpc";
-import { alternarItem, alternarTodosVisiveis, chaveTelefone, podarSelecao, textoConfirmacaoExclusao } from "@shared/whatsapp/conversas";
+import { alternarItem, alternarTodosVisiveis, chaveDaConversa, ehConversaSemNumero, podarSelecao, textoConfirmacaoExclusao } from "@shared/whatsapp/conversas";
 
 const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+/** EPIC-026 C2: a conversa cujo número o WhatsApp não informou ("@lid") aparece assim — nunca com um telefone inventado. */
+const ROTULO_SEM_NUMERO = "Número não identificado";
 const formatar = (n: string) => {
+  if (ehConversaSemNumero(n)) return ROTULO_SEM_NUMERO;
   const d = n.replace(/\D/g, "").replace(/^55/, "");
   return d.length >= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, -4)}-${d.slice(-4)}` : n;
 };
@@ -137,6 +140,10 @@ function VincularLeadDialog({ numero, modo, onFechar, onVinculado, onCriarMesmoA
 /** Rótulo gravado no texto ("[imagem] legenda") vira só a legenda quando o arquivo aparece. */
 const legenda = (texto: string, midia: Midia | null) => (midia?.baixada ? texto.replace(/^\[(imagem|áudio|vídeo|documento|figurinha)\]\s*/, "") : texto);
 
+/** Mesma conversa: o "@lid" exato, ou o mesmo telefone pelos 8 finais (como antes). */
+const mesmaConversa = (a: string, b: string) =>
+  ehConversaSemNumero(a) || ehConversaSemNumero(b) ? chaveDaConversa(a) === chaveDaConversa(b) : a.replace(/\D/g, "").slice(-8) === b.replace(/\D/g, "").slice(-8);
+
 export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
   const [numero, setNumero] = useState<string | null>(numeroInicial ?? null);
@@ -181,7 +188,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
   const excluirLote = trpc.whatsapp.excluirConversas.useMutation({
     onSuccess: (r, v) => {
       toast.success(`${r.conversas} conversa(s) excluída(s) (${r.apagadas} mensagem(ns)).`);
-      if (numero && v.numeros.some(n => chaveTelefone(n) === chaveTelefone(numero))) setNumero(null);
+      if (numero && v.numeros.some(n => chaveDaConversa(n) === chaveDaConversa(numero))) setNumero(null);
       setSelecionadas([]); setConfirmarLote(false);
       utils.whatsapp.conversas.invalidate();
     },
@@ -191,7 +198,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
   const excluir = trpc.whatsapp.excluirConversa.useMutation({
     onSuccess: (r, v) => {
       toast.success(`Conversa excluída (${r.apagadas} mensagem(ns)).`);
-      if (numero && v.numero.slice(-8) === numero.replace(/\D/g, "").slice(-8)) setNumero(null);
+      if (numero && mesmaConversa(v.numero, numero)) setNumero(null);
       utils.whatsapp.conversas.invalidate();
     },
     onError: e => toast.error(e.message),
@@ -202,7 +209,8 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
   useEffect(() => { fim.current?.scrollIntoView({ block: "end" }); }, [mensagens.data?.length]);
 
   const lista = (conversas.data ?? []).filter(c => !busca || (c.nome ?? "").toLowerCase().includes(busca.toLowerCase()) || c.numero.includes(busca.replace(/\D/g, "")));
-  const atual = (conversas.data ?? []).find(c => numero && c.numero.replace(/\D/g, "").endsWith(numero.replace(/\D/g, "").slice(-8)));
+  const atual = (conversas.data ?? []).find(c => numero && mesmaConversa(c.numero, numero));
+  const semNumero = Boolean(numero && ehConversaSemNumero(numero));
   const visiveis = lista.map(c => c.numero);
   const todasVisiveis = visiveis.length > 0 && visiveis.every(n => selecionadas.includes(n));
   // Conversa que sumiu (excluída em outra aba, por exemplo) sai da seleção.
@@ -231,7 +239,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
         <div className="flex-1 overflow-y-auto max-h-[560px]">
           {lista.length === 0 && <p className="p-4 text-sm text-gray-300">Nenhuma conversa ainda. As mensagens recebidas aparecem aqui sozinhas.</p>}
           {lista.map(c => (
-            <div key={c.numero} className={`flex items-stretch border-b border-white/5 ${numero && c.numero.endsWith(numero.slice(-8)) ? "bg-[#C9A961]/10" : ""}`}>
+            <div key={c.numero} className={`flex items-stretch border-b border-white/5 ${numero && mesmaConversa(c.numero, numero) ? "bg-[#C9A961]/10" : ""}`}>
               <label className="flex items-center pl-3">
                 <input type="checkbox" className="accent-[#C9A961]" checked={selecionadas.includes(c.numero)}
                   onChange={() => setSelecionadas(s => alternarItem(s, c.numero))} aria-label={`Selecionar conversa com ${c.nome ?? formatar(c.numero)}`} />
@@ -263,7 +271,8 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
                 <p className="font-bold text-white">{atual?.nome ?? formatar(numero)}</p>
                 <p className="text-xs text-gray-300">{formatar(numero)}</p>
               </div>
-              {atual && !atual.leadId && (
+              {semNumero && <p className="text-xs text-amber-200">O WhatsApp não informou o número desta conversa.{atual?.provavel ? ` Provável: ${atual.provavel} (não confirmado).` : ""}</p>}
+              {atual && !atual.leadId && !semNumero && (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" disabled={criarLead.isPending || conferindo} className="h-7 text-xs border-[#C9A961]/30 text-[#C9A961]"
                     onClick={() => iniciarCriarLead(numero, atual.nome)}><UserPlus className="h-3 w-3 mr-1" /> Criar lead</Button>
@@ -295,16 +304,18 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.direcao === "saida" ? "bg-green-800 text-white" : "bg-[#1A2332] text-gray-100"}`}>
                     {m.midia && <MidiaMensagem id={m.id} midia={m.midia} />}
                     {legenda(m.mensagem, m.midia)}
-                    <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.direcao === "saida" ? ` • ${m.status}` : ""}</div>
+                    <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.direcao === "saida" ? ` • ${m.status}` : ""}{m.automatica ? " • automática" : ""}</div>
                   </div>
                 </div>
               ))}
               <div ref={fim} />
             </div>
-            <form className="p-3 border-t border-[#C9A961]/10 flex gap-2" onSubmit={e => { e.preventDefault(); if (texto.trim()) responder.mutate({ numero, texto }); }}>
+            {semNumero ? (
+              <p role="status" className="p-3 border-t border-[#C9A961]/10 text-sm text-amber-200">Não dá para responder por aqui: número não identificado. Responda pelo celular da empresa.</p>
+            ) : <form className="p-3 border-t border-[#C9A961]/10 flex gap-2" onSubmit={e => { e.preventDefault(); if (texto.trim()) responder.mutate({ numero, texto }); }}>
               <Input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escreva uma resposta..." className="bg-[#1A2332] border-[#C9A961]/30 text-white" />
               <Button type="submit" disabled={responder.isPending || !texto.trim()} className="bg-green-600 hover:bg-green-700 text-white"><Send className="h-4 w-4" /></Button>
-            </form>
+            </form>}
           </>
         )}
       </div>

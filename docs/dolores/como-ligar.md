@@ -329,11 +329,15 @@ uma geração feita por ela (a planilha e o PDF no histórico da obra e a cópia
 
 # Etapa 4 — Grupos de clientes (leitura dos grupos cadastrados, card, classificação e Drive)
 
+> **Desde a Etapa 7 (19/11/2026), não é mais preciso cadastrar grupo**: o grupo entra sozinho, com o tipo descoberto pelo nome
+> (ver "Etapa 7", no fim). O cadastro manual abaixo continua existindo, recolhido na tela, para casos raros.
+
 A Dolores passa a **ler** os grupos de WhatsApp de clientes que o administrador cadastrar. Ela **só responde no grupo quando
 é marcada, com o interruptor ligado** (seção "Responder no grupo quando marcada", abaixo); fora isso não responde, não reage,
 não manda nada e não marca como lida de propósito. **Nada escrito no grupo é comando** — nem
 quando é o dono quem escreve lá: "aprovar CÓDIGO" num grupo não aprova nada. Pedido só vale na conversa DIRETA do dono
-com a Dolores. Grupo não cadastrado ou desativado continua ignorado como antes (nada é gravado).
+com a Dolores. Grupo desativado continua ignorado (nada é gravado); grupo desconhecido entra sozinho (Etapa 7), salvo com a
+"entrada automática de grupos" desligada.
 
 ## 1. Banco (equipe técnica, já autorizado)
 Aplicar `drizzle/0126_dolores_grupos.sql` no Neon (só aditiva e idempotente: 5 tabelas novas, gatilhos que impedem
@@ -352,7 +356,7 @@ ou demorar mais de 5 s, o arquivo não vai e a classificação sai só pelo nome
 O dono adiciona o número da Dolores ao grupo do cliente, no próprio WhatsApp. O sistema nunca entra em grupo sozinho.
 Combinado: **um grupo por cliente**.
 
-## 3. Cadastrar o grupo (administrador, em Integrações › Dolores — grupos de clientes)
+## 3. Cadastrar o grupo (raro desde a Etapa 7 — em Integrações › Dolores — grupos › "Cadastrar um grupo à mão")
 1. "Ver os grupos em que a Dolores está" lista os grupos pela Evolution (só leitura) → "Usar este id"; ou digite o id
    (termina em `@g.us`).
 2. Dê um rótulo (como a equipe chama o grupo) e, se já existir, o nº do cliente no CRM (ou o nº da obra). Pode deixar sem
@@ -453,7 +457,7 @@ pergunta aparece na lista da tela como "fora de escopo". Se a resposta da IA tiv
 pessoal, vai a mesma frase no lugar.
 
 ## 6. Quando ela fica em silêncio
-Grupo não cadastrado ou desativado; interruptor geral ou do grupo desligado; Dolores pausada; IA desligada, sem chave, sem
+Grupo desativado ou aguardando o dono definir o tipo (Etapa 7); interruptor geral ou do grupo desligado; Dolores pausada; IA desligada, sem chave, sem
 modelo, sem limite ou com o limite do mês atingido; outra resposta dela em andamento no mesmo grupo; teto por pessoa atingido;
 marcação antiga. Passou do teto do grupo no dia: ela manda **uma vez por dia** "Recebi muitas perguntas hoje; a equipe vai
 responder por aqui assim que possível." e depois fica em silêncio. Toda marcação em grupo cadastrado fica registrada.
@@ -489,7 +493,8 @@ Exclusões que já existiam continuam funcionando: excluir a obra, o usuário em
 transação do banco removida) só esvazia o vínculo na nota (`ON DELETE SET NULL`, aceito pelo gatilho); a nota fica.
 
 ## 2. Grupo da obra (administrador, em Integrações › Dolores — grupos de clientes)
-Cadastre o grupo da obra com o **nº da obra** (não o do cliente). Um grupo ligado a obra passa a mandar os documentos para a
+Ligue o grupo da obra ao **nº da obra** (não o do cliente) — desde a Etapa 7, pelo comando do dono
+`grupo <código> engenharia <nº da obra>` ou em "Corrigir tipo ou vínculo" na tela. Um grupo ligado a obra passa a mandar os documentos para a
 leitura de nota; grupo de cliente continua na classificação da etapa 4, igual. O empreiteiro que pode confirmar é o
 **empreiteiro vinculado à obra** (tela da obra), com o **telefone** cadastrado no usuário dele (papel empreiteiro, ativo).
 
@@ -565,13 +570,11 @@ tabela existente muda. Sem a 0131, a tela avisa e o cron responde "sem-configura
 feita no código, UTC−3). A rota só aceita o cabeçalho `Authorization: Bearer <CRON_SECRET>` que a própria Vercel manda
 (comparação em tempo constante); **sem `CRON_SECRET` cadastrado na Vercel, ela recusa sempre** (o cron `lead-card-due` já usa
 a mesma variável — confira que existe em Settings › Environment Variables). Query e corpo são ignorados. Cabe em 45 s.
-O relatório diário sai na execução do dia se a hora escolhida na tela já tiver chegado (padrão 07:00). Como o cron é diário,
-**a hora só vai até 07:00**: a tela só oferece 00:00–07:00 e o servidor recusa hora maior (e, se houver hora maior gravada no
-banco, trata como 07:00). A conta sai de uma constante só, `CRON_DOLORES_AGENDA` em `shared/dolores/operacao.ts`, que um teste
-confere contra o `vercel.json`. Para outro horário fixo, a equipe técnica muda o `schedule` no `vercel.json` **e** essa
-constante (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
-Cada seção da ronda roda com `SET LOCAL statement_timeout` igual ao tempo que resta do prazo (piso 1 s, teto 15 s): a seção que
-estoura vira "sem leitura" na ronda e no relatório, sem derrubar as outras.
+O relatório diário sai UMA vez por dia, na hora escolhida na tela entre **07:00 e 14:00** (Brasília; padrão 07:00). O cron
+chama a rotina nessas 8 horas (`CRON_DOLORES_AGENDAS` em `shared/dolores/operacao.ts`, conferida por teste contra o
+`vercel.json`); o relatório sai na primeira chamada em que a hora escolhida já chegou. Se o envio falhar, a chamada seguinte
+do mesmo dia reenvia o mesmo texto uma única vez; depois disso, fica o botão de reenvio na tela. Hora antiga gravada
+(00:00–06:00) vale 07:00.
 
 ## 3. Ligar (administrador, em Integrações › "Dolores — operação contínua")
 1. **Rondas** (liga a varredura diária).
@@ -615,3 +618,216 @@ envio "enviado" e o gasto do mês. O custo da IA é o de `dolores_consumo` (as r
 - `dolores_acoes`: `ronda` (ok/erro com as seções sem leitura, ou recusada pela pausa), `relatorio_envio` (ok, ou recusada:
   sem número do dono / desconectada / pausada), `pausa_geral` e `operacao_config` (tela).
 - Ferramenta nova para a conversa: `relatorio_diario` (só lê a última ronda e o último relatório; não faz ronda).
+
+---
+
+# Etapa 7 — Grupos automáticos, por tipo (regra do dono de 19/11/2026)
+
+Palavras do dono: "eu não quero ter que cadastrar grupo por grupo". **Todo grupo em que o DONO colocar o número da Dolores
+entra sozinho** na lista (pelo aviso de que ela foi adicionada). A primeira mensagem e o botão "Atualizar grupos" também põem o
+grupo na lista, mas sem provar quem a colocou: aí ele fica **aguardando você** (ver abaixo). A tela passa a servir para VER e
+CORRIGIR.
+
+**Só vale grupo em que a Dolores foi adicionada pelo número do dono** (o cadastrado em Integrações › Dolores). Palavras dele:
+"somente o número principal, que no caso foi cadastrado meu lá na integração, pode adicionar o número da Dolores em grupo, e
+assim nós não corremos risco de qualquer pessoa adicionar ela em outros grupos". Ela só aceita um grupo sozinha com **prova
+positiva** (por código, nunca pelo texto das mensagens):
+1. o aviso `group-participants.update` da Evolution (ação "add", com a Dolores entre os adicionados) traz o **autor**
+   (`author`) = o número do dono (autor em `@lid` só vale se os participantes do grupo na Evolution mostrarem que aquele `@lid` é
+   o número do dono). Aviso de "add" cujo autor não dá para provar (sem autor, `@lid` desconhecido) → **recusado**;
+2. (QA-SEG E7 r2) o aviso `groups.upsert` **não aceita sozinho**: a lista de participantes que ele traz não prova que a Dolores
+   estava no grupo desde a criação. Grupo criado agora por você, já com a Dolores, fica **aguardando você** e ela pergunta
+   ("grupo <código> aceitar"). Para não precisar responder, crie o grupo sem ela e adicione-a depois, pelo seu número.
+Sem esses avisos (primeira mensagem, "Atualizar grupos", grupos em que ela já estava): se os dados do grupo na Evolution mostram
+o dono participante e criador/admin, o grupo fica **aguardando você: não sei quem me colocou** — ela só observa (não fala, nem
+marcada; nada vai à IA) e manda: "Estou no grupo «X» e não sei quem me colocou. Se foi você, responda: grupo <código> aceitar".
+Senão, **recusado**: ela não lê, não registra mensagens e não responde, e você recebe UM aviso ("fui colocada no grupo «X» por
+outra pessoa; ignorei…"). Se chegar o aviso de que outra pessoa a adicionou a um grupo que você ainda não decidiu, ele passa a
+recusado. Grupo que você já decidiu (adicionou ou aceitou) não é rebaixado se outra pessoa remover e recolocar a Dolores: você
+recebe "«Fulano» me recolocou no grupo «X»" (no máximo um por grupo por dia). **Só você aceita**: responda `grupo <código> aceitar` na conversa direta com ela, ou adicione-a você mesmo (remova e
+adicione de novo pelo seu número). A tela mostra e explica, deixa desativar, mas não aceita. Se o número do dono for trocado
+depois, os grupos já aceitos continuam aceitos; os novos seguem o número novo.
+
+**Depois da publicação, os grupos em que a Dolores JÁ está vão ficar aguardando você.** Sem o aviso de quem a adicionou (eles são
+anteriores), nenhum é aceito sozinho: na primeira mensagem de cada um (ou no "Atualizar grupos") você recebe a pergunta com o
+código. Aceite cada um com `grupo <código> aceitar`, ou remova a Dolores do grupo e adicione de novo pelo seu número (o aviso de
+"add" prova que foi você). Até lá eles só observam.
+
+**Instância já conectada: reaplique os avisos.** Os avisos de grupo (`GROUP_PARTICIPANTS_UPDATE`, `GROUPS_UPSERT`) passaram a
+ser assinados pela instância da Dolores. Quem já estava conectado precisa clicar em **"Reativar recebimento"** em
+Integrações › Dolores (o mesmo botão de antes) depois da publicação. Sem isso, os grupos novos ficam aguardando você (sem prova).
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar `drizzle/0133_dolores_grupos_tipo.sql` no Neon **antes** de publicar o código (inclui as colunas de quem adicionou a Dolores e a situação `recusado`) (só aditiva e idempotente: colunas novas em
+`dolores_grupos` e `dolores_grupos_config`, CHECKs e índices só se faltarem, e a guarda `dolores_grupos_guarda` trocada por
+`CREATE OR REPLACE`, mantendo tudo o que já protegia; a exigência de decisão do dono para tipo/vínculo vale só para as linhas da
+Etapa 7, então o código antigo continua funcionando sobre os grupos cadastrados à mão enquanto a publicação não termina). Nenhuma linha existente muda e nada é ligado: o interruptor geral de
+"responder quando marcada" continua como está (desligado por padrão). Sem a 0133, as leituras de grupo falham fechado
+(grupos ignorados).
+
+## 2. Como ela descobre o tipo (por código, pelo NOME do grupo no WhatsApp; nunca pela IA nem pelas mensagens)
+- Nome com **Jurídico**, **Administrativo**, **Parceiros** ou **Engenharia** (palavra inteira; acento e maiúscula não importam)
+  → grupo interno daquele tipo.
+- Nome igual ao de **um único** cliente do CRM (ou contendo o nome completo dele) → grupo de **cliente**; com "pós",
+  "pós-atendimento" ou "pós venda" no nome → **pós-atendimento**.
+- Dois clientes com o mesmo nome, nome curto (menos de 2 palavras ou 6 letras), dois tipos no nome ou nada casando →
+  **não identificado**: ela pergunta a você e **só observa** (não fala nada lá, nem marcada) até você responder.
+- Mudar o nome do grupo depois **não muda** o tipo nem o vínculo.
+
+## 3. O aviso e a correção (o dono, no WhatsApp da Dolores)
+Para cada grupo novo ela manda **um** aviso: "entrei no grupo «X». Entendi: cliente «Fulano» (nº 123). Se estiver errado,
+responda: …". Para corrigir ou definir, responda na conversa direta com ela, a mensagem inteira:
+- `grupo K7HM cliente 456` · `grupo K7HM pós 456` (nº do cliente no CRM)
+- `grupo K7HM jurídico` · `grupo K7HM administrativo` · `grupo K7HM parceiros`
+- `grupo K7HM engenharia` (geral) ou `grupo K7HM engenharia 12` (ligado à obra nº 12)
+- `grupo K7HM ignorar` (desativa: não lê nem fala; nada é apagado)
+- `grupo K7HM aceitar` (aceita um grupo recusado ou "aguardando você: não sei quem me colocou")
+O código de 4 letras de cada grupo está no aviso e na tela. A mesma frase escrita dentro de um grupo, ou mandada por outro
+número, não faz nada. Também dá para corrigir na tela ("Corrigir tipo ou vínculo", "Ignorar este grupo" — só admin), menos
+aceitar e definir o tipo de grupo aguardando você: grupo recusado ou aguardando você (inclusive o que você adicionou mas de tipo
+não identificado) só sai desse estado pelo seu comando no WhatsApp; a tela mostra o comando a enviar.
+
+## 4. O que ela responde quando marcada, por tipo (travado no servidor)
+- **Cliente / pós-atendimento:** só aquele cliente (andamento, etapas, documentos que faltam), como na Etapa 4b.
+- **Administrativo (sócios):** as consultas gerais da Dolores, com CPF/telefone/e-mail **sempre mascarados** neste canal e nunca
+  senhas, tokens, chaves ou dados bancários. Valores só os que vierem das consultas.
+- **Jurídico:** processos, regularizações e documentos (sem valores: os campos de dinheiro — e os alertas e a conciliação das
+  notas — saem no servidor antes de chegar à IA; nos textos que sobram, valores em dinheiro viram "[valor omitido]"; resposta com
+  palavra de quantia — saldo, parcela, orçamento, valor… — vira a frase fixa; "foi paga"/"aguardando pagamento" passam se não
+  houver número de dinheiro na frase).
+- **Engenharia:** obras, medições e notas (sem valores, do mesmo jeito). Grupo ligado a uma obra (com o empreiteiro) continua só com aquela obra.
+- **Parceiros:** só o andamento dos clientes que o **corretor que marcou** indicou (identificado pelo telefone do cadastro dele —
+  número completo com 55, só a variação do 9º dígito —, usuário ativo de papel corretor). Sem identificar, responde uma frase fixa. Nunca cliente de outro parceiro, valores ou comissão.
+- **Não identificado / desativado / recusado:** silêncio.
+Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos, o orçamento e a pausa geral.
+
+## 5. Interruptores e tetos (Integrações › Dolores — grupos)
+- **Entrada automática de grupos:** nasce ligada (pedido do dono). Desligada, grupo novo é ignorado.
+- **Teto de grupos novos por dia** (padrão 20) e **de avisos por dia** (padrão 25): passou, os grupos novos do dia ficam de fora e
+  você recebe um aviso, uma vez. Os grupos sem prova (recusados ou aguardando você) têm a contagem deles, separada: quem coloca a
+  Dolores em grupos à toa não tira a vaga dos grupos que VOCÊ adiciona. Deles você recebe no máximo 5 avisos por dia e depois um
+  resumo único (os demais aparecem na tela, com o código).
+- **Alguém entrou no grupo administrativo:** você recebe um aviso (um por grupo por dia, com contagem própria, separada dos
+  avisos de grupo novo), porque lá ela responde sobre tudo.
+- O interruptor de cada grupo já nasce **ligado** nos grupos reconhecidos; nada fala enquanto o interruptor GERAL de "responder
+  quando marcada" estiver desligado.
+- Documentos só vão à classificação em grupo de cliente/pós com cliente ligado (ou de obra, para a nota); em grupo interno ficam
+  só registrados.
+- O relatório diário mostra quantos grupos novos aguardam a sua resposta.
+
+## 6. Reversão (cuidado apontado pelo QA)
+Antes de voltar ao código anterior à Etapa 7 com a 0133 já aplicada, **desative os grupos `recusado` e `aguardando_dono`**
+(`UPDATE dolores_grupos SET ativo = false WHERE situacao_confirmacao IN ('recusado', 'aguardando_dono')`, com a autorização do
+dono): o código antigo não conhece essas situações e trataria esses grupos como ativos (leria e registraria as mensagens deles).
+
+## 7. Conferir
+`dolores_acoes`: `grupo_entrada` (entrou / aguardando / recusado / rebaixado / aceito / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
+`grupo_leitura` (consultas feitas quando marcada, com o tipo), `atualizar_grupos` (botão da tela).
+
+---
+
+# Etapa 8 — Respostas longas e custo real
+
+Dois problemas reais de produção (19/11/2026): um pedido longo do dono ("divida os clientes do CRM em atraso até o fim do mês,
+igualmente por dia") voltou como "não consegui concluir" (a resposta parou por tamanho e o texto parcial era descartado), e a
+tela mostrava perto de US$ 2 para três perguntas no Haiku, quando o custo real foi de centavos.
+
+## 1. Banco (equipe técnica)
+Aplicar `drizzle/0134_dolores_precos.sql` no Neon (só aditiva e idempotente: `dolores_precos_modelo` e `dolores_cotacao`, com
+`atualizado_por` em ON DELETE SET NULL; nenhuma tabela existente muda). **O número é 0134** porque a 0133 é da etapa 7
+(`0133_dolores_grupos_tipo.sql`). Sem a 0134, a tela avisa "migração 0134 ainda não aplicada" e a estimativa usa só a reserva.
+
+## 2. Respostas longas (nada a ligar)
+- A resposta ao dono pode sair em **até 3 mensagens** seguidas, numeradas "(1/3)", cada uma com até 3.800 caracteres, cortadas
+  em quebra de linha. Todas passam pelos mesmos filtros (links, dados pessoais conforme o interruptor, segredos e bancários
+  sempre) e vão **só para o número do dono** (o destino é conferido uma vez e é o mesmo para todas). Se uma falhar, as seguintes
+  não saem. Os quadros do sistema (o que foi feito e a fila, com os códigos) nunca são cortados.
+- Se a IA parar por tamanho, o dono recebe o que já foi escrito, cortado no fim da última linha completa, com o aviso
+  "(continua — … peça o restante em partes …)". Se ela parou sem texto nenhum, o sistema faz uma última chamada sem consultas
+  pedindo a resposta curta. **"continuar" não foi implementado** (ver a story E8): o dono pede o resto em partes.
+- A saída de cada chamada vai até 5.000 tokens, limitada ao que cabe no tempo que resta do pedido (45 s).
+- Ferramenta nova: **`plano_de_atrasos`** (só leitura): os mesmos itens de `listar_atrasos`, do mais atrasado para o menos,
+  divididos **igualmente** pelos dias até a data-limite (padrão: fim do mês; só dias úteis seg–sex por padrão; feriados não são
+  conhecidos). Quem faz a conta é o sistema; a IA só repete.
+
+## 3. Custo real (administrador, em Integrações › "Dolores — operação contínua" › Gasto da IA)
+1. Em **Preços por modelo**, a tela lista os modelos que aparecem no consumo do mês e os escolhidos em Integrações › Anthropic.
+   Para cada um, digite os preços da página da Anthropic em **US$ por milhão de tokens**: entrada, saída, escrita de cache e
+   leitura de cache. Deixando escrita/leitura de cache vazias, o sistema assume **1,25×** e **0,1×** do preço de entrada (e a
+   tela diz isso). O sistema não inventa preço.
+2. Digite a **cotação do dólar** (R$ por US$) para ver em reais.
+3. A tela mostra o gasto do mês em US$ e R$, **por modelo** e **por função** (conversa com o dono; resposta em grupo; documentos
+   dos grupos e notas de obra — estas duas gravam o consumo do mesmo jeito e não dá para separar uma da outra).
+4. Os dois campos antigos (R$ por milhão, preço único) viraram **preço de reserva**: só valem para modelo sem preço cadastrado,
+   e a tela diz quando a estimativa usou a reserva. Se você tinha preenchido o preço do modelo mais caro neles, cadastre o preço
+   de cada modelo acima (a reserva deixa de ser usada para ele).
+O relatório do dono (diário e sob demanda) usa a mesma conta.
+
+**O limite mensal não mudou.** Ele continua em tokens e conta o cache (escrita e leitura) como entrada cheia — é conservador:
+para no limite antes do que o custo real faria. A tela mostra os dois números lado a lado ("entrada contada no limite" e o
+custo real estimado). Se quiser que o limite conte o cache pelo peso real, é uma decisão do dono (ver a story E8).
+
+## 4. Conferir
+- `dolores_precos_modelo` e `dolores_cotacao` (quem mudou fica em `atualizado_por`); `dolores_acoes` com `operacao_config`
+  ("preço por modelo alterado pela tela", "cotação do dólar alterada pela tela").
+- Resposta em várias mensagens: uma linha `whatsapp_resposta` por mensagem, com `parte: "1/3"` no resumo.
+
+# Etapa 9 — WhatsApp com uma conexão só, atendimento e campanhas (20/11/2026)
+
+Regra do dono: CLAUDE.md, "WhatsApp — uma conexão só, atendimento e campanhas". Story:
+`docs/stories/epics/epic-025-dolores/E9-conexao-unica-e-atendimento.md`. Tudo o que é novo nasce DESLIGADO.
+
+## 1. Banco (equipe técnica)
+- Aplicar `drizzle/0135_whatsapp_conexao_unica.sql` (aditiva e idempotente; pode rodar duas vezes). Não mexe na instância
+  conectada nem na linha do admin em `whatsapp_connections`.
+
+## 2. A conexão (administrador, Integrações › "WhatsApp da empresa (Dolores e Central)")
+1. O número que já estava conectado na Dolores continua conectado: **não leia QR de novo**.
+2. Clique **"Reativar recebimento"** UMA vez depois desta atualização: ele registra de novo o aviso da Evolution com o evento
+   de LIGAÇÃO (`CALL`) e liga a recusa automática de ligações (lendo e regravando as configurações da instância, só trocando
+   `rejectCall`). Sem isso, o aviso "não atendo ligações" não sai.
+3. A Central (Conversas, Enviar mensagem, Templates) do admin e do colaborador passa a usar esse número. A aba "Minha conexão"
+   do admin mostra só as conexões dos corretores; corretores continuam conectando o próprio número ali.
+4. Se o cartão mostrar **"Ainda existe a conexão antiga da Central"**, clique **"Remover a conexão antiga da Central"** (só o
+   administrador vê). Ele desliga e apaga no servidor do WhatsApp a instância que o admin/colaborador tinha conectado pela Central
+   antes da conexão única, e limpa só a instância e a situação daquela linha (o histórico das conversas continua). A conexão da
+   empresa não é tocada. Enquanto a antiga existir com o mesmo número, "Conferir conexão"/"Reativar recebimento" recusam (sem
+   derrubar nada). Ela já não grava nada na Central.
+5. Pelo número da empresa a Central nunca escreve ao dono nem ao próprio número, nem mostra essas conversas; envios manuais têm
+   teto de 10 por minuto e 200 por dia (somando todos os usuários).
+
+## 3. Ordem para ligar (cada passo é opcional; nada liga sozinho)
+1. **Saudação de campanha** — Central › Templates › "Saudação de campanha": cadastre a campanha (nome, empreendimento
+   opcional, texto FIXO, sem `{{…}}`) e clique **Ativar** (só uma fica ativa). Vai UMA vez por número a quem não está
+   cadastrado. Teto diário em Integrações › "Atendimento pelo WhatsApp da empresa" (padrão 50/dia).
+2. **Avisos de ligação e de áudio** — textos na mesma tela (padrão já preenchido); no máximo 1 a cada 3 h por número. LIGADOS
+   por padrão (pedido do dono), com interruptor próprio e teto de 50 por dia no total, em Integrações › "Atendimento pelo WhatsApp
+   da empresa".
+3. **Dolores responde clientes cadastrados** — Integrações › "Atendimento pelo WhatsApp da empresa" › Ligar. Exige a IA da
+   Dolores ligada, a chave da Anthropic e os limites mensais. Modelo: Integrações › Anthropic › Modelo por função ›
+   "Dolores — resposta a cliente cadastrado" (o mais barato basta). Tetos: 10 por cliente/dia, 100 por dia; orçamento
+   próprio de 10% do limite mensal; calada por 6 h na conversa em que a equipe respondeu.
+4. **Transcrição de áudio (Cloudflare Workers AI, faixa gratuita)**:
+   - No painel da Cloudflare: Workers AI › copiar o **Account ID** (32 caracteres) e criar um **API Token** com a permissão
+     "Workers AI — Read/Edit" (só ela).
+   - Em Integrações › "Atendimento pelo WhatsApp da empresa" › Cloudflare: colar os dois e Salvar (a tela mostra só o final).
+   - Depois, "Transcrição de áudio" › Ligar. Duração máxima 120 s; 10 por número/dia; 100 por dia.
+   - Modelo `@cf/openai/whisper-large-v3-turbo`, chamado em
+     `POST https://api.cloudflare.com/client/v4/accounts/{Account ID}/ai/run/@cf/openai/whisper-large-v3-turbo` com
+     `{ "audio": "<base64>", "task": "transcribe", "language": "pt" }`. **Conferir na documentação oficial ao ligar**: o host
+     da Cloudflare não estava liberado na rede do ambiente de desenvolvimento, e os testes usam cliente simulado.
+   - O áudio vai à Cloudflare: isso entra no termo de consentimento (pendência do jurídico).
+
+## 4. O que NUNCA muda
+- Comando só do número do dono, por TEXTO, na conversa direta. Áudio do dono não é transcrito nem vira comando (ele recebe
+  "só entendo texto"). Mensagem de cliente, de grupo, áudio transcrito e o que o próprio número enviou nunca são comando.
+- A conversa do dono com a Dolores e os grupos nunca aparecem na Central.
+- Disparo em massa pelo número principal fica bloqueado até a coexistência com a API oficial (fase separada): a aba
+  "Enviar mensagem" aceita um contato por vez pelo número da empresa.
+
+## 5. Conferir
+- `whatsapp_messages.automatica = true`: o que o sistema enviou sozinho (resposta da Dolores, saudação, aviso).
+- `dolores_atendimentos`: cada mensagem de cliente tratada (situação, motivo, tokens); `whatsapp_saudacoes`: quem recebeu
+  qual campanha (número só como resumo HMAC e mascarado); `dolores_acoes` com `whatsapp_automatica`, `cliente_atendimento`,
+  `cliente_leitura`, `configurar_atendimento`, `campanha_saudacao`, `configurar_cloudflare`.
+- Desligar tudo: "Desligar" nos dois interruptores e "Desativar" na campanha. A pausa geral da Dolores também cala tudo isso.

@@ -6,9 +6,27 @@
  * Mesma normalização de `mesmoTelefone` (server/_core/evolution.ts), que passa a usar esta função.
  */
 export function chaveTelefone(x: string | null | undefined): string {
+  // EPIC-026 C2: conversa de número NÃO identificado (endereço "@lid" do WhatsApp) não tem telefone — nunca casa com telefone
+  if (/@lid$/i.test((x ?? "").trim())) return "";
   let d = (x ?? "").replace(/\D/g, "");
   if (d.startsWith("55") && d.length >= 12) d = d.slice(2);
   return d.length >= 10 ? `${d.slice(0, 2)}${d.slice(-8)}` : d;
+}
+
+/**
+ * EPIC-026 C2 (regra do dono de 20/11/2026: nenhuma mensagem some sem registro): a conversa direta cujo número o WhatsApp não
+ * informou (só o endereço "<dígitos>@lid") entra na Central com esse identificador como chave — nunca um telefone inventado.
+ * Devolve o identificador normalizado, ou null quando não é um "@lid".
+ */
+export function idSemNumero(x: string | null | undefined): string | null {
+  const m = /^(\d{1,25})@lid$/i.exec((x ?? "").trim());
+  return m ? `${m[1]}@lid` : null;
+}
+/** A conversa é de número não identificado ("@lid")? Não dá para responder, vincular nem criar lead por ela. */
+export const ehConversaSemNumero = (x: string | null | undefined) => idSemNumero(x) !== null;
+/** Chave da conversa: o "@lid" exato (conversa sem número) ou a chave do telefone (DDD + 8 finais). */
+export function chaveDaConversa(x: string | null | undefined): string {
+  return idSemNumero(x) ?? chaveTelefone(x);
 }
 
 export type OrigemVinculo = "manual" | "telefone" | "mensagem";

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Download, Loader2, Mail, RotateCcw, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  baixarPdf, blobDoPdf, emailValido, enviarProposta, pdfDaProposta, type EnvioProposta, type PdfProposta,
+  AVISO_PROPOSTA_MUDOU, baixarPdf, blobDoPdf, emailValido, enviarProposta, pdfDaProposta, type EnvioProposta, type PdfProposta,
 } from "./compat/proposta-terreno";
 
 const btn = "inline-flex items-center justify-center gap-1 text-xs font-bold px-3 py-2 min-h-10 border disabled:opacity-50";
@@ -23,7 +23,7 @@ export function AcoesPropostaTerreno({ estudoId, propostaId, emailProprietario, 
   const [erro, setErro] = useState<string | null>(null);
   const [previa, setPrevia] = useState<{ pdf: PdfProposta; url: string } | null>(null);
   const [destinatario, setDestinatario] = useState("");
-  const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [resultado, setResultado] = useState<{ ok: boolean; texto: string; previaVencida?: boolean } | null>(null);
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa.url); }, [previa]);
 
@@ -53,12 +53,13 @@ export function AcoesPropostaTerreno({ estudoId, propostaId, emailProprietario, 
     setOcupado("envio");
     setResultado(null);
     try {
-      // mesma data de emissão da prévia: o anexo é o mesmo PDF mostrado
-      const r = await enviarProposta(estudoId, propostaId, destinatario, previa.pdf.dataEmissao);
+      // mesma data de emissão e hash da prévia: o servidor só anexa o PDF que foi mostrado (se mudou, recusa e pede nova prévia)
+      const r = await enviarProposta(estudoId, propostaId, destinatario, previa.pdf.dataEmissao, previa.pdf.sha256);
       setResultado(r.ok ? { ok: true, texto: `Proposta enviada para ${destinatario}.` } : { ok: false, texto: r.motivo ?? "O envio falhou." });
       aoEnviar();
     } catch (e) {
-      setResultado({ ok: false, texto: mensagem(e) });
+      const texto = mensagem(e);
+      setResultado({ ok: false, texto, previaVencida: texto === AVISO_PROPOSTA_MUDOU });
     } finally { setOcupado(null); }
   }
 
@@ -118,7 +119,12 @@ export function AcoesPropostaTerreno({ estudoId, propostaId, emailProprietario, 
                 <button type="button" onClick={() => setPrevia(null)} disabled={ocupado === "envio"} className={`${btn} border-gray-200`}>
                   <X size={14} /> {resultado?.ok ? "Fechar" : "Cancelar"}
                 </button>
-                {!resultado?.ok && (
+                {resultado?.previaVencida ? (
+                  <button type="button" onClick={() => void abrirEnvio(destinatario)} disabled={!!ocupado}
+                    className={`${btn} border-transparent bg-[var(--brand-dark)] text-[var(--brand-yellow)]`}>
+                    {ocupado === "previa" ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />} Gerar a prévia de novo
+                  </button>
+                ) : !resultado?.ok && (
                   <button type="button" onClick={() => void confirmar()} disabled={ocupado === "envio" || !emailValido(destinatario)}
                     className={`${btn} border-transparent bg-[var(--brand-dark)] text-[var(--brand-yellow)]`}>
                     {ocupado === "envio" ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}

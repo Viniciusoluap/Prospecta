@@ -78,3 +78,22 @@ export const doloresEventos = pgTable("dolores_eventos", {
   uniqueIndex("dolores_eventos_chave_uidx").on(t.chave),
   index("dolores_eventos_tipo_idx").on(t.tipo, t.criadoEm),
 ]);
+
+// 19/11/2026 — EPIC-025 (etapa 8): preços por modelo (US$ por milhão de tokens) e a cotação do dólar, informados pelo admin
+// (migração 0134_dolores_precos.sql). Só configuração da estimativa de custo; o limite mensal de tokens não muda.
+export const doloresPrecosModelo = pgTable("dolores_precos_modelo", {
+  modelo: varchar("modelo", { length: 120 }).primaryKey(),
+  entradaMilhaoUsd: numeric("entrada_milhao_usd", { precision: 12, scale: 4 }),
+  saidaMilhaoUsd: numeric("saida_milhao_usd", { precision: 12, scale: 4 }),
+  cacheEscritaMilhaoUsd: numeric("cache_escrita_milhao_usd", { precision: 12, scale: 4 }),
+  cacheLeituraMilhaoUsd: numeric("cache_leitura_milhao_usd", { precision: 12, scale: 4 }),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+  atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
+});
+
+export const doloresCotacao = pgTable("dolores_cotacao", {
+  id: integer("id").primaryKey().default(1),
+  cotacaoDolar: numeric("cotacao_dolar", { precision: 8, scale: 4 }),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+  atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
+});

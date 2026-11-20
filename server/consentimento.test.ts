@@ -12,9 +12,9 @@ vi.mock("./db.js", async orig => ({ ...(await orig<typeof import("./db.js")>()),
 import * as schema from "../drizzle/schema.js";
 import { ADMIN_MODULES } from "../shared/admin-permissions.js";
 import { ENDERECO_DA_SEDE } from "../shared/empresa.js";
-import { FRASE_CURTA_DO_TERMO, PENDENCIAS_DO_JURIDICO, SECOES_DO_TERMO, TITULO_DO_TERMO, VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
+import { CANAL_DO_TITULAR, FRASE_CURTA_DO_TERMO, HISTORICO_DO_TERMO, MENSAGEM_SEM_CONSENTIMENTO_ATIVO, SECOES_DO_TERMO, TITULO_DO_TERMO, VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { verifyPassword } from "./_core/auth-utils.js";
-import { aparelhoDoUserAgent, classificarConta, MENSAGEM_FALHA_AO_VERIFICAR, ehPrimeiroAcesso, INICIO_DO_TERMO, instanteDoBanco, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
+import { aparelhoDoUserAgent, classificarConta, situacaoDosRegistros, MENSAGEM_FALHA_AO_VERIFICAR, ehPrimeiroAcesso, INICIO_DO_TERMO, instanteDoBanco, gravarSenhaComAceite, MENSAGEM_SEM_ACEITE, MENSAGEM_VERSAO_ERRADA, pedirAceiteNoLogin } from "./consentimento.js";
 import { getDb } from "./db.js";
 import { appRouter } from "./routers.js";
 
@@ -22,6 +22,7 @@ let ddl: string | null = null;
 let pg: PGlite;
 let db: ReturnType<typeof drizzle>;
 const migracao = readFileSync(new URL("../drizzle/0127_consentimentos.sql", import.meta.url), "utf8");
+const migracaoRetirada = readFileSync(new URL("../drizzle/0132_consentimentos_retirada.sql", import.meta.url), "utf8");
 
 async function criarBanco() {
   if (!ddl) {
@@ -34,6 +35,8 @@ async function criarBanco() {
   await pg.exec(ddl);
   await pg.exec(migracao);
   await pg.exec(migracao); // idempotente
+  await pg.exec(migracaoRetirada);
+  await pg.exec(migracaoRetirada); // idempotente
   db = drizzle(pg);
   vi.mocked(getDb).mockReturnValue(db as never);
 }
@@ -88,7 +91,9 @@ describe("primeiro acesso: o servidor exige o aceite", () => {
     const [a, ...resto] = await aceites();
     expect(resto).toEqual([]);
     expect(a).toMatchObject({ user_id: id, versao_termo: VERSAO_DO_TERMO, canal: "definir_senha", aparelho: "celular", com_senha: true });
-    expect(Object.keys(a).sort()).toEqual(["aceito_em", "aparelho", "canal", "com_senha", "id", "user_id", "versao_termo"]);
+    // 0132 acrescentou só "tipo" e "registrado_por" (retirada); continua sem IP nem user-agent.
+    expect(Object.keys(a).sort()).toEqual(["aceito_em", "aparelho", "canal", "com_senha", "id", "registrado_por", "tipo", "user_id", "versao_termo"]);
+    expect(a).toMatchObject({ tipo: "aceite", registrado_por: null });
     await expect(publico().primeiroAcesso.definirSenha({ token: "tok-novo", novaSenha: "outra-senha-2", aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).rejects.toMatchObject({ message: "Link inválido ou expirado" });
     expect(await aceites()).toHaveLength(1);
   });
@@ -351,43 +356,153 @@ describe("consulta do admin (caminho completo pelo appRouter)", () => {
     const r = await caller(99, "admin").consentimento.admin.resumo();
     expect(r.versaoAtual).toBe(VERSAO_DO_TERMO);
     expect(r.pedirNoLogin).toBe(false);
-    expect(r.avisoProvisorio).toMatch(/provisório/);
-    expect(r.pendenciasDoJuridico).toEqual([...PENDENCIAS_DO_JURIDICO]);
+    expect(r).not.toHaveProperty("avisoProvisorio");
+    expect(r).not.toHaveProperty("pendenciasDoJuridico");
+    expect(r.retirados).toBe(0);
     expect(r.porVersao).toEqual(expect.arrayContaining([{ versao: VERSAO_DO_TERMO, usuarios: 1 }, { versao: "2026-01-01.1", usuarios: 1 }]));
     expect(r.usuarios.find(u => u.userId === nova)).toMatchObject({ versao: VERSAO_DO_TERMO, aceitouVersaoAtual: true, canal: "definir_senha" });
     expect(r.usuarios.find(u => u.userId === antiga)).toMatchObject({ versao: "2026-01-01.1", aceitouVersaoAtual: false });
+    // Retirada é inclusão de linha nova; continua não havendo rota para editar ou apagar registros.
     expect(Object.keys((appRouter as any)._def.procedures).filter((p: string) => p.startsWith("consentimento.")).sort())
-      .toEqual(["consentimento.aceitar", "consentimento.admin.resumo", "consentimento.minhaSituacao"]);
+      .toEqual(["consentimento.aceitar", "consentimento.admin.registrarRetirada", "consentimento.admin.resumo", "consentimento.meuConsentimento", "consentimento.minhaSituacao", "consentimento.retirar"]);
   });
 });
 
-describe("texto público do termo (QA S-12, achado 2)", () => {
+describe("texto público do termo — definitivo (17/11)", () => {
   const publicoTodo = [TITULO_DO_TERMO, FRASE_CURTA_DO_TERMO, ...SECOES_DO_TERMO.flatMap(sec => [sec.titulo, ...sec.paragrafos])].join("\n");
-  it("não tem marcador do jurídico; as pendências ficam numa lista separada, só para o admin", () => {
+  const secao = (n: string) => SECOES_DO_TERMO.find(sec => sec.titulo.startsWith(`${n}.`))!.paragrafos.join(" ");
+  it("não tem marcador, texto provisório nem pendência do jurídico", () => {
     expect(publicoTodo).not.toMatch(/\[A PREENCHER|PREENCHER PELO JUR|\[|\]/);
-    expect(PENDENCIAS_DO_JURIDICO.length).toBeGreaterThanOrEqual(4);
-    for (const p of PENDENCIAS_DO_JURIDICO) expect(publicoTodo).not.toContain(p);
+    expect(publicoTodo).not.toMatch(/provisóri|jurídico|a definir|pendente/i);
   });
-  it("endereço da mesma fonte do site; frases neutras para encarregado e prazos", () => {
+  it("endereço da mesma fonte do site; encarregado = canal de atendimento ao titular (e-mail e telefone)", () => {
     expect(ENDERECO_DA_SEDE).toBe("R. Gonçalves Dias, 1993 - Juçara, Imperatriz - MA, 65900-545");
     expect(publicoTodo).toContain(`Endereço: ${ENDERECO_DA_SEDE}.`);
-    expect(publicoTodo).toContain("use os contatos do item 7");
-    expect(publicoTodo).toContain("pelo tempo exigido por lei");
-    expect(publicoTodo).toContain("no prazo previsto em lei");
+    expect(secao("1")).toMatch(/Encarregado pelo tratamento de dados pessoais \(LGPD, art\. 41\)/);
+    expect(secao("1")).toContain(CANAL_DO_TITULAR.email);
+    expect(secao("1")).toContain(CANAL_DO_TITULAR.telefone);
+  });
+  it("prazo de guarda: enquanto durar a relação, depois os prazos legais (5 anos fiscais, prescrição) e então eliminação ou anonimização", () => {
+    expect(secao("6")).toMatch(/Enquanto você tiver conta ou relação/);
+    expect(secao("6")).toMatch(/5 anos para documentos fiscais e contábeis/);
+    expect(secao("6")).toMatch(/prescrição/);
+    expect(secao("6")).toMatch(/elimina os dados ou os anonimiza/);
+  });
+  it("prazo de resposta: até 15 dias para a declaração completa (art. 19, II)", () => {
+    expect(secao("7")).toMatch(/declaração completa .* em até 15 dias .* \(LGPD, art\. 19, II\)/);
+  });
+  it("versão nova com histórico", () => {
+    expect(VERSAO_DO_TERMO).toBe("2026-11-17.3");
+    expect(HISTORICO_DO_TERMO.map(h => h.versao)).toEqual(["2026-11-17.3", "2026-11-17.2", "2026-11-17.1"]);
   });
 });
 
 describe("textos que só dizem o que é verdade (QA S-12, achado 9)", () => {
   const todo = SECOES_DO_TERMO.flatMap(sec => sec.paragrafos).join(" ");
-  it("não diz que registra a hora de acesso (o login por senha não grava isso); diz o que o aceite grava", () => {
+  it("não diz que registra a hora de acesso (o login por senha não grava isso); diz o que o aceite e a retirada gravam", () => {
     expect(todo).not.toMatch(/hora de acesso/);
     expect(todo).toMatch(/data e a hora em que você aceita este termo/);
+    expect(todo).toMatch(/data e a hora da retirada e quem a registrou/);
   });
-  it("retirada do consentimento pelos contatos, sem prometer botão ou tela", () => {
+  it("retirada: pelo botão de Meu perfil ou pelos contatos, e diz que o pedido fica registrado", () => {
     const direitos = SECOES_DO_TERMO.find(sec => sec.titulo.startsWith("7."))!.paragrafos.join(" ");
-    expect(direitos).toMatch(/Para retirar este consentimento, use esses mesmos contatos/);
-    expect(direitos).not.toMatch(/botão|no sistema você|pelo aplicativo|na sua conta/i);
-    expect(PENDENCIAS_DO_JURIDICO.some(p => /retirada/.test(p))).toBe(true);
+    expect(direitos).toMatch(/"Retirar consentimento" na página Meu perfil/);
+    expect(direitos).toMatch(/peça pelos mesmos contatos/);
+    expect(direitos).toMatch(/A retirada fica registrada com a data, a hora e quem a registrou/);
+    expect(direitos).toMatch(/volta a pedir o aceite/);
+  });
+});
+
+describe("retirada do consentimento (registro real)", () => {
+  const logado = async (id: number) => {
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+    return appRouter.createCaller({ user: u, req: { headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } }, res: {} } as never);
+  };
+  async function aceitou() {
+    const id = await contaNova();
+    await publico().primeiroAcesso.definirSenha({ token: "tok-novo", novaSenha: "senha-forte-1", aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO });
+    return id;
+  }
+
+  it("admin registra: linha nova de tipo revogacao com quem registrou; a consulta mostra 'retirado'; nada é alterado", async () => {
+    const id = await aceitou();
+    const admin = caller(99, "admin");
+    expect(await admin.consentimento.admin.registrarRetirada({ userId: id })).toEqual({ ok: true });
+    const linhas = await aceites();
+    expect(linhas).toMatchObject([
+      { user_id: id, tipo: "aceite", canal: "definir_senha", registrado_por: null },
+      { user_id: id, tipo: "revogacao", canal: "admin", registrado_por: 99, versao_termo: VERSAO_DO_TERMO, com_senha: false },
+    ]);
+    const r = await admin.consentimento.admin.resumo();
+    expect(r.retirados).toBe(1);
+    expect(r.usuarios.find(u => u.userId === id)).toMatchObject({ retirado: true, retiradoPor: 99, retiradoPeloTitular: false, aceitouVersaoAtual: false, versao: VERSAO_DO_TERMO });
+    // a contagem por versão continua sendo de aceites (histórico)
+    expect(r.porVersao).toEqual([{ versao: VERSAO_DO_TERMO, usuarios: 1 }]);
+    // retirar de novo (sem consentimento ativo) é recusado
+    await expect(admin.consentimento.admin.registrarRetirada({ userId: id })).rejects.toMatchObject({ code: "BAD_REQUEST", message: MENSAGEM_SEM_CONSENTIMENTO_ATIVO });
+    await expect(admin.consentimento.admin.registrarRetirada({ userId: 123456 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // a tabela continua só de inclusão
+    await expect(pg.query(`DELETE FROM consentimentos WHERE tipo = 'revogacao'`)).rejects.toThrow(/CONSENTIMENTO_SO_INCLUSAO/);
+  });
+
+  it("só admin por PAPEL registra a retirada de outra pessoa", async () => {
+    const id = await aceitou();
+    for (const c of [caller(1, "colaborador", [...ADMIN_MODULES]), caller(1, "corretor"), caller(1, "cliente"), caller(1, "admin", [], false), publico()]) {
+      await expect(c.consentimento.admin.registrarRetirada({ userId: id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect((await aceites()).filter(l => l.tipo === "revogacao")).toEqual([]);
+  });
+
+  it("depois da retirada: o login volta a pedir o termo (mesmo com a opção desligada) e o aceite novo funciona", async () => {
+    const id = await aceitou();
+    const c = await logado(id);
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    await caller(99, "admin").consentimento.admin.registrarRetirada({ userId: id });
+    expect(await c.consentimento.minhaSituacao()).toEqual({ pedir: true, versao: VERSAO_DO_TERMO });
+    expect(await c.consentimento.meuConsentimento()).toMatchObject({ ativo: false, retirado: true });
+    expect(await c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).toEqual({ ok: true, jaAceito: false });
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    expect((await caller(99, "admin").consentimento.admin.resumo()).usuarios.find(u => u.userId === id)).toMatchObject({ retirado: false, aceitouVersaoAtual: true });
+    expect((await aceites()).map(l => l.tipo)).toEqual(["aceite", "revogacao", "aceite"]);
+  });
+
+  it("conta ANTIGA que retirou também volta a ver o termo; o aceite pelo login é aceito", async () => {
+    const id = await contaAntiga();
+    await pg.query(`INSERT INTO consentimentos (user_id, versao_termo, canal, com_senha, aceito_em) VALUES ($1, '2026-11-17.2', 'definir_senha', true, '2026-11-17T10:00:00Z')`, [id]);
+    const c = await logado(id);
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: false });
+    await caller(99, "admin").consentimento.admin.registrarRetirada({ userId: id });
+    expect(await c.consentimento.minhaSituacao()).toMatchObject({ pedir: true });
+    expect(await c.consentimento.aceitar({ aceitouTermo: true, versaoDoTermo: VERSAO_DO_TERMO })).toEqual({ ok: true, jaAceito: false });
+  });
+
+  it("o próprio usuário retira pelo botão de Meu perfil (canal 'conta'); precisa confirmar e ter consentimento ativo", async () => {
+    const id = await aceitou();
+    const c = await logado(id);
+    expect(await c.consentimento.meuConsentimento()).toEqual({ ativo: true, retirado: false, versaoAtual: VERSAO_DO_TERMO });
+    await expect(c.consentimento.retirar({ confirmar: false as never })).rejects.toThrow();
+    expect(await c.consentimento.retirar({ confirmar: true })).toEqual({ ok: true });
+    expect((await aceites())[1]).toMatchObject({ tipo: "revogacao", canal: "conta", registrado_por: id, aparelho: "computador" });
+    await expect(c.consentimento.retirar({ confirmar: true })).rejects.toMatchObject({ message: MENSAGEM_SEM_CONSENTIMENTO_ATIVO });
+    expect((await caller(99, "admin").consentimento.admin.resumo()).usuarios.find(u => u.userId === id)).toMatchObject({ retirado: true, retiradoPeloTitular: true });
+    await expect(publico().consentimento.retirar({ confirmar: true })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("o banco recusa retirada sem autor ou com canal de aceite, e canal inventado", async () => {
+    const id = await aceitou();
+    await expect(pg.query(`INSERT INTO consentimentos (user_id, versao_termo, canal, tipo) VALUES ($1, 'v', 'admin', 'revogacao')`, [id])).rejects.toThrow();
+    await expect(pg.query(`INSERT INTO consentimentos (user_id, versao_termo, canal, tipo, registrado_por) VALUES ($1, 'v', 'login', 'revogacao', 1)`, [id])).rejects.toThrow();
+    await expect(pg.query(`INSERT INTO consentimentos (user_id, versao_termo, canal, tipo) VALUES ($1, 'v', 'login', 'outro')`, [id])).rejects.toThrow();
+  });
+
+  it("regra pura: só contam os aceites depois da última retirada", () => {
+    const e = (tipo: "aceite" | "revogacao", versao: string, em: string, id: number) => ({ tipo, versao, em, id });
+    expect(situacaoDosRegistros([])).toEqual({ atual: false, algum: false, retirado: false });
+    expect(situacaoDosRegistros([e("aceite", VERSAO_DO_TERMO, "2026-11-17T01:00:00Z", 1)])).toEqual({ atual: true, algum: true, retirado: false });
+    expect(situacaoDosRegistros([e("revogacao", VERSAO_DO_TERMO, "2026-11-17T02:00:00Z", 2), e("aceite", VERSAO_DO_TERMO, "2026-11-17T01:00:00Z", 1)]))
+      .toEqual({ atual: false, algum: false, retirado: true });
+    expect(situacaoDosRegistros([e("aceite", "2026-11-17.2", "2026-11-17T01:00:00Z", 1), e("revogacao", "x", "2026-11-17T02:00:00Z", 2), e("aceite", "2026-11-17.2", "2026-11-17T03:00:00Z", 3)]))
+      .toEqual({ atual: false, algum: true, retirado: false });
   });
 });
 
@@ -404,13 +519,13 @@ describe("seção de inteligência artificial (QA S-12, achado 3)", () => {
     expect(ia).not.toMatch(/só|apenas|somente|garant/i);
     expect(FRASE_CURTA_DO_TERMO).toMatch(/WhatsApp/);
   });
-  it("texto mudou ⇒ versão nova (a .1 nunca foi aceita em produção)", () => {
-    expect(VERSAO_DO_TERMO).toBe("2026-11-17.2");
+  it("texto mudou ⇒ versão nova (a .1 nunca foi aceita em produção; a .3 é o texto definitivo)", () => {
+    expect(VERSAO_DO_TERMO).toBe("2026-11-17.3");
   });
 });
 
 describe("termo e resumo técnico", () => {
-  it("frase curta simples, marcadores do jurídico listados e aparelho sem guardar o user-agent", () => {
+  it("frase curta simples e aparelho sem guardar o user-agent", () => {
     expect(FRASE_CURTA_DO_TERMO).toMatch(/inteligência artificial/);
     expect(FRASE_CURTA_DO_TERMO.length).toBeLessThan(160);
     expect(aparelhoDoUserAgent("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)")).toBe("tablet");

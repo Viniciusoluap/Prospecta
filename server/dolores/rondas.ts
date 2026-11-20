@@ -17,11 +17,12 @@ import { and, desc, eq, gt, gte, inArray, isNull, like, ne, notInArray, sql } fr
 import { bankTransactions, leadServices, leads, whatsappMessages } from "../../drizzle/schema.js";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresAprovacoes, doloresAutoria } from "../../drizzle/schema-dolores-fila.js";
-import { doloresGrupoMensagens } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresGrupoMensagens, doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
+import { sqlGrupoLeDocumentos } from "./grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { doloresEventos, doloresRelatorioReenvios, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
 import {
-  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, MAX_RELATORIOS_SOB_DEMANDA_DIA, janelaDiaria, janelaReenvio, janelaRelatorioDiario, janelaSobDemanda,
+  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, MAX_RELATORIOS_SOB_DEMANDA_DIA, janelaDiaria, janelaReenvio, janelaReenvioDoCron, janelaRelatorioDiario, janelaRondaDoRelatorio, janelaSobDemanda,
   limparNomeDeTerceiro, montarRelatorio, prefixoSobDemandaDoDia, relatorioDiarioNaHora,
   type DestaquesRonda, type SecaoRonda, type TotaisRonda,
 } from "../../shared/dolores/operacao.js";
@@ -31,6 +32,7 @@ import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { lerConfigWhatsapp, usoDoMes } from "./consumo.js";
+import { consumoDoMesDetalhado, lerPrecos } from "./custo.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { listarAtrasos } from "./leitura/atrasos.js";
@@ -133,8 +135,13 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
       aConferir: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'confira')`.mapWith(Number),
       prontos: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'classificado')`.mapWith(Number),
       erro: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'erro')`.mapWith(Number),
-    }).from(doloresGrupoMensagens).where(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "confira", "classificado", "erro"]));
-    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro) } } };
+    }).from(doloresGrupoMensagens).innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
+      // Etapa 7: só documentos de grupo que lê documentos (cliente/pós com cliente ligado, ou obra)
+      .where(and(inArray(doloresGrupoMensagens.situacao, ["a_classificar", "classificando", "confira", "classificado", "erro"]), sqlGrupoLeDocumentos()));
+    // Etapa 7: grupos novos esperando a resposta do dono (nome que não bateu com nada: só observam)
+    const [a] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
+      .where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono")));
+    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n) } } };
   })],
   ["notas", lerSecao(async () => {
     const [r] = await bancoDaLeitura().select({
@@ -176,7 +183,9 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     const mes = mesFortaleza(agora);
     const cfg = await lerConfigWhatsapp();
     const uso = await usoDoMes(mes);
-    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0 } } };
+    // Etapa 8: o detalhe por modelo e função (4 tipos de token) para a estimativa por modelo do relatório
+    const linhas = await consumoDoMesDetalhado(mes);
+    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas } } };
   })],
 ];
 
@@ -261,8 +270,9 @@ export async function enviarRelatorio(p: {
   const autor = await idDaDoloresSemCriar().catch(() => null);
   const bloqueio = await bloqueioDaOperacao();
   if (bloqueio) return { ok: false, situacao: "bloqueado", motivo: motivoDoBloqueio(bloqueio.motivo), relatorioId: null };
+  const precosPorModelo = await lerPrecos();
   const texto = montarRelatorio({ tipo: p.tipo, geradoEm: p.agora, totais: p.ronda.totais as TotaisRonda, destaques: p.ronda.destaques as DestaquesRonda,
-    falhas: p.ronda.falhas ?? [], precos: { entradaMilhao: p.config.precoEntradaMilhao, saidaMilhao: p.config.precoSaidaMilhao } });
+    falhas: p.ronda.falhas ?? [], precos: { entradaMilhao: p.config.precoEntradaMilhao, saidaMilhao: p.config.precoSaidaMilhao }, precosPorModelo });
   const registro = sanitizarTexto(texto, FILTRO_DO_REGISTRO).slice(0, 4000);
   let relatorioId: number | null = null;
   try {
@@ -314,6 +324,17 @@ async function ultimoEnvio(relatorioId: number) {
 }
 
 /**
+ * Envio do MESMO texto gravado do relatório diário (reenvio da tela ou a nova tentativa do cron): não faz ronda nem monta
+ * outro relatório. Mesmo pedido da auditoria ("relatorio:<id>"), mesmo canal da Dolores (só o número do dono, pausa geral,
+ * filtros de saída — enviarAvisoAoDono).
+ */
+async function enviarTextoGravado(p: { relatorioId: number; texto: string; canal: "tela" | "cron"; autor: number | null; prazoFinal: number; resumo: Record<string, unknown> }): Promise<ResultadoRelatorio> {
+  const envio = await enviarAvisoAoDono(p.texto, { funcao: "relatorio_envio", pedidoId: `relatorio:${p.relatorioId}`, autor: p.autor, prazoFinal: p.prazoFinal, canal: p.canal,
+    resumo: { relatorioId: p.relatorioId, tipo: "diario", reenvio: true, ...p.resumo } });
+  return { ok: envio.ok, situacao: envio.ok ? "enviado" : "nao_enviado", motivo: envio.motivo, relatorioId: p.relatorioId };
+}
+
+/**
  * Reenvio pela tela do relatório DIÁRIO de hoje cujo envio falhou (achado 3 do QA de segurança): manda o MESMO texto
  * gravado (não faz ronda nem monta outro relatório; o diário continua um só). Janela própria por minuto
  * (dolores_relatorio_reenvios, janela única): clique duplo não manda duas vezes. Já enviado com sucesso → recusa (não
@@ -343,9 +364,7 @@ export async function reenviarRelatorioDoDia(p: { agora: Date; prazoFinal: numbe
     console.error("[dolores/rondas] falha ao preparar o reenvio do relatório", erroParaLog(e));
     return { ok: false, situacao: "nao_enviado", motivo: "não consegui ler o relatório de hoje; nada foi enviado", relatorioId: null };
   }
-  const envio = await enviarAvisoAoDono(texto, { funcao: "relatorio_envio", pedidoId: `relatorio:${relatorioId}`, autor, prazoFinal: p.prazoFinal, canal: "tela",
-    resumo: { relatorioId, tipo: "diario", reenvio: true, porUserId: p.pedidoPorUserId ?? null } });
-  return { ok: envio.ok, situacao: envio.ok ? "enviado" : "nao_enviado", motivo: envio.motivo, relatorioId };
+  return enviarTextoGravado({ relatorioId, texto, canal: "tela", autor, prazoFinal: p.prazoFinal, resumo: { porUserId: p.pedidoPorUserId ?? null } });
 }
 
 // ── Cron (/api/cron/dolores) ──────────────────────────────────────────────────────────────────────────────────────
@@ -363,8 +382,60 @@ let relogio: Relogio = { agora: () => new Date(), ms: () => Date.now() };
 export function definirRelogioCron(r?: Partial<Relogio>) { relogio = r ? { ...relogio, ...r } : { agora: () => new Date(), ms: () => Date.now() }; }
 
 /**
- * Execução diária. Ignora query e corpo (nada do chamador muda o alvo, a janela ou o destino). Ordem: segredo → configuração →
- * pausa → ronda do dia (se ligada) → relatório do dia (se ligado e já na hora; uma vez por dia).
+ * O relatório diário de hoje já foi montado? Devolve a linha (id e texto gravado) e o último resultado do envio na auditoria
+ * ("relatorio_envio"; null se não há registro ou a auditoria não se leu). Falha ao ler a linha → null: o insert com janela
+ * única segura a duplicação.
+ */
+async function diarioDeHoje(agora: Date): Promise<{ id: number; texto: string; ultimo: Awaited<ReturnType<typeof ultimoEnvio>> | null } | null> {
+  let rel: { id: number; texto: string } | undefined;
+  try {
+    [rel] = await getDb().select({ id: doloresRelatorios.id, texto: doloresRelatorios.texto }).from(doloresRelatorios)
+      .where(eq(doloresRelatorios.janela, janelaRelatorioDiario(agora))).limit(1);
+  } catch {
+    return null;
+  }
+  if (!rel) return null;
+  try {
+    return { ...rel, ultimo: await ultimoEnvio(rel.id) };
+  } catch {
+    return { ...rel, ultimo: null } // auditoria ilegível: sem resultado, sem nova tentativa;
+  }
+}
+
+/**
+ * EPIC-026 C4 — o diário de hoje já foi montado por uma chamada anterior do cron. Último envio "ok" → "ja_enviado". Senão,
+ * UMA nova tentativa por dia pelo cron com o MESMO texto gravado (janela única "cron:<dia>" em dolores_relatorio_reenvios,
+ * canal "cron"); já tentada, sem resultado registrado (envio ainda em andamento ou auditoria ilegível — não arrisca
+ * duplicar) ou sem tempo → "nao_enviado_antes" / "sem-tempo", e fica o botão da tela.
+ */
+async function novaTentativaDoCron(d: NonNullable<Awaited<ReturnType<typeof diarioDeHoje>>>, agora: Date, prazoFinal: number): Promise<string> {
+  if (d.ultimo?.resultado === "ok") return "ja_enviado";
+  if (!d.ultimo) return "nao_enviado_antes";
+  if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) return "sem-tempo";
+  try {
+    const [linha] = await getDb().insert(doloresRelatorioReenvios).values({ relatorioId: d.id, janela: janelaReenvioDoCron(agora), pedidoPorUserId: null })
+      .onConflictDoNothing().returning({ id: doloresRelatorioReenvios.id });
+    if (!linha) return "nao_enviado_antes";
+  } catch (e) {
+    console.error("[dolores/rondas] falha ao registrar a nova tentativa do cron", erroParaLog(e));
+    return "nao_enviado_antes";
+  }
+  const autor = await idDaDoloresSemCriar().catch(() => null);
+  return (await enviarTextoGravado({ relatorioId: d.id, texto: d.texto, canal: "cron", autor, prazoFinal, resumo: { novaTentativaDoCron: true } })).situacao;
+}
+
+/** EPIC-026 C4: a ronda do dia criada há menos disto serve ao relatório (chamadas concorrentes não refazem a ronda). */
+const RONDA_RECENTE_MS = 5 * 60_000;
+
+/**
+ * Execução do cron, chamada de hora em hora das 07h às 14h de Brasília (EPIC-026 C4: uma entrada diária por hora no
+ * vercel.json, todas nesta função). Ignora query, corpo e o fim do caminho (nada do chamador muda o alvo, a janela ou o
+ * destino). Ordem: segredo → configuração → pausa → ronda do dia (se ligada; a primeira chamada faz, as outras não repetem)
+ * → relatório do dia (se ligado e a hora de Brasília já chegou na escolhida). O diário é montado UMA vez por dia; se o
+ * ENVIO falhar, a chamada seguinte do mesmo dia reenvia o MESMO texto gravado, no máximo UMA vez por dia pelo cron (janela
+ * "cron:<dia>"): um envio que na verdade saiu chega ao dono no máximo duas vezes; passou disso, fica o botão da tela.
+ * "ja_enviado" só quando o último envio registrado foi "ok"; senão "nao_enviado_antes". Quando a ronda do dia é de uma
+ * chamada anterior (criada há 5 min ou mais), o relatório usa uma ronda refeita na hora (janela "relatorio:<dia>").
  */
 export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!cronAutorizado(req.headers.authorization)) return { status: 401, body: { error: "Não autorizado" } };
@@ -386,8 +457,22 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   let relatorio: string = "desligado";
   if (config.relatorioLigado) {
     if (!relatorioDiarioNaHora(agora, config.relatorioHora)) relatorio = "fora-da-hora";
-    else if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) relatorio = "sem-tempo";
-    else relatorio = (await enviarRelatorio({ tipo: "diario", janela: janelaRelatorioDiario(agora), origem: "cron", ronda: ronda.ronda, agora, prazoFinal, config })).situacao;
+    else {
+      const montado = await diarioDeHoje(agora);
+      if (montado) return { status: 200, body: { ok: true, ronda: ronda.nova ? "feita" : "ja-feita", relatorio: await novaTentativaDoCron(montado, agora, prazoFinal) } };
+      // EPIC-026 C4: a ronda da manhã foi feita numa chamada anterior (hora escolhida depois dela, ou a chamada da hora falhou)
+      // → refaz a ronda na hora do relatório, numa janela própria do dia (só inserção, uma por dia): dados frescos sem repetir.
+      // Ronda criada há menos de 5 min (chamada concorrente que perdeu a corrida) → serve, não lê tudo de novo.
+      let base = ronda.ronda;
+      const idadeMs = relogio.ms() - new Date(ronda.ronda.criadoEm).getTime();
+      if (!ronda.nova && idadeMs >= RONDA_RECENTE_MS) {
+        if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) return { status: 200, body: { ok: true, ronda: "ja-feita", relatorio: "sem-tempo" } };
+        const fresca = await executarRonda({ janela: janelaRondaDoRelatorio(agora), origem: "cron", agora, prazoFinal, relogio: relogio.ms, config });
+        if (fresca.ok) base = fresca.ronda; // não deu: usa a da manhã (o relatório não deixa de sair)
+      }
+      if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) relatorio = "sem-tempo";
+      else relatorio = (await enviarRelatorio({ tipo: "diario", janela: janelaRelatorioDiario(agora), origem: "cron", ronda: base, agora, prazoFinal, config })).situacao;
+    }
   }
   return { status: 200, body: { ok: true, ronda: ronda.nova ? "feita" : "ja-feita", relatorio } };
 }

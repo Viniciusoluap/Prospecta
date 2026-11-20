@@ -423,7 +423,9 @@ describe("QA r2 N4: as chamadas da Dolores à Evolution não seguem redirecionam
     const arquivos = [...readdirSync(dir).map(n => `./${n}`), ...readdirSync(new URL("./acoes/", import.meta.url)).map(n => `./acoes/${n}`)]
       .filter(n => n.endsWith(".ts") && !n.endsWith(".test.ts") && n !== "./testes-banco.ts");
     const usam = arquivos.filter(n => readFileSync(new URL(n, dir), "utf8").includes("configEvolution("));
-    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-router.ts", "./marcacao.ts", "./router.ts", "./whatsapp.ts"]);
+    // Etapa 7: grupos-entrada.ts (nome do grupo pela Evolution) também usa — e também liga o semRedirecionamento (conferido abaixo)
+    // Etapa 9: roteamento.ts (envio a contato) e transcricao.ts (download do áudio) também — com o semRedirecionamento
+    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-entrada.ts", "./grupos-router.ts", "./marcacao.ts", "./roteamento.ts", "./router.ts", "./transcricao.ts", "./whatsapp.ts"]);
     for (const n of usam) {
       const texto = readFileSync(new URL(n, dir), "utf8");
       expect(texto.split("configEvolution(").length - 1, n).toBe(texto.split("semRedirecionamento: true").length - 1);

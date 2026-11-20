@@ -15,9 +15,12 @@ describe("relógio de Brasília (o servidor e o Neon estão em GMT)", () => {
   it("relatório diário só a partir da hora configurada (horário local)", () => {
     expect(relatorioDiarioNaHora(new Date("2026-11-17T09:59:00Z"), 7)).toBe(false); // 06:59
     expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 7)).toBe(true); // 07:00
-    // achado 4: hora acima da do cron diário (07h) é limitada a 07h — senão o relatório nunca sairia
+    // EPIC-026 C4: hora fora da lista (07 a 14) vale 07 — senão o relatório nunca sairia; 08 espera as 08:00
     expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 99)).toBe(true);
-    expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 8)).toBe(true);
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T10:00:00Z"), 8)).toBe(false);
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T11:00:00Z"), 8)).toBe(true);
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T16:59:00Z"), 14)).toBe(false); // 13:59
+    expect(relatorioDiarioNaHora(new Date("2026-11-17T17:00:00Z"), 14)).toBe(true);
   });
 });
 
@@ -66,6 +69,6 @@ describe("relatório (modelo fixo)", () => {
     expect(montarRelatorio(muitos).length).toBeLessThanOrEqual(MAX_CARACTERES_WHATSAPP);
   });
   it("com preço, estima contra o teto do dono", () => {
-    expect(montarRelatorio({ ...base, precos: { entradaMilhao: 15, saidaMilhao: 75 } })).toMatch(/Estimativa: R\$\s?0,02 \(teto do dono R\$\s?1\.621,00\)/);
+    expect(montarRelatorio({ ...base, precos: { entradaMilhao: 15, saidaMilhao: 75 } })).toMatch(/Estimativa \(preço único, cache como entrada cheia\): R\$\s?0,02 \(teto do dono R\$\s?1\.621,00\)/);
   });
 });

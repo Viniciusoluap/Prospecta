@@ -3,7 +3,7 @@
 // card até hoje e lead fora de "Finalizado").
 import { and, eq, isNotNull, isNull, lt, lte, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
-import type { CanalDolores } from "../dados-pessoais.js";
+import type { CanalDoFiltro } from "../dados-pessoais.js";
 import { leadServices, leads } from "../../../drizzle/schema.js";
 import { diaDoPrazo, diaFortaleza, diasEntre, paginar, truncar } from "../../../shared/dolores/formato.js";
 import { DIAS_PARADO_PADRAO } from "../../../shared/dolores/regras.js";
@@ -27,7 +27,7 @@ type Item = {
   prazo: string | null; responsavel: string | null; motivoRegistrado: string | null;
 };
 
-export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora, canal }: { agora: Date; canal: CanalDolores }): Promise<Resultado> {
+export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, { agora, canal }: { agora: Date; canal: CanalDoFiltro }): Promise<Resultado> {
   const quer = (m: string) => args.modulo === "todos" || args.modulo === m;
   const hoje = diaFortaleza(agora)!;
   const [regs, obras, fins, cards, servicos] = await Promise.all([
@@ -81,9 +81,32 @@ export async function listarAtrasos(args: z.infer<typeof entradaListarAtrasos>, 
   const pagina = paginar(itens, args.pagina, args.limite);
   return {
     dados: {
-      criterios: { atrasado: "prazo registrado anterior a hoje e processo não encerrado", parado: `sem movimentação há ${args.diasParado} dias ou mais`, motivo: "motivoRegistrado só aparece quando há observação gravada; null = motivo não registrado" },
-      porModulo, ...pagina,
+      criterios: { atrasado: "prazo registrado anterior a hoje e processo não encerrado", parado: `sem movimentação há ${args.diasParado} dias ou mais`, motivo: "motivoRegistrado só aparece quando há observação gravada; ausente = motivo não registrado", campos: "campo vazio é omitido (ausente = não registrado; atrasado/parado ausente = não)" },
+      porModulo, ...pagina, itens: pagina.itens.map(itemEnxuto),
     },
     resumo: { encontrados: itens.length, devolvidos: pagina.itens.length },
   };
+}
+
+/** Etapa 8 — item enxuto para o modelo: sem campos vazios (null) nem "false" (menos tokens; ausente = não registrado). */
+export function itemEnxuto(i: Item): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(i).filter(([, v]) => v !== null && v !== undefined && v !== false));
+}
+
+/** O canal que `listarAtrasos` aceita (segue o tipo dela: o filtro de dados pessoais é o mesmo). */
+export type CanalDosAtrasos = Parameters<typeof listarAtrasos>[1]["canal"];
+export type ItemDeAtraso = Item;
+
+/**
+ * Etapa 8 — TODOS os itens de atraso (os MESMOS critérios e a mesma ordem de `listar_atrasos`: do mais atrasado para o menos),
+ * sem paginar. Fonte de `plano_de_atrasos`. Os campos omitidos pelo enxugamento voltam como null/false.
+ */
+export async function carregarItensDeAtraso(args: Pick<z.infer<typeof entradaListarAtrasos>, "modulo" | "diasParado">, ctx: { agora: Date; canal: CanalDosAtrasos }): Promise<ItemDeAtraso[]> {
+  const r = await listarAtrasos({ ...args, pagina: 1, limite: Number.MAX_SAFE_INTEGER }, ctx);
+  const itens = (r.dados as { itens: Array<Partial<Item>> }).itens;
+  return itens.map(i => ({
+    modulo: i.modulo ?? "", id: i.id ?? 0, cliente: i.cliente ?? null, descricao: i.descricao ?? null, situacao: i.situacao ?? null,
+    atrasado: i.atrasado === true, diasDeAtraso: i.diasDeAtraso ?? null, parado: i.parado === true, diasSemMovimentacao: i.diasSemMovimentacao ?? null,
+    prazo: i.prazo ?? null, responsavel: i.responsavel ?? null, motivoRegistrado: i.motivoRegistrado ?? null,
+  }));
 }

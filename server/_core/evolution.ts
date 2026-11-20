@@ -1,6 +1,6 @@
 // Pedido de 25/10: WhatsApp por QR code via Evolution API (Baileys) hospedada pelo dono (Railway),
 // até a integração da Lógyca. Gêmeo de Grupo-Santa-Fe/web/src/lib/evolution.ts.
-import { chaveTelefone } from "../../shared/whatsapp/conversas.js";
+import { chaveTelefone, idSemNumero } from "../../shared/whatsapp/conversas.js";
 /**
  * `semRedirecionamento` (EPIC-025, QA E4 r2 N4): recusa redirecionamento (`redirect: "error"`), para o `apikey` nunca ir a
  * outro host. Ligado só nas chamadas da Dolores; a Central de Vendas segue como antes (o padrão do fetch, "follow"), porque
@@ -79,6 +79,18 @@ export async function numeroConectado(c: EvolutionConfig, instancia: string, fet
   return jid ? jid.split("@")[0] : null;
 }
 
+/**
+ * Como `removerInstancia`, mas diz se a Evolution CONFIRMOU a remoção (2xx; 404 = já não existe, conta como removida).
+ * Falha de rede ou outro erro → false (quem chama não deve dar a instância por removida).
+ */
+export async function removerInstanciaConfirmada(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<boolean> {
+  await chamar(c, `/instance/logout/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
+  try {
+    const r = await chamar(c, `/instance/delete/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl);
+    return r.ok || r.status === 404;
+  } catch { return false; }
+}
+
 export async function removerInstancia(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<void> {
   await chamar(c, `/instance/logout/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
   await chamar(c, `/instance/delete/${encodeURIComponent(instancia)}`, { method: "DELETE" }, fetchImpl).catch(() => undefined);
@@ -103,7 +115,14 @@ export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string
  * Pedido de 25/10 (Conversas): a Evolution passa a avisar o sistema de mensagens recebidas, status de
  * entrega/leitura e da conexão. Cabeçalho secreto para o sistema aceitar só avisos legítimos.
  */
-export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: string, url: string, segredo: string, fetchImpl: Fetch = fetch): Promise<void> {
+/**
+ * EPIC-025 (etapa 7): a instância da Dolores assina também os avisos de grupo (quem a adicionou e a criação do grupo), para provar
+ * que foi o DONO quem a colocou no grupo. A Central de Vendas continua com os três avisos de sempre.
+ */
+export const EVENTOS_WEBHOOK_PADRAO = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] as const;
+// Etapa 9: e as LIGAÇÕES (CALL), para o aviso "não atendo ligações, pode me escrever". Só vale depois de "Reativar recebimento".
+export const EVENTOS_WEBHOOK_DOLORES = [...EVENTOS_WEBHOOK_PADRAO, "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT", "CALL"] as const;
+export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: string, url: string, segredo: string, fetchImpl: Fetch = fetch, eventos: readonly string[] = EVENTOS_WEBHOOK_PADRAO): Promise<void> {
   const r = await chamar(c, `/webhook/set/${encodeURIComponent(instancia)}`, {
     method: "POST",
     body: JSON.stringify({
@@ -113,7 +132,7 @@ export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: s
         headers: { "x-webhook-token": segredo },
         byEvents: false,
         base64: false,
-        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+        events: [...eventos],
       },
     }),
   }, fetchImpl);
@@ -139,6 +158,9 @@ export function textoDaMensagem(message: Record<string, any> | undefined | null)
 
 /** Mesmo telefone? Compara DDD + 8 últimos dígitos (o WhatsApp às vezes omite o 9º dígito). */
 export function mesmoTelefone(a: string | null | undefined, b: string | null | undefined): boolean {
+  // EPIC-026 C2: conversa de número não identificado ("@lid") só é a mesma que o MESMO "@lid"; nunca casa com telefone
+  const la = idSemNumero(a), lb = idSemNumero(b);
+  if (la || lb) return la !== null && la === lb;
   const x = chaveTelefone(a), y = chaveTelefone(b);
   return Boolean(x) && x === y;
 }
@@ -213,6 +235,25 @@ export async function listarGruposEvolution(c: EvolutionConfig, instancia: strin
 }
 
 /**
+ * EPIC-025 (Dolores, etapa 7) — SÓ LEITURA: os dados de um grupo (GET /group/findGroupInfos/{instância}?groupJid=…): o NOME (para o
+ * tipo), quem o criou (owner) e os participantes com o admin — para provar, por código, que foi o DONO quem colocou a Dolores
+ * (regra do dono de 19/11/2026). Tudo é texto de terceiro (quem chama filtra). Id fora da forma → null.
+ */
+export async function metadadoDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch, prazoMs = 5_000): Promise<{ nome: string | null; criador: string[]; participantes: unknown[] } | null> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return null;
+  const r = await chamar<unknown>(c, `/group/findGroupInfos/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(prazoMs) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não informou o grupo (HTTP ${r.status})${motivo(r.data)}.`);
+  const d = (Array.isArray(r.data) ? r.data[0] : r.data) as Record<string, unknown> | null;
+  if (!d || typeof d !== "object" || (typeof d.id === "string" && d.id !== grupoJid)) return null;
+  const criador = [d.owner, d.ownerPn, d.ownerJid, d.ownerAlt].filter((v): v is string => typeof v === "string").map(v => v.slice(0, 80));
+  return {
+    nome: typeof d.subject === "string" && d.subject.trim() ? d.subject.slice(0, 200) : null,
+    criador,
+    participantes: Array.isArray(d.participants) ? d.participants.slice(0, 1024) : [],
+  };
+}
+
+/**
  * EPIC-025 (Dolores, etapa 4b) — o ÚNICO envio a GRUPO do sistema (POST /message/sendText/{instância} com o id do grupo em
  * `number`): só quando a Dolores foi marcada num grupo cadastrado e ativo (server/dolores/marcacao.ts confere o destino duas
  * vezes antes). Sem prévia de link, sem menção a ninguém (`mentioned` vazio, `mentionsEveryOne` false) e citando a mensagem que
@@ -249,4 +290,52 @@ export async function participantesDoGrupoEvolution(c: EvolutionConfig, instanci
     const n = campos.map(v => /^(\d{10,15})@s\.whatsapp\.net$/.exec(v)?.[1]).find(Boolean) ?? null;
     return { lid, numero: n };
   });
+}
+
+/**
+ * EPIC-025 (etapa 9) — rejeitar ligações na instância (a Evolution não atende ligação; com `rejectCall` ela recusa na hora). Seguro:
+ * LÊ as configurações atuais (GET /settings/find/{instância}) e grava as MESMAS, trocando só `rejectCall` para true e `msgCall` para
+ * vazio (o aviso por texto é do sistema, com o limite de 1 a cada N horas por número). Se a leitura não vier no formato conhecido,
+ * nada é gravado (devolve false). Nunca mexe na conexão.
+ */
+export async function rejeitarLigacoesEvolution(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<boolean> {
+  const atual = await chamar<Record<string, unknown>>(c, `/settings/find/${encodeURIComponent(instancia)}`, { signal: AbortSignal.timeout(8_000) }, fetchImpl);
+  const d = atual.ok && atual.data && typeof atual.data === "object" ? atual.data : null;
+  const campos = ["groupsIgnore", "alwaysOnline", "readMessages", "readStatus", "syncFullHistory"] as const;
+  if (!d || !campos.every(k => typeof d[k] === "boolean")) return false;
+  if (d.rejectCall === true && !d.msgCall) return true;
+  const corpo: Record<string, unknown> = { rejectCall: true, msgCall: "" };
+  for (const k of campos) corpo[k] = d[k];
+  const r = await chamar(c, `/settings/set/${encodeURIComponent(instancia)}`, { method: "POST", body: JSON.stringify(corpo), signal: AbortSignal.timeout(8_000) }, fetchImpl);
+  return r.ok;
+}
+
+/**
+ * EPIC-026 C2 — SÓ LEITURA: tenta descobrir o número real de um endereço "@lid" de conversa direta nos contatos da instância
+ * (POST /chat/findContacts/{instância} com `where.remoteJid`). Os campos variam por versão da Evolution; por isso a leitura é
+ * ESTRITA: só vale um contato que cite o MESMO "@lid" (em id/remoteJid/lid/jid) e traga um número na forma "…@s.whatsapp.net"
+ * (remoteJid, remoteJidAlt, phoneNumber, pn, senderPn ou jid). Se a Evolution ignorar o filtro e devolver outros contatos, eles não
+ * citam o "@lid" e não contam; dois números diferentes para o mesmo "@lid" → null (nunca adivinha). Falha/sem resposta → null.
+ */
+export async function numeroDoLidEvolution(c: EvolutionConfig, instancia: string, lid: string, fetchImpl: Fetch = fetch, prazoMs = 3_000): Promise<string | null> {
+  if (!/^\d{1,25}@lid$/.test(lid)) return null;
+  let r;
+  try {
+    r = await chamar<unknown>(c, `/chat/findContacts/${encodeURIComponent(instancia)}`, {
+      method: "POST", body: JSON.stringify({ where: { remoteJid: lid } }), signal: AbortSignal.timeout(prazoMs),
+    }, fetchImpl);
+  } catch { return null; }
+  if (!r.ok) return null;
+  const lista = Array.isArray(r.data) ? r.data.slice(0, 50) : r.data && typeof r.data === "object" ? [r.data] : [];
+  const achados = new Set<string>();
+  for (const x of lista) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    const citaOLid = [o.id, o.remoteJid, o.lid, o.jid].some(v => typeof v === "string" && v.trim() === lid);
+    if (!citaOLid) continue;
+    for (const v of [o.remoteJid, o.remoteJidAlt, o.phoneNumber, o.pn, o.senderPn, o.jid]) {
+      const n = typeof v === "string" ? /^(\d{10,15})(?::\d{1,3})?@s\.whatsapp\.net$/.exec(v.trim())?.[1] : undefined;
+      if (n) achados.add(n);
+    }
+  }
+  return achados.size === 1 ? Array.from(achados)[0] : null;
 }

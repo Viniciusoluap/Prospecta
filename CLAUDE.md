@@ -94,9 +94,9 @@ quando finalizar, sem que seja necessária a minha intervenção constante".
 2. **Já autorizado a cada etapa**: migrações aditivas no Neon de produção, merge do PR na `main` e conferência da
    publicação na Vercel.
 3. **Decisões já tomadas pelo dono (não perguntar de novo):**
-   - **Grupo Santa Fé em espera**: não mexer em nada de lá agora; a paridade será feita pelo dono depois que todas
-     estas mudanças acabarem. Só registrar no ROADMAP do Prospecta o que terá de ser portado. Isto suspende, até novo
-     aviso do dono, a regra de paridade obrigatória do topo deste arquivo.
+   - **Grupo Santa Fé**: a espera de 16/11 acabou. Em 17/11/2026 o dono autorizou a paridade (4 blocos: CRM/usuários/
+     mapa, Incorporação, financeiro/integrações, termo de consentimento) e a regra de paridade obrigatória do topo deste
+     arquivo voltou a valer. **Ficam fora do Santa Fé, por decisão dele: a Maquete 3D e a Dolores** (exceções no ROADMAP).
    - **Conta Azul**: tudo o que foi ARQUIVADO da importação do Conta Azul pode ser apagado em definitivo, para a
      reimportação funcionar. Só esses registros: lançamento ativo e de outra origem não se apaga. Antes de apagar,
      copiar as linhas para tabela de backup e conferir as quantidades.
@@ -195,3 +195,84 @@ qualquer agente que mexer nisso (story `docs/stories/epics/epic-025-dolores/E4b-
 - O escopo (um cliente só, sem dados pessoais nem valores) é travado no servidor, não no prompt.
 - Sem marcação, grupo não cadastrado ou interruptor desligado: silêncio total.
 - A segurança continua prioridade: interruptor próprio desligado por padrão, tetos por grupo e por remetente, portão de QA.
+
+## Dolores — grupos entram sozinhos, por tipo (REGRA — estabelecida pelo dono em 19/11/2026)
+
+Palavras do dono: "eu não quero ter que cadastrar grupo por grupo; todos os grupos que a Dolores participar é porque ela
+deve participar […] esse número é exclusivo pra Dolores, então não vai existir entrada de grupos aleatórios".
+
+Isto substitui o cadastro manual de grupo no painel (o painel passa a servir para ver e corrigir). Decisões dele:
+1. **Só vale grupo em que a Dolores foi adicionada PELO NÚMERO DO DONO** (o número principal cadastrado em Integrações ›
+   Dolores). Mudança do dono no mesmo dia 19/11, palavras dele: "somente o número principal, que no caso foi cadastrado meu
+   lá na integração, pode adicionar o número da Dolores em grupo, e assim nós não corremos risco de qualquer pessoa adicionar
+   ela em outros grupos". Provado por código (nunca pela IA nem pelo texto das mensagens): só há aceitação
+   automática com PROVA POSITIVA — o autor do aviso `group-participants.update` da Evolution é o número do dono. Criar o
+   grupo já com ela dentro NÃO prova (fica aguardando): o certo é criar o grupo e adicioná-la depois. Adicionada por outra pessoa, ou autor
+   que não dá para provar → grupo **recusado** (não lê, não registra, não responde) e o dono recebe um aviso. Sem aviso
+   nenhum (grupo antigo, aviso perdido) → **aguardando o dono**: só observa, muda, e pergunta a ele. Grupo recusado ou
+   aguardando só é aceito pelo dono, no WhatsApp ("grupo <código> aceitar"), ou quando ele mesmo a adiciona — nunca pela
+   tela, nem por outro admin. (Ajuste do portão de QA de 19/11: ser participante e admin do grupo NÃO prova quem a colocou.)
+2. **O tipo do grupo é descoberto por código, pelo nome** (nunca pela IA, nunca pelo texto das mensagens):
+   - nome igual ao de **um único** cliente do CRM → grupo de **cliente** ou **pós-atendimento** (vale a regra de 17/11:
+     só fala daquele cliente);
+   - nome com Jurídico, Administrativo, Parceiros ou Engenharia → grupo **interno** daquele tipo.
+   Ela **avisa o dono no WhatsApp** o que entendeu de cada grupo novo; ele só responde se estiver errado.
+3. **Nome que não bate com nada:** ela só observa e **pergunta ao dono** no WhatsApp; enquanto ele não responder, não
+   fala nada naquele grupo.
+4. **O que ela pode responder quando marcada, por tipo** (escopo travado no servidor, não no prompt):
+   - **Administrativo (sócios):** tudo, menos senhas, tokens, chaves e dados bancários;
+   - **Jurídico:** processos, regularizações e documentos;
+   - **Engenharia:** obras, medições e notas;
+   - **Parceiros comerciais (corretores e correspondentes):** só o andamento dos clientes que o próprio corretor que
+     perguntou indicou — nunca cliente de outro parceiro;
+   - **Cliente / pós-atendimento:** só aquele cliente (regra de 17/11).
+5. Continua valendo em todos: só responde quando marcada; **nunca age a partir de grupo**; mensagem de grupo nunca é
+   comando; mudar o nome do grupo depois não muda o tipo nem o vínculo sem o dono confirmar.
+6. Story: `docs/stories/epics/epic-025-dolores/E7-grupos-automaticos.md`.
+
+## WhatsApp — uma conexão só, atendimento e campanhas (REGRA — estabelecida pelo dono em 20/11/2026)
+
+Palavras do dono: "Não, eu quero uma conexão só" e, ao aprovar a estrutura, "Autorizo os itens 1 a 7, pode executar".
+O número conectado em Integrações é o da empresa: serve a Dolores E a Central WhatsApp. Isto substitui a ideia de
+"número exclusivo da Dolores" e a regra "a Dolores nunca envia nada a cliente" (agora ela responde cliente cadastrado,
+dentro dos limites do item 4). Story: `docs/stories/epics/epic-025-dolores/E9-conexao-unica-e-atendimento.md`.
+
+1. **Conexão única, feita só em Configurações › Integrações** (QR code pela Evolution; a conexão que já existe é
+   reaproveitada, sem novo QR). A Central (Conversas, Enviar mensagem, Templates) usa essa conexão. Na aba "Minha
+   conexão" da Central, o admin vê só "Conexões dos Corretores"; corretor e colaborador continuam conectando o próprio
+   número ali.
+2. **Roteamento por código** (nunca pela IA) de quem escreve para o número da empresa:
+   - número do dono → Dolores (comandos); nunca aparece na Central;
+   - cliente já cadastrado (telefone de um único cliente em obra, financiamento, incorporação, regularização,
+     avaliação ou jurídico) → Dolores responde sobre o caso dele (item 4) e a conversa aparece na Central;
+   - número desconhecido → saudação da campanha ativa (item 3) e Central (atendimento humano);
+   - grupos → Dolores, pelas regras de 17/11 e 19/11.
+3. **Saudação de campanha**: texto salvo em Templates, uma campanha ativa por vez, enviado UMA vez por número por
+   campanha a quem não está cadastrado; sem campanha ativa, nada sai. Texto fixo, sem IA.
+4. **Dolores atende cliente cadastrado**: só sobre o caso daquela pessoa (andamento, pendências, documentos que faltam);
+   sem valores em dinheiro; nunca age; nunca fala de outro cliente; telefone ligado a mais de um cadastro → equipe;
+   quando alguém da equipe responde na conversa, ela fica calada nela por algumas horas; interruptor próprio desligado
+   por padrão; teto de respostas por cliente por dia, dentro do teto de gasto.
+5. **Ligação**: não é atendida; a pessoa recebe por texto que a Dolores não atende ligações e pode escrever.
+   **Áudio**: transcrito (item 6) e respondido por texto; com a transcrição desligada ou falhando, o mesmo aviso
+   pedindo para escrever. Aviso no máximo uma vez a cada poucas horas por pessoa; texto editável em Templates.
+   Nos grupos, silêncio (só fala quando marcada).
+6. **Transcrição de áudio pela Cloudflare (Workers AI, Whisper)**, faixa gratuita; chave cadastrada pelo dono em
+   Integrações; limite de duração e de quantidade por pessoa por dia; interruptor desligado por padrão. O áudio vai a
+   esse serviço: entra no termo de consentimento (pendência do jurídico).
+7. **Preparado para dois canais**: receber tudo pelo WhatsApp Web (Evolution) e reservar a API oficial da Meta para
+   disparos de campanha. A coexistência no mesmo número é FASE SEPARADA (credenciamento próprio na Meta), só depois de
+   confirmar Brasil, grupos e requisitos; até lá, sem disparo em massa pelo número principal.
+8. Continua valendo: só o número do dono comanda; mensagem de cliente ou de grupo nunca é comando; conversa do dono com
+   a Dolores, avisos e relatórios dela nunca ficam visíveis a corretor/colaborador; chaves nunca saem.
+
+## Tarefa manual do dono — sempre em passo a passo e com links (REGRA — estabelecida pelo dono em 20/11/2026)
+
+Palavras do dono: "Se eu tiver que fazer algo manual me mande sempre em passo-a-passo e com links".
+
+Vale para qualquer agente: tudo o que depender de ação dele (painéis da Vercel, Meta, YCloud, Cloudflare, WhatsApp,
+telas do próprio Prospecta) é entregue em passos numerados, um clique por passo, com o link direto da página e o nome
+exato do botão ou campo — e dizendo o que ele deve ver ao final. Nunca "configure X" sem o caminho.
+
+Do mesmo dia: quando ele pedir para "estruturar para eu autorizar", apresentar a estrutura e ESPERAR o "autorizo"
+antes de construir.

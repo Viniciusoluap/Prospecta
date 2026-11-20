@@ -11,12 +11,13 @@ const TABELAS = [
   "users", "leads", "leadServices", "regularizacoes", "regularizacaoDocuments", "regularizacaoEtapas", "regularizacaoItensFinanceiros",
   "regularizacaoRecebimentos", "leadActivities", "leadDocuments", "leadFollowUps", "tasks", "whatsappMessages", "constructionProjects",
   "constructionStages", "constructionProgressHistory", "constructionPciVersions", "obraMeasurements", "obraMovimentos", "financiamentos",
-  "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies",
-  "whatsappConnections",
+  "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies", "avaliacoes", "incorporationUnits",
+  "whatsappConnections", "whatsappConversationLinks", "userNotifications",
 ];
 
 let ddl: string | null = null;
-export async function criarBanco() {
+/** `semEtapa7`: para o teste da migração 0133 sobre um banco que já tem grupos (ela é aplicada pelo próprio teste). */
+export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   if (!ddl) {
     const { generateDrizzleJson, generateMigration } = createRequire(import.meta.url)("drizzle-kit/api");
     const escolhidas: Record<string, unknown> = {};
@@ -52,12 +53,35 @@ export async function criarBanco() {
   const marcacoes = readFileSync(new URL("../../drizzle/0129_dolores_marcacoes.sql", import.meta.url), "utf8");
   await pg.exec(marcacoes);
   await pg.exec(marcacoes);
+  // Etapa 8 (preços por modelo e cotação): migração 0134, também duas vezes (só depende de "users").
+  const precos = readFileSync(new URL("../../drizzle/0134_dolores_precos.sql", import.meta.url), "utf8");
+  await pg.exec(precos);
+  await pg.exec(precos);
   // Etapa 6 (Operação contínua): migração 0131, também duas vezes.
   const operacao = readFileSync(new URL("../../drizzle/0131_dolores_operacao.sql", import.meta.url), "utf8");
   await pg.exec(operacao);
   await pg.exec(operacao);
+  // Etapa 7 (grupos automáticos, por tipo): migração 0133, também duas vezes.
+  if (!opcoes.semEtapa7) {
+    const tipo = MIGRACAO_0133();
+    await pg.exec(tipo);
+    await pg.exec(tipo);
+  }
+  // Etapa 9 (conexão única, atendimento e campanhas): migração 0135, também duas vezes.
+  const e9 = MIGRACAO_0135();
+  await pg.exec(e9);
+  await pg.exec(e9);
+  // EPIC-026 C2 (registro do recebimento e números dos "@lid"): migração 0136, também duas vezes.
+  const c2 = MIGRACAO_0136();
+  await pg.exec(c2);
+  await pg.exec(c2);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0136 = () => readFileSync(new URL("../../drizzle/0136_whatsapp_recebimento.sql", import.meta.url), "utf8");
+
+export const MIGRACAO_0135 = () => readFileSync(new URL("../../drizzle/0135_whatsapp_conexao_unica.sql", import.meta.url), "utf8");
+export const MIGRACAO_0133 = () => readFileSync(new URL("../../drizzle/0133_dolores_grupos_tipo.sql", import.meta.url), "utf8");
 
 /** "Agora" dos testes: 16/11/2026 09:00 em Imperatriz. */
 export const AGORA = new Date("2026-11-16T12:00:00Z");

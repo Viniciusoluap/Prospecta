@@ -69,14 +69,65 @@ export function segundos(v: unknown): number | null {
   return null;
 }
 
-const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
+/** Número do endereço "5599…@s.whatsapp.net" (EPIC-026 C2: tolera o sufixo de aparelho ":12" que algumas versões mandam). */
+const NUMERO_DO_JID = /^(\d{10,15})(?::\d{1,3})?@s\.whatsapp\.net$/;
+const numeroDoJid = (v: unknown): string | null => (typeof v === "string" ? NUMERO_DO_JID.exec(v.trim())?.[1] ?? null : null);
+/** "<dígitos>@lid" (endereço novo do WhatsApp, sem o número). */
+const LID_DO_JID = /^(\d{1,25})(?::\d{1,3})?@lid$/;
+
+/**
+ * Campos em que a Evolution (conforme a versão) põe o número real de uma conversa direta com endereço "@lid": `remoteJidAlt`
+ * (v2.3+), `senderPn` (v2.1/2.2) e, em algumas versões, `participantPn`/`participantAlt`. Todos vêm do servidor do WhatsApp pela
+ * Evolution — nunca do texto da mensagem. Só vale o que tiver a forma de número ("…@s.whatsapp.net"). `participant` puro (sem
+ * "Pn"/"Alt") NÃO conta: em conversa direta ele não identifica o remetente com segurança.
+ */
+const CAMPOS_DO_NUMERO = ["remoteJidAlt", "senderPn", "participantPn", "participantAlt"] as const;
+/**
+ * QA-SEG C2 achado 3 (defesa em profundidade): no caminho de COMANDO (identificar o dono) só valem os campos de antes —
+ * `remoteJid` numérico, `remoteJidAlt` e `senderPn`. `participantPn`/`participantAlt` valem só para Central/roteamento/diagnóstico.
+ */
+const CAMPOS_DO_NUMERO_PARA_COMANDO = ["remoteJidAlt", "senderPn"] as const;
+export type CamposDoNumero = "comando" | "roteamento";
+
+/**
+ * O número da conversa DIRETA, pelo endereço (nunca pelo texto). `@lid` sem número conferível → null. `campos`: "comando" (só os
+ * campos de antes; é o que identifica o dono) ou "roteamento" (também `participantPn`/`participantAlt`; nunca identifica o dono).
+ */
+export function numeroDaConversaDireta(key: Record<string, unknown>, campos: CamposDoNumero = "roteamento"): string | null {
+  const direto = numeroDoJid(key.remoteJid);
+  if (direto) return direto;
+  if (typeof key.remoteJid === "string" && LID_DO_JID.test(key.remoteJid.trim())) {
+    for (const campo of campos === "comando" ? CAMPOS_DO_NUMERO_PARA_COMANDO : CAMPOS_DO_NUMERO) { const n = numeroDoJid(key[campo]); if (n) return n; }
+  }
+  return null;
+}
+/** O identificador "<dígitos>@lid" da conversa direta (sem o sufixo de aparelho), ou null. */
+export function lidDaConversa(key: Record<string, unknown>): string | null {
+  const m = typeof key.remoteJid === "string" ? LID_DO_JID.exec(key.remoteJid.trim()) : null;
+  return m ? `${m[1]}@lid` : null;
+}
+
+/** Forma do endereço, para o registro de diagnóstico (nunca o endereço em si). */
+export type FormaDoEndereco = "numero" | "lid" | "grupo" | "status" | "vazio" | "outro";
+export function formaDoEndereco(jid: unknown): FormaDoEndereco {
+  const j = typeof jid === "string" ? jid.trim() : "";
+  if (!j) return "vazio";
+  if (j.endsWith("@g.us")) return "grupo";
+  if (j.endsWith("@broadcast") || j.endsWith("@newsletter")) return "status";
+  if (NUMERO_DO_JID.test(j)) return "numero";
+  if (LID_DO_JID.test(j)) return "lid";
+  return "outro";
+}
 
 export type MensagemLida =
   | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" | "interacao" }
-  | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
+  | { tipo: "direta"; externalId: string; numero: string | null; lid: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
 
-/** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
-const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"] as const;
+/**
+ * Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única e — EPIC-026 C2 — a cópia de outro
+ * aparelho da mesma conta, `deviceSentMessage`, e a mensagem com legenda de documento fica com a mídia, como antes).
+ */
+const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension", "deviceSentMessage"] as const;
 export function desembrulhar(m: Record<string, any>): Record<string, any> {
   let atual = m;
   for (let i = 0; i < 4; i++) {
@@ -115,13 +166,11 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (key.fromMe === true) return { tipo: "ignorar", motivo: "propria" };
   const id = typeof key.id === "string" ? key.id.trim().slice(0, 160) : "";
   if (!id) return { tipo: "ignorar", motivo: "sem_id" };
-  let numero: string | null = null;
-  if (NUMERO_DO_JID.test(jid)) numero = NUMERO_DO_JID.exec(jid)![1];
-  else if (jid.endsWith("@lid")) {
-    for (const alt of [key.senderPn, key.remoteJidAlt]) {
-      if (typeof alt === "string" && NUMERO_DO_JID.test(alt)) { numero = NUMERO_DO_JID.exec(alt)![1]; break; }
-    }
-  } else return { tipo: "ignorar", motivo: "outro_destino" };
+  const forma = formaDoEndereco(jid);
+  if (forma !== "numero" && forma !== "lid") return { tipo: "ignorar", motivo: "outro_destino" };
+  // QA-SEG C2 achado 3: esta leitura é a do COMANDO — só os campos de antes identificam o número (o dono)
+  const numero = numeroDaConversaDireta(key, "comando");
+  const lid = lidDaConversa(key);
   const m = desembrulhar(d.message ?? {});
   // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
   if (m.reactionMessage) return { tipo: "ignorar", motivo: "reacao" };
@@ -134,8 +183,20 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (!texto.trim() && INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
   const s = segundos(d.messageTimestamp);
-  return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
+  return { tipo: "direta", externalId: id, numero, lid, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
 }
+
+/**
+ * EPIC-026 C2 — os itens de um aviso `messages.upsert`, em qualquer das formas que a Evolution manda: um objeto (v2), uma lista, ou
+ * o formato do Baileys `{ messages: [...], type }`. Nada que não seja objeto entra.
+ */
+export function itensDoAviso(data: unknown, max: number): unknown[] {
+  const d = data as { messages?: unknown } | null | undefined;
+  const lista = Array.isArray(data) ? data : d && typeof d === "object" && Array.isArray(d.messages) && !("key" in (d as object)) ? d.messages : [data];
+  return lista.filter(x => x && typeof x === "object").slice(0, max);
+}
+/** Nome do evento normalizado: "MESSAGES_UPSERT", "messages-upsert" e "messages.upsert" → "messages.upsert". */
+export const normalizarEvento = (e: unknown) => String(e ?? "").trim().toLowerCase().replace(/[_-]/g, ".").slice(0, 40);
 
 /** Sem data, velha demais ou no futuro: não é comando (reentrega da Evolution, histórico, relógio errado). */
 export function mensagemAntiga(enviadaEm: Date | null, agora: Date, maxMs = IDADE_MAXIMA_MS): boolean {
@@ -195,4 +256,74 @@ export function cortarResposta(texto: string, max = MAX_CARACTERES_WHATSAPP): st
   const limite = max - aviso.length;
   const corte = t.lastIndexOf("\n", limite);
   return `${t.slice(0, corte > limite * 0.6 ? corte : limite).trimEnd()}${aviso}`;
+}
+
+/** Etapa 8 — a resposta ao dono pode sair em até 3 mensagens seguidas (cada uma dentro de MAX_CARACTERES_WHATSAPP). */
+export const MAX_PARTES_RESPOSTA = 3;
+/** "(1/3)\n" — a numeração de cada mensagem quando a resposta vai em mais de uma. */
+const TAMANHO_NUMERACAO = 6;
+
+/**
+ * Corta `t` em pedaços de até `cap` caracteres (o PRIMEIRO, de até `capPrimeiro`), de preferência numa quebra de linha (senão num
+ * espaço), no máximo `maxPartes`; o último que não couber é cortado com o aviso de sempre.
+ */
+function pedacos(t: string, cap: number, maxPartes: number, capPrimeiro = cap): string[] {
+  const r: string[] = [];
+  let resto = t.trim();
+  const capDe = () => (r.length === 0 ? capPrimeiro : cap);
+  while (resto && r.length < maxPartes - 1 && resto.length > capDe()) {
+    const c = capDe();
+    let corte = resto.lastIndexOf("\n", c);
+    if (corte < c * 0.5) corte = resto.lastIndexOf(" ", c);
+    if (corte < c * 0.5) corte = c;
+    r.push(resto.slice(0, corte).trimEnd());
+    resto = resto.slice(corte).trimStart();
+  }
+  if (resto) r.push(resto.length <= capDe() ? resto : cortarResposta(resto, capDe()));
+  return r;
+}
+
+/**
+ * QA E8 A3: no texto do MODELO, uma linha que começa com "(2/3)" (ou "( 2 / 3 )") imitaria a numeração das mensagens. Ela sai:
+ * a numeração do sistema é a única.
+ */
+export function semNumeracaoForjada(texto: string): string {
+  return texto.replace(/^[ \t]*[(（][ \t]*\d{1,3}[ \t]*[/／][ \t]*\d{1,3}[ \t]*[)）][ \t]*/gm, "");
+}
+
+/**
+ * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
+ * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber é cortado na última com o aviso de
+ * sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado e vai
+ * SEMPRE na PRIMEIRA mensagem — no fim dela quando a resposta é uma mensagem só; no começo quando há várias (QA E8 A1: a primeira é a que sai antes de o tempo acabar; o quadro é a fonte da
+ * verdade sobre o que foi gravado); o texto do modelo vem depois e é ele que é cortado. `maxPartes` menor (pouco tempo para
+ * enviar) corta o texto livre, nunca os quadros. A numeração "(n/m)" escrita pelo modelo no começo de linha sai (A3).
+ */
+export function partesDaResposta(texto: string, quadros: string | null = null, max = MAX_CARACTERES_WHATSAPP, maxPartes = MAX_PARTES_RESPOSTA): string[] {
+  const t = semNumeracaoForjada(texto).trim();
+  const q = (quadros ?? "").trim();
+  const n = Math.max(1, Math.floor(maxPartes));
+  // Uma mensagem só: ela É a primeira — o texto vem antes e os quadros fecham a mensagem (a instrução "Responda só aprovar…"
+  // fica no fim, como sempre); sem caber, quem é cortado é o texto do modelo, nunca os quadros.
+  const inteiro = q ? (t ? `${t}\n\n${q}` : q) : t;
+  if (inteiro.length <= max) return [inteiro];
+  if (n === 1) {
+    if (!q) return [cortarResposta(t, max)];
+    const espaco = max - q.length - 2;
+    return [t && espaco >= 200 ? `${cortarResposta(t, espaco)}\n\n${q}` : cortarResposta(q, max)];
+  }
+  const cap = max - TAMANHO_NUMERACAO;
+  let partes: string[];
+  if (!q) partes = pedacos(t, cap, n);
+  else {
+    const quadro = q.length <= cap ? q : cortarResposta(q, cap);
+    // o começo do texto vai junto com os quadros na 1ª mensagem quando sobra espaço razoável; senão, os quadros vão sozinhos
+    const sobra = cap - quadro.length - 2;
+    if (!t) partes = [quadro];
+    else if (sobra >= 200) {
+      const resto = pedacos(t, cap, n, sobra);
+      partes = [`${quadro}\n\n${resto[0]}`, ...resto.slice(1)];
+    } else partes = [quadro, ...pedacos(t, cap, n - 1)];
+  }
+  return partes.length === 1 ? [partes[0].length <= max ? partes[0] : cortarResposta(partes[0], max)] : partes.map((p, i) => `(${i + 1}/${partes.length})\n${p}`);
 }

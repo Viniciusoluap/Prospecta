@@ -11,6 +11,7 @@ vi.mock("../_core/evolution.js", async orig => ({
   gerarQrCode: vi.fn(async () => ({ qrCode: "data:image/png;base64,QR", estado: "connecting" })),
   estadoInstancia: vi.fn(async () => "open"), numeroConectado: vi.fn(async () => "5599900001111"),
   registrarWebhookEvolution: vi.fn(async () => undefined), removerInstancia: vi.fn(async () => undefined),
+  rejeitarLigacoesEvolution: vi.fn(async () => true),
 }));
 vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => ({ url: "https://evo", apiKey: "k", fonte: "banco" })) }));
 
@@ -116,15 +117,29 @@ describe("conexão própria (QR code)", () => {
     expect(await admin().dolores.statusConexao()).toEqual({ status: "conectado", numeroDolores: null, precisaConfirmar: true });
     const s = await admin().dolores.confirmarConexao();
     expect(s).toEqual({ status: "conectado", numeroDolores: "(99) *****-1111" });
-    expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores", URL_WEBHOOK_DOLORES(), segredoWebhookDolores());
+    // Etapa 7: a instância da Dolores assina também os avisos de grupo (quem a adicionou, criação do grupo)
+    expect(vi.mocked(registrarWebhookEvolution)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores", URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch,
+      ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT", "CALL"]); // etapa 9: e as ligações
     expect((await cfg()).numero_dolores).toBe("5599900001111");
     // não vira conexão da Central (a Central de Vendas nunca envia pelo número dela)
     expect((await banco.pg.query("SELECT * FROM whatsapp_connections")).rows).toEqual([]);
   });
-  it("número já usado pela empresa ou igual ao do dono: desconecta e recusa", async () => {
+  it("número já usado por CORRETOR ou igual ao do dono: desconecta e recusa; o da instância ANTIGA do admin: recusa sem derrubar a da empresa", async () => {
     await admin().dolores.conectar();
-    await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'conectado', 'prospecta-u1')`);
-    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/já é usado por uma conexão da empresa/);
+    // QA-SEG E9 achado 2 (c): a linha antiga do ADMIN com instância e o mesmo número bloqueia (o mesmo número em duas instâncias),
+    // mas a instância da EMPRESA não é removida — o admin remove a antiga pelo botão de Integrações
+    await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'desconectado', 'prospecta-u1')`);
+    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/conexão antiga da Central/);
+    expect(vi.mocked(removerInstancia)).not.toHaveBeenCalled();
+    expect((await cfg()).status_conexao).not.toBe("conectado");
+    // sem instância (só o connectionId da Central da empresa), a linha do admin não conta
+    await banco.pg.exec(`UPDATE whatsapp_connections SET instancia = NULL WHERE user_id = 1`);
+    expect(await admin().dolores.confirmarConexao()).toMatchObject({ status: "conectado" });
+    expect(vi.mocked(removerInstancia)).not.toHaveBeenCalled();
+    await banco.pg.exec(`DELETE FROM whatsapp_connections; UPDATE dolores_whatsapp_config SET status_conexao = 'aguardando_qr', numero_dolores = NULL;
+      INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('cor', 'Corretor', 'corretor', true, 'h');
+      INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) SELECT id, 'evolution', '559900001111', 'conectado', 'prospecta-u2' FROM users WHERE role = 'corretor'`);
+    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/já é usado por uma conexão de corretor/);
     expect(vi.mocked(removerInstancia)).toHaveBeenCalledWith(expect.anything(), "prospecta-dolores");
     expect((await cfg()).status_conexao).toBe("desconectado");
     await banco.pg.exec("DELETE FROM whatsapp_connections; UPDATE dolores_whatsapp_config SET numero_dono = '5599900001111'");
@@ -178,7 +193,9 @@ describe("conexão própria (QR code)", () => {
     await recusa(() => { vi.mocked(numeroConectado).mockRejectedValueOnce(new Error("rede")); });
     await recusa(() => { vi.mocked(numeroConectado).mockResolvedValueOnce("5599900002222"); });
     // 3. número da empresa ou do dono
-    await recusa(() => banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'conectado', 'prospecta-u1')`));
+    // etapa 9: o número de uma conexão de CORRETOR (a do admin é a mesma conexão da empresa e não conta)
+    await recusa(() => banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('cor', 'Corretor', 'corretor', true, 'h');
+      INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) SELECT id, 'evolution', '559900001111', 'conectado', 'prospecta-u2' FROM users WHERE role = 'corretor'`));
     await banco.pg.exec("DELETE FROM whatsapp_connections");
     await recusa(() => banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dono = '5599900001111'"));
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET numero_dono = NULL");

@@ -52,7 +52,7 @@ export async function executarCardAprovado(args: z.infer<typeof entradaCardAprov
       leadId = novo.id;
       frase = `card do cliente "${textoDeDado(args.nome, 60)}" criado no CRM (cliente #${leadId}) e grupo ${g.id} ligado a ele`;
     }
-    if (!(await ligarGrupoAoCliente(tx, g.id, leadId, ctx.autorId))) throw new RecusaAcao("Não consegui ligar o grupo ao card (o grupo mudou); nada foi feito.");
+    if (!(await ligarGrupoAoCliente(tx, g.id, leadId, ctx.autorId, ctx.aprovacaoId))) throw new RecusaAcao("Não consegui ligar o grupo ao card (o grupo mudou); nada foi feito.");
     await tx.insert(leadActivities).values({
       leadId, type: args.modo === "criar" ? "status_change" : "note",
       description: args.modo === "criar"
