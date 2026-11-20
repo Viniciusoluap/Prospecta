@@ -139,16 +139,19 @@ describe("QA-SEG E7 — autoria (só vale grupo em que o DONO colocou a Dolores)
     // a mensagem seguinte já não é registrada (recusado = nada lido)
     await chamar(aviso(item({ jid: NOVO, texto: "depois do rebaixamento" })));
     expect(await q("SELECT count(*)::int AS n FROM dolores_grupo_mensagens")).toEqual([{ n: 1 }]);
-    // o mesmo vale para grupo já "avisado" que o dono ainda não decidiu (aviso de outro chegando depois do do dono)
+    // QA-SEG E7 r2 (R2-2): o add PROVADO do dono já é decisão dele — aviso de outro (ou sem autor provado) chegando depois não
+    // rebaixa; o grupo continua como o dono decidiu
     nomes[NOVO2] = "Jurídico";
     await chamar(eventoAdd(NOVO2, `${DONO}@s.whatsapp.net`));
     await chamar(eventoAdd(NOVO2, "999888777666555@lid"));
-    expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "recusado", adicionado_por: "desconhecido" });
-    // já decidido pelo dono (aceitou pelo WhatsApp): o aviso de outro não desfaz a decisão
-    const [, h] = await grupos();
+    expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", decidido_por: "whatsapp:add-do-dono" });
+    // grupo da reserva (aguardando, sem decisão) aceito pelo dono no WhatsApp: o aviso de outro também não desfaz a decisão
+    nomes[NOVO3] = "Parceiros";
+    await chamar(aviso(item({ jid: NOVO3, de: OUTRO })));
+    const h = (await grupos())[2];
     await chamar(aviso(direta(DONO, `grupo ${h.codigo} aceitar`)));
-    await chamar(eventoAdd(NOVO2, `${OUTRO}@s.whatsapp.net`));
-    expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "confirmado", prova_adicao: "aceito_pelo_dono" });
+    await chamar(eventoAdd(NOVO3, `${OUTRO}@s.whatsapp.net`));
+    expect((await grupos())[2]).toMatchObject({ situacao_confirmacao: "confirmado", prova_adicao: "aceito_pelo_dono" });
   });
   it("A3 (corrigido): groups.upsert com owner = dono NUNCA tira grupo de recusado nem de aguardando o dono", async () => {
     nomes[NOVO] = "Administrativo";

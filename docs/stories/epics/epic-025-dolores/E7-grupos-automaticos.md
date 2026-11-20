@@ -239,3 +239,9 @@ automática com PROVA POSITIVA. Isto refina AC14–AC16 (texto dos AC mantido; o
   server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts server/auth-session.test.ts
   server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1` → 37 arquivos, 672 testes, 0 falhas;
   `npx vite build` ok. 0133 NÃO aplicada em banco real. Volta ao portão de QA de segurança.
+- 20/11/2026 — @dev (Dex): reforços da 2ª rodada do portão de QA de segurança (CONCERNS) — itens 1–6 e o extra (ver "Reforços
+  da 2ª rodada"). A2 do `grupos-qa-seg-e7.test.ts` ajustado à regra nova (add provado do dono não é rebaixado). Ramo atualizado
+  com `origin/main` (Etapa 8, #258, 0134) e `origin/claude/epic025-dolores-etapa8`; `testes-banco` aplica 0133 e 0134. `npx tsc
+  --noEmit` limpo; `npx vitest run server/dolores server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts
+  server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1` → 40
+  arquivos, 722 testes, 0 falhas; `npx vite build` ok. 0133 NÃO aplicada em banco real. Volta ao portão de QA de segurança.
