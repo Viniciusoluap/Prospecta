@@ -23,6 +23,7 @@ import { ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
 import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
+import { loteSimulado } from "./fixtures/maquete-3d/lote-simulado.js";
 import { perguntaAlemDoTeto, rotuloConfirmarIA, rotuloContinuarLeitura } from "../client/src/components/maquete-3d/rotulos-leitura.js";
 
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
@@ -68,6 +69,8 @@ let pedidos: PedidoIA[];
 let respostas: unknown[];
 let credencial: CredencialIA | null;
 let atrasoIA = 0;
+/** EPIC-027 C1: chamado quando o lote da IA termina, antes da resposta (simula outra gravação durante a leitura). */
+let duranteALeitura: (() => Promise<void>) | null = null;
 let relogio = new Date("2026-11-16T13:00:00Z");
 let pdfs: Record<string, Buffer>;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
@@ -83,12 +86,13 @@ async function configurar(dados: Record<string, unknown>) {
 type Passo = Awaited<ReturnType<ReturnType<typeof colaborador>["avancarLeitura"]>>;
 async function ler(id: number): Promise<Passo> {
   let r!: Passo;
-  for (let i = 0; i < 25; i++) { r = await colaborador().avancarLeitura({ id }); if (r.erro || r.aguardando || !r.proximo) return r; }
+  // O lote em andamento na IA (EPIC-027 C1) não para o laço: a tela consulta de novo.
+  for (let i = 0; i < 25; i++) { r = await colaborador().avancarLeitura({ id }); if (r.erro || (r.aguardando && r.aguardando.motivo !== "lote") || !r.proximo) return r; }
   return r;
 }
 async function importar(id: number, doc: number) {
   let r = await colaborador().importarPlanta({ id, doc });
-  for (let i = 0; i < 25 && !r.pronta && !r.erro && !r.aguardando; i++) r = await colaborador().avancarImportacao({ id });
+  for (let i = 0; i < 25 && !r.pronta && !r.erro && (!r.aguardando || r.aguardando.motivo === "lote"); i++) r = await colaborador().avancarImportacao({ id });
   return r;
 }
 async function pedido(documentos: (typeof VET)[]) {
@@ -108,12 +112,13 @@ async function preparar(b: Awaited<ReturnType<typeof criarBanco>>) {
       VALUES (1, 'a1', 'pdf', 'sobrado.pdf', 'sobrado.pdf', 'application/pdf', 10, 1, 'd1', 'active'),
              (1, 'a2', 'pdf', 'escaneada.pdf', 'escaneada.pdf', 'application/pdf', 10, 1, 'd2', 'active');
   `);
-  pedidos = []; respostas = []; credencial = null; atrasoIA = 0; relogio = new Date("2026-11-16T13:00:00Z");
+  pedidos = []; respostas = []; credencial = null; atrasoIA = 0; duranteALeitura = null; relogio = new Date("2026-11-16T13:00:00Z");
   pdfs = { "sobrado.pdf": VETORIAL, "escaneada.pdf": RASTER };
   definirDependencias({
     agora: () => relogio,
     lerPdf: async d => pdfs[d.nome],
     credencialIA: async () => credencial,
+    // Motor "IA em tudo" (fluxo antigo): chamada direta.
     ia: async p => {
       pedidos.push(p);
       if (atrasoIA) await new Promise(r => setTimeout(r, atrasoIA));
@@ -121,6 +126,15 @@ async function preparar(b: Awaited<ReturnType<typeof criarBanco>>) {
       if (r instanceof Error) throw r;
       return { json: r, entrada: 1000, saida: 500, modelo: "claude-sonnet-5-5" };
     },
+    // Leitura de prancha (EPIC-027 C1): lote na Anthropic, simulado; `atrasoIA` é a demora para criar o lote.
+    lote: loteSimulado({
+      aoEnviar: async p => { pedidos.push(p); if (atrasoIA) await new Promise(r => setTimeout(r, atrasoIA)); },
+      responder: async () => {
+        if (duranteALeitura) await duranteALeitura();
+        const r = respostas.shift() ?? RESPOSTA_IA;
+        return r instanceof Error ? r : { json: r, entrada: 1000, saida: 500, modelo: "claude-sonnet-5-5" };
+      },
+    }).cliente,
   });
 }
 
@@ -288,7 +302,7 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     expect(pedidos).toHaveLength(0);
   });
 
-  it("achado 2: na importação, dois 'avançar' simultâneos fazem UMA chamada; o atrasado não regrava a importação descartada", async () => {
+  it("achado 2: na importação, dois 'avançar' simultâneos criam UM lote; com o lote em curso, descartar é recusado e o atrasado não regrava a importação descartada", async () => {
     await configurar({ motor: "hibrido" });
     credencial = PAINEL;
     const id = await pedido([IMG]);
@@ -297,18 +311,17 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     atrasoIA = 150;
     await Promise.all([colaborador().avancarImportacao({ id }), colaborador().avancarImportacao({ id })]);
     expect(pedidos).toHaveLength(1);
-
-    // Outra importação; a chamada fica em curso e, enquanto isso, a pessoa tenta descartar: recusado até o passo
-    // terminar (QA rodada 2, N1 — a resposta paga não é jogada fora). Depois, descarta e nada é regravado.
-    expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
-    await admin().confirmarIAImportacao({ id });
-    const emCurso = colaborador().avancarImportacao({ id });
-    await new Promise(r => setTimeout(r, 40));
+    atrasoIA = 0;
+    // Com o lote na Anthropic, a pessoa tenta descartar: recusado até a leitura terminar (QA rodada 2, N1 — a
+    // resposta paga não é jogada fora). Termina, descarta e nada é regravado.
     await expect(colaborador().descartarImportacao({ id })).rejects.toThrow("sendo lido pela IA agora");
-    await emCurso;
+    expect(await importar(id, 0).catch(e => e)).toMatchObject({ code: "CONFLICT" });
+    let r = await colaborador().avancarImportacao({ id });
+    for (let i = 0; i < 10 && !r.pronta && !r.erro; i++) r = await colaborador().avancarImportacao({ id });
+    expect(r.pronta).toBe(true);
     await colaborador().descartarImportacao({ id });
     expect((await colaborador().detalhe({ id })).importacao).toBeNull();
-    expect(pedidos).toHaveLength(2);
+    expect(pedidos).toHaveLength(1);
   });
 
   // Achado 1 (Q2): confirmação eterna e teto que não valia por maquete.
@@ -342,7 +355,7 @@ describe("QA S-03/S-05 — regressão dos achados", () => {
     expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
     await admin().confirmarIAImportacao({ id });
     let r = await colaborador().avancarImportacao({ id });
-    for (let i = 0; i < 10 && !r.pronta && !r.erro && !r.aguardando; i++) r = await colaborador().avancarImportacao({ id });
+    for (let i = 0; i < 10 && !r.pronta && !r.erro && (!r.aguardando || r.aguardando.motivo === "lote"); i++) r = await colaborador().avancarImportacao({ id });
     expect(r.pronta).toBe(true);
     const d = await colaborador().detalhe({ id });
     expect(d.importacao!.ia).toMatchObject({ autorizadas: 1, usadas: 1, lidasNaMaquete: 1, teto: 8 });
@@ -748,18 +761,16 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     await colaborador().iniciarLeitura({ id });
     expect((await ler(id)).aguardando?.motivo).toBe("confirmacao");
     await admin().confirmarIA({ id });
-    atrasoIA = 400;
-    const emCurso = colaborador().avancarLeitura({ id });
-    await new Promise(r => setTimeout(r, 80));
+    // EPIC-027 C1: o lote foi para a Anthropic; o passo segue em curso entre um "avançar" e outro.
+    expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("lote");
     expect((await admin().detalhe({ id })).ia.emCurso).toBe(true);
     for (const tentativa of [() => colaborador().pularIA({ id }), () => admin().confirmarIA({ id }), () => admin().confirmarIA({ id, alemDoTeto: true }), () => colaborador().iniciarLeitura({ id })]) {
       await expect(tentativa()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Um passo está sendo lido pela IA agora; aguarde terminar") });
     }
-    await emCurso;
+    expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
     const d = await admin().detalhe({ id });
     expect(d.ia.emCurso).toBe(false);
     expect(d.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia", erro: null });
-    expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
     expect(pedidos).toHaveLength(1);
     expect(await contador(id)).toBe(1);
   });
@@ -770,14 +781,12 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     const id = await pedido([IMG]);
     expect((await importar(id, 0)).aguardando?.motivo).toBe("confirmacao");
     await admin().confirmarIAImportacao({ id });
-    atrasoIA = 400;
-    const emCurso = colaborador().avancarImportacao({ id });
-    await new Promise(r => setTimeout(r, 80));
+    expect((await colaborador().avancarImportacao({ id })).aguardando?.motivo).toBe("lote");
     expect((await admin().detalhe({ id })).importacao?.ia.emCurso).toBe(true);
     for (const tentativa of [() => colaborador().pularIAImportacao({ id }), () => admin().confirmarIAImportacao({ id }), () => colaborador().descartarImportacao({ id }), () => colaborador().importarPlanta({ id, doc: 0 })]) {
       await expect(tentativa()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("sendo lido pela IA agora") });
     }
-    await emCurso;
+    expect((await colaborador().avancarImportacao({ id })).pronta).toBe(false); // a consulta trouxe a leitura; falta a montagem
     const imp = (await admin().detalhe({ id })).importacao!;
     expect(imp.ia.emCurso).toBe(false);
     expect(imp.passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "ia" });
@@ -856,16 +865,13 @@ describe("QA S-03/S-05 rodada 2 — leitura e importação (banco em memória)",
     await colaborador().iniciarLeitura({ id });
     await ler(id);
     await admin().confirmarIA({ id });
-    // Durante a chamada, outra gravação muda a coluna (aqui, direto no banco: um aviso a mais).
-    definirDependencias({
-      ia: async p => {
-        pedidos.push(p);
-        const e = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
-        e.foraDoLimiteIA = ["aviso gravado durante a chamada"];
-        await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(e), id]);
-        return { json: RESPOSTA_IA, entrada: 1000, saida: 500, modelo: "claude-sonnet-5-5" };
-      },
-    });
+    // O lote vai para a IA; quando ele termina, outra gravação muda a coluna (aqui, direto no banco: um aviso a mais).
+    expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("lote");
+    duranteALeitura = async () => {
+      const e = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);
+      e.foraDoLimiteIA = ["aviso gravado durante a chamada"];
+      await banco.pg.query(`UPDATE maquetes_3d SET leitura = $1 WHERE id = $2`, [JSON.stringify(e), id]);
+    };
     const r = await colaborador().avancarLeitura({ id });
     expect(r.erro).toBeNull();
     const e = lerEstadoLeitura((await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura);

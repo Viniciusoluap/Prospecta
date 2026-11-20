@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "./EditorPlanta";
-import { perguntaAlemDoTeto, rotuloConfirmarIA } from "./rotulos-leitura";
+import { INTERVALO_CONSULTA_MS, consultaDeNovo, perguntaAlemDoTeto, rotuloConfirmarIA } from "./rotulos-leitura";
+import { AndamentoLeitura } from "./AndamentoLeitura";
 import { ROTULOS_ORIGEM_REVISAO } from "@shared/maquete-3d/importacao";
 import type { ModeloMaquete } from "@shared/maquete-3d/modelo";
 import { escopoEnvioMaquete } from "@shared/maquete-3d/regras";
@@ -36,7 +37,8 @@ export function ListaPassos({ passos }: { passos: Passo[] }) {
             {p.motor === "ia" ? `— lida pela IA (modelo ${p.modelo ?? "?"}${p.tokens ? `, ${p.tokens.entrada.toLocaleString("pt-BR")} + ${p.tokens.saida.toLocaleString("pt-BR")} tokens` : ""})`
               : p.motor === "pulada" ? "— sem a IA: ficou o que o leitor próprio leu" : "— lida pelo leitor próprio"}</span>}
           {p.estado === "pendente" && p.motivoIA && <span className="text-xs text-gray-400">— {p.motivoIA}</span>}
-          {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA agora (não feche a página)</span>}
+          {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA em segundo plano (pode fechar a página)</span>}
+          {p.envioMotivo && <span className="text-xs text-gray-400">— {p.envioMotivo}</span>}
           {p.erro && <span className={p.estado === "aguardando" ? "text-amber-300" : "text-red-300"}>— {p.erro}</span>}
         </li>
       ))}
@@ -44,7 +46,7 @@ export function ListaPassos({ passos }: { passos: Passo[] }) {
   );
 }
 
-type Retorno = { erro: string | null; aguardando: { mensagem: string } | null; pronta: boolean };
+type Retorno = { erro: string | null; aguardando: { motivo: string; mensagem: string } | null; pronta: boolean };
 
 export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin: boolean; sujo: boolean; aoMudar: () => void }) {
   const id = d.id;
@@ -81,6 +83,14 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
         await utils.maquete3d.detalhe.invalidate({ id });
         if (parar.current) return;
         if (r.erro) { toast.error(r.erro); break; }
+        // EPIC-027 C1: prancha na IA em segundo plano — consulta de novo daqui a alguns segundos (não conta no limite de passos).
+        if (r.aguardando && consultaDeNovo(r.aguardando.motivo)) {
+          await new Promise(ok => setTimeout(ok, INTERVALO_CONSULTA_MS));
+          if (parar.current) return;
+          i--;
+          r = await avancar.mutateAsync({ id });
+          continue;
+        }
         if (r.aguardando) { toast.warning(r.aguardando.mensagem, { duration: 12000 }); break; }
         if (r.pronta) { toast.success("Planta importada lida. Compare com a atual, corrija se precisar e aplique."); break; }
         r = await avancar.mutateAsync({ id });
@@ -117,6 +127,14 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
   const aguardando = imp?.passos.find(p => p.estado === "aguardando");
   /** QA rodada 2, N1: com um passo sendo lido pela IA, confirmar, seguir sem a IA e descartar esperam ele terminar. */
   const emCurso = !!imp?.ia.emCurso;
+  // EPIC-027 C1: cancelar a prancha na IA; e, ao abrir a página com uma prancha ainda na IA, retomar a consulta.
+  const cancelarIA = trpc.maquete3d.cancelarLeituraIAImportacao.useMutation({ onSuccess: () => { toast.info("Cancelamento pedido à Anthropic. A tela confirma o resultado em instantes."); aoMudar(); }, onError: falha });
+  const retomou = useRef(false);
+  useEffect(() => {
+    if (lendo || retomou.current || !emCurso) return;
+    retomou.current = true;
+    void rodar(() => avancar.mutateAsync({ id }));
+  }, [emCurso, lendo]); // eslint-disable-line react-hooks/exhaustive-deps
   const temPadrao = !!d.modelo?.edificacoes.some(e => e.id === "padrao");
   const pavimentos = d.modelo?.edificacoes.flatMap(e => e.pavimentos.map(p => ({ valor: `${e.id}|${p.id}`, rotulo: `${e.nome} › ${p.nome}` }))) ?? [];
   useEffect(() => { if (!temPadrao && d.modelo?.edificacoes.length && destino === "padrao" && pavimentos[0]) setDestino(pavimentos[0].valor); }, [temPadrao, d.modelo, destino, pavimentos]);
@@ -160,6 +178,8 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
       {!imp.candidata && (
         <>
           <ListaPassos passos={imp.passos} />
+          <AndamentoLeitura passos={imp.passos} trabalhando={lendo} usadas={imp.ia.lidasNaMaquete} teto={imp.ia.teto}
+            aoCancelar={() => cancelarIA.mutate({ id })} cancelando={cancelarIA.isPending} />
           {aguardando && (
             <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
               {aguardando.aguardando === "confirmacao" ? (
@@ -179,8 +199,11 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
               <Button variant="outline" className={btnOutline} disabled={lendo || emCurso} onClick={() => rodar(async () => { await pular.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}>Continuar sem a IA</Button>
             </div>
           )}
-          {!lendo && emCurso && <p className="text-amber-300">Um passo está sendo lido pela IA agora: aguarde terminar para confirmar, seguir sem a IA ou descartar.</p>}
-          <Button className={btnOuro} disabled={lendo} onClick={() => rodar(() => avancar.mutateAsync({ id }))}><Play className="mr-1 h-4 w-4" />{lendo ? "Lendo… mantenha esta página aberta." : imp.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : "Continuar a leitura do PDF importado"}</Button>
+          {emCurso && <p className="text-amber-300">Uma prancha está sendo lida pela IA: aguarde terminar (ou cancele a leitura pela IA) para confirmar, seguir sem a IA ou descartar.</p>}
+          {!lendo && !emCurso && imp.progresso.proximo?.estado === "erro" && imp.progresso.proximo.tipo === "prancha_ia" && (
+            <Button variant="outline" className={btnOutline} onClick={() => rodar(async () => { await pular.mutateAsync({ id }); return avancar.mutateAsync({ id }); })}>Continuar sem a IA</Button>
+          )}
+          <Button className={btnOuro} disabled={lendo} onClick={() => rodar(() => avancar.mutateAsync({ id }))}><Play className="mr-1 h-4 w-4" />{lendo ? "Lendo…" : imp.progresso.proximo?.estado === "erro" ? "Tentar de novo este passo" : "Continuar a leitura do PDF importado"}</Button>
         </>
       )}
 
