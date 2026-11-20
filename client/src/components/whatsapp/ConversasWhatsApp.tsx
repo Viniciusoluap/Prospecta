@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { ArrowLeft, Download, ExternalLink, Link2, RefreshCw, Send, Trash2, Unlink, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Bot, Download, ExternalLink, Hand, Link2, RefreshCw, Send, Trash2, Unlink, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { trpc } from "@/lib/trpc";
 import { alternarItem, alternarTodosVisiveis, chaveDaConversa, ehConversaSemNumero, podarSelecao, textoConfirmacaoExclusao } from "@shared/whatsapp/conversas";
+import { TEXTO_MODO } from "@shared/dolores/modo-conversa";
 
 const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 /** EPIC-026 C2: a conversa cujo número o WhatsApp não informou ("@lid") aparece assim — nunca com um telefone inventado. */
@@ -143,6 +144,39 @@ const legenda = (texto: string, midia: Midia | null) => (midia?.baixada ? texto.
 /** Mesma conversa: o "@lid" exato, ou o mesmo telefone pelos 8 finais (como antes). */
 const mesmaConversa = (a: string, b: string) =>
   ehConversaSemNumero(a) || ehConversaSemNumero(b) ? chaveDaConversa(a) === chaveDaConversa(b) : a.replace(/\D/g, "").slice(-8) === b.replace(/\D/g, "").slice(-8);
+
+/**
+ * EPIC-026 C6: quem atende a conversa (só na conexão da EMPRESA; o servidor devolve `mostrar: false` para corretor, conversa
+ * reservada ou sem número) e o botão "Assumir (humano)" / "Devolver para a Dolores". O botão nunca envia mensagem.
+ */
+function AtendimentoDaConversa({ numero }: { numero: string }) {
+  const utils = trpc.useUtils();
+  const q = trpc.whatsapp.atendimentoDaConversa.useQuery({ numero }, { refetchInterval: 10_000 });
+  const mudar = trpc.whatsapp.mudarAtendimentoDaConversa.useMutation({
+    onSuccess: (r, v) => { utils.whatsapp.atendimentoDaConversa.setData({ numero }, r); toast.success(v.acao === "assumir" ? "Conversa assumida pela equipe." : "Conversa devolvida para a Dolores."); },
+    onError: e => { toast.error(e.message); utils.whatsapp.atendimentoDaConversa.invalidate({ numero }); },
+  });
+  const a = q.data;
+  if (!a || !a.mostrar) return null;
+  if (!a.elegivel) return <p className="w-full text-xs text-gray-400">{a.motivo}</p>;
+  const comEquipe = a.estado !== "dolores";
+  const rotulo = a.estado === "assumida"
+    ? `${TEXTO_MODO.assumida}${a.alteradoPor ? ` por ${a.alteradoPor}` : ""}${a.alteradoEm ? ` em ${hora(a.alteradoEm)}` : ""}`
+    : a.estado === "silencio" ? `${TEXTO_MODO.silencio}${a.ate ? ` até ${hora(a.ate)} (depois de resposta da equipe)` : ""}` : TEXTO_MODO.dolores;
+  return (
+    <div className="w-full flex flex-wrap items-center gap-2 text-xs">
+      <span role="status" className={`inline-flex items-center gap-1 rounded px-2 py-1 font-bold ${comEquipe ? "bg-amber-500/15 text-amber-200" : "bg-green-600/20 text-green-300"}`}>
+        {comEquipe ? <Hand className="h-3 w-3" /> : <Bot className="h-3 w-3" />} {rotulo}
+      </span>
+      <Button size="sm" variant="outline" disabled={mudar.isPending} className="h-7 text-xs border-[#C9A961]/30 text-[#C9A961]"
+        onClick={() => mudar.mutate({ numero, acao: comEquipe ? "devolver" : "assumir" })}>
+        {comEquipe ? <Bot className="h-3 w-3 mr-1" /> : <Hand className="h-3 w-3 mr-1" />}
+        {comEquipe ? TEXTO_MODO.devolver : TEXTO_MODO.assumir}
+      </Button>
+      <span className="text-gray-400">{comEquipe ? TEXTO_MODO.ajudaDevolver : TEXTO_MODO.ajudaAssumir}</span>
+    </div>
+  );
+}
 
 export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
@@ -297,6 +331,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
                   )}
                 </div>
               )}
+              {!semNumero && <AtendimentoDaConversa numero={numero} />}
             </div>
             <div className="flex-1 overflow-y-auto max-h-[460px] p-3 space-y-2">
               {(mensagens.data ?? []).map(m => (
