@@ -5,7 +5,8 @@
 -- "whatsapp_atendimento_config": linha única (id = 1) — interruptores e tetos da etapa 9, TODOS DESLIGADOS/conservadores por
 --   padrão: Dolores responde cliente cadastrado (desligado), teto por cliente/dia e global/dia, horas de silêncio depois que a
 --   equipe responde, teto diário de saudações, transcrição de áudio (desligada), duração máxima e tetos da transcrição, intervalo
---   e textos dos avisos de ligação e de áudio (editáveis em Templates).
+--   e textos dos avisos de ligação e de áudio (editáveis em Templates). Exceção pedida pelo dono (QA-SEG E9 achado 3): o interruptor
+--   dos avisos de ligação/áudio nasce LIGADO, com teto global diário (50) além do intervalo por número.
 -- "whatsapp_campanhas": campanhas de saudação (nome, empreendimento opcional, texto fixo). Nascem INATIVAS; no máximo UMA ativa
 --   (índice único parcial — garantido no banco).
 -- "whatsapp_saudacoes": a saudação que saiu (ou foi reivindicada) — UMA por número por campanha (índice único). O número fica só
@@ -41,6 +42,9 @@ CREATE TABLE IF NOT EXISTS "whatsapp_atendimento_config" (
   "transcricao_teto_numero_dia" integer NOT NULL DEFAULT 10 CHECK ("transcricao_teto_numero_dia" BETWEEN 1 AND 100),
   "transcricao_teto_global_dia" integer NOT NULL DEFAULT 100 CHECK ("transcricao_teto_global_dia" BETWEEN 1 AND 2000),
   "aviso_intervalo_horas" integer NOT NULL DEFAULT 3 CHECK ("aviso_intervalo_horas" BETWEEN 1 AND 48),
+  -- QA-SEG E9 achado 3: interruptor próprio dos avisos de ligação e de áudio (LIGADO por pedido do dono, com teto global por dia)
+  "avisos_ligados" boolean NOT NULL DEFAULT true,
+  "aviso_teto_global_dia" integer NOT NULL DEFAULT 50 CHECK ("aviso_teto_global_dia" BETWEEN 1 AND 500),
   "aviso_ligacao" varchar(500) NOT NULL DEFAULT 'Olá! Sou a Dolores, da Prospecta. Não atendo ligações por aqui, mas pode me escrever que a gente responde.',
   "aviso_audio" varchar(500) NOT NULL DEFAULT 'Olá! Não consegui ouvir o áudio. Pode escrever a sua mensagem, por favor?',
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),

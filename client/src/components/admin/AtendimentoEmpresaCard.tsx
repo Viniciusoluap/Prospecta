@@ -12,12 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const inputCls = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white placeholder:text-gray-500";
-type Numeros = "clienteTetoDia" | "clienteTetoGlobalDia" | "silencioHoras" | "saudacaoTetoDia" | "transcricaoDuracaoMaxS" | "transcricaoTetoNumeroDia" | "transcricaoTetoGlobalDia" | "avisoIntervaloHoras";
+type Numeros = "clienteTetoDia" | "clienteTetoGlobalDia" | "silencioHoras" | "saudacaoTetoDia" | "transcricaoDuracaoMaxS" | "transcricaoTetoNumeroDia" | "transcricaoTetoGlobalDia" | "avisoIntervaloHoras" | "avisoTetoGlobalDia";
 const CAMPOS: Array<[Numeros, string]> = [
   ["clienteTetoDia", "Respostas por cliente por dia"], ["clienteTetoGlobalDia", "Respostas a clientes por dia (total)"],
   ["silencioHoras", "Horas calada depois que a equipe responde"], ["saudacaoTetoDia", "Saudações por dia (total)"],
   ["transcricaoDuracaoMaxS", "Duração máxima do áudio (s)"], ["transcricaoTetoNumeroDia", "Áudios transcritos por número por dia"],
   ["transcricaoTetoGlobalDia", "Áudios transcritos por dia (total)"], ["avisoIntervaloHoras", "Horas entre avisos de ligação/áudio"],
+  ["avisoTetoGlobalDia", "Avisos de ligação/áudio por dia (total)"],
 ];
 
 export function AtendimentoEmpresaCard() {
@@ -57,6 +58,9 @@ export function AtendimentoEmpresaCard() {
             <span>Transcrição de áudio: <strong className={d.config.transcricaoLigada ? "text-green-300" : "text-gray-300"}>{d.config.transcricaoLigada ? "ligada" : "desligada"}</strong></span>
             <Button size="sm" variant="outline" disabled={salvar.isPending} className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10"
               onClick={() => salvar.mutate({ transcricaoLigada: !d.config.transcricaoLigada })}>{d.config.transcricaoLigada ? "Desligar" : "Ligar"}</Button>
+            <span>Avisos de ligação e áudio: <strong className={d.config.avisosLigados ? "text-green-300" : "text-gray-300"}>{d.config.avisosLigados ? "ligados" : "desligados"}</strong> (até {d.config.avisoTetoGlobalDia} por dia)</span>
+            <Button size="sm" variant="outline" disabled={salvar.isPending} className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10"
+              onClick={() => salvar.mutate({ avisosLigados: !d.config.avisosLigados })}>{d.config.avisosLigados ? "Desligar" : "Ligar"}</Button>
           </div>
           <p className="text-xs text-gray-400">Telefone ligado a mais de um cadastro vai para a equipe. Quando alguém da equipe responde na conversa, a Dolores fica calada nela pelas horas abaixo. Número desconhecido recebe só a saudação da campanha ativa (Central › Templates). Ligação não é atendida: a pessoa recebe por texto que pode escrever. O áudio vai à Cloudflare para transcrever: isso entra no termo de consentimento (pendência do jurídico).</p>
           <form className="grid gap-3 rounded-lg bg-[#1A2332] p-3 md:grid-cols-2" onSubmit={enviarNumeros}>

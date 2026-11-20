@@ -73,6 +73,8 @@ export const CONFIG_ATENDIMENTO_PADRAO: Omit<WhatsappAtendimentoConfig, "atualiz
   id: 1, clienteLigado: false, clienteTetoDia: 10, clienteTetoGlobalDia: 100, silencioHoras: 6, saudacaoTetoDia: 50,
   transcricaoLigada: false, transcricaoDuracaoMaxS: 120, transcricaoTetoNumeroDia: 10, transcricaoTetoGlobalDia: 100,
   avisoIntervaloHoras: 3, avisoLigacao: AVISO_LIGACAO_PADRAO, avisoAudio: AVISO_AUDIO_PADRAO,
+  // sem a linha/migração: avisos DESLIGADOS (falha fechada); no banco o padrão é ligado (pedido do dono), com teto
+  avisosLigados: false, avisoTetoGlobalDia: 50,
 };
 
 /** A configuração da etapa 9. Sem a linha ou sem a migração 0135: tudo DESLIGADO (falha fechada). */
@@ -305,9 +307,19 @@ export async function vagaDoAviso(numero: string, tipo: "ligacao" | "audio", hor
   return r.length === 1;
 }
 
-/** Aviso fixo (ligação ou áudio que não deu para ouvir), no máximo 1 a cada N horas por número. Texto editável em Templates. */
+/**
+ * Aviso fixo (ligação ou áudio que não deu para ouvir), no máximo 1 a cada N horas por número. Texto editável em Templates.
+ * QA-SEG E9 achado 3: interruptor próprio ("avisos de ligação e áudio") e teto GLOBAL por dia (somando ligação e áudio), conferidos
+ * antes do envio — muitos números diferentes ligando não fazem o número da empresa disparar sem limite.
+ */
 export async function enviarAviso(p: { tipo: "ligacao" | "audio"; cfg: DoloresWhatsappConfig; conn: ConexaoDaEmpresa; numero: string; prazoFinal: number; autor: number | null; config: typeof CONFIG_ATENDIMENTO_PADRAO; leadId?: number | null }): Promise<string> {
+  if (!p.config.avisosLigados) return `aviso-${p.tipo}-desligado`;
   if (!(await vagaDoAviso(p.numero, p.tipo, p.config.avisoIntervaloHoras))) return `aviso-${p.tipo}-recente`;
+  if (!(await vagaNoContador(`aviso-global:${diaDeImperatriz(deps.agora())}`, p.config.avisoTetoGlobalDia))) {
+    await registrarAcao({ funcao: "whatsapp_automatica", resultado: "recusada", motivo: `teto de ${p.config.avisoTetoGlobalDia} avisos de ligação/áudio por dia; nada foi enviado`,
+      autorUserId: p.autor, canal: "whatsapp", pedidoId: `aviso:${p.tipo}`, resumo: { tipo: p.tipo === "ligacao" ? "aviso_ligacao" : "aviso_audio", destino: mascararNumero(p.numero) } });
+    return `aviso-${p.tipo}-teto`;
+  }
   const texto = p.tipo === "ligacao" ? p.config.avisoLigacao : p.config.avisoAudio;
   const ok = await enviarAoContato({ cfg: p.cfg, conn: p.conn, numero: p.numero, texto, tipo: p.tipo === "ligacao" ? "aviso_ligacao" : "aviso_audio", prazoFinal: p.prazoFinal,
     autor: p.autor, leadId: p.leadId ?? null, pedidoId: `aviso:${p.tipo}` });

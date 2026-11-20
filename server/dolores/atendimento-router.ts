@@ -62,6 +62,8 @@ export const atendimentoRouter = router({
     transcricaoTetoNumeroDia: z.number().int().min(1).max(100).optional(),
     transcricaoTetoGlobalDia: z.number().int().min(1).max(2000).optional(),
     avisoIntervaloHoras: z.number().int().min(1).max(48).optional(),
+    avisosLigados: z.boolean().optional(),
+    avisoTetoGlobalDia: z.number().int().min(1).max(500).optional(),
     avisoLigacao: textoDoAviso.optional(),
     avisoAudio: textoDoAviso.optional(),
   }).strict()).mutation(async ({ ctx, input }) => {

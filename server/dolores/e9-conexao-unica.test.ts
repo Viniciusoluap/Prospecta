@@ -318,6 +318,25 @@ describe("ligação e áudio (item 5)", () => {
     definirDependenciasRoteamento({ agora: () => new Date(AGORA.getTime() + 4 * 60 * 60_000) });
     expect((await chamar(ligacao(ESTRANHO))).body.r).toBe("aviso-ligacao-enviado");
   });
+  it("QA-SEG achado 3: avisos de ligação/áudio com interruptor próprio (nasce ligado) e teto GLOBAL por dia, antes do envio", async () => {
+    expect(await q("SELECT avisos_ligados, aviso_teto_global_dia FROM whatsapp_atendimento_config")).toEqual([{ avisos_ligados: true, aviso_teto_global_dia: 50 }]);
+    await banco.pg.exec("UPDATE whatsapp_atendimento_config SET aviso_teto_global_dia = 2 WHERE id = 1");
+    // números diferentes: o intervalo por número não segura, o teto global segura (ligação e áudio somam)
+    expect((await chamar(ligacao("5511911110001"))).body.r).toBe("aviso-ligacao-enviado");
+    expect((await chamar(ligacao("5511911110002"))).body.r).toBe("aviso-ligacao-enviado");
+    expect((await chamar(ligacao("5511911110003"))).body.r).toBe("aviso-ligacao-teto");
+    await chamar(aviso(audio(JOAO)));
+    expect(enviarAoContato).toHaveBeenCalledTimes(2);
+    expect(enviadosPara(JOAO)).toEqual([]);
+    expect(await q("SELECT count(*)::int AS n FROM dolores_acoes WHERE funcao = 'whatsapp_automatica' AND resultado = 'recusada' AND motivo LIKE 'teto de 2 avisos%'")).toEqual([{ n: 2 }]);
+    // desligado pelo admin (papel): nada sai, nem conta
+    await caller("admin").dolores.atendimento.salvarConfig({ avisosLigados: false });
+    definirDependenciasRoteamento({ agora: () => new Date(AGORA.getTime() + 24 * 60 * 60_000) });
+    expect((await chamar(ligacao("5511911110004"))).body.r).toBe("aviso-ligacao-desligado");
+    await chamar(aviso(audio(ANA)));
+    expect(enviarAoContato).toHaveBeenCalledTimes(2);
+    await expect(caller("colaborador", 2).dolores.atendimento.salvarConfig({ avisosLigados: true })).rejects.toThrow();
+  });
   it("áudio com a transcrição desligada → aviso pedindo para escrever (1x/3h)", async () => {
     await chamar(aviso(audio(JOAO)));
     await chamar(aviso(audio(JOAO)));
