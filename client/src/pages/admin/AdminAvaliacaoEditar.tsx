@@ -64,6 +64,9 @@ export default function AdminAvaliacaoEditar() {
   const linked = form.leadId !== "none";
   // O lead de uma avaliação já vinculada é imutável (o serviço do lead aponta para ela).
   const leadLocked = Boolean(avaliacao?.leadId);
+  // Regra de 17/11: o endereço vem do lead ao vincular, mas continua editável na avaliação (o imóvel avaliado pode ser
+  // outro). Só fica travado no instante em que se escolhe o lead, porque ao salvar ele vem do cadastro do lead.
+  const enderecoTravado = linked && !leadLocked;
 
   if (!avaliacao) {
     return (
@@ -171,7 +174,7 @@ export default function AdminAvaliacaoEditar() {
                     {leadOptions.map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                {linked && <p className="mt-1 text-xs text-gray-300">Cliente, CPF, telefone, e-mail e endereço são sincronizados com o cadastro do lead no CRM ao salvar.</p>}
+                {linked && <p className="mt-1 text-xs text-gray-300">Cliente, CPF, telefone e e-mail seguem o cadastro do lead no CRM. O endereço vem do lead ao vincular e pode ser editado aqui; a edição feita na avaliação é mantida.</p>}
                 {leadLocked && <p className="mt-1 text-xs text-gray-400">O lead não pode ser trocado depois do vínculo. Para outro cliente, crie uma nova avaliação.</p>}
               </div>
             </div>
@@ -198,20 +201,20 @@ export default function AdminAvaliacaoEditar() {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <Label className="text-gray-300">Endereço</Label>
-                <Input disabled={linked} value={form.endereco} onChange={(e) => setForm((f) => ({ ...f, endereco: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={enderecoTravado} value={form.endereco} onChange={(e) => setForm((f) => ({ ...f, endereco: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div>
                 <Label className="text-gray-300">Bairro</Label>
-                <Input disabled={linked} value={form.bairro} onChange={(e) => setForm((f) => ({ ...f, bairro: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                <Input disabled={enderecoTravado} value={form.bairro} onChange={(e) => setForm((f) => ({ ...f, bairro: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label className="text-gray-300">Cidade</Label>
-                  <Input disabled={linked} value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                  <Input disabled={enderecoTravado} value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
                 </div>
                 <div>
                   <Label className="text-gray-300">UF</Label>
-                  <Input disabled={linked} value={form.estado} maxLength={2} onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value.toUpperCase() }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
+                  <Input disabled={enderecoTravado} value={form.estado} maxLength={2} onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value.toUpperCase() }))} className="bg-[#1A2332] border-[#C9A961]/30 text-white mt-1" />
                 </div>
               </div>
             </div>

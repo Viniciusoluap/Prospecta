@@ -14,9 +14,13 @@ export function pdfDaProposta(estudoId: string, propostaId: string, dataEmissao?
   return rota.pdf.mutate({ studyId: Number(estudoId), propostaId, dataEmissao });
 }
 
-export function enviarProposta(estudoId: string, propostaId: string, destinatario: string, dataEmissao: string) {
-  return rota.enviar.mutate({ studyId: Number(estudoId), propostaId, destinatario, dataEmissao });
+/** `pdfSha256` = hash do PDF da prévia; o servidor recusa o envio se o PDF de agora for outro. */
+export function enviarProposta(estudoId: string, propostaId: string, destinatario: string, dataEmissao: string, pdfSha256: string) {
+  return rota.enviar.mutate({ studyId: Number(estudoId), propostaId, destinatario, dataEmissao, pdfSha256 });
 }
+
+/** Mesmo texto de `ERRO_PROPOSTA_MUDOU` (servidor): a prévia ficou velha e o botão passa a gerar outra. */
+export const AVISO_PROPOSTA_MUDOU = "A proposta mudou desde a prévia; gere a prévia de novo.";
 
 export function enviosDasPropostas(estudoId: string) {
   return rota.envios.query({ studyId: Number(estudoId) });

@@ -196,3 +196,73 @@ export function cortarResposta(texto: string, max = MAX_CARACTERES_WHATSAPP): st
   const corte = t.lastIndexOf("\n", limite);
   return `${t.slice(0, corte > limite * 0.6 ? corte : limite).trimEnd()}${aviso}`;
 }
+
+/** Etapa 8 — a resposta ao dono pode sair em até 3 mensagens seguidas (cada uma dentro de MAX_CARACTERES_WHATSAPP). */
+export const MAX_PARTES_RESPOSTA = 3;
+/** "(1/3)\n" — a numeração de cada mensagem quando a resposta vai em mais de uma. */
+const TAMANHO_NUMERACAO = 6;
+
+/**
+ * Corta `t` em pedaços de até `cap` caracteres (o PRIMEIRO, de até `capPrimeiro`), de preferência numa quebra de linha (senão num
+ * espaço), no máximo `maxPartes`; o último que não couber é cortado com o aviso de sempre.
+ */
+function pedacos(t: string, cap: number, maxPartes: number, capPrimeiro = cap): string[] {
+  const r: string[] = [];
+  let resto = t.trim();
+  const capDe = () => (r.length === 0 ? capPrimeiro : cap);
+  while (resto && r.length < maxPartes - 1 && resto.length > capDe()) {
+    const c = capDe();
+    let corte = resto.lastIndexOf("\n", c);
+    if (corte < c * 0.5) corte = resto.lastIndexOf(" ", c);
+    if (corte < c * 0.5) corte = c;
+    r.push(resto.slice(0, corte).trimEnd());
+    resto = resto.slice(corte).trimStart();
+  }
+  if (resto) r.push(resto.length <= capDe() ? resto : cortarResposta(resto, capDe()));
+  return r;
+}
+
+/**
+ * QA E8 A3: no texto do MODELO, uma linha que começa com "(2/3)" (ou "( 2 / 3 )") imitaria a numeração das mensagens. Ela sai:
+ * a numeração do sistema é a única.
+ */
+export function semNumeracaoForjada(texto: string): string {
+  return texto.replace(/^[ \t]*[(（][ \t]*\d{1,3}[ \t]*[/／][ \t]*\d{1,3}[ \t]*[)）][ \t]*/gm, "");
+}
+
+/**
+ * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
+ * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber é cortado na última com o aviso de
+ * sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado e vai
+ * SEMPRE na PRIMEIRA mensagem — no fim dela quando a resposta é uma mensagem só; no começo quando há várias (QA E8 A1: a primeira é a que sai antes de o tempo acabar; o quadro é a fonte da
+ * verdade sobre o que foi gravado); o texto do modelo vem depois e é ele que é cortado. `maxPartes` menor (pouco tempo para
+ * enviar) corta o texto livre, nunca os quadros. A numeração "(n/m)" escrita pelo modelo no começo de linha sai (A3).
+ */
+export function partesDaResposta(texto: string, quadros: string | null = null, max = MAX_CARACTERES_WHATSAPP, maxPartes = MAX_PARTES_RESPOSTA): string[] {
+  const t = semNumeracaoForjada(texto).trim();
+  const q = (quadros ?? "").trim();
+  const n = Math.max(1, Math.floor(maxPartes));
+  // Uma mensagem só: ela É a primeira — o texto vem antes e os quadros fecham a mensagem (a instrução "Responda só aprovar…"
+  // fica no fim, como sempre); sem caber, quem é cortado é o texto do modelo, nunca os quadros.
+  const inteiro = q ? (t ? `${t}\n\n${q}` : q) : t;
+  if (inteiro.length <= max) return [inteiro];
+  if (n === 1) {
+    if (!q) return [cortarResposta(t, max)];
+    const espaco = max - q.length - 2;
+    return [t && espaco >= 200 ? `${cortarResposta(t, espaco)}\n\n${q}` : cortarResposta(q, max)];
+  }
+  const cap = max - TAMANHO_NUMERACAO;
+  let partes: string[];
+  if (!q) partes = pedacos(t, cap, n);
+  else {
+    const quadro = q.length <= cap ? q : cortarResposta(q, cap);
+    // o começo do texto vai junto com os quadros na 1ª mensagem quando sobra espaço razoável; senão, os quadros vão sozinhos
+    const sobra = cap - quadro.length - 2;
+    if (!t) partes = [quadro];
+    else if (sobra >= 200) {
+      const resto = pedacos(t, cap, n, sobra);
+      partes = [`${quadro}\n\n${resto[0]}`, ...resto.slice(1)];
+    } else partes = [quadro, ...pedacos(t, cap, n - 1)];
+  }
+  return partes.length === 1 ? [partes[0].length <= max ? partes[0] : cortarResposta(partes[0], max)] : partes.map((p, i) => `(${i + 1}/${partes.length})\n${p}`);
+}

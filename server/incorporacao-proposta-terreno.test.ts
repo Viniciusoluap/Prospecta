@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import * as db from "./db.js";
 import * as email from "./_core/email-smtp.js";
 import { appRouter } from "./routers.js";
-import { hojeBrasil } from "./incorporacao-proposta-router.js";
+import { ERRO_PROPOSTA_MUDOU, hojeBrasil } from "./incorporacao-proposta-router.js";
 import { gerarPdfPropostaTerreno, secoesPropostaTerreno, type DadosPropostaTerreno } from "../shared/incorporacao/proposta-terreno-pdf";
 import { parseNegociacao, type Proposta } from "../shared/incorporacao/negociacao";
 
@@ -103,7 +103,7 @@ describe("rotas de PDF e envio", () => {
   it("o PDF baixado é byte a byte o anexo do e-mail; enviar não aceita a proposta", async () => {
     const baixado = await admin().incorporacao.propostaTerreno.pdf({ studyId: 1, propostaId: "prop-1" });
     expect(baixado.dataEmissao).toBe(hoje);
-    const r = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: " Dono@Exemplo.test ", dataEmissao: baixado.dataEmissao });
+    const r = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: " Dono@Exemplo.test ", dataEmissao: baixado.dataEmissao, pdfSha256: baixado.sha256 });
     expect(r.ok).toBe(true);
     const mensagem = envio.mock.calls[0][0] as Parameters<typeof email.sendEmail>[0];
     expect(mensagem.to).toBe("dono@exemplo.test");
@@ -112,6 +112,34 @@ describe("rotas de PDF e envio", () => {
     expect(mensagem.attachments![0].filename).toBe(baixado.nomeArquivo);
     expect(r.envio).toMatchObject({ status: "enviado", destinatario: "dono@exemplo.test", pdfSha256: baixado.sha256, dataEmissao: hoje });
     expect(parseNegociacao(gravado)!.propostas.find((p) => p.id === "prop-1")!.status).toBe("enviada");
+  });
+
+  it("revisão do PR #263 (paridade): negociação mudou depois da prévia → recusa com mensagem clara, nada é enviado nem registrado", async () => {
+    const c = admin().incorporacao.propostaTerreno;
+    expect(ERRO_PROPOSTA_MUDOU).toBe("A proposta mudou desde a prévia; gere a prévia de novo.");
+    // a tela reconhece a mesma mensagem e troca o botão por "Gerar a prévia de novo"
+    const compat = readFileSync(new URL("../client/src/components/incorporacao/estudo/compat/proposta-terreno.ts", import.meta.url), "utf8");
+    expect(compat).toContain(`AVISO_PROPOSTA_MUDOU = "${ERRO_PROPOSTA_MUDOU}"`);
+    const tela = readFileSync(new URL("../client/src/components/incorporacao/estudo/proposta-terreno-envio.tsx", import.meta.url), "utf8");
+    expect(tela).toContain("previa.pdf.dataEmissao, previa.pdf.sha256)");
+    const previa = await c.pdf({ studyId: 1, propostaId: "prop-1" });
+    expect(previa.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const antes = (await c.envios({ studyId: 1 })).length;
+    // outra pessoa (ou outra aba) muda o valor da proposta depois da prévia
+    gravado = JSON.stringify({ ...JSON.parse(gravado), propostas: [{ ...PROPOSTA, valorTotal: 1_900_000 }] });
+    const pedido = { studyId: 1, propostaId: "prop-1", destinatario: "dono@exemplo.test", dataEmissao: previa.dataEmissao };
+    await expect(c.enviar({ ...pedido, pdfSha256: previa.sha256 })).rejects.toThrow(ERRO_PROPOSTA_MUDOU);
+    // hash ausente ou malformado também recusa
+    await expect(c.enviar(pedido)).rejects.toThrow(ERRO_PROPOSTA_MUDOU);
+    await expect(c.enviar({ ...pedido, pdfSha256: "abc" })).rejects.toThrow(ERRO_PROPOSTA_MUDOU);
+    expect(envio).not.toHaveBeenCalled();
+    expect((await c.envios({ studyId: 1 })).length).toBe(antes);
+    // nova prévia → envio liberado, com o PDF novo
+    const nova = await c.pdf({ studyId: 1, propostaId: "prop-1" });
+    expect(nova.sha256).not.toBe(previa.sha256);
+    const r = await c.enviar({ ...pedido, dataEmissao: nova.dataEmissao, pdfSha256: nova.sha256 });
+    expect(r.ok).toBe(true);
+    expect(r.envio.pdfSha256).toBe(nova.sha256);
   });
 
   it("os envios sobrevivem ao salvamento automático da aba (JSON antigo)", async () => {
@@ -124,11 +152,12 @@ describe("rotas de PDF e envio", () => {
 
   it("falha fica registrada com o motivo e o reenvio funciona", async () => {
     envio.mockResolvedValueOnce(false);
-    const falhou = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: "dono@exemplo.test", dataEmissao: hoje });
+    const { sha256 } = await admin().incorporacao.propostaTerreno.pdf({ studyId: 1, propostaId: "prop-1" });
+    const falhou = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: "dono@exemplo.test", dataEmissao: hoje, pdfSha256: sha256 });
     expect(falhou.ok).toBe(false);
     expect(falhou.envio.status).toBe("falhou");
     expect(falhou.motivo).toBeTruthy();
-    const reenvio = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: "dono@exemplo.test", dataEmissao: hoje });
+    const reenvio = await admin().incorporacao.propostaTerreno.enviar({ studyId: 1, propostaId: "prop-1", destinatario: "dono@exemplo.test", dataEmissao: hoje, pdfSha256: sha256 });
     expect(reenvio.ok).toBe(true);
     const lista = await admin().incorporacao.propostaTerreno.envios({ studyId: 1 });
     expect(lista.slice(0, 2).map((e) => e.status)).toEqual(["enviado", "falhou"]);

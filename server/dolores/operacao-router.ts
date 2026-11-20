@@ -6,7 +6,10 @@ import { TRPCError } from "@trpc/server";
 import { eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
-import { doloresEventos, doloresOperacaoConfig } from "../../drizzle/schema-dolores-operacao.js";
+import { doloresCotacao, doloresEventos, doloresOperacaoConfig, doloresPrecosModelo } from "../../drizzle/schema-dolores-operacao.js";
+import { COTACAO_MAXIMA, COTACAO_MINIMA, FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA, MAX_PRECO_MILHAO_USD } from "../../shared/dolores/custo.js";
+import { CHAVE_MODELO_PREFERENCIAL, leitorModelosPadrao, modelosGravadosDasFuncoes } from "../_core/modelo-por-funcao.js";
+import { custoEstimadoDoMes, lerPrecos } from "./custo.js";
 import { HORA_CRON_DOLORES_BRASILIA, HORA_CRON_DOLORES_UTC, HORA_MAX_RELATORIO, TETO_DONO_REAIS, estimarReais, horaDoRelatorio, janelaSobDemanda, relogioBrasilia } from "../../shared/dolores/operacao.js";
 import { bloqueioDoLimite, mascararNumero, mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { adminProcedure, router } from "../_core/trpc.js";
@@ -49,11 +52,21 @@ async function situacao() {
     .where(gte(doloresEventos.criadoEm, desde)).groupBy(doloresEventos.tipo).catch(() => []);
   const limites = { entrada: wa?.limiteMensalTokensEntrada ?? 0, saida: wa?.limiteMensalTokensSaida ?? 0 };
   const precos = { entradaMilhao: config.precoEntradaMilhao, saidaMilhao: config.precoSaidaMilhao };
+  // Etapa 8 — estimativa por modelo e por tipo de token (a mesma conta do relatório); os campos antigos viram reserva
+  const tabela = await lerPrecos();
+  const custo = await custoEstimadoDoMes(mes, precos, tabela).catch(e => { console.error("[dolores/operacao] falha ao estimar o custo", e instanceof Error ? e.name : "erro"); return null; });
+  const modelos = await modelosParaPreco(custo?.porModelo.map(m => m.modelo) ?? [], wa?.modelo ?? null);
   return {
     pausa: pausa ? { pausada: pausa.pausada, motivo: pausa.motivo } : null,
     gasto: {
       mes, uso, limites, bloqueio: bloqueioDoLimite(uso, limites), tetoDonoReais: TETO_DONO_REAIS,
-      reaisEstimados: estimarReais(uso, precos), limiteEmReais: estimarReais(limites, precos), precos,
+      // R$ estimado do mês pela conta nova (por modelo e tipo de token); sem consumo, como antes (null sem preço de reserva)
+      reaisEstimados: custo?.porModelo.length ? custo.total.reais : estimarReais({ entrada: 0, saida: 0 }, precos),
+      // reserva (campos antigos, R$ por milhão): só para modelo sem preço cadastrado
+      limiteEmReais: estimarReais(limites, precos), precos,
+      custo, cotacao: tabela.cotacao, precosDisponiveis: tabela.disponivel,
+      fatoresCache: { escrita: FATOR_CACHE_ESCRITA, leitura: FATOR_CACHE_LEITURA },
+      precosPorModelo: modelos.map(m => ({ modelo: m, preco: tabela.tabela.get(m) ?? null })),
     },
     config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: horaDoRelatorio(config.relatorioHora), eventosLigados: config.eventosLigados },
     interruptores: {
@@ -81,6 +94,23 @@ async function situacao() {
 }
 
 const preco = z.number().min(0).max(100_000).nullable();
+const precoUsd = z.number().min(0).max(MAX_PRECO_MILHAO_USD).nullable();
+/** Id de modelo como a Anthropic devolve: letras, números, ponto, hífen, sublinhado e dois-pontos. */
+const idModelo = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._:-]+$/, "Modelo inválido.");
+
+/**
+ * Etapa 8 — modelos que a tela de preços lista: os que aparecem no consumo do mês e os escolhidos em Integrações › Anthropic
+ * para as funções da Dolores (e o preferencial, e o campo antigo do cartão). Só NOMES de modelo (nunca a chave).
+ */
+async function modelosParaPreco(doConsumo: readonly string[], anteriorDaConversa: string | null): Promise<string[]> {
+  const gravados = await modelosGravadosDasFuncoes().catch(() => null);
+  const preferencial = await leitorModelosPadrao.lerBanco(CHAVE_MODELO_PREFERENCIAL).catch(() => undefined);
+  const daDolores = gravados ? Object.entries(gravados).filter(([f]) => f.startsWith("dolores_")).map(([, v]) => v.modelo) : [];
+  const precos = await getDb().select({ modelo: doloresPrecosModelo.modelo }).from(doloresPrecosModelo).catch(() => []);
+  const todos = [...doConsumo, ...daDolores, preferencial, anteriorDaConversa, ...precos.map(p => p.modelo)]
+    .map(m => (m ?? "").trim()).filter(m => m && /^[A-Za-z0-9._:-]{1,120}$/.test(m));
+  return Array.from(new Set(todos)).sort();
+}
 
 export const operacaoRouter = router({
   situacao: soAdmin.query(() => situacao()),
@@ -121,6 +151,38 @@ export const operacaoRouter = router({
       await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "configuração da operação alterada pela tela", autorUserId: null, canal: "tela",
         resumo: { ...Object.fromEntries(Object.keys(dados).map(k => [k, true])), porUserId: ctx.user.id } });
     }
+    return situacao();
+  }),
+
+  /**
+   * Etapa 8 — preço de UM modelo (US$ por milhão de tokens), informado pelo admin. Campo vazio (null) = não informado:
+   * escrita/leitura de cache vazias valem 1,25× / 0,1× da entrada; entrada ou saída vazias = sem preço (usa a reserva).
+   */
+  salvarPrecoModelo: soAdmin.input(z.object({
+    modelo: idModelo, entrada: precoUsd, saida: precoUsd, cacheEscrita: precoUsd, cacheLeitura: precoUsd,
+  }).strict()).mutation(async ({ ctx, input }) => {
+    await exigirConfig();
+    const fixo = (v: number | null) => (v == null ? null : v.toFixed(4));
+    const dados = { entradaMilhaoUsd: fixo(input.entrada), saidaMilhaoUsd: fixo(input.saida), cacheEscritaMilhaoUsd: fixo(input.cacheEscrita),
+      cacheLeituraMilhaoUsd: fixo(input.cacheLeitura), atualizadoEm: new Date(), atualizadoPor: ctx.user.id };
+    try {
+      await getDb().insert(doloresPrecosModelo).values({ modelo: input.modelo, ...dados }).onConflictDoUpdate({ target: doloresPrecosModelo.modelo, set: dados });
+    } catch {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Preços por modelo indisponíveis: a migração 0134 ainda não foi aplicada." });
+    }
+    await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "preço por modelo alterado pela tela", autorUserId: null, canal: "tela",
+      resumo: { precoModelo: input.modelo.slice(0, 120), porUserId: ctx.user.id } });
+    return situacao();
+  }),
+
+  /** Etapa 8 — cotação do dólar (R$ por US$) para mostrar a estimativa em reais. Vazio = sem reais pela tabela. */
+  salvarCotacao: soAdmin.input(z.object({ cotacao: z.number().min(COTACAO_MINIMA).max(COTACAO_MAXIMA).nullable() }).strict()).mutation(async ({ ctx, input }) => {
+    await exigirConfig();
+    const r = await getDb().update(doloresCotacao).set({ cotacaoDolar: input.cotacao == null ? null : input.cotacao.toFixed(4), atualizadoEm: new Date(), atualizadoPor: ctx.user.id })
+      .where(eq(doloresCotacao.id, 1)).returning({ id: doloresCotacao.id }).catch(() => []);
+    if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cotação indisponível: a migração 0134 ainda não foi aplicada." });
+    await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "cotação do dólar alterada pela tela", autorUserId: null, canal: "tela",
+      resumo: { cotacao: true, porUserId: ctx.user.id } });
     return situacao();
   }),
 

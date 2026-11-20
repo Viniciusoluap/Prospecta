@@ -346,3 +346,35 @@ a classificação de cada item e o que depende só dele.
 
 ## Próximo passo exato
 Nada pendente de código. Acompanhar a validação do dono em produção (lista (c) acima) e corrigir o que ele apontar.
+
+## Atualização — 20/11, ~01:50 UTC
+
+### Concluído e publicado
+- **Etapa 8 — respostas longas e custo real** — PR #258 (`c5c05ff`), migração `0134` aplicada. Resposta cortada nunca é
+  descartada (até 3 mensagens, quadros do sistema na primeira); `plano_de_atrasos` divide atrasos por dia por código;
+  custo por modelo e por tipo de token (caso real: 3 perguntas no Haiku 5.5 = US$ 0,0088).
+- **Etapa 7 — grupos automáticos, por tipo** — PR #259 (`b58e4b3`), migração `0133` aplicada. Só vale grupo em que o
+  número do dono adicionou a Dolores (prova positiva pelo evento de add); sem prova → aguardando o dono; recusado/
+  aguardando só é aceito por comando dele no WhatsApp. Duas rodadas de QA de segurança (FAIL → CONCERNS, reforços feitos).
+- Banco de produção: 0117–0134 aplicadas.
+
+### Em andamento
+- **Etapa 9 — conexão única, roteamento, saudação de campanha, Dolores atende cliente cadastrado, aviso de ligação,
+  transcrição de áudio (Cloudflare), dois canais preparados** — autorizada pelo dono ("Autorizo os itens 1 a 7").
+  Worktree `dolores-e9`, ramo `epic025-dolores-etapa9b`, cópia `claude/wip-epic025-dolores-etapa9b`, migração `0135`.
+  Regra no CLAUDE.md desse ramo. (O ramo antigo `claude/wip-epic025-dolores-etapa9` ficou obsoleto.)
+- Coexistência (WhatsApp Web + API oficial no mesmo número): fase separada, depois de confirmar Brasil/grupos/requisitos.
+
+### Pendente do dono
+- Em Integrações › Dolores: clicar "Reativar recebimento" (eventos de grupo); aceitar os grupos atuais pelo comando.
+- Corrigir os limites mensais (estão 24.000.000/120.000.000; para R$ 500: 15.000.000 de entrada e 1.000.000 de saída).
+- Preencher preços por modelo (Haiku 5.5: 0,10/0,50; Opus 5.5: 4/20 US$/milhão) e cotação do dólar na tela da operação.
+- Depois da etapa 9: criar conta na Cloudflare e cadastrar a chave.
+
+### Testes
+- (a) automáticos: E8 37 arquivos/666 testes; E7 40 arquivos/722 testes; tsc e vite build ok; prévias READY.
+- (b) manuais: nenhum.
+- (c) produção, pelo dono: comando "relatório" e o pedido de divisão de atrasos; adicionar a Dolores num grupo novo.
+
+## Próximo passo exato (20/11, 01:50 UTC)
+Receber a etapa 9 do @dev → QA de segurança → corrigir → aplicar 0135 → publicar.

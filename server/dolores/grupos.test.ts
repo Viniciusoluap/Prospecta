@@ -131,6 +131,8 @@ describe("regras puras", () => {
 
 describe("leitura: só grupos cadastrados e ativos", () => {
   it("não cadastrado e inativo: nada gravado (como antes); cadastrado: registrado uma vez (idempotente), sem resposta e sem IA", async () => {
+    // Etapa 7: grupo desconhecido agora ENTRA SOZINHO (grupos-automaticos.test.ts); com a entrada automática desligada, ignorado como antes
+    await banco.pg.exec("UPDATE dolores_grupos_config SET entrada_automatica_ligada = false");
     await chamar(aviso(item({ jid: DESCONHECIDO }), item({ jid: INATIVO })));
     expect(await mensagens()).toEqual([]);
     const it1 = item({ texto: "Segue o RG" });

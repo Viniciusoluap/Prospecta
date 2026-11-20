@@ -12,7 +12,7 @@ import {
   AVISO_CONFIRMACAO, NOME_ETAPA, ROTULO_APONTAMENTO, ROTULO_CATEGORIA_NOTA, ROTULO_SITUACAO_NOTA, ROTULO_TIPO_NOTA, apontarConciliacao, pagamentosSemNota,
   reais, textoSugeridoAoEmpreiteiro, type Apontamento, type LancamentoParaConciliar, type NotaParaConciliar,
 } from "../../../shared/dolores/notas.js";
-import { campoPessoal, type CanalDolores } from "../dados-pessoais.js";
+import { campoPessoal, type CanalDoFiltro } from "../dados-pessoais.js";
 import { db, idPositivo, paginacao, type Resultado } from "./comum.js";
 
 export const entradaListarNotasObra = z.object({
@@ -122,7 +122,7 @@ const CONFIRMACAO: Record<string, string> = {
   pendente: "sem confirmação do empreiteiro", confirmada: "confirmada pelo empreiteiro (a conferir)", correcao: "o empreiteiro pediu correção",
 };
 
-export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObra>, ctx: { agora: Date; canal: CanalDolores }): Promise<Resultado> {
+export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObra>, ctx: { agora: Date; canal: CanalDoFiltro }): Promise<Resultado> {
   const conexao = db();
   const linhas = await notasDoBanco(conexao, { obraId: args.obraId, abertas: args.situacao === "abertas", limite: 300 });
   const janela = await janelaDaConciliacao(conexao);

@@ -66,6 +66,6 @@ describe("relatório (modelo fixo)", () => {
     expect(montarRelatorio(muitos).length).toBeLessThanOrEqual(MAX_CARACTERES_WHATSAPP);
   });
   it("com preço, estima contra o teto do dono", () => {
-    expect(montarRelatorio({ ...base, precos: { entradaMilhao: 15, saidaMilhao: 75 } })).toMatch(/Estimativa: R\$\s?0,02 \(teto do dono R\$\s?1\.621,00\)/);
+    expect(montarRelatorio({ ...base, precos: { entradaMilhao: 15, saidaMilhao: 75 } })).toMatch(/Estimativa \(preço único, cache como entrada cheia\): R\$\s?0,02 \(teto do dono R\$\s?1\.621,00\)/);
   });
 });

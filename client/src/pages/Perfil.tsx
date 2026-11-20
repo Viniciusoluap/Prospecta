@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Loader2, User, Save, Camera, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
+import { MeuConsentimento } from "@/components/consentimento/MeuConsentimento";
 
 const ESTADOS_BRASIL = [
   { value: "AC", label: "Acre" },
@@ -490,6 +491,8 @@ export default function Perfil() {
             </form>
           </CardContent>
         </Card>
+
+        <MeuConsentimento />
 
         {/* Back Button */}
         <div className="mt-6 text-center">

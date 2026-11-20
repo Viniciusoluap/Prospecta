@@ -10,7 +10,7 @@ import {
   regularizacaoRecebimentos, regularizacoes,
 } from "../../../drizzle/schema.js";
 import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, reais, truncar } from "../../../shared/dolores/formato.js";
-import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
+import { type CanalDoFiltro, campoPessoal } from "../dados-pessoais.js";
 import { DIAS_PARADO_PADRAO, situacaoDoPrazo } from "../../../shared/dolores/regras.js";
 import { situacaoDoLancamento } from "../../../shared/financeiro/bpo-asaas.js";
 import { contaNoResultado, recebidoDoLancamento } from "../../../shared/financeiro/bpo-extrato.js";
@@ -18,11 +18,11 @@ import { calcularFinanceiroRegularizacao } from "../../../shared/financeiro/regu
 import { FINANCIAMENTO_BANCO_LABELS, FINANCIAMENTO_STATUS_LABELS, FINANCIAMENTO_TIPO_LABELS } from "../../../shared/financiamento.js";
 import { MAX_LINHAS_LIDAS, db, nomesDeUsuarios, paginacao, type Resultado } from "./comum.js";
 
-type Ctx = { agora: Date; canal: CanalDolores };
+type Ctx = { agora: Date; canal: CanalDoFiltro };
 const ENCERRADOS_FIN = new Set(["liberado", "cancelado"]);
 const rot = <T extends string>(m: Record<T, string>, v: string | null) => (v ? m[v as T] ?? v : null);
 
-export async function carregarFinanciamentos(agora: Date, canal: CanalDolores, diasParado = DIAS_PARADO_PADRAO) {
+export async function carregarFinanciamentos(agora: Date, canal: CanalDoFiltro, diasParado = DIAS_PARADO_PADRAO) {
   const linhas = await db().select({
     id: financiamentos.id, clienteNome: financiamentos.clienteNome, clienteCpf: financiamentos.clienteCpf, tipo: financiamentos.tipo,
     banco: financiamentos.banco, bancoOutro: financiamentos.bancoOutro, status: financiamentos.status, valorImovel: financiamentos.valorImovel,

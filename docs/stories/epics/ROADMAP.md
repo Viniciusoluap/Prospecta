@@ -10,6 +10,11 @@
   autorizada expressamente pelo dono em 14/11/2026**: "isso será apenas na Prospecta, não será colocado no Grupo
   Santa Fé". Justificativa: produto novo da Prospecta (motor que converte o projeto em PDF em maquete 3D
   navegável, vendido ao cliente do projeto e usado na Incorporação). Não portar ao Santa Fé sem nova ordem dele.
+  Reconfirmada em 17/11/2026: toda a aba/serviço de Maquete (inclusive a implantação 3D da Incorporação e a leitura de
+  PDF-imagem pela IA) fica só na Prospecta.
+- **Dolores** (EPIC-025; tabelas `dolores_*`, WhatsApp próprio, ponte `/api/dolores/ponte`) — **exceção autorizada
+  expressamente pelo dono em 17/11/2026**: "a Dolores e a maquete ficam de fora" do Grupo Santa Fé. Não portar sem
+  nova ordem dele. Funções que dependem dela (ex.: linha "Dolores" no painel Anthropic) também não existem lá.
 
 **Restrição de banco:** tudo continua no Neon (Postgres). Pode criar tabelas novas para módulos que faltam. Não migrar de provedor.
 
@@ -62,7 +67,7 @@
 
 ## Pendências de paridade com o Grupo Santa Fé (EPIC-017/018/019 — 11/10/2026) — RESOLVIDA (13/11/2026)
 
-> 13/11: auditado item a item no Santa Fé (`HANDOFF-13-11-PARIDADE-PENDENCIAS-ANTIGAS.md` de lá). Já estavam iguais, exceto endereço no lead (EPIC-017) e corretor inativo na comissão (EPIC-018), portados. EPIC-019 não se aplica. Diferença registrada: no Santa Fé o endereço continua editável na Avaliação para não apagar endereços já digitados.
+> 13/11: auditado item a item no Santa Fé (`HANDOFF-13-11-PARIDADE-PENDENCIAS-ANTIGAS.md` de lá). Já estavam iguais, exceto endereço no lead (EPIC-017) e corretor inativo na comissão (EPIC-018), portados. EPIC-019 não se aplica. Endereço da Avaliação (decisão do dono em 17/11, igual nos dois): sempre vem do lead, editável na avaliação; edição manual preservada.
 
 Implementado primeiro no Prospecta; precisa ser portado para o Santa Fé com a mesma regra de negócio:
 
@@ -189,67 +194,76 @@ Correções pedidas pelo dono em 15/11/2026 (`epic-023-correcoes-15-11/EPIC.md`)
 não são exceção de paridade: depois de entregues no Prospecta, devem ser portadas ao Santa Fé com a mesma regra de
 negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já registrada acima) e não se portam.
 
-- [ ] Correção 1 — CRM Pipeline no iPad: tela com a altura do viewport; só os cartões rolam dentro das colunas (Etapa A)
-- [ ] Correção 2 — remover "Corretores" depois de levar para "Usuários e acesso" comissão padrão, observações, busca
+- [x] Correção 1 — CRM Pipeline no iPad: tela com a altura do viewport; só os cartões rolam dentro das colunas (Etapa A) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 2 — remover "Corretores" depois de levar para "Usuários e acesso" comissão padrão, observações, busca — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   nome/e-mail/CRECI, filtro Situação e criar corretor sem e-mail de senha (Etapa A)
-- [ ] Correção 3 — filtro por perfil em "Usuários e acesso" (Todos + os perfis do formulário) (Etapa A)
-- [ ] Correção 4 — Mapa operacional (obras) no mapa novo MapLibre, mantendo agrupamento, busca, filtro de situação,
+- [x] Correção 3 — filtro por perfil em "Usuários e acesso" (Todos + os perfis do formulário) (Etapa A) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 4 — Mapa operacional (obras) no mapa novo MapLibre, mantendo agrupamento, busca, filtro de situação, — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   legenda, Satélite/Ruas e tabela (Etapa B)
-- [ ] Correção 8 — Estudo de Massa com KML de várias áreas e furos (Etapa F)
-- [ ] Correção 9 — camadas do mapa do terreno com User-Agent, repetição, último resultado bom com data e mensagem
+- [x] Correção 8 — Estudo de Massa com KML de várias áreas e furos (Etapa F) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 9 — camadas do mapa do terreno com User-Agent, repetição, último resultado bom com data e mensagem — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   "fonte fora do ar" × "nada no entorno" (Etapa E)
-- [ ] Correção 10 — Estudo de Massa com malha viária conectada às vias existentes, lotes recortados pela divisa,
+- [x] Correção 10 — Estudo de Massa com malha viária conectada às vias existentes, lotes recortados pela divisa, — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   sobras como verde/institucional/via, soma = 100% e rótulos sem sobreposição (Etapa F)
-- **Decisão do dono em 16/11/2026: "deixa arquivado para mais tarde".** O porte desta lista ao Santa Fé fica
+- **17/11/2026: porte AUTORIZADO pelo dono (blocos 1 e 2 da paridade de 17/11).** Histórico — decisão do dono em 16/11/2026: "deixa arquivado para mais tarde". O porte desta lista ao Santa Fé fica
   arquivado até o dono pedir; a lista continua aqui para não se perder. Ao portar, levar também os ajustes da
   rodada de validação de 16/11: `relative` nos contêineres de rolagem do CRM (textos `sr-only` esticavam a página),
   busca do OpenStreetMap em todos os servidores ao mesmo tempo e aviso de "fonte em manutenção".
 - **Áreas restritas nas doações (16/11/2026):** no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026, EM ESPERA por decisão do dono)
+## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026; porte AUTORIZADO pelo dono em 17/11/2026 e CONCLUÍDO em 19/11 — Santa Fé PR #263)
 
 Decisão do dono em 16/11/2026: "o Grupo Santa Fé vai ficar stand by; depois que eu acabar todas essas mudanças eu vou
 fazer a paridade, mas agora não". Nada foi alterado no Santa Fé. A lista abaixo é o que terá de ser portado quando ele
 mandar (`epic-024-correcoes-16-11/EPIC.md`). As correções 03, 04 e 05 são da Maquete 3D (exceção já registrada).
 
-- [ ] Correção 01 — Conta Azul: prévia separa ativos de arquivados que bloqueiam; "Liberar reimportação" só do admin,
+- [x] Correção 01 — Conta Azul: prévia separa ativos de arquivados que bloqueiam; "Liberar reimportação" só do admin, — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   com cópia em `bpo_lancamentos_expurgo`; restauração que não duplica (depende do importador, ainda não portado)
-- [ ] Correção 02 — logotipo por empreendimento (tabela própria, PNG de exibição, cartões da listagem)
-- [ ] Correção 06 — proposta formal de aquisição do terreno em PDF e por e-mail, com registro dos envios
-- [ ] Correção 07 — filtros por nome e por tipo na listagem de incorporações
-- [ ] Correção 08 — terreno em KML ou KMZ, enviado em partes
-- [ ] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos
-- [ ] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar)
-- [ ] S-11 — modelo da Anthropic por função em Integrações › Anthropic (leitura de plantas da Maquete e Dolores no
+- [x] Correção 02 — logotipo por empreendimento (tabela própria, PNG de exibição, cartões da listagem) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 06 — proposta formal de aquisição do terreno em PDF e por e-mail, com registro dos envios — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 07 — filtros por nome e por tipo na listagem de incorporações — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 08 — terreno em KML ou KMZ, enviado em partes — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 09 — Gerador de PCI: CPF do engenheiro, dados automáticos com origem, biblioteca de modelos — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] Correção 10 — painel Anthropic em Integrações (só cadastro, sem ativar) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] S-11 — modelo da Anthropic por função em Integrações › Anthropic (leitura de plantas da Maquete e Dolores no — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   WhatsApp; no Santa Fé, as funções que usarem a chave do painel lá)
-- [ ] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic)
-- [ ] S-12 (17/11) — termo de consentimento ao criar a senha do primeiro acesso: caixa desmarcada + frase curta + link
+- [x] S-I do EPIC-023 — APP com o contorno real no Estudo de Massa (junto com as correções 8 e 10 daquele epic) — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
+- [x] S-12 (17/11) — termo de consentimento ao criar a senha do primeiro acesso: caixa desmarcada + frase curta + link — **portado ao Santa Fé em 19/11 (PR #263 de lá)**
   para o termo completo; servidor exige o aceite e grava aceite e senha na mesma transação (tabela só de inclusão
   `consentimentos`, versão do termo); redefinição não pede de novo; consulta do admin por papel; opção "pedir no
   próximo login" desligada; conta criada já com senha pelo admin aceita no primeiro login (modal nas áreas logadas);
   termo sem marcadores para o público (pendências do jurídico só no admin) e seção de IA com o atendimento pelo
   WhatsApp. No Santa Fé: o primeiro acesso por link equivalente e o termo com o nome da empresa de lá.
+  **17/11 — portado na branch `claude/paridade17-b4-termo` do Santa Fé** (texto definitivo, retirada registrada,
+  modal no login, consulta por papel, página `/termo-de-consentimento`; migração `20261117400000_consentimentos` não
+  aplicada). Falta: razão social e CNPJ do Santa Fé (não estão no repositório; o termo usa "Grupo Santa Fé").
+- [ ] Endereço da Avaliação (regra do dono, 17/11: "sempre vindo do lead, mas com a possibilidade de edição na
+  avaliação, isso para os dois") — feito nos dois (Prospecta `claude/paridade17-termo`, Santa Fé
+  `claude/paridade17-b4-termo`); falta merge/publicação.
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-025 Dolores — registrada em 16/11/2026, EM ESPERA por decisão do dono)
-A Dolores não está na lista de exceções; quando o dono mandar fazer a paridade, portar (`epic-025-dolores/`):
-- [ ] Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
-- [ ] Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
+## EPIC-025 Dolores — NÃO portar (exceção de paridade decidida pelo dono em 17/11/2026)
+Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisão do dono (ver Exceções no topo). Exceção: o S-12 abaixo (termo de consentimento) é portado no bloco 4 de 17/11.
+- (não portar — exceção) Etapa 1 — ponte, usuária Dolores, leituras e auditoria (`dolores_acoes`)
+- (não portar — exceção) Etapa 2 — WhatsApp próprio da Dolores (instância separada, webhook com segredo próprio, só o número do dono comanda,
   laço de ferramentas pela mesma porta da ponte, interruptor da IA desligado por padrão, limite mensal de tokens com aviso)
-- [ ] Etapa 2 — opção B do dono (16/11): dados pessoais (CPF, CNPJ, telefone, e-mail) liberados para a Dolores por
+- (não portar — exceção) Etapa 2 — opção B do dono (16/11): dados pessoais (CPF, CNPJ, telefone, e-mail) liberados para a Dolores por
   padrão, atrás de um interruptor (`DOLORES_MASCARAR_DADOS_PESSOAIS=1` volta a mascarar): filtro do texto livre, campos
   das leituras, regra do prompt. Sempre mascarados nos dois modos: senha, token, código de acesso/OTP, chave de API,
   agência/conta/PIX (inteiros). Auditoria, comando gravado, logs, erros e tela sempre filtrados. EM ESPERA, como o resto.
-- [ ] Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
+- (não portar — exceção) Etapa 3 — ações (criar tarefa e registrar acompanhamento diretos; cobrança preparada e gerador de PCI pela fila de
   aprovação `dolores_aprovacoes`, decisão do dono por código no WhatsApp ou na tela do admin; autoria em `dolores_autoria`)
   — ao portar, já com a correção da 0130 (excluir o usuário que decidiu item da fila: só o SET NULL de quem decidiu passa)
-- [ ] Etapa 4 — grupos de clientes (só grupos cadastrados e ativos, nunca comando; classificação com contagem prévia de
+- (não portar — exceção) Etapa 4 — grupos de clientes (só grupos cadastrados e ativos, nunca comando; classificação com contagem prévia de
   tokens, uma por vez e orçamento próprio de 20% do limite; card e documentos pela fila; chamadas à Evolution sem
   redirecionamento)
-- [ ] Etapa 4b — resposta no grupo só quando marcada (regra do dono de 17/11): menção real reconhecida por código,
+- (não portar — exceção) Etapa 4b — resposta no grupo só quando marcada (regra do dono de 17/11): menção real reconhecida por código,
   qualquer pessoa do grupo pode marcar, só fala do cliente/obra daquele grupo com situação em lista neutra, nunca age;
   interruptor geral e por grupo desligados por padrão; tetos por grupo/dia e por pessoa/hora (`0129`)
-- [ ] Etapa 5 — notas de obra (leitura da nota em grupo de obra vira rascunho; confirmação do empreiteiro reconhecida por
+- (não portar — exceção) Etapa 5 — notas de obra (leitura da nota em grupo de obra vira rascunho; confirmação do empreiteiro reconhecida por
   código; conciliar com pagamento do BPO e salvar no Drive só pela fila; o BPO nunca é alterado) (`0128`)
-- [ ] Etapa 6 — operação contínua (rondas por código, eventos, relatório diário e sob demanda só para o dono, pausa
+- (não portar — exceção) Etapa 6 — operação contínua (rondas por código, eventos, relatório diário e sob demanda só para o dono, pausa
   geral que barra todas as portas, gasto do mês; cron diário próprio) (`0131`)
-- [ ] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado)
+- (não portar — exceção) Etapa 7 — grupos automáticos, por tipo (regra do dono de 19/11): grupo entra sozinho com o tipo pelo nome
+  (cliente, pós-atendimento, jurídico, administrativo, parceiros, engenharia), aviso e comando "grupo CÓDIGO tipo [nº]" do dono,
+  escopo da resposta por tipo travado no servidor (`0133`)
+- [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**
