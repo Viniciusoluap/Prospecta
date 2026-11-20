@@ -101,6 +101,11 @@ Migração: **`0135_whatsapp_conexao_unica.sql`** (0117–0134 já em produção
   `grupos-qa-r2.test.ts` (lista de arquivos que usam a Evolution com `semRedirecionamento`), `integracoes-modelo-por-funcao.test.ts`
   (função nova), `whatsapp-noite.test.ts` (admin pela conexão da empresa).
 
+## Verificação (20/11/2026)
+- `npx tsc --noEmit`: sem erros. `npx vite build`: ok.
+- `npx vitest run server/dolores server/whatsapp server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts server/central-vendas --maxWorkers=2 --minWorkers=1`:
+  **57 arquivos, 887 testes, 0 falhas** (depois do merge da `main`).
+
 ## File List
 - `drizzle/0135_whatsapp_conexao_unica.sql`, `drizzle/schema-whatsapp-atendimento.ts` (novos); `drizzle/schema.ts`, `drizzle.config.ts`
 - `shared/dolores/roteamento.ts` (novo); `shared/dolores/custo.ts`, `shared/funcoes-anthropic.ts`, `shared/whatsapp/central.ts`

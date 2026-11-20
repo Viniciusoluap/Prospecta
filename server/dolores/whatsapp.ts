@@ -708,7 +708,6 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     // Com os demais: entra na conversa da Central (automática já gravada não duplica; a da equipe cala a Dolores ali por N horas).
     const roteado = lerParaRoteamento(item);
     if (roteado.tipo === "propria") {
-      const rota = decidirRota(roteado, cfg.numeroDono, null);
       contar("propria");
       const destino = decidirRota(roteado, cfg.numeroDono, null);
       if (destino.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) continue;
