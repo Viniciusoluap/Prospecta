@@ -9,7 +9,8 @@ import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresCotacao, doloresEventos, doloresOperacaoConfig, doloresPrecosModelo } from "../../drizzle/schema-dolores-operacao.js";
 import { COTACAO_MAXIMA, COTACAO_MINIMA, FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA, MAX_PRECO_MILHAO_USD } from "../../shared/dolores/custo.js";
 import { CHAVE_MODELO_PREFERENCIAL, leitorModelosPadrao, modelosGravadosDasFuncoes } from "../_core/modelo-por-funcao.js";
-import { custoEstimadoDoMes, lerPrecos } from "./custo.js";
+import { custoEstimadoDoMes, lerPrecos, previsaoDoLimiteAtual } from "./custo.js";
+import { COTACAO_SUGERIDA, DATA_PRECOS_SUGERIDOS, FONTE_PRECOS_SUGERIDOS, precoSugerido, projecaoDoMes } from "../../shared/dolores/precos-padrao.js";
 import { CRON_DOLORES_AGENDAS, HORAS_DO_RELATORIO, HORA_CRON_DOLORES_BRASILIA, HORA_CRON_DOLORES_UTC, TETO_DONO_REAIS, estimarReais, horaDoRelatorio, janelaSobDemanda, relogioBrasilia } from "../../shared/dolores/operacao.js";
 import { bloqueioDoLimite, mascararNumero, mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { adminProcedure, router } from "../_core/trpc.js";
@@ -56,6 +57,10 @@ async function situacao() {
   const tabela = await lerPrecos();
   const custo = await custoEstimadoDoMes(mes, precos, tabela).catch(e => { console.error("[dolores/operacao] falha ao estimar o custo", e instanceof Error ? e.name : "erro"); return null; });
   const modelos = await modelosParaPreco(custo?.porModelo.map(m => m.modelo) ?? [], wa?.modelo ?? null);
+  // EPIC-026 C5 — previsão em reais: gasto do mês, projeção até o fim do mês pelo ritmo atual e o teto pelos limites
+  const limiteEmReaisPorModelo = await previsaoDoLimiteAtual({ limites, reserva: precos, anteriorDaConversa: wa?.modelo ?? null, precos: tabela })
+    .catch(e => { console.error("[dolores/operacao] falha ao prever o limite", e instanceof Error ? e.name : "erro"); return null; });
+  const gastoReais = custo ? (custo.porModelo.length ? (custo.total.completo ? custo.total.reais : null) : 0) : null;
   return {
     pausa: pausa ? { pausada: pausa.pausada, motivo: pausa.motivo } : null,
     gasto: {
@@ -66,7 +71,15 @@ async function situacao() {
       limiteEmReais: estimarReais(limites, precos), precos,
       custo, cotacao: tabela.cotacao, precosDisponiveis: tabela.disponivel,
       fatoresCache: { escrita: FATOR_CACHE_ESCRITA, leitura: FATOR_CACHE_LEITURA },
-      precosPorModelo: modelos.map(m => ({ modelo: m, preco: tabela.tabela.get(m) ?? null })),
+      // EPIC-026 C5: o preço sugerido (código, com fonte e data) só aparece para o admin gravar com um clique; não entra na conta
+      precosPorModelo: modelos.map(m => ({ modelo: m, preco: tabela.tabela.get(m) ?? null, sugerido: precoSugerido(m) })),
+      sugestao: { fonte: FONTE_PRECOS_SUGERIDOS, data: DATA_PRECOS_SUGERIDOS, cotacao: COTACAO_SUGERIDA },
+      previsao: {
+        gastoMesReais: gastoReais,
+        projecaoFimDoMesReais: projecaoDoMes(gastoReais, mes, Number(relogioBrasilia(agora).dia.slice(8, 10))),
+        limite: limiteEmReaisPorModelo ? { piorCaso: limiteEmReaisPorModelo.piorCaso, daConversa: limiteEmReaisPorModelo.daConversa, semPreco: limiteEmReaisPorModelo.semPreco,
+          semCotacao: limiteEmReaisPorModelo.semCotacao, acimaDoTeto: limiteEmReaisPorModelo.acimaDoTeto, suspeita: limiteEmReaisPorModelo.suspeita } : null,
+      },
     },
     config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: horaDoRelatorio(config.relatorioHora), eventosLigados: config.eventosLigados },
     interruptores: {
@@ -174,6 +187,27 @@ export const operacaoRouter = router({
     }
     await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "preço por modelo alterado pela tela", autorUserId: null, canal: "tela",
       resumo: { precoModelo: input.modelo.slice(0, 120), porUserId: ctx.user.id } });
+    return situacao();
+  }),
+
+  /**
+   * EPIC-026 C5 — "usar o sugerido": grava, num clique, o preço SUGERIDO do código para o modelo (tabela com fonte e data).
+   * Modelo sem sugestão → recusa (o sistema não inventa preço). O valor vem do servidor, nunca do chamador.
+   */
+  usarPrecoSugerido: soAdmin.input(z.object({ modelo: idModelo }).strict()).mutation(async ({ ctx, input }) => {
+    await exigirConfig();
+    const p = precoSugerido(input.modelo);
+    if (!p) throw new TRPCError({ code: "BAD_REQUEST", message: "Não há preço sugerido para este modelo: informe o preço da página da Anthropic." });
+    const fixo = (v: number | null) => (v == null ? null : v.toFixed(4));
+    const dados = { entradaMilhaoUsd: fixo(p.entrada), saidaMilhaoUsd: fixo(p.saida), cacheEscritaMilhaoUsd: fixo(p.cacheEscrita),
+      cacheLeituraMilhaoUsd: fixo(p.cacheLeitura), atualizadoEm: new Date(), atualizadoPor: ctx.user.id };
+    try {
+      await getDb().insert(doloresPrecosModelo).values({ modelo: input.modelo, ...dados }).onConflictDoUpdate({ target: doloresPrecosModelo.modelo, set: dados });
+    } catch {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Preços por modelo indisponíveis: a migração 0134 ainda não foi aplicada." });
+    }
+    await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "preço sugerido gravado pela tela", autorUserId: null, canal: "tela",
+      resumo: { precoModelo: input.modelo.slice(0, 120), sugerido: true, porUserId: ctx.user.id } });
     return situacao();
   }),
 
