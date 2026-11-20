@@ -142,6 +142,35 @@ automática com PROVA POSITIVA. Isto refina AC14–AC16 (texto dos AC mantido; o
 - [AUTO-DECISION] Teto dos grupos sem prova = o mesmo número de "grupos novos por dia", em contador separado (reason: não criar
   coluna/campo de tela novo; o dono ajusta os dois juntos).
 
+## Reforços da 2ª rodada do portão de QA de segurança (20/11/2026, QA-SEG E7 r2 = CONCERNS, sem bloqueio)
+1. (média, R2-1) `groups.upsert` NUNCA aceita sozinho: a lista que ele traz é a de agora e não prova que a Dolores estava entre os
+   participantes INICIAIS (num grupo do dono criado há 2 min, outro membro pode tê-la colocado). Grupo novo, criado agora pelo
+   dono, com a Dolores na lista → `aguardando_dono` (`adicionado_por = desconhecido`, `prova_adicao = criador`) e a pergunta
+   "não sei quem me colocou; grupo <código> aceitar". Aceitação automática só pelo aviso de "add" com o autor = número do dono.
+   Isto substitui o item 2 das correções acima.
+2. (média, R2-5) Jurídico/engenharia: `alertas` e `conciliacao*` também saem no servidor, e em TODO texto que sobrar das leituras
+   (`observacoes`, `descricao`, `textoLivre`…) os valores em dinheiro — "R$ …", números com ",dd", "12 mil" e números ≥ 100
+   colados a palavra de dinheiro ("saldo de 12500", "1.500 reais") — viram "[valor omitido]" (`semValoresNoTexto`). O
+   administrativo não muda.
+3. (relato, R2-6) Filtro de saída dos grupos internos sem valores: palavras de SITUAÇÃO (paga, pago, pagamento, "aguardando
+   pagamento") passam quando a frase não tem número de dinheiro; as de QUANTIA (valor, parcela, orçamento, saldo, preço, custo,
+   comissão, a receber…) continuam barradas sempre. Grupos de cliente e parceiros: filtro inalterado.
+4. (baixa, R2-3) Todo grupo automático `aguardando_dono` — inclusive o que o dono adicionou mas ficou de tipo indefinido — só
+   sai desse estado pelo comando do dono no WhatsApp. A tela recusa definir o tipo (mostra o comando "grupo <código> <tipo>"),
+   o interruptor do grupo não liga e a fila não liga o grupo ao cliente; o gatilho da 0133 (editado no próprio arquivo, ainda
+   não aplicada; continua aditiva e idempotente) exige `decidido_por LIKE 'whatsapp:%'` para essa saída. Substitui a
+   [AUTO-DECISION] "6c vale para a ACEITAÇÃO" acima.
+5. (baixa, R2-2) O add provado do dono grava a decisão (`decidido_em`, `decidido_por = 'whatsapp:add-do-dono'`). Grupo com
+   decisão do dono não é rebaixado por add de terceiro: o dono recebe "«Fulano» me recolocou no grupo «X»" (nome limpo; sem
+   nome, só o final do número; um aviso por grupo por dia e teto diário próprio, `avisos-recolocada:<dia>`).
+6. (baixa) O aviso de "alguém entrou no grupo administrativo" tem contador próprio (`avisos-adm-entrada:<dia>`), separado dos
+   avisos de grupo novo.
+- Extra: teste de `ON DELETE SET NULL` da OBRA em linha `recusado` da etapa 7 (R2-7).
+- **Cuidado de reversão (apontado pelo QA):** antes de voltar ao código anterior à etapa 7 com a 0133 aplicada, DESATIVAR os
+  grupos `recusado` e `aguardando_dono` (`UPDATE dolores_grupos SET ativo = false … WHERE situacao_confirmacao IN ('recusado',
+  'aguardando_dono')`, com autorização do dono). O código antigo não conhece essas situações e trataria esses grupos como
+  cadastrados e ativos (leria e registraria as mensagens deles).
+
 ## Pendências (não inventadas — dependem de decisão ou de etapa futura)
 - Opção futura (NÃO implementada): a Dolores sair sozinha do grupo recusado.
 - Grupo "engenharia" geral (sem obra única) NÃO lê nota sozinho: falta identificar a obra pela própria nota (story futura).
@@ -197,6 +226,7 @@ automática com PROVA POSITIVA. Isto refina AC14–AC16 (texto dos AC mantido; o
 - `client/src/components/admin/DoloresGruposCard.tsx`
 - `docs/dolores/como-ligar.md`, `docs/stories/epics/epic-025-dolores/EPIC.md`, `docs/stories/epics/ROADMAP.md`
 - `server/dolores/grupos-qa-seg-e7.test.ts` (provas do QA, invertidas; regressões das correções)
+- `server/dolores/grupos-qa-seg-e7-r2.test.ts` (provas da 2ª rodada do QA, invertidas/ajustadas; item 6; ON DELETE SET NULL da obra)
 
 ## Change Log
 - 19/11/2026 — @dev (Dex): InProgress → InReview. `npx tsc --noEmit` limpo; `npx vitest run server/dolores

@@ -637,14 +637,16 @@ positiva** (por código, nunca pelo texto das mensagens):
 1. o aviso `group-participants.update` da Evolution (ação "add", com a Dolores entre os adicionados) traz o **autor**
    (`author`) = o número do dono (autor em `@lid` só vale se os participantes do grupo na Evolution mostrarem que aquele `@lid` é
    o número do dono). Aviso de "add" cujo autor não dá para provar (sem autor, `@lid` desconhecido) → **recusado**;
-2. ou o aviso `groups.upsert` de um grupo **criado agora** (nos últimos minutos) pelo dono, já com a Dolores dentro. O criador de
-   um grupo antigo não prova quem colocou a Dolores.
+2. (QA-SEG E7 r2) o aviso `groups.upsert` **não aceita sozinho**: a lista de participantes que ele traz não prova que a Dolores
+   estava no grupo desde a criação. Grupo criado agora por você, já com a Dolores, fica **aguardando você** e ela pergunta
+   ("grupo <código> aceitar"). Para não precisar responder, crie o grupo sem ela e adicione-a depois, pelo seu número.
 Sem esses avisos (primeira mensagem, "Atualizar grupos", grupos em que ela já estava): se os dados do grupo na Evolution mostram
 o dono participante e criador/admin, o grupo fica **aguardando você: não sei quem me colocou** — ela só observa (não fala, nem
 marcada; nada vai à IA) e manda: "Estou no grupo «X» e não sei quem me colocou. Se foi você, responda: grupo <código> aceitar".
 Senão, **recusado**: ela não lê, não registra mensagens e não responde, e você recebe UM aviso ("fui colocada no grupo «X» por
 outra pessoa; ignorei…"). Se chegar o aviso de que outra pessoa a adicionou a um grupo que você ainda não decidiu, ele passa a
-recusado. **Só você aceita**: responda `grupo <código> aceitar` na conversa direta com ela, ou adicione-a você mesmo (remova e
+recusado. Grupo que você já decidiu (adicionou ou aceitou) não é rebaixado se outra pessoa remover e recolocar a Dolores: você
+recebe "«Fulano» me recolocou no grupo «X»" (no máximo um por grupo por dia). **Só você aceita**: responda `grupo <código> aceitar` na conversa direta com ela, ou adicione-a você mesmo (remova e
 adicione de novo pelo seu número). A tela mostra e explica, deixa desativar, mas não aceita. Se o número do dono for trocado
 depois, os grupos já aceitos continuam aceitos; os novos seguem o número novo.
 
@@ -684,14 +686,17 @@ responda: …". Para corrigir ou definir, responda na conversa direta com ela, a
 - `grupo K7HM aceitar` (aceita um grupo recusado ou "aguardando você: não sei quem me colocou")
 O código de 4 letras de cada grupo está no aviso e na tela. A mesma frase escrita dentro de um grupo, ou mandada por outro
 número, não faz nada. Também dá para corrigir na tela ("Corrigir tipo ou vínculo", "Ignorar este grupo" — só admin), menos
-aceitar: grupo recusado ou aguardando você só sai desse estado pelo seu comando no WhatsApp.
+aceitar e definir o tipo de grupo aguardando você: grupo recusado ou aguardando você (inclusive o que você adicionou mas de tipo
+não identificado) só sai desse estado pelo seu comando no WhatsApp; a tela mostra o comando a enviar.
 
 ## 4. O que ela responde quando marcada, por tipo (travado no servidor)
 - **Cliente / pós-atendimento:** só aquele cliente (andamento, etapas, documentos que faltam), como na Etapa 4b.
 - **Administrativo (sócios):** as consultas gerais da Dolores, com CPF/telefone/e-mail **sempre mascarados** neste canal e nunca
   senhas, tokens, chaves ou dados bancários. Valores só os que vierem das consultas.
-- **Jurídico:** processos, regularizações e documentos (sem valores: os campos de dinheiro saem no servidor antes de chegar à IA,
-  e resposta com palavra de valor — saldo, parcela, orçamento… — vira a frase fixa).
+- **Jurídico:** processos, regularizações e documentos (sem valores: os campos de dinheiro — e os alertas e a conciliação das
+  notas — saem no servidor antes de chegar à IA; nos textos que sobram, valores em dinheiro viram "[valor omitido]"; resposta com
+  palavra de quantia — saldo, parcela, orçamento, valor… — vira a frase fixa; "foi paga"/"aguardando pagamento" passam se não
+  houver número de dinheiro na frase).
 - **Engenharia:** obras, medições e notas (sem valores, do mesmo jeito). Grupo ligado a uma obra (com o empreiteiro) continua só com aquela obra.
 - **Parceiros:** só o andamento dos clientes que o **corretor que marcou** indicou (identificado pelo telefone do cadastro dele —
   número completo com 55, só a variação do 9º dígito —, usuário ativo de papel corretor). Sem identificar, responde uma frase fixa. Nunca cliente de outro parceiro, valores ou comissão.
@@ -704,7 +709,8 @@ Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos,
   você recebe um aviso, uma vez. Os grupos sem prova (recusados ou aguardando você) têm a contagem deles, separada: quem coloca a
   Dolores em grupos à toa não tira a vaga dos grupos que VOCÊ adiciona. Deles você recebe no máximo 5 avisos por dia e depois um
   resumo único (os demais aparecem na tela, com o código).
-- **Alguém entrou no grupo administrativo:** você recebe um aviso (um por grupo por dia), porque lá ela responde sobre tudo.
+- **Alguém entrou no grupo administrativo:** você recebe um aviso (um por grupo por dia, com contagem própria, separada dos
+  avisos de grupo novo), porque lá ela responde sobre tudo.
 - O interruptor de cada grupo já nasce **ligado** nos grupos reconhecidos; nada fala enquanto o interruptor GERAL de "responder
   quando marcada" estiver desligado.
 - Documentos só vão à classificação em grupo de cliente/pós com cliente ligado (ou de obra, para a nota); em grupo interno ficam
