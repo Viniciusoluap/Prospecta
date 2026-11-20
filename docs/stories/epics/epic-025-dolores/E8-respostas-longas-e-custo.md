@@ -77,7 +77,7 @@ a `0132` já é a de consentimentos — o número `0133` pedido para esta etapa 
 - `shared/dolores/custo.ts`, `server/dolores/custo.ts` (novos); `shared/dolores/operacao.ts`, `server/dolores/rondas.ts`, `server/dolores/operacao-router.ts`.
 - `drizzle/0134_dolores_precos.sql` (nova), `drizzle/schema-dolores-operacao.ts`, `server/dolores/testes-banco.ts`.
 - `client/src/components/admin/DoloresOperacaoCard.tsx`.
-- `server/dolores/e8-respostas-e-custo.test.ts` (novo), `server/dolores/ponte.test.ts`.
+- `server/dolores/e8-respostas-e-custo.test.ts` (novo), `server/dolores/ponte.test.ts`, `server/dolores/e8-qa-seguranca.test.ts` (provas do QA, achados invertidos).
 - `docs/dolores/como-ligar.md` (Etapa 8).
 
 ## Testes
@@ -92,3 +92,18 @@ contra a conta antiga (~US$ 1,85), reserva com aviso, relatório com a mesma con
 - `ferramentasParaOModelo`: só tira o sufixo exato `AVISO_DADOS`; o filtro da ponte continua rodando igual.
 - `consumoDoMesDetalhado`: o único `sql.raw` é a constante `PARADA_GRUPO` (código, só letras).
 - Rotas novas: `soAdmin`, `.strict()`, id de modelo por regex, preços com teto, auditoria sem valores sensíveis.
+
+## Correções do portão de QA de segurança (19/11)
+- **A1 (médio)** — os quadros do sistema (o que foi gravado e a fila, com código) vão SEMPRE no começo da PRIMEIRA mensagem
+  (`partesDaResposta`); o texto do modelo vem depois e é ele que se corta. O laço guarda 1,5 s a mais por parte extra
+  (`FOLGA_DO_LACO_MS` = 3 s + 2 × 1,5 s; `MINIMO_PARA_COMANDO_MS` acompanha) e o envio reduz o número de partes ao que cabe no
+  tempo (`TEMPO_POR_PARTE_MS`). Se esta parte cabe e as seguintes não, ela leva "faltou parte da resposta; peça de novo em
+  partes"; se uma parte depois da 1ª falha, uma mensagem curta avisa (se couber). A auditoria registra "resposta incompleta:
+  faltou parte" com `partesPrevistas`, `partesEnviadas` e `avisoDeFalta` (sem texto nem número).
+- **A2 (médio)** — resposta cortada em `max_tokens` com bloco `tool_use` (cortado ou completo, não executado): o aviso diz "A
+  consulta/ação que eu ia fazer foi cortada e NÃO foi executada."; sem ação executada no pedido, "Nada foi alterado no sistema.";
+  com ação executada antes, manda conferir o quadro do sistema (que vai primeiro). Vale também quando a chamada de resumo responde.
+- **A3 (baixo)** — `semNumeracaoForjada`: "(n/m)" no começo de linha do texto do modelo sai; a numeração do sistema é a única.
+- **A4 (baixo)** — a chamada de resumo não acontece com `TETO_ENTRADA_POR_PEDIDO` estourado (fica a frase fixa); documentado em
+  `MAX_VOLTAS` que o máximo é MAX_VOLTAS + 1 chamadas (fechamento OU resumo).
+- Teste de custo com os preços reais do Haiku 5.5 (0,10 / 0,50 / 0,125 / 0,01 US$ por milhão): US$ 0,00875.

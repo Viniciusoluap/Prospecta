@@ -202,40 +202,62 @@ export const MAX_PARTES_RESPOSTA = 3;
 /** "(1/3)\n" — a numeração de cada mensagem quando a resposta vai em mais de uma. */
 const TAMANHO_NUMERACAO = 6;
 
-/** Corta `t` em pedaços de até `cap` caracteres, de preferência numa quebra de linha (senão num espaço), no máximo `maxPartes`. */
-function pedacos(t: string, cap: number, maxPartes: number): string[] {
+/**
+ * Corta `t` em pedaços de até `cap` caracteres (o PRIMEIRO, de até `capPrimeiro`), de preferência numa quebra de linha (senão num
+ * espaço), no máximo `maxPartes`; o último que não couber é cortado com o aviso de sempre.
+ */
+function pedacos(t: string, cap: number, maxPartes: number, capPrimeiro = cap): string[] {
   const r: string[] = [];
   let resto = t.trim();
-  while (resto && r.length < maxPartes - 1 && resto.length > cap) {
-    let corte = resto.lastIndexOf("\n", cap);
-    if (corte < cap * 0.5) corte = resto.lastIndexOf(" ", cap);
-    if (corte < cap * 0.5) corte = cap;
+  const capDe = () => (r.length === 0 ? capPrimeiro : cap);
+  while (resto && r.length < maxPartes - 1 && resto.length > capDe()) {
+    const c = capDe();
+    let corte = resto.lastIndexOf("\n", c);
+    if (corte < c * 0.5) corte = resto.lastIndexOf(" ", c);
+    if (corte < c * 0.5) corte = c;
     r.push(resto.slice(0, corte).trimEnd());
     resto = resto.slice(corte).trimStart();
   }
-  if (resto) r.push(resto.length <= cap ? resto : cortarResposta(resto, cap));
+  if (resto) r.push(resto.length <= capDe() ? resto : cortarResposta(resto, capDe()));
   return r;
 }
 
 /**
+ * QA E8 A3: no texto do MODELO, uma linha que começa com "(2/3)" (ou "( 2 / 3 )") imitaria a numeração das mensagens. Ela sai:
+ * a numeração do sistema é a única.
+ */
+export function semNumeracaoForjada(texto: string): string {
+  return texto.replace(/^[ \t]*[(（][ \t]*\d{1,3}[ \t]*[/／][ \t]*\d{1,3}[ \t]*[)）][ \t]*/gm, "");
+}
+
+/**
  * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
- * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber nas 3 é cortado na última com o aviso
- * de sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado: vai
- * no fim da última mensagem se couber, senão numa mensagem própria — e o texto do modelo fica com as outras.
+ * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber é cortado na última com o aviso de
+ * sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado e vai
+ * SEMPRE no começo da PRIMEIRA mensagem (QA E8 A1: a primeira é a que sai antes de o tempo acabar; o quadro é a fonte da
+ * verdade sobre o que foi gravado); o texto do modelo vem depois e é ele que é cortado. `maxPartes` menor (pouco tempo para
+ * enviar) corta o texto livre, nunca os quadros. A numeração "(n/m)" escrita pelo modelo no começo de linha sai (A3).
  */
 export function partesDaResposta(texto: string, quadros: string | null = null, max = MAX_CARACTERES_WHATSAPP, maxPartes = MAX_PARTES_RESPOSTA): string[] {
-  const t = texto.trim();
+  const t = semNumeracaoForjada(texto).trim();
   const q = (quadros ?? "").trim();
-  const inteiro = q ? (t ? `${t}\n\n${q}` : q) : t;
+  const n = Math.max(1, Math.floor(maxPartes));
+  const inteiro = q ? (t ? `${q}\n\n${t}` : q) : t;
   if (inteiro.length <= max) return [inteiro];
+  // uma mensagem só: os quadros estão no começo; cortarResposta corta o FIM (o texto do modelo)
+  if (n === 1) return [cortarResposta(inteiro, max)];
   const cap = max - TAMANHO_NUMERACAO;
   let partes: string[];
-  if (!q) partes = pedacos(t, cap, maxPartes);
+  if (!q) partes = pedacos(t, cap, n);
   else {
-    partes = t ? pedacos(t, cap, Math.max(1, maxPartes - 1)) : [];
-    const ultima = partes[partes.length - 1];
-    if (ultima !== undefined && ultima.length + 2 + q.length <= cap) partes[partes.length - 1] = `${ultima}\n\n${q}`;
-    else partes.push(q.length <= cap ? q : cortarResposta(q, cap));
+    const quadro = q.length <= cap ? q : cortarResposta(q, cap);
+    // o começo do texto vai junto com os quadros na 1ª mensagem quando sobra espaço razoável; senão, os quadros vão sozinhos
+    const sobra = cap - quadro.length - 2;
+    if (!t) partes = [quadro];
+    else if (sobra >= 200) {
+      const resto = pedacos(t, cap, n, sobra);
+      partes = [`${quadro}\n\n${resto[0]}`, ...resto.slice(1)];
+    } else partes = [quadro, ...pedacos(t, cap, n - 1)];
   }
   return partes.length === 1 ? [partes[0].length <= max ? partes[0] : cortarResposta(partes[0], max)] : partes.map((p, i) => `(${i + 1}/${partes.length})\n${p}`);
 }

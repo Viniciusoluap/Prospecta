@@ -120,12 +120,12 @@ describe("respostas longas — até 3 mensagens (regra pura)", () => {
     partes.forEach(p => expect(p.length).toBeLessThanOrEqual(MAX_CARACTERES_WHATSAPP));
   });
 
-  it("os quadros do sistema (fila, feito) nunca são cortados: vão no fim da última ou numa mensagem própria", () => {
+  it("os quadros do sistema (fila, feito) nunca são cortados: vão no começo da PRIMEIRA mensagem (QA E8 A1)", () => {
     const quadros = `*Na fila*\n${"- [ABCDE] item da fila ".repeat(100)}FIM-DO-QUADRO`;
     const partes = partesDaResposta(linhas(300), quadros);
     expect(partes.length).toBeLessThanOrEqual(3);
-    expect(partes.at(-1)).toContain("FIM-DO-QUADRO");
-    expect(partes.at(-1)).toContain(quadros);
+    expect(partes[0].startsWith(`(1/${partes.length})\n${quadros}`)).toBe(true);
+    expect(partes.slice(1).some(p => p.includes("FIM-DO-QUADRO"))).toBe(false);
     partes.forEach(p => expect(p.length).toBeLessThanOrEqual(MAX_CARACTERES_WHATSAPP));
   });
 
@@ -145,15 +145,20 @@ describe("respostas longas — até 3 mensagens (regra pura)", () => {
 });
 
 describe("custo — por modelo e por tipo de token (regra pura)", () => {
-  const precoHaiku = { entrada: 1, saida: 5, cacheEscrita: null, cacheLeitura: null };
+  /** Preços reais do Haiku 5.5 (US$ por milhão): entrada 0,10; saída 0,50; escrita de cache 0,125; leitura 0,01. */
+  const precoHaiku = { entrada: 0.1, saida: 0.5, cacheEscrita: 0.125, cacheLeitura: 0.01 };
   const tabela = new Map([[HAIKU, precoHaiku]]);
 
   it("os números reais no Haiku dão CENTAVOS de dólar (não ~2 dólares como a conta antiga)", () => {
     const c = custoDoUso(REAL, precoHaiku)!;
-    // 13.068×1 + 4.413×5 + 37.860×1,25 + 50.480×0,1 = 87.506 → US$ 0,0875
-    expect(c.valor).toBeCloseTo(0.0875, 4);
-    expect(c.valor).toBeLessThan(0.1);
-    expect(c.cacheAssumido).toBe(true);
+    // 13.068×0,10 + 4.413×0,50 + 37.860×0,125 + 50.480×0,01 = 8.750,6 → US$ 0,00875
+    expect(c.valor).toBeCloseTo(0.0087506, 7);
+    expect(c.valor).toBeLessThan(0.01);
+    expect(c.cacheAssumido).toBe(false);
+    // só entrada/saída informadas: os fatores padrão (1,25× e 0,1× da entrada) dão o mesmo valor
+    const assumido = custoDoUso(REAL, { entrada: 0.1, saida: 0.5, cacheEscrita: null, cacheLeitura: null })!;
+    expect(assumido.valor).toBeCloseTo(0.0087506, 7);
+    expect(assumido.cacheAssumido).toBe(true);
     // a conta antiga: cache como entrada cheia e o preço do Opus (15/75) num campo único → perto de 2
     const antiga = estimarReais({ entrada: entradaNoLimite(REAL), saida: REAL.saida }, { entradaMilhao: 15, saidaMilhao: 75 })!;
     expect(antiga).toBeGreaterThan(1.8);
@@ -161,8 +166,8 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
   });
 
   it("preços de cache informados são usados no lugar do 1,25×/0,1×", () => {
-    const c = custoDoUso(REAL, { entrada: 1, saida: 5, cacheEscrita: 2, cacheLeitura: 0 })!;
-    expect(c.valor).toBeCloseTo((13_068 + 4_413 * 5 + 37_860 * 2) / 1e6, 6);
+    const c = custoDoUso(REAL, { entrada: 0.1, saida: 0.5, cacheEscrita: 0.2, cacheLeitura: 0 })!;
+    expect(c.valor).toBeCloseTo((13_068 * 0.1 + 4_413 * 0.5 + 37_860 * 0.2) / 1e6, 8);
     expect(c.cacheAssumido).toBe(false);
   });
 
@@ -172,10 +177,10 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
       { modelo: "modelo-novo", funcao: "documentos_e_notas" as const, uso: { entrada: 1_000_000, saida: 0, cacheEscrita: 0, cacheLeitura: 0 } },
     ];
     const c = custoDoMes(linhas, tabela, { entradaMilhao: 2, saidaMilhao: 10 }, 5);
-    expect(c.porModelo.find(m => m.modelo === HAIKU)).toMatchObject({ fonte: "tabela", dolares: 0.0875, reais: 0.44 });
+    expect(c.porModelo.find(m => m.modelo === HAIKU)).toMatchObject({ fonte: "tabela", dolares: 0.0088, reais: 0.04 });
     expect(c.porModelo.find(m => m.modelo === "modelo-novo")).toMatchObject({ fonte: "reserva", reais: 2, dolares: 0.4 });
     expect(c.usouReserva).toEqual(["modelo-novo"]);
-    expect(c.total).toMatchObject({ completo: true, dolares: 0.4875, reais: 2.44 });
+    expect(c.total).toMatchObject({ completo: true, dolares: 0.4088, reais: 2.04 });
     expect(c.porFuncao.map(f => f.funcao)).toEqual(["conversa", "documentos_e_notas"]);
     expect(c.tokensNoLimite).toEqual({ entrada: 13_068 + 37_860 + 50_480 + 1_000_000, saida: 4_413 });
     expect(linhaDoCustoParaRelatorio(c, 1621)).toMatch(/Pelo preço de reserva: modelo-novo/);
@@ -193,7 +198,7 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
         linhas: [{ modelo: HAIKU, funcao: "conversa", uso: REAL }] } },
       precosPorModelo: { tabela, cotacao: 5.5 },
     });
-    expect(texto).toMatch(/Estimativa: US\$ 0,0875 \(R\$\s0,48/);
+    expect(texto).toMatch(/Estimativa: US\$ 0,0088 \(R\$\s0,05/);
     expect(texto).toContain("A entrada inclui 88.340 de cache");
     expect(texto).not.toMatch(/R\$ 1,8/);
   });
@@ -294,7 +299,8 @@ describe("caso real — 2ª volta parou em max_tokens", () => {
     expect(JSON.stringify(pedidos[2].mensagens)).not.toContain("tu_cortado");
     const a = await q<any>("SELECT funcao FROM dolores_acoes WHERE funcao = 'listar_atrasos'");
     expect(a).toEqual([]);
-    expect(enviar.mock.calls[0][0].texto).toBe("Total 2: 16/11 Maria; 17/11 João [plano_de_atrasos].");
+    // QA E8 A2: o resumo veio sem a consulta cortada — o dono fica sabendo (e que nada foi alterado: só houve leitura)
+    expect(enviar.mock.calls[0][0].texto).toBe("Total 2: 16/11 Maria; 17/11 João [plano_de_atrasos].\n\n(A consulta/ação que eu ia fazer foi cortada e NÃO foi executada. Nada foi alterado no sistema.)");
   });
 });
 
@@ -385,12 +391,12 @@ describe("tela — preços por modelo e cotação (só admin, pelo appRouter)", 
     await expect(admin.dolores.operacao.salvarPrecoModelo({ modelo: HAIKU, entrada: -1, saida: 5, cacheEscrita: null, cacheLeitura: null })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(admin.dolores.operacao.salvarPrecoModelo({ modelo: HAIKU, entrada: 1, saida: 5, cacheEscrita: null, cacheLeitura: null, porUserId: 9 } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(admin.dolores.operacao.salvarCotacao({ cotacao: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await admin.dolores.operacao.salvarPrecoModelo({ modelo: HAIKU, entrada: 1, saida: 5, cacheEscrita: null, cacheLeitura: null });
+    await admin.dolores.operacao.salvarPrecoModelo({ modelo: HAIKU, entrada: 0.1, saida: 0.5, cacheEscrita: 0.125, cacheLeitura: 0.01 });
     const s = await admin.dolores.operacao.salvarCotacao({ cotacao: 5.5 });
     const haiku = s.gasto.custo!.porModelo.find(m => m.modelo === HAIKU)!;
-    expect(haiku).toMatchObject({ fonte: "tabela", dolares: 0.0875, reais: 0.48, cacheAssumido: true });
+    expect(haiku).toMatchObject({ fonte: "tabela", dolares: 0.0088, reais: 0.05, cacheAssumido: false });
     expect(s.gasto.custo!.usouReserva).toEqual([]);
-    expect(s.gasto.reaisEstimados).toBe(0.48);
+    expect(s.gasto.reaisEstimados).toBe(0.05);
     expect(s.gasto.cotacao).toBe(5.5);
     // o limite (a trava) conta o cache como entrada cheia — e a tela mostra os dois números
     expect(s.gasto.uso.entrada).toBe(REAL.entrada + REAL.cacheEscrita + REAL.cacheLeitura);

@@ -17,7 +17,7 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
-  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, partesDaResposta, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
@@ -27,7 +27,7 @@ import { enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
-import { FOLGA_FINAL_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
+import { FOLGA_DO_LACO_MS, FOLGA_FINAL_MS, FOLGA_POR_PARTE_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
@@ -50,8 +50,13 @@ export const PRAZO_TOTAL_MS = 45_000;
 const PRAZO_ENVIO_MS = 8_000;
 /** Com menos que isto até o fim do prazo do aviso, não se tenta enviar (o envio não caberia). */
 export const MINIMO_PARA_ENVIAR_MS = 1_500;
+/**
+ * QA E8 A1: tempo reservado por mensagem da resposta. O laço (cerebro.ts, FOLGA_DO_LACO_MS) guarda uma folga a mais por parte
+ * extra; no envio, o número de partes é o que cabe no tempo que resta (o texto livre é cortado, os quadros nunca).
+ */
+export const TEMPO_POR_PARTE_MS = FOLGA_POR_PARTE_MS;
 /** Para tratar um comando (laço + envio) é preciso ao menos isto; com menos, só a frase fixa de "mande de novo". */
-export const MINIMO_PARA_COMANDO_MS = MINIMO_PARA_CHAMAR_MS + FOLGA_FINAL_MS + 1_000;
+export const MINIMO_PARA_COMANDO_MS = MINIMO_PARA_CHAMAR_MS + FOLGA_DO_LACO_MS + 1_000;
 /** Para a frase fixa de "mande de novo" (registro + envio); com menos, a mensagem nem é reivindicada. */
 export const MINIMO_PARA_RECUSAR_MS = 3_000;
 /**
@@ -133,30 +138,67 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   // dono); senhas, chaves e dados bancários saem sempre.
   // Etapa 8: até 3 mensagens seguidas (partesDaResposta), TODAS pelos mesmos filtros (o texto inteiro e, de novo, cada parte) e
   // para o MESMO destino conferido acima; os quadros do sistema nunca são cortados. Uma falha de envio para as seguintes.
+  // QA E8 A1: os quadros do sistema vão na PRIMEIRA mensagem; o número de partes é o que cabe no tempo que resta
+  // (TEMPO_POR_PARTE_MS cada) — o que não cabe é texto livre do modelo, cortado; os quadros nunca.
   const filtrar = (t: string) => sanitizarTexto(tratarLinksDaResposta(t, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp"));
-  const partes = partesDaResposta(filtrar(texto), ctx.quadros ? filtrar(ctx.quadros) : null).map(t => cortarResposta(filtrar(t)));
+  const cabem = Math.max(1, Math.min(MAX_PARTES_RESPOSTA, Math.floor((ctx.prazoFinal - deps.ms()) / TEMPO_POR_PARTE_MS)));
+  const partes = partesDaResposta(filtrar(texto), ctx.quadros ? filtrar(ctx.quadros) : null, MAX_CARACTERES_WHATSAPP, cabem).map(t => cortarResposta(filtrar(t)));
   const destino = numero.replace(/\D/g, "");
-  let todas = true;
-  for (let i = 0; i < partes.length; i++) {
-    const final = partes[i];
-    const resumo = { caracteres: final.length, destino: mascararNumero(numero), ...(partes.length > 1 ? { parte: `${i + 1}/${partes.length}` } : {}), ...ctx.resumo };
-    // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
-    const restante = ctx.prazoFinal - deps.ms();
-    if (restante < MINIMO_PARA_ENVIAR_MS) {
-      await registrarAcao({ funcao: "whatsapp_resposta", resultado: "erro", motivo: "sem tempo para enviar dentro do prazo do aviso", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`, resumo });
-      return false;
-    }
+  const enviadas: number[] = [];
+  let avisou = false;
+  const auditar = (resultado: "ok" | "erro", motivo: string | null, resumo: Record<string, unknown>, duracaoMs?: number) =>
+    registrarAcao({ funcao: "whatsapp_resposta", resultado, motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`, resumo, duracaoMs });
+  const enviarUma = async (t: string, restante: number, resumo: Record<string, unknown>) => {
     const inicio = deps.ms();
     let ok = false;
     let motivo: string | null = null;
-    try { ok = await deps.enviar({ instancia: cfg.instancia, numero: destino, texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
+    try { ok = await deps.enviar({ instancia: cfg.instancia!, numero: destino, texto: t, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
     catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
-    await registrarAcao({ funcao: "whatsapp_resposta", resultado: ok ? "ok" : "erro", motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`,
-      duracaoMs: deps.ms() - inicio, resumo });
-    if (!ok) { todas = false; break; }
+    await auditar(ok ? "ok" : "erro", motivo, resumo, deps.ms() - inicio);
+    return ok;
+  };
+  let completa = true;
+  for (let i = 0; i < partes.length; i++) {
+    let final = partes[i];
+    // QA achado 5: o envio cabe no prazo ÚNICO do aviso (nunca 8 s fixos por item além dele).
+    const restante = ctx.prazoFinal - deps.ms();
+    const base = { destino: mascararNumero(numero), ...(partes.length > 1 ? { parte: `${i + 1}/${partes.length}` } : {}), ...ctx.resumo };
+    if (restante < MINIMO_PARA_ENVIAR_MS) {
+      await auditar("erro", "sem tempo para enviar dentro do prazo do aviso", { caracteres: final.length, ...base });
+      completa = false;
+      break;
+    }
+    // QA E8 A1: se esta parte cabe no tempo mas as seguintes não, ela vira a última e já leva o aviso de que faltou parte
+    const depois = partes.length - i - 1;
+    const ultimaPossivel = depois > 0 && restante < (depois + 1) * TEMPO_POR_PARTE_MS;
+    if (ultimaPossivel) { final = comAvisoDeFalta(final); avisou = true; }
+    const ok = await enviarUma(final, restante, { caracteres: final.length, ...base });
+    if (!ok) {
+      completa = false;
+      avisou = false;
+      // uma parte depois da 1ª não saiu: se ainda couber, uma mensagem curta avisa o dono que faltou parte
+      const resta = ctx.prazoFinal - deps.ms();
+      if (i > 0 && resta >= MINIMO_PARA_ENVIAR_MS) {
+        if (await enviarUma(AVISO_FALTOU_PARTE, resta, { caracteres: AVISO_FALTOU_PARTE.length, destino: mascararNumero(numero), aviso: "faltou_parte", ...ctx.resumo })) avisou = true;
+      }
+      break;
+    }
+    enviadas.push(i + 1);
+    if (ultimaPossivel) { completa = false; break; }
   }
-  return todas;
+  // QA E8 A1: quais partes saíram fica na auditoria (sem texto nem número)
+  if (!completa && partes.length > 1) {
+    await auditar("erro", "resposta incompleta: faltou parte", { partesPrevistas: partes.length, partesEnviadas: enviadas, avisoDeFalta: avisou, ...ctx.resumo });
+  }
+  return completa;
 }
+
+/** QA E8 A1: aviso ao dono quando parte da resposta não saiu (por tempo ou falha de envio). */
+export const AVISO_FALTOU_PARTE = "Dolores: faltou parte da resposta (não deu tempo de enviar tudo); peça de novo em partes.";
+const comAvisoDeFalta = (t: string) => {
+  const espaco = MAX_CARACTERES_WHATSAPP - AVISO_FALTOU_PARTE.length - 2;
+  return `${t.length <= espaco ? t : cortarResposta(t, espaco)}\n\n${AVISO_FALTOU_PARTE}`;
+};
 
 /**
  * Etapa 6 — envio que NÃO responde a uma mensagem (relatório diário ou sob demanda). O destino é SEMPRE o número do dono da

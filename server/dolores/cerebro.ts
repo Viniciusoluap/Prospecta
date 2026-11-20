@@ -4,7 +4,7 @@
 // resultado volta ao modelo só como `tool_result`. Tetos: voltas, tokens por pedido, limite mensal e prazo total (a função
 // da Vercel tem 60 s). Estourando, responde o que tem e diz que parou. Quem decide SE a IA pode rodar é whatsapp.ts.
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
-import type { Limites } from "../../shared/dolores/whatsapp.js";
+import { MAX_PARTES_RESPOSTA, type Limites } from "../../shared/dolores/whatsapp.js";
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
@@ -23,7 +23,11 @@ export function contaminaOComando(nome: string): boolean {
   return funcaoPorNome(nome)?.contamina ?? acaoPorNome(nome)?.contamina ?? true;
 }
 
-/** Voltas ao modelo por pedido (cada volta pode pedir várias consultas). */
+/**
+ * Voltas ao modelo por pedido (cada volta pode pedir várias consultas). QA E8 A4: o máximo de chamadas ao modelo por pedido é
+ * MAX_VOLTAS + 1 — a única chamada a mais é a de fechamento (parou por voltas/teto) OU a de resumo (parou em max_tokens sem
+ * texto), nunca as duas, ambas sem ferramentas; a de resumo também respeita TETO_ENTRADA_POR_PEDIDO.
+ */
 export const MAX_VOLTAS = 6;
 /** Consultas executadas por volta; as demais voltam como erro ("não executada"). */
 export const MAX_FERRAMENTAS_POR_VOLTA = 6;
@@ -49,6 +53,10 @@ export const TETO_ENTRADA_POR_PEDIDO = 150_000;
 export const MINIMO_PARA_CHAMAR_MS = 8_000;
 /** Folga guardada no fim para enviar a resposta e auditar. */
 export const FOLGA_FINAL_MS = 3_000;
+/** QA E8 A1: tempo a mais guardado por mensagem extra da resposta (ela pode ir em até MAX_PARTES_RESPOSTA mensagens). */
+export const FOLGA_POR_PARTE_MS = 1_500;
+/** Folga do laço: a do fim + uma por parte extra — o envio de todas as partes cabe no prazo do aviso. */
+export const FOLGA_DO_LACO_MS = FOLGA_FINAL_MS + (MAX_PARTES_RESPOSTA - 1) * FOLGA_POR_PARTE_MS;
 /** Prazo de uma consulta dentro do laço. */
 const PRAZO_CONSULTA_MS = 15_000;
 /** Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). */
@@ -146,6 +154,11 @@ export function cortarNaUltimaLinhaCompleta(texto: string): string {
 /** Aviso curto no fim da resposta cortada por tamanho (o dono pede o resto em partes; ver a story E8 sobre "continuar"). */
 export const AVISO_RESPOSTA_CORTADA = "(continua — a resposta passou do tamanho; peça o restante em partes, ex.: \"a partir do item 20\" ou \"só a próxima semana\".)";
 
+/** QA E8 A2 — frases fixas (código) sobre ações na resposta cortada ou interrompida. */
+export const AVISO_FERRAMENTA_CORTADA = "A consulta/ação que eu ia fazer foi cortada e NÃO foi executada.";
+export const NADA_ALTERADO = "Nada foi alterado no sistema.";
+export const CONFIRA_O_QUADRO = "Confira no quadro do sistema, no começo da resposta, o que foi registrado ou ficou na fila.";
+
 const textoDe = (blocos: Bloco[]) => blocos.filter((b): b is BlocoTexto => b.type === "text" && typeof (b as BlocoTexto).text === "string").map(b => b.text).join("\n").trim();
 
 export async function executarComando(p: PedidoComando): Promise<ResultadoComando> {
@@ -174,7 +187,9 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   let ultimoTexto = "";
   let final: string | null = null;
   const relogio = p.relogio ?? Date.now;
-  const restante = () => p.prazoFinal - relogio() - FOLGA_FINAL_MS;
+  const restante = () => p.prazoFinal - relogio() - FOLGA_DO_LACO_MS;
+  /** QA E8 A2: a resposta cortada em max_tokens trazia um pedido de consulta/ação (cortado ou completo) que NÃO foi executado. */
+  let ferramentaCortada = false;
 
   let ultimaEntrada = 0;
   /** Saída da próxima chamada (fixada na reserva: a chamada nunca pede mais do que reservou). */
@@ -230,9 +245,11 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     // incompleto) não é executado. Sem texto nenhum, uma última chamada SEM ferramentas pede a resposta curta.
     if (r.stop_reason === "max_tokens") {
       parou = "max_tokens";
+      ferramentaCortada = r.content.some(b => b.type === "tool_use");
       if (texto) { final = texto; break; }
       const pendenteMax = mensagens[mensagens.length - 1];
-      if (pendenteMax.role === "user" && restante() >= MINIMO_PARA_CHAMAR_MS && (await reservar())) {
+      // QA E8 A4: a chamada de resumo respeita o teto de entrada do pedido (estourado, não chama: fica a frase fixa abaixo)
+      if (pendenteMax.role === "user" && tokens.entrada < TETO_ENTRADA_POR_PEDIDO && restante() >= MINIMO_PARA_CHAMAR_MS && (await reservar())) {
         pendenteMax.content.push({ type: "text", text: PEDIDO_DE_RESUMO });
         const r2 = await umaChamada(true);
         if (r2) { const t2 = textoDe(r2.content); if (t2) final = t2; if (r2.stop_reason !== "max_tokens" && t2) parou = null; }
@@ -282,15 +299,21 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   }
 
   const corpo = (final ?? ultimoTexto).trim();
+  // QA E8 A2: o que vale sobre ações é o código — o quadro do sistema (na 1ª mensagem, whatsapp.ts) diz o que foi gravado ou ficou
+  // na fila; sem ação executada neste pedido, o aviso diz que nada foi alterado. Um pedido de consulta/ação cortado nunca roda.
+  const fezAcao = consultas.some(c => ACOES_NOMES.has(c));
+  const sobreAcoes = `${ferramentaCortada ? ` ${AVISO_FERRAMENTA_CORTADA}` : ""} ${fezAcao ? CONFIRA_O_QUADRO : NADA_ALTERADO}`;
   let texto: string;
-  if (!parou) texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
-  else if (parou === "max_tokens" && corpo) {
+  if (!parou) {
+    texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
+    // resumo depois de um corte com pedido de ferramenta: o texto veio sem a consulta/ação — o dono fica sabendo
+    if (ferramentaCortada) texto = `${texto}\n\n(${sobreAcoes.trim()})`;
+  } else if (parou === "max_tokens" && corpo) {
     // Etapa 8: o parcial vai ao dono (pelos mesmos filtros de saída, em whatsapp.ts), cortado na última linha completa
-    const fezAcao = consultas.some(c => ACOES_NOMES.has(c));
-    texto = `${cortarNaUltimaLinhaCompleta(corpo)}\n\n${AVISO_RESPOSTA_CORTADA}${fezAcao ? " Confira abaixo o que foi registrado ou ficou na fila." : ""}`;
+    texto = `${cortarNaUltimaLinhaCompleta(corpo)}\n\n${AVISO_RESPOSTA_CORTADA}${sobreAcoes}`;
   } else {
     const consultou = consultas.length ? ` Consultei: ${Array.from(new Set(consultas)).join(", ")}.` : "";
-    const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou} ${consultas.some(c => ACOES_NOMES.has(c)) ? "Confira abaixo o que foi registrado ou ficou na fila." : "Nada foi alterado no sistema."})`;
+    const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
   return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado };
