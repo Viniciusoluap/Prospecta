@@ -221,7 +221,7 @@ export async function numeroConhecidoDoLid(instancia: string, lid: string): Prom
  */
 export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; numero: string; origem: "aviso" | "evolution"; connectionId: number | null }): Promise<boolean> {
   const numero = p.numero.replace(/\D/g, "").slice(0, 20);
-  if (!/^\d{10,15}$/.test(numero) || !/^\d{5,25}@lid$/.test(p.lid)) return false;
+  if (!/^\d{10,15}$/.test(numero) || !/^\d{1,25}@lid$/.test(p.lid)) return false;
   try {
     const db = getDb();
     const r = await db.insert(whatsappLidNumeros).values({ instancia: p.instancia, lid: p.lid, numero, origem: p.origem })

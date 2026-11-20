@@ -19,7 +19,7 @@ export function chaveTelefone(x: string | null | undefined): string {
  * Devolve o identificador normalizado, ou null quando não é um "@lid".
  */
 export function idSemNumero(x: string | null | undefined): string | null {
-  const m = /^(\d{5,25})@lid$/i.exec((x ?? "").trim());
+  const m = /^(\d{1,25})@lid$/i.exec((x ?? "").trim());
   return m ? `${m[1]}@lid` : null;
 }
 /** A conversa é de número não identificado ("@lid")? Não dá para responder, vincular nem criar lead por ela. */

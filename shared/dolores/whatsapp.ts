@@ -73,7 +73,7 @@ export function segundos(v: unknown): number | null {
 const NUMERO_DO_JID = /^(\d{10,15})(?::\d{1,3})?@s\.whatsapp\.net$/;
 const numeroDoJid = (v: unknown): string | null => (typeof v === "string" ? NUMERO_DO_JID.exec(v.trim())?.[1] ?? null : null);
 /** "<dígitos>@lid" (endereço novo do WhatsApp, sem o número). */
-const LID_DO_JID = /^(\d{5,25})(?::\d{1,3})?@lid$/;
+const LID_DO_JID = /^(\d{1,25})(?::\d{1,3})?@lid$/;
 
 /**
  * Campos em que a Evolution (conforme a versão) põe o número real de uma conversa direta com endereço "@lid": `remoteJidAlt`

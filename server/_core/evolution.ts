@@ -318,7 +318,7 @@ export async function rejeitarLigacoesEvolution(c: EvolutionConfig, instancia: s
  * citam o "@lid" e não contam; dois números diferentes para o mesmo "@lid" → null (nunca adivinha). Falha/sem resposta → null.
  */
 export async function numeroDoLidEvolution(c: EvolutionConfig, instancia: string, lid: string, fetchImpl: Fetch = fetch, prazoMs = 3_000): Promise<string | null> {
-  if (!/^\d{5,25}@lid$/.test(lid)) return null;
+  if (!/^\d{1,25}@lid$/.test(lid)) return null;
   let r;
   try {
     r = await chamar<unknown>(c, `/chat/findContacts/${encodeURIComponent(instancia)}`, {
