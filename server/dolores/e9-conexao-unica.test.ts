@@ -451,6 +451,9 @@ describe("migração 0135", () => {
     expect(await q("SELECT automatica FROM whatsapp_messages LIMIT 1")).toEqual([{ automatica: false }]);
     const sql = readFileSync(new URL("../../drizzle/0135_whatsapp_conexao_unica.sql", import.meta.url), "utf8").replace(/--.*$/gm, "").replace(/ON DELETE (SET NULL|CASCADE|RESTRICT)/g, "");
     expect(sql).not.toMatch(/\b(DROP|DELETE|TRUNCATE|UPDATE)\b/i);
-    expect(sql.match(/ALTER TABLE/gi)?.length).toBe(1);
+    // todo ALTER é só para ACRESCENTAR coluna, e só nas duas tabelas previstas (whatsapp_messages e a config nova)
+    const alters = sql.match(/ALTER TABLE[^;]+;/gi) ?? [];
+    expect(alters.length).toBe(3);
+    for (const a of alters) expect(a).toMatch(/^ALTER TABLE "(whatsapp_messages|whatsapp_atendimento_config)" ADD COLUMN IF NOT EXISTS "[a-z_]+" [^;]+;$/i);
   });
 });
