@@ -7,7 +7,7 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => null) }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
-import { respostaSeguraInterna, semCamposDeValor } from "../../shared/dolores/marcacao.js";
+import { respostaSeguraDoGrupo, respostaSeguraInterna, semCamposDeValor } from "../../shared/dolores/marcacao.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
@@ -112,21 +112,34 @@ describe("QA-SEG E7 r2 — autoria", () => {
 });
 
 describe("QA-SEG E7 r2 — sem valores no jurídico/engenharia", () => {
-  it("R2-5 (ESCAPE): campos de TEXTO das notas (alertas, conciliacao.detalhe) com valores em reais passam por semCamposDeValor", () => {
+  it("R2-5 (corrigido): alertas e conciliacao saem das leituras; em TODO texto que sobrar, valores em dinheiro viram [valor omitido]", () => {
     const nota = { notaId: 1, alertas: ["a soma dos itens (R$ 1.234,56) não bate com o total lido (R$ 1.500,00): confira"],
-      conciliacao: { situacao: "provável", detalhe: "pagamento encontrado no BPO: lançamento #9 (R$ 1.500,00, 10/11/2026)" }, valorBRL: 1500 };
-    const s = JSON.stringify(semCamposDeValor({ itens: [nota] }));
-    expect(s).not.toMatch(/valorBRL/);
-    expect(s).toMatch(/R\$ 1\.500,00/); // o valor continua chegando ao modelo pelo texto
-    // e o modelo reescrevendo sem "R$", sem ",00" e sem palavra de dinheiro passa o filtro de saída
+      conciliacao: { situacao: "provável", detalhe: "pagamento encontrado no BPO: lançamento #9 (R$ 1.500,00, 10/11/2026)" }, valorBRL: 1500,
+      observacoes: "saldo a receber de 12500; preço: 3.200 por m²; 12 mil de entrada; custou 1.500 reais", descricao: "Medição 3 da obra 12 (R$1500)",
+      ultimasAtividadesDoCliente: [{ textoLivre: "cliente pagou 2.300,00 de sinal" }] };
+    const limpo = semCamposDeValor({ itens: [nota] }) as { itens: Array<Record<string, any>> };
+    const s = JSON.stringify(limpo);
+    expect(s).not.toMatch(/valorBRL|alertas|conciliacao/);
+    expect(s).not.toMatch(/R\$|1\.500|1\.234|12500|3\.200|2\.300|12 mil|1500/);
+    expect(limpo.itens[0].observacoes).toBe("saldo a receber de [valor omitido]; preço: [valor omitido] por m²; [valor omitido] de entrada; custou [valor omitido] reais");
+    expect(limpo.itens[0].descricao).toBe("Medição 3 da obra 12 ([valor omitido])");
+    expect(limpo.itens[0].ultimasAtividadesDoCliente[0].textoLivre).toBe("cliente pagou [valor omitido] de sinal");
+    // o modelo reescrevendo um valor que não está nas leituras: o número sem fonte barra a saída
     const r = respostaSeguraInterna("Na nota 1 a soma dos itens deu 1.234 e o total lido 1.500; confira.", null, { fontes: [s], permiteValores: false });
-    expect(r.foraDeEscopo).toBe(false);
+    expect(r.foraDeEscopo).toBe(true);
   });
 
-  it("R2-6 (só relato): o filtro de palavras bloqueia respostas operacionais comuns da engenharia", () => {
-    for (const t of ["A medição 3 da obra 1 já foi paga.", "A etapa de fundação teve custo acima do previsto?", "O pagamento da medição está aguardando o banco."]) {
-      expect(respostaSeguraInterna(t, null, { fontes: ["1 3"], permiteValores: false }).foraDeEscopo, t).toBe(true);
+  it("R2-6 (ajustado): palavras de SITUAÇÃO passam sem número de dinheiro; as de QUANTIA continuam barradas; cliente/parceiros não mudam", () => {
+    for (const t of ["A medição 3 da obra 1 já foi paga.", "O pagamento da medição está aguardando o banco.", "A nota 1 está aguardando pagamento."]) {
+      expect(respostaSeguraInterna(t, null, { fontes: ["1 3"], permiteValores: false }).foraDeEscopo, t).toBe(false);
     }
+    for (const t of ["A etapa de fundação teve custo acima do previsto?", "O valor da medição 3 ainda não saiu.", "O saldo da obra 1 está em dia.", "O orçamento da obra 1 foi revisto.",
+      "A medição 3 foi paga: 1500.", "A medição 3 foi paga: 1.500.", "Pagamento de 2500 da obra 1 feito.", "A medição 3 foi paga, 12 mil.", "Foi pago R$ 3", "A parcela 3 foi paga."]) {
+      expect(respostaSeguraInterna(t, null, { fontes: ["1 3 1500 2500 12"], permiteValores: false }).foraDeEscopo, t).toBe(true);
+    }
+    // grupo de cliente/parceiros (respostaSeguraDoGrupo): nada afrouxou
+    expect(respostaSeguraDoGrupo("O valor da parcela foi pago.", null).foraDeEscopo).toBe(true);
+    expect(respostaSeguraDoGrupo("A medição 3 foi paga: R$ 1.500,00.", null).foraDeEscopo).toBe(true);
   });
 });
 

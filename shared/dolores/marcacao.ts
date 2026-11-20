@@ -334,15 +334,57 @@ const SAIDA_PROIBIDA_INTERNA: RegExp[] = [SAIDA_PROIBIDA[1], SAIDA_PROIBIDA[2], 
  * QA-SEG E7 (achado 3) — nos grupos internos SEM valores (jurídico, engenharia geral): além de "R$"/",00", as palavras de dinheiro
  * (o modelo pode escrever "saldo a receber de 12500"). Sobre o texto já sem acento e minúsculo.
  */
-const SAIDA_VALORES: RegExp = /\b(valor|valores|parcelas?|orcamentos?|saldos?|precos?|custos?|comiss(ao|oes)|vgv|financeiro|pagamentos?|pagas?|pagos?|recebimentos?|a receber|a pagar|quitad[oa]s?|dinheiro|mil reais|faturad[oa]s?|faturamento)\b/;
+const SAIDA_VALORES: RegExp = /\b(valor|valores|parcelas?|orcamentos?|saldos?|precos?|custos?|comiss(ao|oes)|vgv|financeiro|recebimentos?|a receber|a pagar|quitad[oa]s?|dinheiro|mil reais|faturad[oa]s?|faturamento)\b/;
+/**
+ * QA-SEG E7 r2 (R2-6) — palavras de SITUAÇÃO ("a medição 3 já foi paga", "pagamento aguardando o banco") passam nos grupos internos
+ * sem valores QUANDO a frase não tem número de dinheiro (o mesmo critério de `semValoresNoTexto`). As de QUANTIA (`SAIDA_VALORES`)
+ * continuam barradas sempre. Só nos grupos internos: cliente e parceiros seguem com o filtro de sempre.
+ */
+const SITUACAO_DE_PAGAMENTO: RegExp = /\b(pagamentos?|pagas?|pagos?)\b/;
+function situacaoComValor(s: string): boolean {
+  return s.split(/(?<=[.!?;])\s+|\n/).some(frase => SITUACAO_DE_PAGAMENTO.test(frase) && semValoresNoTexto(frase) !== frase);
+}
 
 /**
  * QA-SEG E7 (achado 3) — campos de dinheiro que as leituras gerais devolvem; nos grupos internos sem valores saem NO SERVIDOR,
  * antes de chegar ao modelo (o filtro de saída é a segunda trava, não a única). Pelo nome do campo, em qualquer nível.
  */
-const CAMPO_DE_VALOR = /^(financeiro|moeda|valor\w*|orcamento\w*|vgv|saldo\w*|preco\w*|parcela\w*|custo\w*|comissao\w*|recebimentos?|pagamentos?\w*|totalPago|totalRecebido|textoSugeridoParaODonoEnviar)$/i;
+// QA-SEG E7 r2 (R2-5): `alertas` e `conciliacao` das notas (listar_notas_obra) são texto feito de valores ("a soma dos itens
+// (R$ …) não bate…", "lançamento #9 (R$ …)") — saem inteiros.
+const CAMPO_DE_VALOR = /^(financeiro|moeda|valor\w*|orcamento\w*|vgv|saldo\w*|preco\w*|parcela\w*|custo\w*|comissao\w*|recebimentos?|pagamentos?\w*|totalPago|totalRecebido|textoSugeridoParaODonoEnviar|alertas?|conciliacao\w*)$/i;
+
+/** Marcador que fica no lugar de um valor em dinheiro tirado de um campo de texto. */
+export const VALOR_OMITIDO = "[valor omitido]";
+// palavras de dinheiro (com ou sem acento) que, perto de um número ≥ 100, mostram que ele é uma quantia
+const PALAVRA_DE_DINHEIRO = "(?:valor(?:es)?|saldos?|pre[çc]os?|custos?|parcelas?|pagamentos?|pag[oa]s?|or[çc]amentos?|totais|total|reais|real|comiss(?:[ãa]o|[õo]es)|entrada|sinal|recebid[oa]s?|receber|pagar|quitad[oa]s?|dinheiro|financeiro|faturad[oa]s?|faturamento|vgv|d[ée]bitos?|cr[ée]ditos?|lan[çc]amentos? de)";
+const NUMERO = "(?<![\\d.,])(?:\\d{1,3}(?:\\.\\d{3})+|\\d+)(?![\\d,])";
+// fronteira de palavra que entende acento (o \b do JS só conhece letras sem acento: "preço" não fecharia)
+const INI = "(?<![\\p{L}\\p{N}])";
+const FIM = "(?![\\p{L}\\p{N}])";
+const RE_REAIS = /R\$\s*-?\s*\d[\d.]*(?:,\d{1,2})?|\b\d[\d.]*,\d{2}\b/gi;
+const RE_MIL = new RegExp(`${INI}\\d+(?:[.,]\\d+)?\\s*(?:mil|milh(?:[ãa]o|[õo]es)|bilh(?:[ãa]o|[õo]es)|k)${FIM}`, "giu");
+const RE_DEPOIS_DA_PALAVRA = new RegExp(`(${INI}${PALAVRA_DE_DINHEIRO}${FIM}[^\\d\\n]{0,20}?)(${NUMERO})`, "giu");
+const RE_ANTES_DA_PALAVRA = new RegExp(`(${NUMERO})(\\s*(?:de\\s+)?${PALAVRA_DE_DINHEIRO}${FIM})`, "giu");
+const quantia = (n: string) => Number(n.replace(/\./g, "")) >= 100;
+
+/**
+ * QA-SEG E7 r2 (R2-5) — valores em dinheiro dentro de um TEXTO (observações, descrição, atividades): "R$ …", números com ",dd",
+ * "12 mil" e números ≥ 100 logo depois/antes de uma palavra de dinheiro ("saldo de 12500", "1.500 reais") viram "[valor omitido]".
+ * Na dúvida, omite (falha fechada): número de documento perto de "total" também sai.
+ */
+export function semValoresNoTexto(t: string): string {
+  return t.replace(RE_REAIS, VALOR_OMITIDO).replace(RE_MIL, VALOR_OMITIDO)
+    .replace(RE_DEPOIS_DA_PALAVRA, (m, antes: string, n: string) => (quantia(n) ? `${antes}${VALOR_OMITIDO}` : m))
+    .replace(RE_ANTES_DA_PALAVRA, (m, n: string, depois: string) => (quantia(n) ? `${VALOR_OMITIDO}${depois}` : m));
+}
+
+/**
+ * Leituras de um grupo interno SEM valores (jurídico, engenharia; nunca o administrativo): tira os campos de dinheiro pelo nome,
+ * em qualquer nível, e em TODO texto que sobrar troca os valores em dinheiro por "[valor omitido]" (`semValoresNoTexto`).
+ */
 export function semCamposDeValor(v: unknown, nivel = 0): unknown {
   if (nivel > 12) return null;
+  if (typeof v === "string") return semValoresNoTexto(v);
   if (Array.isArray(v)) return v.map(x => semCamposDeValor(x, nivel + 1));
   if (v && typeof v === "object" && !(v instanceof Date)) {
     const out: Record<string, unknown> = {};
@@ -368,7 +410,7 @@ export function respostaSeguraInterna(bruto: string | null | undefined, urlDoSis
   if (!t) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "modelo: sem texto" };
   const s = sem(t);
   if (SAIDA_PROIBIDA_INTERNA.some(re => re.test(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com promessa, resultado de aprovação ou comando" };
-  if (!opcoes.permiteValores && (SAIDA_PROIBIDA[0].test(s) || SAIDA_VALORES.test(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com valor (não permitido neste tipo de grupo)" };
+  if (!opcoes.permiteValores && (SAIDA_PROIBIDA[0].test(s) || SAIDA_VALORES.test(s) || situacaoComValor(s))) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com valor (não permitido neste tipo de grupo)" };
   if (numeroSemFonte(s, opcoes.fontes) !== null) return { texto: FRASE_FORA_DE_ESCOPO, foraDeEscopo: true, motivo: "saída com número ou data que não veio das consultas" };
   return { texto: cortar(t, opcoes.max ?? MAX_CARACTERES_GRUPO), foraDeEscopo: false, motivo: null };
 }
