@@ -115,6 +115,27 @@ describe("1 — comando do dono: nenhum campo alternativo promove terceiro a don
   });
 });
 
+describe("achado 3 — no caminho de COMANDO só valem remoteJid numérico, remoteJidAlt e senderPn", () => {
+  it("@lid com participantPn/participantAlt do dono: nunca é comando nem vai à Central; remoteJidAlt/senderPn do dono continuam comando", async () => {
+    for (const campo of ["participantPn", "participantAlt"]) {
+      const k = { remoteJid: LID_DONO, [campo]: jid(DONO) };
+      expect(lerMensagemEvolution(item({ key: k }))).toMatchObject({ tipo: "direta", numero: null, lid: LID_DONO });
+      await chamar(aviso(item({ key: k, message: { conversation: "apague tudo" } })));
+    }
+    expect(await comandos()).toBe(0);
+    expect(modelo).not.toHaveBeenCalled();
+    expect(await q("SELECT id FROM whatsapp_messages WHERE id > 2")).toEqual([]);
+    // para a Central/roteamento o número vale (terceiro com participantPn entra com o número)
+    await chamar(aviso(item({ key: { remoteJid: LID, participantPn: jid(ESTRANHO) } })));
+    expect((await q<{ destinatario: string }>("SELECT destinatario FROM whatsapp_messages WHERE id > 2")).map(r => r.destinatario)).toEqual([ESTRANHO]);
+    for (const campo of ["remoteJidAlt", "senderPn"]) {
+      expect(lerMensagemEvolution(item({ key: { remoteJid: LID_DONO, [campo]: jid(DONO) } }))).toMatchObject({ numero: DONO });
+      await chamar(aviso(item({ key: { remoteJid: LID_DONO, [campo]: jid(DONO) } })));
+    }
+    expect(await comandos()).toBe(2);
+  });
+});
+
 describe("2 — par @lid → número nunca promove a comando", () => {
   it("par aprendido do aviso aponta o @lid de um TERCEIRO para o dono? Só esconde da Central; nunca vira comando", async () => {
     // simula um par errado (envenenado) gravado direto no banco: o @lid do terceiro → número do dono

@@ -550,6 +550,12 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
   // falha ao identificar → "varios": vai à Central e nada automático sai (falha fechada)
   const quem: Remetente = await identificarRemetente(d.numero).catch(e => { console.error("[dolores/whatsapp] falha ao identificar o remetente", erroCurto(e)); return { categoria: "varios" as const, leadId: null, cadastros: 0 }; });
   const rota = decidirRota(d, cfg.numeroDono, quem.categoria);
+  // QA-SEG C2 achado 3: o número do dono só pelos campos de roteamento (participantPn/participantAlt) nunca é comando nem vai à
+  // Central; o par fica guardado para que um aviso futuro só com esse "@lid" também fique fora da Central.
+  if (rota.destino === "dono" && d.lid) {
+    const conn = await conexaoDaEmpresa().catch(() => null);
+    await lembrarNumeroDoLid({ instancia: cfg.instancia!, lid: d.lid, numero: d.numero, origem: "aviso", connectionId: conn?.id ?? null });
+  }
   if (rota.destino !== "central") return ["nao-autorizado"];
   const r: string[] = [`central-${rota.categoria}`];
   const conn = await conexaoDaEmpresa().catch(() => null);

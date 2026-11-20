@@ -69,7 +69,8 @@ export function lerParaRoteamento(item: unknown): ItemRoteado {
     segundos: tamanho(a.seconds), tamanho: tamanho(a.fileLength),
     mime: typeof a.mimetype === "string" ? a.mimetype.split(";")[0].trim().slice(0, 60) : null,
   } : null;
-  return { ...lida, encaminhada: lida.encaminhada || foiEncaminhada(m), audio };
+  // QA-SEG C2 achado 3: a leitura do comando é estrita; para a Central/roteamento valem também participantPn/participantAlt
+  return { ...lida, numero: lida.numero ?? numeroDaConversaDireta(key, "roteamento"), encaminhada: lida.encaminhada || foiEncaminhada(m), audio };
 }
 
 /** Quem é o remetente da conversa direta, decidido no servidor pelo número (nunca pelo texto). */

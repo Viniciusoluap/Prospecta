@@ -82,13 +82,22 @@ const LID_DO_JID = /^(\d{1,25})(?::\d{1,3})?@lid$/;
  * "Pn"/"Alt") NÃO conta: em conversa direta ele não identifica o remetente com segurança.
  */
 const CAMPOS_DO_NUMERO = ["remoteJidAlt", "senderPn", "participantPn", "participantAlt"] as const;
+/**
+ * QA-SEG C2 achado 3 (defesa em profundidade): no caminho de COMANDO (identificar o dono) só valem os campos de antes —
+ * `remoteJid` numérico, `remoteJidAlt` e `senderPn`. `participantPn`/`participantAlt` valem só para Central/roteamento/diagnóstico.
+ */
+const CAMPOS_DO_NUMERO_PARA_COMANDO = ["remoteJidAlt", "senderPn"] as const;
+export type CamposDoNumero = "comando" | "roteamento";
 
-/** O número da conversa DIRETA, pelo endereço (nunca pelo texto). `@lid` sem número conferível → null. */
-export function numeroDaConversaDireta(key: Record<string, unknown>): string | null {
+/**
+ * O número da conversa DIRETA, pelo endereço (nunca pelo texto). `@lid` sem número conferível → null. `campos`: "comando" (só os
+ * campos de antes; é o que identifica o dono) ou "roteamento" (também `participantPn`/`participantAlt`; nunca identifica o dono).
+ */
+export function numeroDaConversaDireta(key: Record<string, unknown>, campos: CamposDoNumero = "roteamento"): string | null {
   const direto = numeroDoJid(key.remoteJid);
   if (direto) return direto;
   if (typeof key.remoteJid === "string" && LID_DO_JID.test(key.remoteJid.trim())) {
-    for (const campo of CAMPOS_DO_NUMERO) { const n = numeroDoJid(key[campo]); if (n) return n; }
+    for (const campo of campos === "comando" ? CAMPOS_DO_NUMERO_PARA_COMANDO : CAMPOS_DO_NUMERO) { const n = numeroDoJid(key[campo]); if (n) return n; }
   }
   return null;
 }
@@ -159,7 +168,8 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (!id) return { tipo: "ignorar", motivo: "sem_id" };
   const forma = formaDoEndereco(jid);
   if (forma !== "numero" && forma !== "lid") return { tipo: "ignorar", motivo: "outro_destino" };
-  const numero = numeroDaConversaDireta(key);
+  // QA-SEG C2 achado 3: esta leitura é a do COMANDO — só os campos de antes identificam o número (o dono)
+  const numero = numeroDaConversaDireta(key, "comando");
   const lid = lidDaConversa(key);
   const m = desembrulhar(d.message ?? {});
   // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
