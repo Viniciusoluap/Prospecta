@@ -21,7 +21,9 @@ import { getDb } from "./db.js";
 import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { URL_WEBHOOK_EVOLUTION, segredoWebhookEvolution } from "./whatsapp-evolution-webhook.js";
 import { baixarEGuardarMidia } from "./whatsapp-midia.js";
-import { conexaoDaEmpresa, usaConexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
+import {
+  MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservados, usaConexaoDaEmpresa, type NumerosReservados,
+} from "./whatsapp-conexao-empresa.js";
 import { canalDeDisparo } from "./whatsapp-canais.js";
 
 /** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
@@ -42,6 +44,21 @@ export async function conexaoParaPapel(userId: number, role: string) {
   if (!dono) return null;
   const [conn] = await getDb().select().from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
   return conn ?? null;
+}
+
+/**
+ * QA-SEG E9 achado 1: pela conexão da EMPRESA (admin e colaborador), o número do dono e o próprio número da empresa ficam fora da
+ * Central — não se escreve a eles, não se lista nem se abre a conversa (inclusive histórico já gravado). Corretor (conexão própria):
+ * null, nada reservado. Falha ao ler a configuração → lança (falha fechada).
+ */
+async function reservadosDoPapel(role: string): Promise<NumerosReservados | null> {
+  if (!usaConexaoDaEmpresa(role)) return null;
+  try { return await numerosReservados(); }
+  catch { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não consegui conferir o número do dono na configuração do WhatsApp da empresa; nada foi feito." }); }
+}
+const reservado = (r: NumerosReservados | null, numero: string | null | undefined) => !!r && ehNumeroReservado(numero, r);
+async function recusarNumeroReservado(role: string, numero: string) {
+  if (reservado(await reservadosDoPapel(role), numero)) throw new TRPCError({ code: "FORBIDDEN", message: MENSAGEM_NUMERO_RESERVADO });
 }
 
 /** A conexão da empresa não se conecta, desconecta nem troca pela Central: só em Integrações (admin). */
@@ -150,7 +167,7 @@ function exigirAcessoConversas(ctx: { user: UsuarioConversa }) {
  * conexão, das conversas escolhidas. O corretor só exclui conversas dos próprios leads ou sem lead
  * (mesma resolução da lista: vínculo manual > telefone > lead gravado); se alguma for de outro, nada é apagado.
  */
-async function planoExclusaoConversas(user: UsuarioConversa, connectionId: number, numeros: string[]) {
+async function planoExclusaoConversas(user: UsuarioConversa, connectionId: number, numeros: string[], reservados: NumerosReservados | null = null) {
   const db = getDb();
   const chaves = new Set(numeros.map(chaveTelefone).filter(c => c.length >= 10));
   const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
@@ -158,7 +175,7 @@ async function planoExclusaoConversas(user: UsuarioConversa, connectionId: numbe
   const porChave = new Map<string, { ids: number[]; gravado: number | null }>();
   for (const m of todas) {
     const k = chaveTelefone(m.destinatario);
-    if (!chaves.has(k)) continue;
+    if (!chaves.has(k) || reservado(reservados, m.destinatario)) continue;
     const g = porChave.get(k) ?? { ids: [], gravado: null };
     g.ids.push(m.id);
     if (!g.gravado && m.leadId) g.gravado = m.leadId;
@@ -194,6 +211,11 @@ export async function acessoMensagemWhatsapp(user: UsuarioConversa, messageId: n
   const db = getDb();
   const [msg] = await db.select().from(whatsappMessages).where(and(eq(whatsappMessages.id, messageId), eq(whatsappMessages.connectionId, conn.id))).limit(1);
   if (!msg) return null;
+  // QA-SEG E9 achado 1: conversa do dono/da empresa nunca é aberta pela conexão da empresa (nem a mídia)
+  if (usaConexaoDaEmpresa(user.role)) {
+    const r = await numerosReservados().catch(() => null);
+    if (!r || ehNumeroReservado(msg.destinatario, r)) return null;
+  }
   if (user.role === "corretor") {
     let leadId = (await vinculoManual(conn.id, msg.destinatario)) ?? msg.leadId;
     if (!leadId) {
@@ -386,7 +408,12 @@ export const whatsappRouter = router({
   historico: adminProcedure.query(async ({ ctx }) => {
     const db = getDb();
     if (ctx.user.role === "admin" || ctx.user.role === "colaborador") {
-      return db.select().from(whatsappMessages).where(eq(whatsappMessages.direcao, "saida")).orderBy(desc(whatsappMessages.createdAt)).limit(100);
+      // QA-SEG E9 achado 1: o que a conexão da empresa mandou ao dono/à própria empresa não aparece (falha ao conferir → nada)
+      const r = await numerosReservados().catch(() => null);
+      const empresa = await conexaoDaEmpresa().catch(() => null);
+      if (!r || !empresa) return [];
+      const rows = await db.select().from(whatsappMessages).where(eq(whatsappMessages.direcao, "saida")).orderBy(desc(whatsappMessages.createdAt)).limit(300);
+      return rows.filter(m => !(m.connectionId === empresa.id && ehNumeroReservado(m.destinatario, r))).slice(0, 100);
     }
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return [];
@@ -470,6 +497,10 @@ export const whatsappRouter = router({
       if (ehCorretor && cadastrados.length !== ids.length) return { success: false, error: "Destinatário fora dos seus leads", enviadas: 0, falhas: 0 };
       const destinatarios = cadastrados;
       if (destinatarios.length === 0) return { success: false, error: "Nenhum destinatário válido (lead inexistente ou não pertence a você)", enviadas: 0, falhas: 0 };
+      // QA-SEG E9 achado 1: pela conexão da empresa, nada sai para o número do dono nem para o da própria empresa (o telefone do lead
+      // pode ser o do dono); conferido no servidor, antes de qualquer envio
+      const reservados = await reservadosDoPapel(ctx.user.role);
+      if (destinatarios.some(d => reservado(reservados, d.telefone))) return { success: false, error: MENSAGEM_NUMERO_RESERVADO, enviadas: 0, falhas: 0 };
 
       let enviadas = 0;
       let falhas = 0;
@@ -519,7 +550,11 @@ export const whatsappRouter = router({
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return [];
-    const msgs = await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000);
+    // QA-SEG E9 achado 1: pela conexão da empresa, a conversa do dono e a do próprio número nunca entram (inclusive o histórico)
+    const r = await reservadosDoPapel(ctx.user.role).catch(() => undefined);
+    if (r === undefined) return [];
+    const msgs = (await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000))
+      .filter(m => !reservado(r, m.destinatario));
     const grupos: { numero: string; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
     for (const m of msgs) {
       let g = grupos.find(x => mesmoTelefone(x.numero, m.destinatario));
@@ -558,8 +593,12 @@ export const whatsappRouter = router({
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return [];
+    // QA-SEG E9 achado 1: a conversa do dono/da empresa não abre (nem marca como lida) pela conexão da empresa
+    const r = await reservadosDoPapel(ctx.user.role).catch(() => undefined);
+    if (r === undefined || reservado(r, input.numero)) return [];
     const db = getDb();
-    const todas = await db.select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(3000);
+    const todas = (await db.select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(3000))
+      .filter(m => !reservado(r, m.destinatario));
     const da = todas.filter(m => mesmoTelefone(m.destinatario, input.numero)).reverse();
     // Corretor não abre conversa de lead de outro corretor (mesma regra do Santa Fé).
     await exigirLeadDoCorretor(ctx.user, (await vinculoManual(conn.id, input.numero)) ?? da.find(m => m.leadId)?.leadId);
@@ -582,6 +621,7 @@ export const whatsappRouter = router({
    */
   excluirConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const db = getDb();
@@ -604,7 +644,8 @@ export const whatsappRouter = router({
     exigirAcessoConversas(ctx);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return { conversas: 0, mensagens: 0 };
-    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros);
+    const r = await reservadosDoPapel(ctx.user.role);
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros.filter(n => !reservado(r, n)), r);
     return { conversas: p.conversas, mensagens: p.mensagens };
   }),
 
@@ -618,7 +659,8 @@ export const whatsappRouter = router({
     exigirAcessoConversas(ctx);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
-    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros);
+    const r = await reservadosDoPapel(ctx.user.role);
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros.filter(n => !reservado(r, n)), r);
     if (!p.ids.length) return { conversas: 0, apagadas: 0 };
     // Revisão do PR #180 (P2): como em excluirConversa, as cópias das mídias no Drive são coletadas antes
     // (whatsapp_midias sai por cascata) e vão para a lixeira depois da transação (falha → drive_trash_queue).
@@ -651,6 +693,7 @@ export const whatsappRouter = router({
   /** Lote 03, correção 02: vincula (ou troca) o lead da conversa. Não altera o cadastro do lead. */
   vincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), leadId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
+    await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const phoneKey = chaveTelefone(input.numero);
@@ -675,6 +718,7 @@ export const whatsappRouter = router({
   /** Lote 03, correção 02: desfaz o vínculo manual; a conversa volta a ser identificada pelo telefone. */
   desvincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
+    await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const phoneKey = chaveTelefone(input.numero);
@@ -707,6 +751,7 @@ export const whatsappRouter = router({
   // a tela oferece "Vincular lead" e só cria com `forcar`. O lead criado já fica vinculado à conversa.
   criarLeadDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), nome: z.string().trim().max(255).optional(), forcar: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const db = getDb();
@@ -735,6 +780,8 @@ export const whatsappRouter = router({
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn || conn.status !== "conectado") throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
+    // QA-SEG E9 achado 1: pela conexão da empresa ninguém escreve ao dono (seria se passar pela Dolores) nem ao próprio número
+    await recusarNumeroReservado(ctx.user.role, input.numero);
     const db = getDb();
     const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone, brokerId: leads.brokerId }).from(leads);
     const manual = await vinculoManual(conn.id, input.numero);

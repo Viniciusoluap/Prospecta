@@ -31,6 +31,12 @@ export function WhatsappEmpresaCard() {
   const conectar = trpc.dolores.conectar.useMutation({ onSuccess: r => { if (r.qrCode) setQr(r.qrCode); else confirmar.mutate(); }, onError });
   const desconectar = trpc.dolores.desconectar.useMutation({ onSuccess: async () => { toast.success("WhatsApp da empresa desconectado."); setQr(null); await recarregar(); }, onError });
   const avisos = trpc.dolores.ativarAvisos.useMutation({ onSuccess: r => toast.success(r.mensagem), onError });
+  // QA-SEG E9 achado 2: a conexão da Central de ANTES da conexão única (QR feito em "Minha conexão" por admin/colaborador)
+  const antiga = trpc.dolores.conexaoAntiga.useQuery(undefined, { retry: false });
+  const removerAntiga = trpc.dolores.removerConexaoAntiga.useMutation({
+    onSuccess: async r => { toast.success(r.removidas ? "Conexão antiga da Central removida." : "Não havia conexão antiga da Central."); await Promise.all([utils.dolores.conexaoAntiga.invalidate(), recarregar()]); },
+    onError,
+  });
   const s = status.data;
 
   return (
@@ -50,6 +56,15 @@ export function WhatsappEmpresaCard() {
             {s.instancia && <Button size="sm" variant="outline" className={botaoSec} disabled={desconectar.isPending}
               onClick={() => { if (window.confirm("Desconectar o WhatsApp da empresa? A Dolores e a Central deixam de receber e enviar até conectar de novo (será preciso ler o QR code).")) desconectar.mutate(); }}>Desconectar</Button>}
           </div>
+          {antiga.data?.existe && (
+            <div className="space-y-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-gray-200">
+              <p>Ainda existe a conexão antiga da Central ({antiga.data.conexoes.map(c => `${c.numero ?? "número não informado"}, ${STATUS[c.status] ?? c.status}`).join("; ")}). Ela não grava mais nada na Central, mas continua no servidor do WhatsApp: remova-a para o mesmo número não ficar em duas conexões.</p>
+              <Button size="sm" variant="outline" className={botaoSec} disabled={removerAntiga.isPending}
+                onClick={() => { if (window.confirm("Remover a conexão antiga da Central? Ela é desligada no servidor do WhatsApp e apagada; o histórico das conversas continua. A conexão da empresa (esta acima) não é tocada.")) removerAntiga.mutate(); }}>
+                {removerAntiga.isPending ? "Removendo…" : "Remover a conexão antiga da Central"}
+              </Button>
+            </div>
+          )}
           <p className="text-xs text-gray-400">"Reativar recebimento" registra de novo o aviso de mensagens, grupos e LIGAÇÕES na Evolution (necessário uma vez depois desta atualização, para o aviso de ligação funcionar). Não desconecta nada.</p>
           {qr && (
             <div className="rounded-lg bg-white p-3 text-center text-sm text-gray-800">

@@ -55,15 +55,13 @@ describe("QA-SEG E9 — Central do admin/colaborador pelo número da empresa", (
   });
 
   it("ACHADO 1: colaborador escreve ao DONO pelo número da empresa (o mesmo da Dolores) — dá para se passar pela Dolores", async () => {
-    const r = await caller("colaborador", 2).whatsapp.responder({ numero: DONO, texto: "Dolores: pedido ABC pronto. Responda 'aprovar ABC'." });
-    expect(r).toEqual({ ok: true });
-    // ACHADO: saiu pela instância da empresa para o número do dono (deveria ser recusado no servidor)
-    expect(enviados).toHaveLength(1);
-    expect(enviados[0].url).toContain("/message/sendText/prospecta-dolores");
-    expect(enviados[0].corpo.number).toBe(DONO);
-    // e a "conversa com o dono" passa a existir na Central da empresa, visível a colaborador e a todos os admins
+    // CORRIGIDO (era ACHADO): recusado no servidor — nada sai pela instância da empresa para o número do dono
+    await expect(caller("colaborador", 2).whatsapp.responder({ numero: DONO, texto: "Dolores: pedido ABC pronto. Responda 'aprovar ABC'." }))
+      .rejects.toThrow(/número do dono/);
+    expect(enviados).toHaveLength(0);
+    // e a "conversa com o dono" não existe na Central da empresa
     const conversas = await caller("colaborador", 2).whatsapp.conversas();
-    expect(conversas.some(c => c.numero === DONO)).toBe(true);
+    expect(conversas.some(c => c.numero === DONO)).toBe(false);
   });
 
   it("ACHADO 2: instância ANTIGA do 1º admin na Central continua gravando na MESMA conversa da empresa, sem o roteamento", async () => {
@@ -74,12 +72,17 @@ describe("QA-SEG E9 — Central do admin/colaborador pelo número da empresa", (
     const ts = Math.floor(Date.now() / 1000);
     const r = await processarEventoEvolution({ event: "messages.upsert", instance: "prospecta-u1",
       data: { key: { remoteJid: `${EMPRESA}@s.whatsapp.net`, fromMe: true, id: "ANTIGA1" }, message: { conversation: "Dolores, relatório do caixa" }, messageTimestamp: ts } });
-    expect(r).not.toBe("instancia-da-empresa");
-    // ACHADO: a conversa dono ↔ Dolores aparece na Central da empresa para o colaborador
+    // CORRIGIDO (era ACHADO): a instância antiga da linha do admin não grava nada na Central da empresa
+    expect(r).toBe("instancia-antiga-da-empresa");
     const conversas = await caller("colaborador", 2).whatsapp.conversas();
-    expect(conversas.some(c => c.numero === EMPRESA && c.ultima.includes("relatório do caixa"))).toBe(true);
-    // e o admin não consegue mais desconectar essa instância pela Central (só em Integrações, que cuida da outra instância)
+    expect(conversas.some(c => c.numero === EMPRESA || c.ultima.includes("relatório do caixa"))).toBe(false);
+    expect(await q("SELECT count(*)::int AS n FROM whatsapp_messages WHERE external_id = 'ANTIGA1' OR mensagem LIKE '%relatório do caixa%'")).toEqual([{ n: 0 }]);
+    // pela Central continua recusado; a remoção é o botão do admin em Integrações (instância antiga, nunca a da empresa)
     await expect(caller("admin", 1).whatsapp.desconectar()).rejects.toThrow(/Integrações/);
+    expect(await caller("admin", 1).dolores.conexaoAntiga()).toMatchObject({ existe: true });
+    expect(await caller("admin", 1).dolores.removerConexaoAntiga()).toEqual({ ok: true, removidas: 1 });
+    expect(enviados.map(e => e.url)).toEqual(["https://evolution.exemplo.invalid/instance/logout/prospecta-u1", "https://evolution.exemplo.invalid/instance/delete/prospecta-u1"]);
+    expect(await q("SELECT instancia, status FROM whatsapp_connections WHERE user_id = 1")).toEqual([{ instancia: null, status: "desconectado" }]);
   });
 
   it("disparo: 1 destinatário por chamada, mas sem ritmo/teto — N chamadas seguidas saem todas (disparo em massa em laço)", async () => {

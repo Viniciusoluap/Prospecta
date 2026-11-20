@@ -8,7 +8,7 @@
 // (sem instância), para servir de `connectionId`.
 import { eq } from "drizzle-orm";
 import { users, whatsappConnections, type WhatsappConnection } from "../drizzle/schema.js";
-import { mascararNumero } from "../shared/dolores/whatsapp.js";
+import { ehNumeroDoDono, mascararNumero } from "../shared/dolores/whatsapp.js";
 import { getDb } from "./db.js";
 import { lerConfigWhatsapp } from "./dolores/consumo.js";
 
@@ -16,6 +16,32 @@ import { lerConfigWhatsapp } from "./dolores/consumo.js";
 export const usaConexaoDaEmpresa = (role: string | null | undefined) => role === "admin" || role === "colaborador";
 
 export type ConexaoDaEmpresa = WhatsappConnection & { daEmpresa: true; numeroMascarado: string | null };
+
+/**
+ * QA-SEG E9 achado 1: números que a Central NUNCA usa pela conexão da empresa — o do DONO (a conversa dele é com a Dolores; escrever a
+ * ele pelo número da empresa é se passar pela Dolores) e o PRÓPRIO número da empresa. Lidos da configuração da Dolores, no servidor.
+ */
+export type NumerosReservados = { dono: string | null; empresa: string | null };
+
+/** Falha ao ler a configuração → lança (quem chama fecha: não envia, não lista). */
+export async function numerosReservados(): Promise<NumerosReservados> {
+  const cfg = await lerConfigWhatsapp();
+  return { dono: cfg?.numeroDono ?? null, empresa: cfg?.numeroDolores ?? null };
+}
+
+/**
+ * O número é o do dono ou o da empresa? Comparação ESTRITA (`ehNumeroDoDono`), sobre o número como ele SAI pela Evolution (sem o 55,
+ * ela acrescenta — `enviarTextoEvolution`) e sobre o número como veio. Estrangeiro com os mesmos 8 finais não casa.
+ */
+export function ehNumeroReservado(numero: string | null | undefined, r: NumerosReservados): boolean {
+  const d = String(numero ?? "").replace(/\D/g, "");
+  if (!d) return false;
+  const efetivo = d.startsWith("55") ? d : `55${d}`;
+  return [d, efetivo].some(n => ehNumeroDoDono(n, r.dono) || ehNumeroDoDono(n, r.empresa));
+}
+
+export const MENSAGEM_NUMERO_RESERVADO =
+  "Esse é o número do dono (conversa com a Dolores) ou o da própria empresa: a Central não escreve, não mostra nem altera essa conversa pelo número da empresa.";
 
 /** Primeiro admin (o mesmo critério que o colaborador já usava). */
 async function primeiroAdmin(): Promise<number | null> {

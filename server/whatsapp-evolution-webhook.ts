@@ -3,7 +3,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
-import { leads, userNotifications, whatsappConnections, whatsappConversationLinks, whatsappMessages } from "../drizzle/schema.js";
+import { leads, userNotifications, users, whatsappConnections, whatsappConversationLinks, whatsappMessages } from "../drizzle/schema.js";
 import { chaveTelefone } from "../shared/whatsapp/conversas.js";
 import { ENV } from "./_core/env.js";
 import { LIMITE_MIDIA, mesmoTelefone, midiaDaMensagem, textoDaMensagem } from "./_core/evolution.js";
@@ -11,6 +11,7 @@ import { normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { getDb } from "./db.js";
 import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 import { INSTANCIA_DOLORES } from "../shared/dolores/whatsapp.js";
+import { usaConexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
 
 const SITE = () => (process.env.PUBLIC_SITE_URL || "https://www.prospectaconstrucoes.com").replace(/\/+$/, "");
 export const URL_WEBHOOK_EVOLUTION = () => `${SITE()}/api/whatsapp/evolution-webhook`;
@@ -94,6 +95,12 @@ export async function processarEventoEvolution(ev: Evento): Promise<string> {
   if (ev.instance === INSTANCIA_DOLORES) return "instancia-da-empresa";
   const [conn] = await db.select().from(whatsappConnections).where(eq(whatsappConnections.instancia, ev.instance)).limit(1);
   if (!conn) return "conexao-desconhecida";
+  // QA-SEG E9 achado 2: só alimenta a Central a instância de quem conecta pela PRÓPRIA aba (corretor e demais papéis fora da conexão da
+  // empresa). A instância que ficou gravada na linha de admin/colaborador (a Central de antes da conexão única) nunca grava nada — nem
+  // mensagem, nem situação: a Central deles é a da empresa, que só o aviso da Dolores alimenta. Remoção: Integrações › WhatsApp da
+  // empresa › "Remover a conexão antiga da Central" (só admin).
+  const [dono] = await db.select({ role: users.role }).from(users).where(eq(users.id, conn.userId)).limit(1);
+  if (!dono || usaConexaoDaEmpresa(dono.role)) return "instancia-antiga-da-empresa";
 
   if (evento === "connection.update") {
     const st = ev.data?.state;

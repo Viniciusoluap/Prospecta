@@ -3,7 +3,7 @@
 // procedimento confere o papel de novo. Nada aqui devolve chave, segredo do webhook ou número completo; o QR code sai
 // só na hora de conectar, para a tela, e não é guardado.
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { users, whatsappConnections } from "../../drizzle/schema.js";
 import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
@@ -16,6 +16,7 @@ import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado,
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
+import { registrarAcao } from "./auditoria.js";
 import { URL_WEBHOOK_DOLORES, segredoWebhookDolores } from "./whatsapp.js";
 import { doloresFilaConfig } from "../../drizzle/schema-dolores-fila.js";
 import { VALIDADE_MAXIMA_HORAS, VALIDADE_MINIMA_HORAS, codigoValido } from "../../shared/dolores/fila.js";
@@ -50,14 +51,30 @@ const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userI
   getDb().update(doloresWhatsappConfig).set({ ...dados, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
 
 /**
- * O número conectado não pode ser o de uma conexão de CORRETOR na Central. Etapa 9 (conexão única): a linha do admin em
- * whatsapp_connections não conta — a Central do admin e do colaborador passou a usar esta mesma conexão (por código, ao ler).
+ * QA-SEG E9 achado 2: as linhas de admin/colaborador em whatsapp_connections que ainda guardam uma instância — a conexão da Central
+ * de ANTES da conexão única (QR feito pela aba "Minha conexão"). A instância da empresa nunca entra (nem pelo nome padrão, nem pela
+ * da configuração). O aviso dessas instâncias já não grava nada (whatsapp-evolution-webhook.ts); a remoção é só pelo botão do admin.
  */
-async function numeroDeOutraConexao(numero: string): Promise<boolean> {
+async function conexoesAntigasDaCentral(instanciaDaEmpresa: string | null) {
+  const linhas = await getDb().select({ id: whatsappConnections.id, instancia: whatsappConnections.instancia, numero: whatsappConnections.numero, status: whatsappConnections.status })
+    .from(whatsappConnections).innerJoin(users, eq(users.id, whatsappConnections.userId))
+    .where(and(inArray(users.role, ["admin", "colaborador"]), isNotNull(whatsappConnections.instancia)));
+  return linhas.filter((l): l is typeof l & { instancia: string } => !!l.instancia && l.instancia !== INSTANCIA_DOLORES && l.instancia !== instanciaDaEmpresa);
+}
+
+/**
+ * O número conectado não pode ser o de uma conexão de CORRETOR na Central ("corretor") nem o da instância ANTIGA da Central do
+ * admin/colaborador enquanto ela existir ("antiga") — o mesmo número em duas instâncias. Etapa 9: a linha do admin SEM instância
+ * (só o `connectionId` da Central da empresa) não conta.
+ */
+async function numeroDeOutraConexao(numero: string, instanciaDaEmpresa: string | null): Promise<"corretor" | "antiga" | null> {
   const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections)
     .innerJoin(users, eq(users.id, whatsappConnections.userId)).where(eq(users.role, "corretor"));
-  return conns.some(c => pareceMesmoTelefone(c.numero, numero));
+  if (conns.some(c => pareceMesmoTelefone(c.numero, numero))) return "corretor";
+  const antigas = await conexoesAntigasDaCentral(instanciaDaEmpresa);
+  return antigas.some(c => pareceMesmoTelefone(c.numero, numero)) ? "antiga" : null;
 }
+const MENSAGEM_CONEXAO_ANTIGA = "Esse número ainda está na conexão antiga da Central. Use \"Remover a conexão antiga da Central\" no cartão do WhatsApp da empresa e confira de novo; nada foi ativado.";
 
 /** O que falta para a Dolores responder pela IA (a tela mostra a lista). */
 function pendencias(p: { conectado: boolean; numeroDono: boolean; chave: boolean; modelo: boolean; limites: boolean; iaLigada: boolean; pausada: boolean }) {
@@ -174,7 +191,10 @@ export const doloresRouter = router({
       if (c.statusConexao === "conectado") await gravar({ statusConexao: "aguardando_qr" }, ctx.user.id);
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não consegui ler o número conectado na Evolution; nada foi ativado. Desconecte e conecte de novo." });
     }
-    if (await numeroDeOutraConexao(numero)) {
+    const outra = await numeroDeOutraConexao(numero, c.instancia);
+    // a instância da EMPRESA não é removida por causa da antiga (seria derrubar a conexão que funciona): recusa e manda remover a antiga
+    if (outra === "antiga") throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_CONEXAO_ANTIGA });
+    if (outra === "corretor") {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
       throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão de corretor na Central. Conecte o número da empresa." });
@@ -209,13 +229,42 @@ export const doloresRouter = router({
     const lido = await numeroConectado(evo, c.instancia).catch(() => null);
     const numero = lido ? lido.replace(/\D/g, "").slice(0, 20) : "";
     if (!numero || numero !== c.numeroDolores) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado não é o que foi confirmado; ${conferir}` });
-    if ((await numeroDeOutraConexao(numero)) || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
+    const outra = await numeroDeOutraConexao(numero, c.instancia);
+    if (outra === "antiga") throw new TRPCError({ code: "PRECONDITION_FAILED", message: MENSAGEM_CONEXAO_ANTIGA });
+    if (outra || (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)))
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado é de uma conexão da empresa ou o do dono; ${conferir}` });
     try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
     catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
     // Etapa 9: ligações recusadas na hora (o aviso por texto é do sistema). Falha aqui não desfaz o recebimento.
     const rejeita = await rejeitarLigacoesEvolution(evo, c.instancia).catch(() => false);
     return { ok: true, mensagem: `Recebimento de mensagens, grupos e ligações do WhatsApp da empresa ativo.${rejeita ? " Ligações são recusadas automaticamente." : " (A Evolution não confirmou a recusa automática de ligações; o aviso por texto vale do mesmo jeito.)"}` };
+  }),
+
+  /** QA-SEG E9 achado 2: a conexão antiga da Central (admin/colaborador) ainda existe? Só a situação e o número mascarado. */
+  conexaoAntiga: soAdmin.query(async () => {
+    const c = await lerConfigWhatsapp().catch(() => null);
+    const antigas = await conexoesAntigasDaCentral(c?.instancia ?? null);
+    return { existe: antigas.length > 0, conexoes: antigas.map(a => ({ id: a.id, status: a.status, numero: mascararNumero(a.numero) })) };
+  }),
+
+  /**
+   * QA-SEG E9 achado 2 — botão do ADMIN (papel) "Remover a conexão antiga da Central": desliga e apaga na Evolution a instância antiga
+   * de cada linha de admin/colaborador (sem seguir redirecionamento) e LIMPA na linha só `instancia` e `status` (a linha continua: ela é
+   * o `connectionId` do histórico da Central). A instância da empresa nunca é tocada. Só grava quando o admin clica — não é migração.
+   */
+  removerConexaoAntiga: soAdmin.mutation(async ({ ctx }) => {
+    const c = await exigirConfig();
+    const antigas = await conexoesAntigasDaCentral(c.instancia);
+    if (!antigas.length) return { ok: true, removidas: 0 };
+    const evo = await exigirEvolution();
+    for (const a of antigas) {
+      await removerInstancia(evo, a.instancia);
+      await getDb().update(whatsappConnections).set({ instancia: null, status: "desconectado", updatedAt: new Date() })
+        .where(and(eq(whatsappConnections.id, a.id), eq(whatsappConnections.instancia, a.instancia)));
+    }
+    await registrarAcao({ funcao: "remover_conexao_antiga_central", resultado: "ok", motivo: "instância antiga da Central (admin/colaborador) removida pelo administrador",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { conexoes: antigas.map(a => a.id) } });
+    return { ok: true, removidas: antigas.length };
   }),
 
   desconectar: soAdmin.mutation(async ({ ctx }) => {
