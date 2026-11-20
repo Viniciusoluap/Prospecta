@@ -203,3 +203,9 @@ automática com PROVA POSITIVA. Isto refina AC14–AC16 (texto dos AC mantido; o
   server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts server/auth-session.test.ts
   server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1` → 36 arquivos, 655 testes, 0 falhas;
   `npx vite build` ok. Migração 0133 NÃO aplicada em banco real (fica para a publicação). Portão de QA de segurança pendente.
+- 20/11/2026 — @dev (Dex): correções do portão de QA de segurança (FAIL de 19/11) — achados 1–6 e janela de migração da 0133
+  (ver "Correções do portão de QA de segurança"). `origin/main` (PRs #256 e #257) já contida no ramo; nenhuma migração nova na
+  main colide com a 0133 (a última lá é a 0132). `npx tsc --noEmit` limpo; `npx vitest run server/dolores
+  server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts server/auth-session.test.ts
+  server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1` → 37 arquivos, 672 testes, 0 falhas;
+  `npx vite build` ok. 0133 NÃO aplicada em banco real. Volta ao portão de QA de segurança.
