@@ -25,6 +25,10 @@ import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
 import { atendimentoRouter } from "./atendimento-router.js";
+import { lerPrecos, previsaoDoLimiteAtual } from "./custo.js";
+import { lerConfigOperacao } from "./operacao.js";
+import { COTACAO_SUGERIDA, LIMITES_PADRAO } from "../../shared/dolores/precos-padrao.js";
+import { TETO_DONO_REAIS } from "../../shared/dolores/operacao.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -100,13 +104,35 @@ async function situacao() {
   const resolvido = await modeloDaFuncao("dolores_whatsapp", { anterior: c.modelo, preferencial: painel?.modelo ?? null });
   const modeloEmUso = resolvido.modelo;
   const limites = { entrada: c.limiteMensalTokensEntrada, saida: c.limiteMensalTokensSaida };
+  // EPIC-026 C5: os limites em reais (pior caso e só a conversa), com os preços CADASTRADOS — o sugerido não entra na conta
+  const previsao = await previsaoEmReais(limites, c.modelo);
   return {
     instancia: c.instancia, statusConexao: c.statusConexao, numeroDolores: mascararNumero(c.numeroDolores), numeroDono: mascararNumero(c.numeroDono),
     iaLigada: c.iaLigada, pausada: pausa?.pausada ?? null, chaveAnthropic: Boolean(painel), modeloPainel: painel?.modelo ?? null, modelo: c.modelo,
     modeloEmUso, origemModelo: resolvido.origem, limites, mes, uso, bloqueioDoLimite: bloqueioDoLimite(uso, limites), webhookUrl: URL_WEBHOOK_DOLORES(),
     pendencias: pendencias({ conectado: c.statusConexao === "conectado", numeroDono: Boolean(c.numeroDono), chave: Boolean(painel), modelo: Boolean(modeloEmUso),
       limites: limites.entrada > 0 && limites.saida > 0, iaLigada: c.iaLigada, pausada: Boolean(pausa?.pausada) }),
+    previsao, limitesPadrao: { ...LIMITES_PADRAO }, tetoDonoReais: TETO_DONO_REAIS, cotacaoSugerida: COTACAO_SUGERIDA,
   };
+}
+
+/**
+ * EPIC-026 C5 — previsão dos limites em reais para o cartão, e os dados para a tela refazer a MESMA conta enquanto o admin
+ * digita (preços cadastrados dos modelos em uso, reserva e cotação). Sem as migrações de preço: null (a tela diz).
+ */
+async function previsaoEmReais(limites: { entrada: number; saida: number }, anteriorDaConversa: string | null) {
+  try {
+    const [precos, op] = await Promise.all([lerPrecos(), lerConfigOperacao()]);
+    const reserva = { entradaMilhao: op?.precoEntradaMilhao ?? null, saidaMilhao: op?.precoSaidaMilhao ?? null };
+    const r = await previsaoDoLimiteAtual({ limites, reserva, anteriorDaConversa, precos });
+    return {
+      ...r, reserva, precosDisponiveis: precos.disponivel,
+      precosEmUso: r.modelos.emUso.map(m => ({ modelo: m, preco: precos.tabela.get(m) ?? null })),
+    };
+  } catch (e) {
+    console.error("[dolores/router] falha ao prever o limite em reais", e instanceof Error ? e.name : "erro");
+    return null;
+  }
 }
 
 /**

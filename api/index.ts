@@ -41,6 +41,7 @@ import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 // EPIC-025 E6 (17/11): rondas e relatório diário da Dolores (cron próprio, CRON_SECRET em tempo constante).
 import { tratarCronDolores } from "../server/dolores/rondas.js";
+import { CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
 
 const app = express();
@@ -191,7 +192,9 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
 // ── Cron: rondas e relatório diário da Dolores (EPIC-025 E6) ─
 // Só GET da Vercel com "Authorization: Bearer <CRON_SECRET>" (sem segredo configurado, recusa sempre). Query e corpo são
 // ignorados: a janela, o alvo e o destino (só o número do dono) vêm do servidor. Tudo desligado por padrão; cabe em 45 s.
-app.get("/api/cron/dolores", async (req, res) => {
+// EPIC-026 C4: o cron chama de hora em hora das 07h às 14h de Brasília (uma entrada diária por hora no vercel.json); os
+// caminhos são fixos (CAMINHOS_CRON_DOLORES) e o fim do caminho é ignorado: a hora vem do relógio do servidor.
+app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   try {
     const r = await tratarCronDolores(req);

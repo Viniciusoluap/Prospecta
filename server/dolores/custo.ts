@@ -8,6 +8,10 @@ import { custoDoMes, type CustoDoMes, type FuncaoDoConsumo, type PrecoModelo, ty
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { PARADA_CLIENTE, PARADA_GRUPO } from "./consumo.js";
+import { FUNCOES_ANTHROPIC } from "../../shared/funcoes-anthropic.js";
+import { previsaoDoLimite } from "../../shared/dolores/precos-padrao.js";
+import { TETO_DONO_REAIS } from "../../shared/dolores/operacao.js";
+import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
 
 const numero = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -57,4 +61,26 @@ export async function consumoDoMesDetalhado(mes: string): Promise<Array<{ modelo
 export async function custoEstimadoDoMes(mes: string, reserva: PrecoReserva, precos?: PrecosCadastrados): Promise<CustoDoMes & { precosDisponiveis: boolean }> {
   const [linhas, p] = await Promise.all([consumoDoMesDetalhado(mes), precos ? Promise.resolve(precos) : lerPrecos()]);
   return { ...custoDoMes(linhas, p.tabela, reserva, p.cotacao), precosDisponiveis: p.disponivel };
+}
+
+/**
+ * EPIC-026 C5 — modelos que a Dolores usa agora (cada função dela em Integrações › Anthropic › Modelo por função, resolvida
+ * como na hora de chamar a IA) e o da conversa com o dono. Só NOMES de modelo; nunca lê a chave.
+ */
+export async function modelosEmUsoDaDolores(anteriorDaConversa: string | null): Promise<{ emUso: string[]; daConversa: string | null }> {
+  const funcoes = FUNCOES_ANTHROPIC.filter(f => f.startsWith("dolores_"));
+  const resolvidos = await Promise.all(funcoes.map(f =>
+    modeloDaFuncao(f, { anterior: f === "dolores_whatsapp" ? anteriorDaConversa : null }).then(r => [f, r.modelo] as const).catch(() => [f, null] as const)));
+  const daConversa = resolvidos.find(([f]) => f === "dolores_whatsapp")?.[1] ?? null;
+  return { emUso: Array.from(new Set(resolvidos.map(([, m]) => m).filter((m): m is string => !!m))).sort(), daConversa };
+}
+
+/** EPIC-026 C5 — previsão dos limites mensais em reais (pior caso e só a conversa), com os preços cadastrados (sem sugestão). */
+export async function previsaoDoLimiteAtual(p: { limites: { entrada: number; saida: number }; reserva: PrecoReserva; anteriorDaConversa: string | null; precos?: PrecosCadastrados }) {
+  const [modelos, precos] = await Promise.all([modelosEmUsoDaDolores(p.anteriorDaConversa), p.precos ? Promise.resolve(p.precos) : lerPrecos()]);
+  return {
+    ...previsaoDoLimite({ limites: p.limites, modelosEmUso: modelos.emUso, modeloDaConversa: modelos.daConversa, tabela: precos.tabela, reserva: p.reserva,
+      cotacao: precos.cotacao, tetoReais: TETO_DONO_REAIS }),
+    modelos, cotacao: precos.cotacao,
+  };
 }
