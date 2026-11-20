@@ -21,6 +21,7 @@ import { DoloresFilaCard } from "@/components/admin/DoloresFilaCard";
 import { DoloresGruposCard } from "@/components/admin/DoloresGruposCard";
 import { DoloresNotasCard } from "@/components/admin/DoloresNotasCard";
 import { DoloresOperacaoCard } from "@/components/admin/DoloresOperacaoCard";
+import { YcloudCard } from "@/components/admin/YcloudCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -200,6 +201,8 @@ export default function AdminIntegracoes() {
           />
           {/* EPIC-025 E9: a conexão ÚNICA do número da empresa (Dolores e Central). As dos corretores ficam na Central › Minha conexão. */}
           <WhatsappEmpresaCard />
+          {/* EPIC-027 C7: API oficial (YCloud) só para disparos de campanha; o cartão só aparece para o admin por papel */}
+          <YcloudCard />
           <GoogleDriveCard />
           <MapboxCard />
           <AnthropicCard />
