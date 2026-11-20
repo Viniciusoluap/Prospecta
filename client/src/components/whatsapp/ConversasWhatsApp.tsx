@@ -271,7 +271,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
                 <p className="font-bold text-white">{atual?.nome ?? formatar(numero)}</p>
                 <p className="text-xs text-gray-300">{formatar(numero)}</p>
               </div>
-              {semNumero && <p className="text-xs text-amber-200">O WhatsApp não informou o número desta conversa.</p>}
+              {semNumero && <p className="text-xs text-amber-200">O WhatsApp não informou o número desta conversa.{atual?.provavel ? ` Provável: ${atual.provavel} (não confirmado).` : ""}</p>}
               {atual && !atual.leadId && !semNumero && (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" disabled={criarLead.isPending || conferindo} className="h-7 text-xs border-[#C9A961]/30 text-[#C9A961]"

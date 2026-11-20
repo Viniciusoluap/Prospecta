@@ -117,15 +117,15 @@ describe("hipótese (a) — remetente em @lid sem número resolvível", () => {
     expect(await destinos()).toEqual({ "central_sem_numero::lid": 1, "repetida::lid": 1 });
     await nadaAutomatico();
   });
-  it("@lid cujo número a Evolution informa: entra com o número (sem saudação nem Dolores); se for o dono, nunca vai à Central", async () => {
+  it("@lid cujo número a Evolution informa: continua não identificado (QA-SEG achado 2: número só provável); se for o dono, nunca vai à Central", async () => {
     resolverLid.mockResolvedValueOnce(ESTRANHO);
     await chamar(aviso(item({ key: { remoteJid: LID } })));
-    expect((await entradas()).map(e => e.destinatario)).toEqual([ESTRANHO]);
+    expect((await entradas()).map(e => e.destinatario)).toEqual([LID]);
     expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: ESTRANHO, origem: "evolution" }]);
     await nadaAutomatico();
     resolverLid.mockResolvedValueOnce(DONO);
     await chamar(aviso(item({ key: { remoteJid: "209999999999999@lid" } })));
-    expect((await entradas()).map(e => e.destinatario)).toEqual([ESTRANHO]);
+    expect((await entradas()).map(e => e.destinatario)).toEqual([LID]);
     expect((await destinos())["ignorado:lid-do-dono:lid"]).toBe(1);
     await nadaAutomatico();
   });

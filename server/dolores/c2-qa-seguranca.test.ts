@@ -217,6 +217,35 @@ describe("3 — Central: conversa sem número não envia a lugar nenhum", () => 
   });
 });
 
+describe("achado 2 — número só da consulta à Evolution é 'provável': não libera resposta nem vínculo", () => {
+  it("a conversa continua não identificada (admin vê só o provável mascarado); responder/vincular/criar lead recusam; o aviso com o número libera", async () => {
+    resolverLid.mockResolvedValueOnce(ESTRANHO);
+    await chamar(aviso(item({ key: { remoteJid: LID }, message: { conversation: "oi" } })));
+    expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: ESTRANHO, origem: "evolution" }]);
+    expect((await q<{ destinatario: string }>("SELECT destinatario FROM whatsapp_messages WHERE id > 2")).map(r => r.destinatario)).toEqual([LID]);
+    const admin = caller("admin", 1);
+    const lista = await admin.whatsapp.conversas();
+    expect(lista).toHaveLength(1);
+    expect(lista[0]).toMatchObject({ numero: LID, semNumero: true, leadId: null, provavel: "(11) *****-4444" });
+    expect(JSON.stringify(lista)).not.toContain(ESTRANHO.slice(2, 9));
+    await expect(admin.whatsapp.responder({ numero: LID, texto: "Olá" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(admin.whatsapp.vincularLead({ numero: LID, leadId: 1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(admin.whatsapp.criarLeadDaConversa({ numero: LID })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(enviarAoContato).not.toHaveBeenCalled();
+    // segunda mensagem só com o @lid: o par provável não identifica (nada de consulta nova, nada vira número)
+    await chamar(aviso(item({ key: { remoteJid: LID }, message: { conversation: "tem alguém?" } })));
+    expect((await q<{ destinatario: string }>("SELECT destinatario FROM whatsapp_messages WHERE id > 2")).map(r => r.destinatario)).toEqual([LID, LID]);
+    // a consulta à Evolution nunca sobrescreve o par confirmado por aviso; e o aviso com o número no endereço libera a conversa
+    await chamar(aviso(item({ key: { remoteJid: LID, remoteJidAlt: jid(ESTRANHO) }, message: { conversation: "sou eu" } })));
+    expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: ESTRANHO, origem: "aviso" }]);
+    expect((await q<{ destinatario: string }>("SELECT destinatario FROM whatsapp_messages WHERE id > 2")).map(r => r.destinatario)).toEqual([ESTRANHO, ESTRANHO, ESTRANHO]);
+    expect((await admin.whatsapp.conversas()).map(c => [c.numero, c.semNumero])).toEqual([[ESTRANHO, false]]);
+    const { lembrarNumeroDoLid } = await import("./roteamento.js");
+    expect(await lembrarNumeroDoLid({ instancia: "prospecta-dolores", lid: LID, numero: DONO, origem: "evolution", connectionId: null })).toBe(false);
+    expect(await q("SELECT numero, origem FROM whatsapp_lid_numeros")).toEqual([{ numero: ESTRANHO, origem: "aviso" }]);
+  });
+});
+
 describe("achado 5 — conversa sem número nunca procura vínculo pela chave vazia", () => {
   it("um vínculo com phone_key vazio (lixo) não é aplicado à conversa @lid na lista nem no histórico", async () => {
     await chamar(aviso(item({ key: { remoteJid: LID } })));

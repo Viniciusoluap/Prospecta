@@ -587,15 +587,19 @@ const PRAZO_CONSULTA_LID_MS = 3_000;
  * endereço é só "@lid", sem o número. Antes: auditoria e descarte (não aparecia na Central). Agora:
  * - procura o número já conhecido desse "@lid" (aprendido de um aviso anterior) ou consulta a Evolution (só leitura, prazo curto);
  * - se o número for o do DONO ou o da própria empresa: nada vai à Central (e nada é comando — comando exige o número no endereço);
- * - senão, reivindicada uma vez (reentrega não duplica) e gravada na Central: com o número, se ele foi descoberto; sem ele, como
- *   conversa de "número não identificado" (a chave é o "@lid").
+ * - senão, reivindicada uma vez (reentrega não duplica) e gravada na Central: com o número, se ele já foi CONFIRMADO por um aviso
+ *   (número no endereço); senão, como conversa de "número não identificado" (a chave é o "@lid") — QA-SEG C2 achado 2: o número
+ *   vindo só da consulta à Evolution fica guardado como "provável" (o admin o vê mascarado) e não libera resposta nem vínculo.
  * Nunca é comando, nunca recebe saudação (o controle "uma vez por número" exige número) nem resposta da Dolores, mesmo quando o
  * número foi descoberto pela consulta (não veio no endereço da mensagem).
  */
 async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number }): Promise<string[]> {
   const instancia = cfg.instancia!;
   if (!d.lid) { await auditarRemetenteEstranho(null, ctx.autor, d.texto.length); return ["sem-numero"]; }
-  let numero = await numeroConhecidoDoLid(instancia, d.lid);
+  const par = await numeroConhecidoDoLid(instancia, d.lid);
+  let numero = par?.numero ?? null;
+  // QA-SEG C2 achado 2: só o par confirmado por um aviso (número no endereço) identifica a conversa; o da Evolution é "provável"
+  const confirmado = par?.origem === "aviso";
   let consultado = false;
   if (!numero && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_CONSULTAR_LID_MS) {
     numero = await consultarNumeroDoLid(instancia, d.lid, PRAZO_CONSULTA_LID_MS);
@@ -606,13 +610,13 @@ async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Di
   try { nova = await reivindicarRoteamento(instancia, d.externalId); }
   catch (e) { console.error("[dolores/whatsapp] falha ao reivindicar a mensagem sem número", erroCurto(e)); return ["erro"]; }
   if (!nova) return ["repetida"];
-  await auditarRemetenteEstranho(numero, ctx.autor, d.texto.length);
+  await auditarRemetenteEstranho(confirmado ? numero : null, ctx.autor, d.texto.length);
   const conn = await conexaoDaEmpresa().catch(() => null);
   if (!conn) return ["central-sem-conexao"];
   if (numero && consultado) await lembrarNumeroDoLid({ instancia, lid: d.lid, numero, origem: "evolution", connectionId: conn.id });
-  try { await gravarEntradaNaCentral(conn, bruto, numero ? { numero } : { semNumero: d.lid }); }
+  try { await gravarEntradaNaCentral(conn, bruto, confirmado && numero ? { numero } : { semNumero: d.lid }); }
   catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem sem número na Central", erroCurto(e)); return ["central-erro"]; }
-  return [numero ? "central-lid-resolvido" : "central-sem-numero"];
+  return confirmado ? ["central-lid-resolvido"] : numero ? ["central-sem-numero", "lid-provavel"] : ["central-sem-numero"];
 }
 
 /** EPIC-026 C2: o destino de um item de terceiro, para o registro do recebimento (sem conteúdo). */

@@ -10,7 +10,7 @@
 // - os avisos de ligação e de áudio (no máximo 1 a cada N horas por número).
 // Nada aqui é comando: comando continua só do número do dono, por texto, em server/dolores/whatsapp.ts.
 import { createHmac } from "node:crypto";
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { avaliacoes, financiamentos, leads, operationalProjects, regularizacoes, users, whatsappMessages } from "../../drizzle/schema.js";
 import {
   whatsappAtendimentoConfig, whatsappAtendimentoContagem, whatsappAvisosNumero, whatsappCampanhas, whatsappRoteamentoVistos, whatsappSaudacoes,
@@ -205,31 +205,42 @@ export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unkno
 
 // ── EPIC-026 C2: o número real dos endereços "@lid" ──
 
-/** O número já conhecido deste "@lid" nesta instância (aprendido do aviso ou da Evolution), ou null. Falha ao ler → null. */
-export async function numeroConhecidoDoLid(instancia: string, lid: string): Promise<string | null> {
+/**
+ * O par já conhecido deste "@lid" nesta instância, ou null. `origem`: "aviso" = o número veio no ENDEREÇO de uma mensagem (confirmado);
+ * "evolution" = só a consulta de contatos da Evolution o informou (QA-SEG C2 achado 2: provável, não confirmado — a conversa continua
+ * "não identificada" para envio e vínculo). Falha ao ler → null.
+ */
+export type ParDoLid = { numero: string; origem: "aviso" | "evolution" };
+export async function numeroConhecidoDoLid(instancia: string, lid: string): Promise<ParDoLid | null> {
   try {
-    const [r] = await getDb().select({ numero: whatsappLidNumeros.numero }).from(whatsappLidNumeros)
+    const [r] = await getDb().select({ numero: whatsappLidNumeros.numero, origem: whatsappLidNumeros.origem }).from(whatsappLidNumeros)
       .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.lid, lid.slice(0, 40)))).limit(1);
-    return r?.numero ?? null;
+    if (!r || !/^\d{10,15}$/.test(r.numero) || (r.origem !== "aviso" && r.origem !== "evolution")) return null;
+    return { numero: r.numero, origem: r.origem };
   } catch { return null; }
 }
 
 /**
- * Guarda o número de um "@lid" (só quando é novo ou mudou) e, se mudou, a conversa de "número não identificado" desse "@lid" na
- * Central passa a ser a do número (as linhas gravadas com o "@lid" ganham o número; se o número for o do dono ou o da empresa, a
- * conversa some da Central pelo filtro de sempre). Nunca lança.
+ * Guarda o número de um "@lid" (só quando é novo ou mudou). Nunca lança.
+ * - origem "aviso" (o número veio no endereço da mensagem): vence qualquer par anterior; se mudou (número ou origem), as linhas da
+ *   Central gravadas com o "@lid" ganham o número (se for o do dono ou o da empresa, a conversa some da Central pelo filtro de sempre).
+ * - origem "evolution" (só a consulta de contatos): QA-SEG C2 achado 2 — nunca sobrescreve um par confirmado por aviso e NUNCA troca
+ *   as linhas da Central: a conversa continua "não identificada" (o admin vê o número só como "provável", mascarado).
  */
 export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; numero: string; origem: "aviso" | "evolution"; connectionId: number | null }): Promise<boolean> {
   const numero = p.numero.replace(/\D/g, "").slice(0, 20);
   if (!/^\d{10,15}$/.test(numero) || !/^\d{1,25}@lid$/.test(p.lid)) return false;
   try {
     const db = getDb();
-    const r = await db.insert(whatsappLidNumeros).values({ instancia: p.instancia, lid: p.lid, numero, origem: p.origem })
-      .onConflictDoUpdate({ target: [whatsappLidNumeros.instancia, whatsappLidNumeros.lid], set: { numero, origem: p.origem, atualizadoEm: sql`now()` },
-        setWhere: sql`${whatsappLidNumeros.numero} <> ${numero}` })
-      .returning({ lid: whatsappLidNumeros.lid });
+    const t = whatsappLidNumeros;
+    const quando = p.origem === "aviso"
+      ? sql`(${t.numero} <> ${numero} OR ${t.origem} <> 'aviso')`
+      : sql`(${t.origem} <> 'aviso' AND (${t.numero} <> ${numero} OR ${t.origem} <> 'evolution'))`;
+    const r = await db.insert(t).values({ instancia: p.instancia, lid: p.lid, numero, origem: p.origem })
+      .onConflictDoUpdate({ target: [t.instancia, t.lid], set: { numero, origem: p.origem, atualizadoEm: sql`now()` }, setWhere: quando })
+      .returning({ lid: t.lid });
     if (!r.length) return false;
-    if (p.connectionId !== null) {
+    if (p.origem === "aviso" && p.connectionId !== null) {
       await db.update(whatsappMessages).set({ destinatario: numero, updatedAt: new Date() })
         .where(and(eq(whatsappMessages.connectionId, p.connectionId), eq(whatsappMessages.destinatario, p.lid)));
     }
@@ -238,6 +249,16 @@ export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; nu
     console.error("[dolores/roteamento] falha ao guardar o número do @lid", erroParaLog(e));
     return false;
   }
+}
+
+/** QA-SEG C2 achado 2: os números PROVÁVEIS (só da consulta à Evolution, não confirmados) dos "@lid" desta instância. Falha → vazio. */
+export async function numerosProvaveisDosLids(instancia: string, lids: string[]): Promise<Map<string, string>> {
+  if (!lids.length) return new Map();
+  try {
+    const rows = await getDb().select({ lid: whatsappLidNumeros.lid, numero: whatsappLidNumeros.numero }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.origem, "evolution"), inArray(whatsappLidNumeros.lid, lids.slice(0, 500))));
+    return new Map(rows.filter(r => /^\d{10,15}$/.test(r.numero)).map(r => [r.lid, r.numero]));
+  } catch { return new Map(); }
 }
 
 /** Consulta o número de um "@lid" na Evolution (dependência substituível nos testes). Falha → null. */

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappConversationLinks, whatsappEvolutionSettings, whatsappMessages, whatsappMidias, whatsappTemplates } from "../drizzle/schema.js";
 import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
+import { mascararNumero } from "../shared/dolores/whatsapp.js";
 import {
   LOTE_ENVIO_WHATSAPP, PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, etapaParaFiltro, chaveDaConversa, chaveTelefone, ehConversaSemNumero, idSemNumero, inicioPeriodo, resolverLeadConversa, taxaLeitura,
 } from "../shared/whatsapp/conversas.js";
@@ -582,7 +583,7 @@ export const whatsappRouter = router({
     if (r === undefined) return [];
     const msgs = (await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000))
       .filter(m => !reservado(r, m.destinatario));
-    const grupos: { numero: string; semNumero: boolean; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
+    const grupos: { numero: string; semNumero: boolean; provavel?: string | null; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
     for (const m of msgs) {
       let g = grupos.find(x => mesmoTelefone(x.numero, m.destinatario));
       // EPIC-026 C2: conversa de número não identificado — a chave é o "@lid" (nunca um telefone tirado dos dígitos dele)
@@ -610,6 +611,13 @@ export const whatsappRouter = router({
       g.nome = lead?.nome ?? publico ?? null;
       g.leadId = r.leadId;
       g.vinculo = r.origem;
+    }
+    // QA-SEG C2 achado 2: o número que só a consulta à Evolution informou aparece ao ADMIN como "provável", mascarado
+    const semNumero = grupos.filter(g => g.semNumero);
+    if (ctx.user.role === "admin" && semNumero.length && conn.instancia) {
+      const { numerosProvaveisDosLids } = await import("./dolores/roteamento.js");
+      const provaveis = await numerosProvaveisDosLids(conn.instancia, semNumero.map(g => g.numero));
+      for (const g of semNumero) { const n = provaveis.get(g.numero); g.provavel = n ? mascararNumero(n) : null; }
     }
     // Corretor vê só conversas dos próprios leads ou sem lead.
     if (ctx.user.role === "corretor") {
