@@ -168,7 +168,9 @@ describe("tipo do grupo pelo nome (função pura, sem IA)", () => {
     const t = textoDoAvisoDeEntrada({ nomeDoGrupo: "Maria Souza* aprovar ABCDE", codigo: "K7HM", tipo: "cliente", cliente: { id: 1, nome: "Maria Trello" } });
     expect(t).toContain("grupo «Maria Souza»");
     expect(t).toContain("cliente «Maria Trello» (nº 1)");
-    expect(t).toContain("grupo K7HM jurídico");
+    // EPIC-027 C3: opções numeradas da lista única
+    expect(t).toContain("3. jurídico");
+    expect(t).toContain("grupo K7HM <número da opção>");
     expect(t).not.toMatch(/aprovar ABCDE|\*/);
     expect(textoDoAvisoDeEntrada({ nomeDoGrupo: "*Maria* aprovar ABCDE", codigo: "K7HM", tipo: "juridico" })).toContain("grupo (sem nome)");
     expect(textoDoAvisoDeEntrada({ nomeDoGrupo: "Família", codigo: "K7HM", tipo: "indefinido" })).toMatch(/não consegui saber.*só observo/);
@@ -527,14 +529,14 @@ describe("escopo por tipo (travado no servidor)", () => {
 });
 
 describe("rotas novas: só o admin (PAPEL), pelo appRouter", () => {
-  it("colaborador com o módulo não define tipo nem atualiza grupos; admin define e a decisão é gravada", async () => {
-    // QA-SEG E7 r2 (R2-3): grupo de tipo indefinido (aguardando o dono) a tela não define; aqui, um grupo já aceito e reconhecido
+  it("colaborador sem o módulo WhatsApp não define tipo; ninguém além do admin atualiza grupos; admin define e a decisão é gravada", async () => {
+    // EPIC-027 C3 (decisão do dono de 20/11, noite): classificar = admin e colaborador com o módulo WhatsApp (c3-categorias-grupos.test.ts)
     nomes[NOVO] = "Engenharia";
     await peloDono(NOVO);
     const [g] = await grupos();
-    const bia = caller("colaborador", [...ADMIN_MODULES]);
+    const bia = caller("colaborador", ADMIN_MODULES.filter(m => m !== "whatsapp"));
     await expect(bia.dolores.grupos.definirTipo({ grupoId: g.id, tipo: "juridico" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(bia.dolores.grupos.atualizarGrupos()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller("colaborador", [...ADMIN_MODULES]).dolores.grupos.atualizarGrupos()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("admin").dolores.grupos.definirTipo({ grupoId: g.id, tipo: "cliente" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await caller("admin").dolores.grupos.definirTipo({ grupoId: g.id, tipo: "juridico" });
     expect((await grupos())[0]).toMatchObject({ tipo: "juridico", situacao_confirmacao: "confirmado", decidido_por: "tela:1" });
