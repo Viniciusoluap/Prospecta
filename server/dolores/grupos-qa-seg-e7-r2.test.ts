@@ -64,15 +64,18 @@ beforeEach(async () => {
 });
 
 describe("QA-SEG E7 r2 — autoria", () => {
-  it("R2-1 (RISCO residual): upsert de grupo criado pelo DONO há 2 min aceita a Dolores mesmo que quem a pôs tenha sido OUTRO membro; só o aviso de 'add' (se chegar) rebaixa", async () => {
-    // o upsert não distingue "participante inicial" de "adicionado depois por outro dentro da janela de 5 min"
+  it("R2-1 (corrigido): upsert de grupo criado pelo DONO há 2 min NÃO aceita sozinho (não prova quem estava desde o início): aguardando o dono, com a pergunta", async () => {
     expect((await chamar(upsertDoDono(NOVO, "Administrativo"))).body.r).toBe("grupo-evento-criado");
-    expect((await grupos())[0]).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", prova_adicao: "criador" });
-    expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([{ responder_ligado: true }]);
-    // quando o aviso de "add" feito por OUTRO chega (em qualquer ordem), o grupo é rebaixado — a defesa depende desse aviso
+    expect((await grupos())[0]).toMatchObject({ situacao_confirmacao: "aguardando_dono", adicionado_por: "desconhecido", prova_adicao: "criador" });
+    expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([]);
+    expect(enviarAoDono.mock.calls.map(c => String(c[1] ?? c[0])).join("\n") + JSON.stringify(enviarAoDono.mock.calls)).toMatch(/não sei quem me colocou/);
+    // o aviso de "add" feito por OUTRO rebaixa; o do DONO (outro grupo) aceita
     await chamar(eventoAdd(NOVO, `${OUTRO}@s.whatsapp.net`));
     expect((await grupos())[0]).toMatchObject({ situacao_confirmacao: "recusado", adicionado_por: "outra_pessoa" });
     expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([{ responder_ligado: false }]);
+    await chamar(upsertDoDono(NOVO2, "Jurídico"));
+    await chamar(eventoAdd(NOVO2, `${DONO}@s.whatsapp.net`));
+    expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", prova_adicao: "evento_add" });
   });
 
   it("R2-2: grupo que o DONO adicionou (aceito sozinho, sem decidido_em) é REBAIXADO se outro admin do grupo a remove e readiciona; aceito pelo COMANDO, não", async () => {

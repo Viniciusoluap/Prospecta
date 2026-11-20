@@ -351,11 +351,11 @@ describe("quem colocou a Dolores no grupo (regra do dono: só o número dele)", 
     await chamar(eventoAdd(NOVO2, "999888777666555@lid")); // não resolvido: cai nos dados do grupo (o dono não é admin) → recusado
     expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "recusado" });
   });
-  it("grupo criado AGORA pelo dono (groups.upsert, owner = dono, criação recente) com a Dolores dentro: aceito pela prova de criador", async () => {
+  it("grupo criado AGORA pelo dono (groups.upsert, owner = dono, criação recente) com a Dolores dentro: entra AGUARDANDO o dono (prova de criador não aceita, QA-SEG E7 r2)", async () => {
     const r = await chamar({ event: "groups.upsert", instance: "prospecta-dolores", data: [{ id: NOVO, subject: "Engenharia", owner: `${DONO}@s.whatsapp.net`, creation: Math.floor(AGORA.getTime() / 1000) - 60,
       participants: [{ id: `${DONO}@s.whatsapp.net`, admin: "superadmin" }, { id: `${DOLORES}@s.whatsapp.net`, admin: null }] }] });
     expect(r.body.r).toBe("grupo-evento-criado");
-    expect((await grupos())[0]).toMatchObject({ tipo: "engenharia", adicionado_por: "dono", prova_adicao: "criador", nome_whatsapp: "Engenharia" });
+    expect((await grupos())[0]).toMatchObject({ tipo: "engenharia", situacao_confirmacao: "aguardando_dono", adicionado_por: "desconhecido", prova_adicao: "criador", nome_whatsapp: "Engenharia" });
     const outro = await chamar({ event: "groups.upsert", instance: "prospecta-dolores", data: [{ id: NOVO2, subject: "Jurídico", owner: `${OUTRO}@s.whatsapp.net`, creation: Math.floor(AGORA.getTime() / 1000),
       participants: [{ id: `${DOLORES}@s.whatsapp.net` }] }] });
     expect(outro.body.r).toBe("grupo-evento-sem-prova");

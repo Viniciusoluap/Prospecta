@@ -15,9 +15,9 @@
 //   1) aviso `group-participants.update` da Evolution (action "add", a Dolores entre os adicionados): o AUTOR (`author`, quem
 //      executou) é o número do dono (`ehNumeroDoDono`); autor em @lid só vale resolvido para telefone pelos participantes do grupo
 //      na Evolution. Aviso de "add" com autor NÃO provado (@lid sem resolver, sem `author`) → recusado, nunca a reserva;
-//   2) aviso `groups.upsert` de grupo NOVO, criado AGORA (campo de criação de poucos minutos atrás) pelo dono, com a Dolores na
-//      lista inicial. O criador de um grupo antigo não prova quem colocou a Dolores; o upsert nunca tira grupo de recusado nem de
-//      aguardando o dono.
+//   (QA-SEG E7 r2, R2-1) o aviso `groups.upsert` NÃO aceita sozinho: a lista que ele traz não prova quem estava no grupo desde a
+//   criação. Grupo NOVO criado agora pelo dono com a Dolores na lista entra "aguardando o dono" (prova "criador") e o dono é
+//   perguntado; o upsert nunca muda grupo que já existe.
 //   Reserva (sem aviso nenhum: primeira mensagem, "Atualizar grupos", grupos em que ela já estava): os dados do grupo na
 //   Evolution com o dono PARTICIPANTE e criador/admin deixam o grupo no MÁXIMO "aguardando o dono" (só observa, interruptor do
 //   grupo desligado, nada de IA) e perguntam "não sei quem me colocou; se foi você, responda: grupo <código> aceitar". Sem isso:
@@ -125,6 +125,8 @@ type PedidoDeEntrada = {
   adicao?: Adicao | null;
   /** Dados do grupo já lidos (ex.: para resolver o @lid do autor), para não perguntar de novo. */
   metadado?: MetadadoDoGrupo | null;
+  /** Sem aviso de "add": como gravar a prova da reserva (o upsert de criação grava "criador"; padrão: "metadado"/"sem_prova"). */
+  provaReserva?: ProvaAdicao;
 };
 
 /**
@@ -167,7 +169,7 @@ async function entrarAgora(p: PedidoDeEntrada, chave: string): Promise<Resultado
       prova = p.adicao.autor === "nao_provado" ? "sem_prova" : p.adicao.prova;
     } else {
       adicionadoPor = "desconhecido";
-      prova = meta ? "metadado" : "sem_prova";
+      prova = p.provaReserva ?? (meta ? "metadado" : "sem_prova");
     }
     const peloDono = adicionadoPor === "dono";
     const reserva = !p.adicao && donoNoMetadado(meta, p.numeroDono);
@@ -352,8 +354,12 @@ export async function tratarEventoDeGrupo(cfg: DoloresWhatsappConfig, evento: "p
     const r = await entrarNoGrupo({ ...base, grupoJid: jid, adicao, metadado: meta });
     return `grupo-evento-${r.resultado}`;
   }
-  // criação: só serve de prova POSITIVA para grupo NOVO, criado AGORA pelo dono com a Dolores na lista inicial (achado 2). Grupo
-  // antigo, sem o campo de criação ou de outro criador: nada aqui (fica para o aviso de "add", a primeira mensagem ou a tela).
+  // criação (QA-SEG E7 r2, R2-1): o `groups.upsert` NUNCA aceita sozinho. Ele chega tanto na criação quanto quando alguém coloca
+  // a Dolores num grupo que já existe, e a lista de participantes que ele traz é a de AGORA — não prova que a Dolores estava
+  // entre os participantes INICIAIS (num grupo do dono criado há 2 min, outro membro pode tê-la colocado). Grupo NOVO, criado
+  // agora pelo dono, com a Dolores na lista: entra no máximo "aguardando o dono" (só observa) e o dono é perguntado ("grupo
+  // <código> aceitar"). Aceitação automática só pelo aviso de "add" com o autor = número do dono. Grupo antigo, sem o campo de
+  // criação ou de outro criador: nada aqui (fica para o aviso de "add", a primeira mensagem ou a tela).
   const lista = (Array.isArray(dados) ? dados : [dados]).slice(0, 20);
   let ultimo = "grupo-evento-ignorado";
   for (const g of lista) {
@@ -368,7 +374,7 @@ export async function tratarEventoDeGrupo(cfg: DoloresWhatsappConfig, evento: "p
     if (!criacaoRecente(x.creation, ctx.agora) || !meta.criador.some(c => autorEhODono(c, cfg.numeroDono, mapa))) { ultimo = "grupo-evento-sem-prova"; continue; }
     const [ja] = await getDb().select({ id: doloresGrupos.id }).from(doloresGrupos).where(and(eq(doloresGrupos.instancia, cfg.instancia), eq(doloresGrupos.grupoJid, jid))).limit(1);
     if (ja) { ultimo = "grupo-evento-existente"; continue; } // o criador nunca muda grupo que já existe
-    const r = await entrarNoGrupo({ ...base, grupoJid: jid, nomeNoWhatsapp: meta.nome, adicao: { autor: "dono", prova: "criador" }, metadado: meta });
+    const r = await entrarNoGrupo({ ...base, grupoJid: jid, nomeNoWhatsapp: meta.nome, adicao: null, metadado: meta, provaReserva: "criador" });
     ultimo = `grupo-evento-${r.resultado}`;
   }
   return ultimo;

@@ -170,7 +170,8 @@ describe("QA-SEG E7 — autoria (só vale grupo em que o DONO colocou a Dolores)
     expect((await chamar(upsert(NOVO2, "Jurídico", Math.floor(AGORA.getTime() / 1000) - 10 * 60))).body.r).toBe("grupo-evento-sem-prova");
     expect(await grupos()).toHaveLength(0);
     expect((await chamar(upsert(NOVO3, "Jurídico", AGORA.getTime() - 90_000))).body.r).toBe("grupo-evento-criado"); // em milissegundos também
-    expect((await grupos())[0]).toMatchObject({ grupo_jid: NOVO3, situacao_confirmacao: "avisado", adicionado_por: "dono", prova_adicao: "criador" });
+    // QA-SEG E7 r2 (R2-1): nem assim aceita sozinho — fica aguardando o dono, com a pergunta
+    expect((await grupos())[0]).toMatchObject({ grupo_jid: NOVO3, situacao_confirmacao: "aguardando_dono", adicionado_por: "desconhecido", prova_adicao: "criador" });
   });
   it("A4 (corrigido): 1ª mensagem ou 'Atualizar grupos' sem aviso nenhum → no máximo aguardando o dono, com a pergunta; só ele aceita", async () => {
     // na publicação, todos os grupos em que a Dolores JÁ está passam por aqui
