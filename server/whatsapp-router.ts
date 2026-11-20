@@ -21,6 +21,8 @@ import { getDb } from "./db.js";
 import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { URL_WEBHOOK_EVOLUTION, segredoWebhookEvolution } from "./whatsapp-evolution-webhook.js";
 import { baixarEGuardarMidia } from "./whatsapp-midia.js";
+import { conexaoDaEmpresa, usaConexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
+import { canalDeDisparo } from "./whatsapp-canais.js";
 
 /** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
 async function donoDaConexao(userId: number, role: string): Promise<number | null> {
@@ -29,11 +31,23 @@ async function donoDaConexao(userId: number, role: string): Promise<number | nul
   return admin?.id ?? null;
 }
 
+/**
+ * EPIC-025 E9 (regra do dono de 20/11/2026, "uma conexão só"): admin e colaborador operam a Central pela conexão da EMPRESA, feita
+ * só em Configurações › Integrações (server/whatsapp-conexao-empresa.ts — resolvida por código ao ler, sem gravar a linha do admin).
+ * O corretor continua com a própria conexão, como antes.
+ */
 export async function conexaoParaPapel(userId: number, role: string) {
+  if (usaConexaoDaEmpresa(role)) return conexaoDaEmpresa();
   const dono = await donoDaConexao(userId, role);
   if (!dono) return null;
   const [conn] = await getDb().select().from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
   return conn ?? null;
+}
+
+/** A conexão da empresa não se conecta, desconecta nem troca pela Central: só em Integrações (admin). */
+const SO_EM_INTEGRACOES = "A conexão do WhatsApp da empresa (Dolores e Central) é feita só em Configurações › Integrações, pelo administrador.";
+function recusarConexaoDaEmpresa(role: string) {
+  if (usaConexaoDaEmpresa(role)) throw new TRPCError({ code: "FORBIDDEN", message: SO_EM_INTEGRACOES });
 }
 
 /** Servidor da Evolution (QR code): o salvo pela tela tem precedência; variáveis de ambiente são o reserva. */
@@ -262,7 +276,7 @@ export const whatsappRouter = router({
   minhaConexao: adminProcedure.query(async ({ ctx }) => {
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return null;
-    return { id: conn.id, numero: conn.numero, status: conn.status, provider: conn.provider };
+    return { id: conn.id, numero: conn.numero, status: conn.status, provider: conn.provider, daEmpresa: usaConexaoDaEmpresa(ctx.user.role) };
   }),
 
   // ── Pedido de 25/10: conexão por QR code (Evolution API) ──
@@ -276,6 +290,7 @@ export const whatsappRouter = router({
   /** Gera (ou renova) o QR code da conexão do usuário — a da empresa para admin/colaborador. */
   conectarQr: protectedProcedure.mutation(async ({ ctx }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    recusarConexaoDaEmpresa(ctx.user.role);
     const dono = await donoDaConexao(ctx.user.id, ctx.user.role);
     if (!dono) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum administrador para guardar a conexão da empresa" });
     const c = await exigirEvolution();
@@ -296,6 +311,8 @@ export const whatsappRouter = router({
   /** Consultado a cada poucos segundos enquanto o QR está na tela. */
   statusQr: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    // E9: a da empresa só é lida (a situação vem de Integrações); nada é gravado nem consultado na Evolution por aqui
+    if (usaConexaoDaEmpresa(ctx.user.role)) { const e = await conexaoDaEmpresa(); return { status: e?.status ?? "desconectado", numero: e?.numero ?? null }; }
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn || conn.provider !== "evolution" || !conn.instancia) return { status: conn?.status ?? "desconectado", numero: conn?.numero ?? null };
     const c = await configEvolution();
@@ -377,6 +394,7 @@ export const whatsappRouter = router({
     .input(z.object({ token: z.string().min(1), phoneNumberId: z.string().min(1), numero: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+      recusarConexaoDaEmpresa(ctx.user.role);
       const dono = await donoDaConexao(ctx.user.id, ctx.user.role);
       if (!dono) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum administrador para guardar a conexão da empresa" });
       const db = getDb();
@@ -397,6 +415,7 @@ export const whatsappRouter = router({
 
   desconectar: protectedProcedure.mutation(async ({ ctx }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    recusarConexaoDaEmpresa(ctx.user.role);
     const dono = await donoDaConexao(ctx.user.id, ctx.user.role);
     if (!dono) return { success: true };
     const [conn] = await getDb().select().from(whatsappConnections).where(eq(whatsappConnections.userId, dono)).limit(1);
@@ -420,6 +439,12 @@ export const whatsappRouter = router({
       const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
       if (!conn || conn.status !== "conectado") {
         return { success: false, error: "Nenhuma conexão WhatsApp ativa", enviadas: 0, falhas: 0 };
+      }
+      // E9 (item 7): o canal do disparo é escolhido num ponto só. Pelo número principal da empresa, sem disparo em massa até a
+      // coexistência com a API oficial (fase separada): uma mensagem por vez.
+      const canal = canalDeDisparo({ daEmpresa: usaConexaoDaEmpresa(ctx.user.role) });
+      if (input.destinatarios.length > canal.maxDestinatarios) {
+        return { success: false, error: canal.aviso ?? "Disparo em massa bloqueado neste canal.", enviadas: 0, falhas: 0 };
       }
       const porQr = conn.provider === "evolution";
       const evolution = porQr ? await configEvolution() : null;
@@ -477,6 +502,8 @@ export const whatsappRouter = router({
   /** Garante que a Evolution avise o sistema das mensagens (idempotente). */
   ativarAvisos: protectedProcedure.mutation(async ({ ctx }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    // E9: a instância da empresa tem UM aviso (o da Dolores, que reparte tudo); registrar o da Central nela o substituiria
+    if (usaConexaoDaEmpresa(ctx.user.role)) return { ok: false, mensagem: "O recebimento do WhatsApp da empresa é reativado em Configurações › Integrações (\"Reativar recebimento\")." };
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn || conn.provider !== "evolution" || !conn.instancia) return { ok: false, mensagem: "Conversas funcionam com a conexão por QR code." };
     const c = await exigirEvolution();
@@ -721,6 +748,11 @@ export const whatsappRouter = router({
       mensagem: input.texto, externalId, status: externalId ? "enviada" : "falhou", direcao: "saida", lida: true,
     });
     if (!externalId) throw new TRPCError({ code: "BAD_REQUEST", message: "O WhatsApp não aceitou a mensagem. Confira a conexão." });
+    // E9: a equipe respondeu pela Central no número da empresa → a Dolores fica calada nesta conversa por algumas horas
+    if (usaConexaoDaEmpresa(ctx.user.role)) {
+      const { lerConfigAtendimento, silenciarConversa } = await import("./dolores/roteamento.js");
+      await silenciarConversa(input.numero.replace(/\D/g, ""), (await lerConfigAtendimento()).silencioHoras).catch(() => undefined);
+    }
     return { ok: true };
   }),
 });

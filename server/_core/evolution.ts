@@ -108,7 +108,8 @@ export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string
  * que foi o DONO quem a colocou no grupo. A Central de Vendas continua com os três avisos de sempre.
  */
 export const EVENTOS_WEBHOOK_PADRAO = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] as const;
-export const EVENTOS_WEBHOOK_DOLORES = [...EVENTOS_WEBHOOK_PADRAO, "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT"] as const;
+// Etapa 9: e as LIGAÇÕES (CALL), para o aviso "não atendo ligações, pode me escrever". Só vale depois de "Reativar recebimento".
+export const EVENTOS_WEBHOOK_DOLORES = [...EVENTOS_WEBHOOK_PADRAO, "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT", "CALL"] as const;
 export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: string, url: string, segredo: string, fetchImpl: Fetch = fetch, eventos: readonly string[] = EVENTOS_WEBHOOK_PADRAO): Promise<void> {
   const r = await chamar(c, `/webhook/set/${encodeURIComponent(instancia)}`, {
     method: "POST",
@@ -274,4 +275,22 @@ export async function participantesDoGrupoEvolution(c: EvolutionConfig, instanci
     const n = campos.map(v => /^(\d{10,15})@s\.whatsapp\.net$/.exec(v)?.[1]).find(Boolean) ?? null;
     return { lid, numero: n };
   });
+}
+
+/**
+ * EPIC-025 (etapa 9) — rejeitar ligações na instância (a Evolution não atende ligação; com `rejectCall` ela recusa na hora). Seguro:
+ * LÊ as configurações atuais (GET /settings/find/{instância}) e grava as MESMAS, trocando só `rejectCall` para true e `msgCall` para
+ * vazio (o aviso por texto é do sistema, com o limite de 1 a cada N horas por número). Se a leitura não vier no formato conhecido,
+ * nada é gravado (devolve false). Nunca mexe na conexão.
+ */
+export async function rejeitarLigacoesEvolution(c: EvolutionConfig, instancia: string, fetchImpl: Fetch = fetch): Promise<boolean> {
+  const atual = await chamar<Record<string, unknown>>(c, `/settings/find/${encodeURIComponent(instancia)}`, { signal: AbortSignal.timeout(8_000) }, fetchImpl);
+  const d = atual.ok && atual.data && typeof atual.data === "object" ? atual.data : null;
+  const campos = ["groupsIgnore", "alwaysOnline", "readMessages", "readStatus", "syncFullHistory"] as const;
+  if (!d || !campos.every(k => typeof d[k] === "boolean")) return false;
+  if (d.rejectCall === true && !d.msgCall) return true;
+  const corpo: Record<string, unknown> = { rejectCall: true, msgCall: "" };
+  for (const k of campos) corpo[k] = d[k];
+  const r = await chamar(c, `/settings/set/${encodeURIComponent(instancia)}`, { method: "POST", body: JSON.stringify(corpo), signal: AbortSignal.timeout(8_000) }, fetchImpl);
+  return r.ok;
 }

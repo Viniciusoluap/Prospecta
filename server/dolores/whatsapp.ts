@@ -43,6 +43,14 @@ import { lerDecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
 import { identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
 import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas-obra.js";
+import { decidirRota, ehSoAudio, lerParaRoteamento, type ItemRoteado } from "../../shared/dolores/roteamento.js";
+import { conexaoDaEmpresa, type ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
+import {
+  enviarAviso, enviarSaudacao, gravarEntradaNaCentral, identificarRemetente, lerConfigAtendimento, lerLigacao, reivindicarRoteamento, textoDaEntrada, tratarPropria,
+  type Remetente,
+} from "./roteamento.js";
+import { tratarAtendimento } from "./atendimento.js";
+import { transcreverAudio } from "./transcricao.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -238,7 +246,7 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
-async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" = "dolores_whatsapp"): Promise<
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" | "dolores_cliente" = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
   if (!pausa) return { motivo: "indisponivel" };
@@ -287,6 +295,21 @@ export async function credencialDaMarcacao(): Promise<CredencialGrupo> {
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, "dolores_grupo");
+  if (estado.motivo !== null) return estado;
+  return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
+}
+
+/**
+ * Etapa 9 — a resposta a CLIENTE cadastrado na conversa direta usa a MESMA porta da chave (bloqueioAtual, na mesma ordem: pausa,
+ * interruptor da IA, chave, modelo da função "dolores_cliente", limite mensal, usuária ativa). A chave só sai daqui como `apiKey`
+ * do pedido ao modelo (o laço fechado de server/dolores/marcacao.ts, chamado por server/dolores/atendimento.ts).
+ */
+export async function credencialDoAtendimento(): Promise<CredencialGrupo> {
+  let cfg: DoloresWhatsappConfig | null;
+  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  if (!cfg) return { motivo: "indisponivel" };
+  const mes = mesFortaleza(deps.agora());
+  const estado = await bloqueioAtual(cfg, mes, "dolores_cliente");
   if (estado.motivo !== null) return estado;
   return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
 }
@@ -486,7 +509,7 @@ async function auditarRemetenteEstranho(numero: string | null, autor: number | n
   }
   if (mensagens !== 1) return;
   await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada",
-    motivo: numero ? "remetente não autorizado (não é o número do dono); sem resposta" : "remetente sem número conferível; sem resposta",
+    motivo: numero ? "remetente não é o número do dono: não é comando (etapa 9: vai para a Central pelo roteamento)" : "remetente sem número conferível; sem resposta",
     autorUserId: autor, canal: "whatsapp", pedidoId: `wa:estranho:${chave}:${hora}`,
     resumo: { remetente, janela: `${hora}h UTC`, caracteres, contagem: "dolores_remetentes_estranhos (uma linha por remetente por hora)" } });
 }
@@ -503,6 +526,87 @@ function jaVistaDeEstranho(instancia: string, externalId: string): boolean {
 }
 /** Só para testes: esquece a memória curta de mensagens de estranhos. */
 export function esquecerEstranhasVistas() { estranhasVistas.clear(); }
+
+// ── Etapa 9 — o roteamento do número da EMPRESA (Dolores e Central): um aviso só, repartido aqui por CÓDIGO ──
+
+type Direta = Extract<ItemRoteado, { tipo: "direta" }>;
+/** O que fica para DEPOIS dos itens do dono no mesmo aviso (chama IA ou serviço externo). */
+type PendenteDoAviso = { tipo: "cliente" | "audio"; item: Direta; quem: Remetente; centralId: number | null; nome: string | null };
+
+/**
+ * Mensagem direta de quem NÃO é o dono. Nunca é comando. Reivindicada uma vez (reentrega não duplica nada); entra na Central pela
+ * conexão da empresa (mesmo antiga — histórico; a Central não duplica); só mensagem NOVA recebe saudação (desconhecido) ou entra na fila
+ * do aviso para a Dolores (cliente cadastrado) e para a transcrição (áudio de cliente ou desconhecido).
+ */
+async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number; pendentes: PendenteDoAviso[] }): Promise<string[]> {
+  if (!d.numero) { await auditarRemetenteEstranho(null, ctx.autor, d.texto.length); return ["sem-numero"]; }
+  if (ehNumeroDoDono(d.numero, cfg.numeroDolores)) return ["propria-numero"];
+  let nova = false;
+  try { nova = await reivindicarRoteamento(cfg.instancia!, d.externalId); }
+  catch (e) { console.error("[dolores/whatsapp] falha ao reivindicar a mensagem de terceiro", erroCurto(e)); return ["erro"]; }
+  if (!nova) return ["repetida"];
+  await auditarRemetenteEstranho(d.numero, ctx.autor, d.texto.length);
+  // falha ao identificar → "varios": vai à Central e nada automático sai (falha fechada)
+  const quem: Remetente = await identificarRemetente(d.numero).catch(e => { console.error("[dolores/whatsapp] falha ao identificar o remetente", erroCurto(e)); return { categoria: "varios" as const, leadId: null, cadastros: 0 }; });
+  const rota = decidirRota(d, cfg.numeroDono, quem.categoria);
+  if (rota.destino !== "central") return ["nao-autorizado"];
+  const r: string[] = [`central-${rota.categoria}`];
+  const conn = await conexaoDaEmpresa().catch(() => null);
+  let centralId: number | null = null;
+  const nome = typeof (bruto as { pushName?: unknown })?.pushName === "string" ? String((bruto as { pushName: string }).pushName).slice(0, 120) : null;
+  if (conn) {
+    try { centralId = (await gravarEntradaNaCentral(conn, bruto)).id; }
+    catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem na Central", erroCurto(e)); r.push("central-erro"); }
+  } else r.push("central-sem-conexao");
+  if (mensagemAntiga(d.enviadaEm, deps.agora())) { r.push("antiga"); return r; }
+  if (!conn) return r;
+  const config = await lerConfigAtendimento();
+  if (rota.saudacao) r.push(await enviarSaudacao({ cfg, conn, numero: d.numero, prazoFinal: ctx.prazoFinal, autor: ctx.autor, config })
+    .catch(e => { console.error("[dolores/whatsapp] falha na saudação", erroCurto(e)); return "saudacao-erro"; }));
+  if (ehSoAudio(d) && (rota.categoria === "cliente" || rota.categoria === "desconhecido")) ctx.pendentes.push({ tipo: "audio", item: d, quem, centralId, nome });
+  else if (rota.dolores && d.texto && quem.leadId) ctx.pendentes.push({ tipo: "cliente", item: d, quem, centralId, nome });
+  return r;
+}
+
+/** Depois dos itens do dono e das marcações: áudio (transcrição ou aviso) e a resposta ao cliente cadastrado. */
+async function tratarPendente(cfg: DoloresWhatsappConfig, p: PendenteDoAviso, ctx: { autor: number | null; prazoFinal: number }): Promise<string[]> {
+  const conn = await conexaoDaEmpresa().catch(() => null);
+  if (!conn || !cfg.instancia || !p.item.numero) return ["pendente-sem-conexao"];
+  const numero = p.item.numero;
+  const config = await lerConfigAtendimento();
+  const atender = (texto: string, origem: "texto" | "audio") => tratarAtendimento(cfg, conn, {
+    externalId: p.item.externalId, numero, enviadaEm: p.item.enviadaEm, texto, origem, leadId: p.quem.leadId!, nome: p.nome,
+  }, { autor: ctx.autor, prazoFinal: ctx.prazoFinal, ms: deps.ms, obterCredencial: credencialDoAtendimento });
+  if (p.tipo === "cliente") return [await atender(p.item.texto, "texto")];
+  const t = p.item.audio
+    ? await transcreverAudio({ instancia: cfg.instancia, externalId: p.item.externalId, numero, audio: p.item.audio, prazoFinal: ctx.prazoFinal, ms: deps.ms, config })
+      .catch(() => ({ ok: false as const, motivo: "falha" as const }))
+    : { ok: false as const, motivo: "falha" as const };
+  if (!t.ok) {
+    const aviso = await enviarAviso({ tipo: "audio", cfg, conn, numero, prazoFinal: ctx.prazoFinal, autor: ctx.autor, config, leadId: p.quem.leadId })
+      .catch(e => { console.error("[dolores/whatsapp] falha no aviso de áudio", erroCurto(e)); return "aviso-audio-erro"; });
+    return [`transcricao-${t.motivo}`, aviso];
+  }
+  // o texto transcrito é de TERCEIRO: vai à conversa da Central e, de cliente, ao mesmo atendimento (nunca comando)
+  if (p.centralId) await textoDaEntrada(p.centralId, `[áudio transcrito] ${t.texto}`);
+  if (p.quem.categoria === "cliente" && p.quem.leadId) return ["transcrito", await atender(t.texto, "audio")];
+  return ["transcrito"];
+}
+
+/** Etapa 9 — ligação para o número da empresa: não é atendida; aviso por texto (1 a cada N horas por número). Grupo e dono: nada. */
+async function tratarLigacao(cfg: DoloresWhatsappConfig, data: unknown, ctx: { autor: number | null; prazoFinal: number }): Promise<string> {
+  const l = lerLigacao(data);
+  if (l.grupo) return "ligacao-grupo";
+  if (!l.oferta) return "ligacao-ignorada";
+  if (!l.numero) return "ligacao-sem-numero";
+  if (ehNumeroDoDono(l.numero, cfg.numeroDono) || ehNumeroDoDono(l.numero, cfg.numeroDolores)) return "ligacao-do-dono";
+  if (l.id && !(await reivindicarRoteamento(cfg.instancia!, `ligacao:${l.id}`).catch(() => false))) return "ligacao-repetida";
+  const conn: ConexaoDaEmpresa | null = await conexaoDaEmpresa().catch(() => null);
+  if (!conn) return "ligacao-sem-conexao";
+  const config = await lerConfigAtendimento();
+  return enviarAviso({ tipo: "ligacao", cfg, conn, numero: l.numero, prazoFinal: ctx.prazoFinal, autor: ctx.autor, config })
+    .catch(e => { console.error("[dolores/whatsapp] falha no aviso de ligação", erroCurto(e)); return "aviso-ligacao-erro"; });
+}
 
 export type RespostaWebhook = { status: number; body: Record<string, unknown> };
 type Pedido = Pick<Request, "headers" | "body" | "ip">;
@@ -540,6 +644,13 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     }).catch(e => { console.error("[dolores/whatsapp] falha no aviso de grupo", erroCurto(e)); return "grupo-evento-erro"; });
     return { status: 200, body: { ok: true, r } };
   }
+  // Etapa 9 — ligação (evento CALL da Evolution, assinado por "Reativar recebimento")
+  if (evento === "call") {
+    const autorDolores = await idDaDoloresSemCriar().catch(() => null);
+    const r = await tratarLigacao(cfg, ev.data, { autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS })
+      .catch(e => { console.error("[dolores/whatsapp] falha na ligação", erroCurto(e)); return "ligacao-erro"; });
+    return { status: 200, body: { ok: true, r } };
+  }
   if (evento !== "messages.upsert") return { status: 200, body: { ok: true, r: "ignorado" } };
 
   const itens = (Array.isArray(ev.data) ? ev.data : [ev.data]).slice(0, MAX_ITENS);
@@ -554,6 +665,8 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   // QA-SEG E4b achado 4: as marcações ficam para DEPOIS dos itens do dono neste aviso (o comando do dono não fica "sem tempo"
   // por causa de marcação no grupo); cada uma confere o prazo que sobrar.
   const marcacoesDoAviso: unknown[] = [];
+  // Etapa 9: o que fica para depois do dono (resposta a cliente, áudio)
+  const pendentes: PendenteDoAviso[] = [];
   for (const item of itens) {
     // Etapa 4 — GRUPO: registrado (se cadastrado e ativo); nunca vira comando, aprovação nem ação — nem quando quem escreveu
     // no grupo é o dono. Etapa 7: grupo desconhecido entra sozinho (grupos-entrada.ts); desativado continua ignorado ("grupo").
@@ -587,10 +700,30 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       }
       continue;
     }
+    // Etapa 9 — o que o número da EMPRESA enviou (fromMe): nunca é comando. Com o dono (ou sem número): nada, nunca vai à Central.
+    // Com os demais: entra na conversa da Central (automática já gravada não duplica; a da equipe cala a Dolores ali por N horas).
+    const roteado = lerParaRoteamento(item);
+    if (roteado.tipo === "propria") {
+      const rota = decidirRota(roteado, cfg.numeroDono, null);
+      if (rota.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) { contar("propria"); continue; }
+      try {
+        if (!(await reivindicarRoteamento(cfg.instancia, roteado.externalId))) { contar("repetida"); continue; }
+        const conn = await conexaoDaEmpresa();
+        if (!conn) { contar("central-sem-conexao"); continue; }
+        const config = await lerConfigAtendimento();
+        contar(await tratarPropria(conn, item, { numero: rota.numero, texto: roteado.texto, externalId: roteado.externalId, enviadaEm: roteado.enviadaEm, silencioHoras: config.silencioHoras }));
+      } catch (e) { console.error("[dolores/whatsapp] falha ao tratar mensagem enviada pelo número da empresa", erroCurto(e)); contar("erro"); }
+      continue;
+    }
     const m = lerMensagemEvolution(item);
     if (m.tipo === "ignorar") { contar(m.motivo); continue; }
-    if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
+    // Etapa 9 — direta de quem não é o dono: roteamento (Central, saudação, cliente cadastrado, áudio). Nunca comando.
+    if (!doDono && roteado.tipo === "direta") {
+      for (const k of await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes })) contar(k);
+      continue;
+    }
+    if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
     // QA achado 5: um prazo só para o aviso inteiro. QA r2 N4: sem tempo nem para a frase fixa, a mensagem é ao menos
     // REIVINDICADA ("processando" com motivo próprio) — a recuperação do próximo aviso avisa o dono para mandar de novo.
     const semTempoNenhum = doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS;
@@ -634,6 +767,12 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
       .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
     if (r) contar(r);
+  }
+  // Etapa 9 — depois do dono e das marcações: áudio (transcrição ou aviso) e a resposta a cliente cadastrado; cada um confere o prazo
+  for (const p of pendentes) {
+    const r = await tratarPendente(cfg, p, { autor, prazoFinal })
+      .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a mensagem de cliente", erroCurto(e)); return ["cliente-erro"]; });
+    for (const k of r) contar(k);
   }
   if (contagem.reacao || contagem.edicao || contagem.interacao) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação, edição, fixação, enquete ou botão: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",

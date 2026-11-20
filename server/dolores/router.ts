@@ -5,14 +5,14 @@
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { whatsappConnections } from "../../drizzle/schema.js";
+import { users, whatsappConnections } from "../../drizzle/schema.js";
 import { doloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import {
   INSTANCIA_DOLORES, bloqueioDoLimite, mascararNumero, mesFortaleza, normalizarNumeroDono, pareceMesmoTelefone,
 } from "../../shared/dolores/whatsapp.js";
 import { existeChaveAnthropicPainel } from "../_core/anthropic-painel.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
-import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, removerInstancia } from "../_core/evolution.js";
+import { EVENTOS_WEBHOOK_DOLORES, estadoInstancia, gerarQrCode, numeroConectado, registrarWebhookEvolution, rejeitarLigacoesEvolution, removerInstancia } from "../_core/evolution.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPausa, usoDoMes } from "./consumo.js";
@@ -48,9 +48,13 @@ async function exigirEvolution() {
 const gravar = (dados: Partial<typeof doloresWhatsappConfig.$inferInsert>, userId: number) =>
   getDb().update(doloresWhatsappConfig).set({ ...dados, atualizadoEm: new Date(), atualizadoPor: userId }).where(eq(doloresWhatsappConfig.id, 1));
 
-/** O número conectado não pode ser o de uma conexão da empresa ou de corretor (a Dolores tem número próprio). */
+/**
+ * O número conectado não pode ser o de uma conexão de CORRETOR na Central. Etapa 9 (conexão única): a linha do admin em
+ * whatsapp_connections não conta — a Central do admin e do colaborador passou a usar esta mesma conexão (por código, ao ler).
+ */
 async function numeroDeOutraConexao(numero: string): Promise<boolean> {
-  const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections);
+  const conns = await getDb().select({ numero: whatsappConnections.numero }).from(whatsappConnections)
+    .innerJoin(users, eq(users.id, whatsappConnections.userId)).where(eq(users.role, "corretor"));
   return conns.some(c => pareceMesmoTelefone(c.numero, numero));
 }
 
@@ -171,12 +175,12 @@ export const doloresRouter = router({
     if (await numeroDeOutraConexao(numero)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão da empresa ou de um corretor. Conecte o número próprio da Dolores." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse número já é usado por uma conexão de corretor na Central. Conecte o número da empresa." });
     }
     if (c.numeroDono && pareceMesmoTelefone(numero, c.numeroDono)) {
       await removerInstancia(evo, c.instancia);
       await gravar({ statusConexao: "desconectado", numeroDolores: null }, ctx.user.id);
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. A Dolores precisa de um número próprio (o dono escreve para ela)." });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Esse é o número do dono. Conecte o número da empresa (o dono escreve para ele)." });
     }
     if (c.statusConexao !== "conectado" || numero !== c.numeroDolores) {
       try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
@@ -207,7 +211,9 @@ export const doloresRouter = router({
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: `O número conectado é de uma conexão da empresa ou o do dono; ${conferir}` });
     try { await registrarWebhookEvolution(evo, c.instancia, URL_WEBHOOK_DOLORES(), segredoWebhookDolores(), fetch, EVENTOS_WEBHOOK_DOLORES); }
     catch (e) { throw erro(e, "A Evolution não aceitou o aviso de mensagens da Dolores."); }
-    return { ok: true, mensagem: "Recebimento de mensagens da Dolores ativo." };
+    // Etapa 9: ligações recusadas na hora (o aviso por texto é do sistema). Falha aqui não desfaz o recebimento.
+    const rejeita = await rejeitarLigacoesEvolution(evo, c.instancia).catch(() => false);
+    return { ok: true, mensagem: `Recebimento de mensagens, grupos e ligações do WhatsApp da empresa ativo.${rejeita ? " Ligações são recusadas automaticamente." : " (A Evolution não confirmou a recusa automática de ligações; o aviso por texto vale do mesmo jeito.)"}` };
   }),
 
   desconectar: soAdmin.mutation(async ({ ctx }) => {
