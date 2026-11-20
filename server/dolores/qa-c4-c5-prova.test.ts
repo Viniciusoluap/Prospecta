@@ -1,5 +1,5 @@
-// QA (Quinn) — testes de prova do portão de C4/C5 (EPIC-026). Documentam o comportamento ATUAL encontrado no portão,
-// inclusive o achado de que uma falha de envio na hora escolhida NÃO é reenviada pela chamada seguinte do cron.
+// QA (Quinn) — testes de prova do portão de C4/C5 (EPIC-026). O achado do envio que falhou na hora escolhida (nunca reenviado)
+// foi corrigido e o teste invertido; o marcado "ACHADO" ainda documenta o comportamento atual.
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -27,8 +27,16 @@ let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
 const segredoAntes = ENV.cookieSecret;
 const q = async <T = any>(sql: string) => (await banco.pg.query<T>(sql)).rows;
+// O relógio de parede (ms) anda junto com o simulado: a ronda gravada "envelhece" entre chamadas de horas diferentes.
+// A base é a primeira hora simulada do teste (zerada a cada teste).
+let baseMs: number | null = null;
+const relogioEm = (quando: Date) => {
+  baseMs ??= quando.getTime();
+  const desvio = quando.getTime() - baseMs;
+  return { agora: () => quando, ms: () => Date.now() + desvio };
+};
 const chamar = async (quando: Date, authorization = `Bearer ${SEGREDO_CRON}`) => {
-  definirRelogioCron({ agora: () => quando });
+  definirRelogioCron(relogioEm(quando));
   return tratarCronDolores({ headers: { authorization } } as never);
 };
 const diaInteiro = async () => {
@@ -39,6 +47,7 @@ const diaInteiro = async () => {
 const config = (sql: string) => banco.pg.exec(`UPDATE dolores_operacao_config SET ${sql}`);
 
 beforeEach(async () => {
+  baseMs = null;
   banco = await criarBanco();
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
@@ -94,7 +103,7 @@ describe("QA C4 — segredo e caminhos", () => {
 describe("QA C4 — idempotência e interruptores", () => {
   it("ACHADO: 3 chamadas concorrentes na hora 7 → 1 relatório e 1 envio, mas a perdedora da corrida refaz a ronda (janela relatorio:)", async () => {
     await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 7");
-    definirRelogioCron({ agora: () => utc(10) });
+    definirRelogioCron(relogioEm(utc(10)));
     const auth = { headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never;
     await Promise.all([tratarCronDolores(auth), tratarCronDolores(auth), tratarCronDolores(auth)]);
     // esperado pela story: só diaria:<dia>; na corrida aparece também relatorio:<dia> (duas leituras completas numa chamada)
@@ -106,7 +115,7 @@ describe("QA C4 — idempotência e interruptores", () => {
   it("3 chamadas concorrentes às 10h com hora 10 (ronda refeita): no máximo 1 ronda 'relatorio', 1 envio", async () => {
     await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 10");
     await chamar(utc(10));
-    definirRelogioCron({ agora: () => utc(13) });
+    definirRelogioCron(relogioEm(utc(13))); // 3 horas depois também no relógio de parede: a ronda da manhã não é "recente"
     const auth = { headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never;
     await Promise.all([tratarCronDolores(auth), tratarCronDolores(auth), tratarCronDolores(auth)]);
     expect((await q<any>("SELECT janela FROM dolores_rondas ORDER BY id")).map(r => r.janela)).toEqual([`diaria:${DIA}`, `relatorio:${DIA}`]);
@@ -114,7 +123,7 @@ describe("QA C4 — idempotência e interruptores", () => {
     expect(enviar).toHaveBeenCalledTimes(1);
   });
 
-  it("ACHADO: envio falhou na hora escolhida → as chamadas seguintes NÃO reenviam e respondem 'ja_enviado'", async () => {
+  it("envio falhou na hora escolhida → a chamada seguinte reenvia o MESMO texto (uma vez); depois 'ja_enviado'", async () => {
     await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 8");
     enviar.mockImplementation(async () => false);
     await chamar(utc(10));
@@ -122,8 +131,34 @@ describe("QA C4 — idempotência e interruptores", () => {
     enviar.mockImplementation(async () => true);
     const resto = [];
     for (const h of [12, 13, 14, 15, 16, 17]) resto.push((await chamar(utc(h))).body.relatorio);
-    expect(resto.every(r => r === "ja_enviado")).toBe(true); // rótulo enganoso: o dono não recebeu
-    expect(enviar).toHaveBeenCalledTimes(1); // só a tentativa que falhou
+    expect(resto).toEqual(["enviado", "ja_enviado", "ja_enviado", "ja_enviado", "ja_enviado", "ja_enviado"]);
+    expect(enviar).toHaveBeenCalledTimes(2); // a que falhou + a única nova tentativa do cron
+    const textos = enviar.mock.calls.map(c => (c[0] as { texto: string }).texto);
+    expect(textos[1]).toBe(textos[0]); // o mesmo texto gravado, sem montar outro relatório
+    expect(await q("SELECT id FROM dolores_relatorios")).toHaveLength(1);
+    expect((await q<any>("SELECT janela FROM dolores_relatorio_reenvios")).map(r => r.janela)).toEqual([`cron:${DIA}`]);
+    const canais = (await q<any>("SELECT canal, resultado FROM dolores_acoes WHERE funcao = 'relatorio_envio' ORDER BY id")).map(r => `${r.canal}:${r.resultado}`);
+    expect(canais).toEqual(["cron:erro", "cron:ok"]);
+  });
+
+  it("a nova tentativa do cron também falha (ex.: tempo esgotado no provedor) → no máximo 2 envios no dia e 'nao_enviado_antes'", async () => {
+    await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 7");
+    enviar.mockImplementation(async () => false);
+    const r = await diaInteiro();
+    expect(r.map(b => b.relatorio)).toEqual(["nao_enviado", "nao_enviado", ...Array(6).fill("nao_enviado_antes")]);
+    expect(enviar).toHaveBeenCalledTimes(2);
+    for (const c of enviar.mock.calls) expect((c[0] as { numero: string }).numero).toBe(DONO);
+  });
+
+  it("envio falhou e a pausa geral foi ligada → o cron não tenta de novo", async () => {
+    await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 7");
+    enviar.mockImplementation(async () => false);
+    await chamar(utc(10));
+    await banco.pg.exec("UPDATE dolores_config SET pausada = true");
+    enviar.mockImplementation(async () => true);
+    expect((await chamar(utc(11))).body).toMatchObject({ r: "pausada" });
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(await q("SELECT id FROM dolores_relatorio_reenvios")).toHaveLength(0);
   });
 
   it("pausa geral: 8 chamadas, nada de ronda nem envio", async () => {

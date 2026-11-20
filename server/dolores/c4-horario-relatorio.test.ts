@@ -28,13 +28,20 @@ let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
 const segredoAntes = ENV.cookieSecret;
 const q = async <T = any>(sql: string) => (await banco.pg.query<T>(sql)).rows;
+// O relógio de parede (ms) anda junto com o relógio simulado: a ronda gravada (criado_em = hora real do banco) "envelhece"
+// entre chamadas de horas diferentes, como em produção (regra dos 5 min da ronda recente).
+// A base é a primeira hora simulada do teste (zerada a cada teste).
+let baseMs: number | null = null;
 const chamar = async (quando: Date) => {
-  definirRelogioCron({ agora: () => quando });
+  baseMs ??= quando.getTime();
+  const desvio = quando.getTime() - baseMs;
+  definirRelogioCron({ agora: () => quando, ms: () => Date.now() + desvio });
   return tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` }, query: { hora: "03" }, params: { hora: "03" } } as never);
 };
 const ligar = (hora: number) => banco.pg.exec(`UPDATE dolores_operacao_config SET rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = ${hora}`);
 
 beforeEach(async () => {
+  baseMs = null;
   banco = await criarBanco();
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);

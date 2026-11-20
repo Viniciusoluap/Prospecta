@@ -16,7 +16,10 @@ export const MAX_EVENTOS_PRAZO_POR_RONDA = 100;
 
 const TRES_HORAS = 3 * 60 * 60_000;
 
-/** Dia civil, hora e minuto em Brasília/Imperatriz (UTC−3). */
+/**
+ * Dia civil, hora e minuto em Brasília/Imperatriz (UTC−3). Fuso FIXO: se o horário de verão voltar, esta conta e as 8
+ * entradas do cron da Dolores (CRON_DOLORES_AGENDAS / vercel.json, hoje 10h a 17h UTC) têm de mudar JUNTAS.
+ */
 export function relogioBrasilia(d: Date): { dia: string; hora: number; minuto: number; hhmm: string } {
   const s = new Date(d.getTime() - TRES_HORAS).toISOString();
   return { dia: s.slice(0, 10), hora: Number(s.slice(11, 13)), minuto: Number(s.slice(14, 16)), hhmm: s.slice(11, 16) };
@@ -75,6 +78,11 @@ export const janelaReenvio = (agora: Date) => {
   const r = relogioBrasilia(agora);
   return `reenvio:${r.dia}T${r.hhmm}`;
 };
+/**
+ * Janela da ÚNICA nova tentativa do dia feita pelo cron quando o envio do diário falhou (EPIC-026 C4): uma por dia, na mesma
+ * tabela de janela única dos reenvios da tela. Um envio que na verdade saiu (tempo esgotado no provedor) chega no máximo duas vezes.
+ */
+export const janelaReenvioDoCron = (agora: Date) => `cron:${relogioBrasilia(agora).dia}`;
 /** Teto diário de relatórios sob demanda (tela + WhatsApp). Passou disso: frase fixa, sem ronda nem relatório. */
 export const MAX_RELATORIOS_SOB_DEMANDA_DIA = 20;
 /** Prefixo das janelas sob demanda de um dia (para contar o teto diário). */

@@ -20,8 +20,14 @@ rodava uma vez por dia às 07:00 de Brasília (`0 10 * * *`); hora mais tarde fa
 - [x] AC3: o cron chama a rotina nas 8 horas (07..14 de Brasília = 10..17 UTC) com 8 entradas DIÁRIAS no `vercel.json`
       (`0 10 * * *` … `0 17 * * *`), geradas da constante `CRON_DOLORES_AGENDAS`; sem faixa `10-17`.
 - [x] AC4: a ronda diária continua uma por dia (janela `diaria:<dia>`, a primeira chamada faz, as outras não repetem).
-- [x] AC5: o relatório sai na primeira chamada cuja hora de Brasília seja >= a escolhida (janela `diario:<dia>`, uma vez
-      por dia); se a chamada da hora não chegar, a seguinte envia. Chamadas depois disso → `ja_enviado` sem ler nada.
+- [x] AC5: o relatório é montado na primeira chamada cuja hora de Brasília seja >= a escolhida (janela `diario:<dia>`,
+      uma vez por dia); se a chamada da hora não chegar, a seguinte monta e envia. Se o ENVIO falhar, a chamada seguinte do
+      MESMO dia reenvia o MESMO texto gravado (mesmo caminho do reenvio da tela, canal "cron"), no máximo UMA nova tentativa
+      por dia pelo cron (janela única `cron:<dia>` em `dolores_relatorio_reenvios`): um envio que na verdade saiu (tempo
+      esgotado no provedor) chega ao dono no máximo duas vezes; passou disso, fica o botão da tela. Pausa geral,
+      interruptores, filtros de saída e destino só o número do dono valem igual. As chamadas seguintes respondem
+      `ja_enviado` só se o último envio registrado (`relatorio_envio`) foi `ok`; senão `nao_enviado_antes` (inclusive sem
+      resultado registrado ainda, sem nova tentativa para não duplicar). Correção do portão de QA.
 - [x] AC6: segurança inalterada: segredo do cron em tempo constante, nada do chamador (query, corpo, caminho) muda alvo
       ou janela, cabe no prazo de 45 s da rota (função de 60 s).
 - [x] AC7: testes (abaixo).
