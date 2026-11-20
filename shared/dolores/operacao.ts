@@ -3,6 +3,7 @@
 // "relatório" do dono (reconhecido por CÓDIGO, nunca pelo modelo), a estimativa em reais (só com o preço informado pelo admin;
 // o sistema não inventa preço) e o texto do relatório (MODELO FIXO, sem IA). Sem banco nem rede.
 import { MAX_CARACTERES_WHATSAPP, cortarResposta } from "./whatsapp.js";
+import { custoDoMes, linhaDoCustoParaRelatorio, type FuncaoDoConsumo, type PrecoModelo, type UsoDetalhado } from "./custo.js";
 
 /** Teto mensal do dono (prompt mestre, seção 8): R$ 1.621, tudo incluído. Só referência na tela; o limite da IA é em tokens. */
 export const TETO_DONO_REAIS = 1621;
@@ -76,7 +77,11 @@ export function ehComandoRelatorio(texto: string | null | undefined): boolean {
 }
 
 export type Precos = { entradaMilhao: number | null; saidaMilhao: number | null };
-/** R$ estimado do uso em tokens. Sem os dois preços informados → null (não inventa). Cache conta como entrada (estimativa por cima). */
+/**
+ * R$ estimado de um uso em tokens com UM preço por milhão (entrada e saída). Sem os dois preços informados → null (não inventa).
+ * Etapa 8: serve só para converter o LIMITE em reais e para rondas antigas (sem o detalhe por modelo); o gasto do mês usa
+ * shared/dolores/custo.ts (por modelo e por tipo de token, com o cache pelo preço certo).
+ */
 export function estimarReais(uso: { entrada: number; saida: number }, p: Precos): number | null {
   if (p.entradaMilhao == null || p.saidaMilhao == null || !Number.isFinite(p.entradaMilhao) || !Number.isFinite(p.saidaMilhao)) return null;
   if (p.entradaMilhao < 0 || p.saidaMilhao < 0) return null;
@@ -96,7 +101,9 @@ export type TotaisRonda = {
   banco?: { sincronizadas24h: number; aClassificar: number };
   feitos24h?: { cobrancas: number; documentos: number; tarefas: number; acompanhamentos: number };
   eventos?: { prazosNovos: number; documentosGrupo24h: number; notasLidas24h: number };
-  consumo?: { mes: string; entrada: number; saida: number; limiteEntrada: number; limiteSaida: number };
+  consumo?: { mes: string; entrada: number; saida: number; limiteEntrada: number; limiteSaida: number;
+    /** Etapa 8: o consumo do mês por modelo e função, com os 4 tipos de token (para a estimativa por modelo). */
+    linhas?: Array<{ modelo: string; funcao: FuncaoDoConsumo; uso: UsoDetalhado }> };
 };
 export type DestaquesRonda = {
   fila?: Array<{ codigo: string; funcao: string; venceEm: string }>;
@@ -155,6 +162,8 @@ const diaHora = (iso: string) => {
  */
 export function montarRelatorio(p: {
   tipo: "diario" | "sob_demanda"; geradoEm: Date; totais: TotaisRonda; destaques: DestaquesRonda; falhas: readonly string[]; precos: Precos;
+  /** Etapa 8: preços por modelo (US$ por milhão) e cotação informados pelo admin; sem eles, só a reserva (`precos`). */
+  precosPorModelo?: { tabela: ReadonlyMap<string, PrecoModelo>; cotacao: number | null };
 }, max = MAX_CARACTERES_WHATSAPP): string {
   const t = p.totais, d = p.destaques;
   const r = relogioBrasilia(p.geradoEm);
@@ -206,9 +215,17 @@ export function montarRelatorio(p: {
     sec("Feito nas últimas 24 h (pela Dolores)", [`Cobranças preparadas e aprovadas: ${n(t.feitos24h.cobrancas)}; documentos gerados: ${n(t.feitos24h.documentos)}; tarefas criadas: ${n(t.feitos24h.tarefas)}; acompanhamentos registrados: ${n(t.feitos24h.acompanhamentos)}.`]);
   }
   if (t.consumo) {
-    const reais = estimarReais({ entrada: t.consumo.entrada, saida: t.consumo.saida }, p.precos);
-    sec("Gasto da IA no mês", [`Mês ${t.consumo.mes}: ${n(t.consumo.entrada)} tokens de entrada (limite ${n(t.consumo.limiteEntrada)}) e ${n(t.consumo.saida)} de saída (limite ${n(t.consumo.limiteSaida)}).`
-      + (reais == null ? " Estimativa em reais: falta informar o preço por milhão de tokens na tela." : ` Estimativa: ${brl(reais)} (teto do dono ${brl(TETO_DONO_REAIS)}).`)]);
+    const tokens = `Mês ${t.consumo.mes}: ${n(t.consumo.entrada)} tokens de entrada contados no limite (limite ${n(t.consumo.limiteEntrada)}) e ${n(t.consumo.saida)} de saída (limite ${n(t.consumo.limiteSaida)}).`;
+    if (t.consumo.linhas) {
+      // Etapa 8 — a MESMA conta da tela: por modelo e por tipo de token (cache pelo preço de cache), reserva só para modelo sem preço
+      const c = custoDoMes(t.consumo.linhas, p.precosPorModelo?.tabela ?? new Map(), p.precos, p.precosPorModelo?.cotacao ?? null);
+      const cache = c.porModelo.reduce((s, m) => s + m.uso.cacheEscrita + m.uso.cacheLeitura, 0);
+      sec("Gasto da IA no mês", [`${tokens}${cache ? ` A entrada inclui ${n(cache)} de cache, que custa bem menos.` : ""} ${linhaDoCustoParaRelatorio(c, TETO_DONO_REAIS)}`]);
+    } else {
+      const reais = estimarReais({ entrada: t.consumo.entrada, saida: t.consumo.saida }, p.precos);
+      sec("Gasto da IA no mês", [tokens
+        + (reais == null ? " Estimativa em reais: falta informar o preço por milhão de tokens na tela." : ` Estimativa (preço único, cache como entrada cheia): ${brl(reais)} (teto do dono ${brl(TETO_DONO_REAIS)}).`)]);
+    }
   }
   const faltam = p.falhas.map(f => NOME_SECAO[f as SecaoRonda] ?? f);
   L.push("", "Sem dado no sistema: \"aguardando providência interna\" (não há registro próprio para isso).");
