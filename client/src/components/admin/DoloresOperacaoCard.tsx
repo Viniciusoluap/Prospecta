@@ -175,10 +175,9 @@ export function DoloresOperacaoCard() {
                 </select></label>
             </div>
             <p className="text-xs text-gray-400">
-              O cron da Vercel chama a rotina uma vez por dia às {d.agendamento.horarioBrasilia} (Brasília; {d.agendamento.horarioUtc} UTC). O relatório diário sai nessa
-              execução se a hora escolhida já tiver chegado — por isso só dá para escolher até as {d.agendamento.horarioBrasilia} (uma hora depois disso faria o relatório
-              nunca sair; para outro horário, a equipe técnica muda o agendamento). Sob demanda: o botão abaixo ou a mensagem
-              "relatório" do dono no WhatsApp.
+              Horário de Brasília. A ronda do dia é feita uma vez, às {d.agendamento.horarioBrasilia}. O relatório diário sai uma vez por dia, na hora escolhida
+              (de 07:00 a 14:00); se a hora escolhida for depois das {d.agendamento.horarioBrasilia}, a ronda é refeita na hora do relatório para ir com os números
+              do momento. Sob demanda: o botão abaixo ou a mensagem "relatório" do dono no WhatsApp.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className={botaoSec} disabled={ronda.isPending || pausada} onClick={() => ronda.mutate()}>{ronda.isPending ? "Fazendo a ronda…" : "Fazer ronda agora"}</Button>

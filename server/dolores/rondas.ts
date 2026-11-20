@@ -22,7 +22,7 @@ import { sqlGrupoLeDocumentos } from "./grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { doloresEventos, doloresRelatorioReenvios, doloresRelatorios, doloresRondas, type DoloresRonda, type OrigemOperacao } from "../../drizzle/schema-dolores-operacao.js";
 import {
-  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, MAX_RELATORIOS_SOB_DEMANDA_DIA, janelaDiaria, janelaReenvio, janelaRelatorioDiario, janelaSobDemanda,
+  HORAS_AVISO_FILA, MAX_DESTAQUES, MAX_EVENTOS_PRAZO_POR_RONDA, MAX_RELATORIOS_SOB_DEMANDA_DIA, janelaDiaria, janelaReenvio, janelaRelatorioDiario, janelaRondaDoRelatorio, janelaSobDemanda,
   limparNomeDeTerceiro, montarRelatorio, prefixoSobDemandaDoDia, relatorioDiarioNaHora,
   type DestaquesRonda, type SecaoRonda, type TotaisRonda,
 } from "../../shared/dolores/operacao.js";
@@ -372,9 +372,23 @@ let relogio: Relogio = { agora: () => new Date(), ms: () => Date.now() };
 /** Só para testes: o relógio do cron (sem argumento, volta ao real). */
 export function definirRelogioCron(r?: Partial<Relogio>) { relogio = r ? { ...relogio, ...r } : { agora: () => new Date(), ms: () => Date.now() }; }
 
+/** O relatório diário de hoje já foi montado? (falha na leitura → "não": o insert com janela única segura a duplicação). */
+async function relatorioDiarioJaMontado(agora: Date): Promise<boolean> {
+  try {
+    const [r] = await getDb().select({ id: doloresRelatorios.id }).from(doloresRelatorios).where(eq(doloresRelatorios.janela, janelaRelatorioDiario(agora))).limit(1);
+    return Boolean(r);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Execução diária. Ignora query e corpo (nada do chamador muda o alvo, a janela ou o destino). Ordem: segredo → configuração →
- * pausa → ronda do dia (se ligada) → relatório do dia (se ligado e já na hora; uma vez por dia).
+ * Execução do cron, chamada de hora em hora das 07h às 14h de Brasília (EPIC-026 C4: uma entrada diária por hora no
+ * vercel.json, todas nesta função). Ignora query, corpo e o fim do caminho (nada do chamador muda o alvo, a janela ou o
+ * destino). Ordem: segredo → configuração → pausa → ronda do dia (se ligada; a primeira chamada faz, as outras não repetem)
+ * → relatório do dia (se ligado e a hora de Brasília já chegou na escolhida; uma vez por dia — se a chamada da hora falhar,
+ * a seguinte envia). Quando a ronda da manhã é de uma chamada anterior, o relatório usa uma ronda refeita na hora
+ * (janela "relatorio:<dia>").
  */
 export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!cronAutorizado(req.headers.authorization)) return { status: 401, body: { error: "Não autorizado" } };
@@ -396,8 +410,19 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   let relatorio: string = "desligado";
   if (config.relatorioLigado) {
     if (!relatorioDiarioNaHora(agora, config.relatorioHora)) relatorio = "fora-da-hora";
-    else if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) relatorio = "sem-tempo";
-    else relatorio = (await enviarRelatorio({ tipo: "diario", janela: janelaRelatorioDiario(agora), origem: "cron", ronda: ronda.ronda, agora, prazoFinal, config })).situacao;
+    else if (await relatorioDiarioJaMontado(agora)) relatorio = "ja_enviado";
+    else {
+      // EPIC-026 C4: a ronda da manhã foi feita numa chamada anterior (hora escolhida depois dela, ou a chamada da hora falhou)
+      // → refaz a ronda na hora do relatório, numa janela própria do dia (só inserção, uma por dia): dados frescos sem repetir.
+      let base = ronda.ronda;
+      if (!ronda.nova) {
+        if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) return { status: 200, body: { ok: true, ronda: "ja-feita", relatorio: "sem-tempo" } };
+        const fresca = await executarRonda({ janela: janelaRondaDoRelatorio(agora), origem: "cron", agora, prazoFinal, relogio: relogio.ms, config });
+        if (fresca.ok) base = fresca.ronda; // não deu: usa a da manhã (o relatório não deixa de sair)
+      }
+      if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) relatorio = "sem-tempo";
+      else relatorio = (await enviarRelatorio({ tipo: "diario", janela: janelaRelatorioDiario(agora), origem: "cron", ronda: base, agora, prazoFinal, config })).situacao;
+    }
   }
   return { status: 200, body: { ok: true, ronda: ronda.nova ? "feita" : "ja-feita", relatorio } };
 }
