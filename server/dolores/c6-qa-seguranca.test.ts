@@ -168,10 +168,15 @@ describe("QA-SEG C6 — falha segura e migração", () => {
   it("0138 aplicada 3× e ON DELETE SET NULL do usuário: a linha continua (assumida), só perde o autor", async () => {
     await conversaDoJoao();
     await banco.pg.exec(MIGRACAO_0138());
+    await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
+    // usuário e lead referenciados SÓ por esta tabela (a auditoria dolores_acoes é RESTRICT + só inserção, de antes da C6)
     const [{ id: qa }] = await q<{ id: number }>(`INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('qa', 'QA Temp', 'colaborador', true, 'hash') RETURNING id`);
-    await caller("colaborador", qa).whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
-    await banco.pg.exec(`DELETE FROM dolores_acoes WHERE autor_user_id = ${qa}; DELETE FROM users WHERE id = ${qa}`);
-    expect(await modos()).toEqual([{ modo: "humano", alterado_por: null, lead_id: 2 }]);
+    const [{ id: lead }] = await q<{ id: number }>(`INSERT INTO leads (name, phone, stage, created_at, updated_at) VALUES ('Temp', '11900000000', 'attending', now(), now()) RETURNING id`);
+    await banco.pg.exec(`UPDATE whatsapp_atendimento_modo SET alterado_por = ${qa}, lead_id = ${lead}`);
+    await banco.pg.exec(`DELETE FROM users WHERE id = ${qa}; DELETE FROM leads WHERE id = ${lead}`);
+    expect(await modos()).toEqual([{ modo: "humano", alterado_por: null, lead_id: null }]);
+    // quem clicou e ficou na auditoria não pode ser apagado (RESTRICT, regra antiga da 0123)
+    await expect(banco.pg.exec(`DELETE FROM users WHERE id = 1`)).rejects.toThrow();
     expect((await situacaoDoSilencio(JOAO, AGORA, "prospecta-dolores")).estado).toBe("assumida");
     await expect(banco.pg.exec(`INSERT INTO whatsapp_atendimento_modo (instancia, chave_numero, modo) VALUES ('x', 'y', 'outro')`)).rejects.toThrow();
   });
