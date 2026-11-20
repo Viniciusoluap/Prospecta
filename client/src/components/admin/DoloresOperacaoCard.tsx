@@ -189,7 +189,12 @@ export function DoloresOperacaoCard() {
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.rondasLigadas} disabled={salvar.isPending} aria-label="Rondas ligadas"
                 onCheckedChange={v => salvar.mutate(v ? { rondasLigadas: true } : { rondasLigadas: false, relatorioLigado: false })} /> Rondas</label>
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.relatorioLigado} disabled={salvar.isPending} aria-label="Relatório diário ligado"
-                onCheckedChange={v => salvar.mutate({ relatorioLigado: v })} /> Relatório diário</label>
+                onCheckedChange={v => salvar.mutate({ relatorioLigado: v })} /> Relatório diário
+                <span className={d.config.relatorioLigado && !d.config.rondasLigadas ? "text-xs font-semibold text-amber-300" : "text-xs text-gray-400"}>
+                  {d.config.relatorioLigado && !d.config.rondasLigadas
+                    ? "(rondas desligadas: nada sai — o relatório depende das rondas ligadas)"
+                    : "(o relatório depende das rondas ligadas)"}
+                </span></label>
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.eventosLigados} disabled={salvar.isPending} aria-label="Eventos ligados"
                 onCheckedChange={v => salvar.mutate({ eventosLigados: v })} /> Eventos</label>
               <label className="flex min-h-10 items-center gap-2">Relatório a partir das
