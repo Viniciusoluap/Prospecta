@@ -571,7 +571,7 @@ export const whatsappRouter = router({
       ? (await db.select({ messageId: whatsappMidias.messageId }).from(whatsappMidias).where(inArray(whatsappMidias.messageId, comMidia))).map(x => x.messageId)
       : []);
     return da.map(m => ({
-      id: m.id, direcao: m.direcao, mensagem: m.mensagem, status: m.status, quando: m.createdAt,
+      id: m.id, direcao: m.direcao, mensagem: m.mensagem, status: m.status, quando: m.createdAt, automatica: m.automatica ?? false,
       midia: m.midiaTipo ? { tipo: m.midiaTipo, mime: m.midiaMime, nome: m.midiaNome, tamanho: m.midiaTamanho, baixada: baixadas.has(m.id) } : null,
     }));
   }),

@@ -266,4 +266,9 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
 - (não portar — exceção) Etapa 7 — grupos automáticos, por tipo (regra do dono de 19/11): grupo entra sozinho com o tipo pelo nome
   (cliente, pós-atendimento, jurídico, administrativo, parceiros, engenharia), aviso e comando "grupo CÓDIGO tipo [nº]" do dono,
   escopo da resposta por tipo travado no servidor (`0133`)
+- (não portar — exceção) Etapa 9 — WhatsApp com uma conexão só (regra do dono de 20/11): o número da Dolores vira o da empresa e
+  serve também a Central do admin/colaborador; roteamento por código no aviso da Dolores, saudação de campanha, Dolores responde
+  cliente cadastrado, aviso de ligação/áudio, transcrição pela Cloudflare, disparo em massa bloqueado no número principal (`0135`).
+  Depende da Dolores (exceção). No Santa Fé a Central continua com a conexão do admin; saudação de campanha ou aviso de ligação na
+  Central de lá só com pedido novo do dono (registrar aqui antes).
 - [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**
