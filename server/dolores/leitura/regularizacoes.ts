@@ -9,7 +9,7 @@ import {
   regularizacaoItensFinanceiros, regularizacaoRecebimentos, regularizacoes, tasks,
 } from "../../../drizzle/schema.js";
 import { centavosParaReais, diaDoPrazo, diaFortaleza, isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
-import { type CanalDolores, campoPessoal } from "../dados-pessoais.js";
+import { type CanalDoFiltro, campoPessoal } from "../dados-pessoais.js";
 import {
   DIAS_PARADO_PADRAO, STATUS_ENCERRADOS_PROCESSO, etapaAtual, maisRecente, proximaProvidencia, responsavelDaTarefa,
   responsavelDoProcesso, situacaoDoPrazo,
@@ -22,10 +22,10 @@ import {
   idPositivo, nomesDeUsuarios, paginacao, rotuloDocumento, tarefaAberta, type Resultado,
 } from "./comum.js";
 
-type Ctx = { agora: Date; canal: CanalDolores };
+type Ctx = { agora: Date; canal: CanalDoFiltro };
 
 /** Lê os processos (todos ou os ids pedidos) com tudo o que a análise precisa. */
-export async function carregarProcessos(ids: number[] | null, agora: Date, canal: CanalDolores, diasParado = DIAS_PARADO_PADRAO) {
+export async function carregarProcessos(ids: number[] | null, agora: Date, canal: CanalDoFiltro, diasParado = DIAS_PARADO_PADRAO) {
   const regs = await db().select({
     reg: {
       id: regularizacoes.id, clientName: regularizacoes.clientName, clientPhone: regularizacoes.clientPhone, type: regularizacoes.type,

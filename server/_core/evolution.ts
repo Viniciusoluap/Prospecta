@@ -103,7 +103,13 @@ export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string
  * Pedido de 25/10 (Conversas): a Evolution passa a avisar o sistema de mensagens recebidas, status de
  * entrega/leitura e da conexão. Cabeçalho secreto para o sistema aceitar só avisos legítimos.
  */
-export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: string, url: string, segredo: string, fetchImpl: Fetch = fetch): Promise<void> {
+/**
+ * EPIC-025 (etapa 7): a instância da Dolores assina também os avisos de grupo (quem a adicionou e a criação do grupo), para provar
+ * que foi o DONO quem a colocou no grupo. A Central de Vendas continua com os três avisos de sempre.
+ */
+export const EVENTOS_WEBHOOK_PADRAO = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] as const;
+export const EVENTOS_WEBHOOK_DOLORES = [...EVENTOS_WEBHOOK_PADRAO, "GROUP_PARTICIPANTS_UPDATE", "GROUPS_UPSERT"] as const;
+export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: string, url: string, segredo: string, fetchImpl: Fetch = fetch, eventos: readonly string[] = EVENTOS_WEBHOOK_PADRAO): Promise<void> {
   const r = await chamar(c, `/webhook/set/${encodeURIComponent(instancia)}`, {
     method: "POST",
     body: JSON.stringify({
@@ -113,7 +119,7 @@ export async function registrarWebhookEvolution(c: EvolutionConfig, instancia: s
         headers: { "x-webhook-token": segredo },
         byEvents: false,
         base64: false,
-        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"],
+        events: [...eventos],
       },
     }),
   }, fetchImpl);
@@ -210,6 +216,25 @@ export async function listarGruposEvolution(c: EvolutionConfig, instancia: strin
     if (typeof x.id !== "string" || !x.id.endsWith("@g.us")) return [];
     return [{ id: x.id.slice(0, 80), nome: typeof x.subject === "string" ? x.subject.slice(0, 200) : null, participantes: typeof x.size === "number" ? x.size : null }];
   });
+}
+
+/**
+ * EPIC-025 (Dolores, etapa 7) — SÓ LEITURA: os dados de um grupo (GET /group/findGroupInfos/{instância}?groupJid=…): o NOME (para o
+ * tipo), quem o criou (owner) e os participantes com o admin — para provar, por código, que foi o DONO quem colocou a Dolores
+ * (regra do dono de 19/11/2026). Tudo é texto de terceiro (quem chama filtra). Id fora da forma → null.
+ */
+export async function metadadoDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch, prazoMs = 5_000): Promise<{ nome: string | null; criador: string[]; participantes: unknown[] } | null> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return null;
+  const r = await chamar<unknown>(c, `/group/findGroupInfos/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(prazoMs) }, fetchImpl);
+  if (!r.ok) throw new Error(`A Evolution não informou o grupo (HTTP ${r.status})${motivo(r.data)}.`);
+  const d = (Array.isArray(r.data) ? r.data[0] : r.data) as Record<string, unknown> | null;
+  if (!d || typeof d !== "object" || (typeof d.id === "string" && d.id !== grupoJid)) return null;
+  const criador = [d.owner, d.ownerPn, d.ownerJid, d.ownerAlt].filter((v): v is string => typeof v === "string").map(v => v.slice(0, 80));
+  return {
+    nome: typeof d.subject === "string" && d.subject.trim() ? d.subject.slice(0, 200) : null,
+    criador,
+    participantes: Array.isArray(d.participants) ? d.participants.slice(0, 1024) : [],
+  };
 }
 
 /**

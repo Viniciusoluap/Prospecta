@@ -22,7 +22,7 @@ import { registrarAcao } from "./auditoria.js";
 import { liberarReservaClassificacao, registrarConsumo, registrarConsumoDaClassificacao, reservarClassificacao, type UsoDaChamada } from "./consumo.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
-import { lerConfigGrupos } from "./grupos.js";
+import { grupoLeDocumentos, lerConfigGrupos, sqlGrupoLeDocumentos } from "./grupos.js";
 
 /** Para tentar classificar dentro do aviso, é preciso ao menos isto de prazo (download + modelo + gravação). */
 export const MINIMO_PARA_CLASSIFICAR_MS = 30_000;
@@ -310,11 +310,14 @@ export async function classificarDocumentoDoGrupo(mensagemId: number, o: OpcoesC
   const relogio = o.relogio ?? Date.now;
   const restante = () => o.prazoFinal - relogio();
   const db = getDb();
-  const [m] = await db.select({ msg: doloresGrupoMensagens, ativo: doloresGrupos.ativo, obraId: doloresGrupos.obraId }).from(doloresGrupoMensagens)
+  const [m] = await db.select({ msg: doloresGrupoMensagens, ativo: doloresGrupos.ativo, obraId: doloresGrupos.obraId, leadId: doloresGrupos.leadId,
+    tipo: doloresGrupos.tipo, situacaoConfirmacao: doloresGrupos.situacaoConfirmacao }).from(doloresGrupoMensagens)
     .innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId)).where(eq(doloresGrupoMensagens.id, mensagemId)).limit(1);
   if (!m || !m.ativo) return "classificacao-nada";
   // Etapa 5: documento de grupo de OBRA vai para a leitura de nota (server/dolores/notas-obra.ts), não para esta classificação
   if (m.obraId !== null) return "classificacao-obra";
+  // Etapa 7: só grupo de cliente/pós-atendimento COM cliente ligado (interno, aguardando o dono ou sem cliente: não chama a IA)
+  if (!grupoLeDocumentos(m)) return "classificacao-sem-cliente";
   const msg = m.msg;
   if (!["a_classificar", "erro", "classificando"].includes(msg.situacao) || msg.tentativas >= MAX_TENTATIVAS) return "classificacao-nada";
   const config = await lerConfigGrupos();
@@ -494,7 +497,7 @@ export async function classificarPendentes(o: OpcoesClassificacao & { maximo: nu
   const relogio = o.relogio ?? Date.now;
   const pendentes = await getDb().select({ id: doloresGrupoMensagens.id }).from(doloresGrupoMensagens)
     .innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId))
-    .where(and(eq(doloresGrupos.ativo, true), isNull(doloresGrupos.obraId), inArray(doloresGrupoMensagens.situacao, ["a_classificar", "erro"]), lt(doloresGrupoMensagens.tentativas, MAX_TENTATIVAS)))
+    .where(and(eq(doloresGrupos.ativo, true), isNull(doloresGrupos.obraId), sqlGrupoLeDocumentos(), inArray(doloresGrupoMensagens.situacao, ["a_classificar", "erro"]), lt(doloresGrupoMensagens.tentativas, MAX_TENTATIVAS)))
     .orderBy(doloresGrupoMensagens.id).limit(Math.min(10, o.maximo));
   const contagem: Record<string, number> = {};
   for (const p of pendentes) {

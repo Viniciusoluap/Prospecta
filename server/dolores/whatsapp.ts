@@ -2,7 +2,7 @@
 //   POST /api/dolores/whatsapp  ← avisos da Evolution SÓ da instância da Dolores (prospecta-dolores)
 // Autenticação: cabeçalho `x-webhook-token` = HMAC do segredo do servidor com rótulo próprio (diferente do webhook da
 // Central), comparado em tempo constante. Depois: só a instância da Dolores; status e as mensagens dela mesma são
-// ignorados; grupo só é REGISTRADO se estiver cadastrado e ativo (etapa 4, grupos.ts) — nunca vira comando; mensagem antiga (reentrega) não vira comando; a mesma mensagem (instância + id) só é tratada uma vez
+// ignorados; grupo só é REGISTRADO se estiver ativo (etapa 4, grupos.ts; etapa 7: grupo novo entra sozinho) — nunca vira comando; mensagem antiga (reentrega) não vira comando; a mesma mensagem (instância + id) só é tratada uma vez
 // (dolores_mensagens, índice único). Comando só do número do dono (configuração, comparação normalizada); de outro
 // número, nada responde e nada chama a IA — só a auditoria. A IA só roda com chave do painel + modelo + interruptor da
 // Dolores + limite definido e não atingido + sem pausa + usuária ativa; senão, frase fixa (cerebro.ts nem é chamado).
@@ -37,8 +37,11 @@ import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
 import { registrarEvento } from "./operacao.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
+import { entrarNoGrupo, tratarEventoDeGrupo } from "./grupos-entrada.js";
+import { decidirGrupo } from "./grupos-decisao.js";
+import { lerDecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
-import { tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
+import { identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
 import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas-obra.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -327,6 +330,18 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "respondida", motivo: `decisão da fila: ${decisao.decisao}`, respondidaEm: deps.agora() });
     return `decisao:${decisao.decisao}`;
   }
+  // Etapa 7 — "grupo CÓDIGO tipo [nº]" (a mensagem inteira), reconhecido por CÓDIGO: o dono define/corrige o tipo e o vínculo de um
+  // grupo da Dolores (configuração dela, não o CRM). Só chega aqui mensagem do número do dono, não encaminhada e sem mídia; nada
+  // de grupo vira comando. Não chama a IA (nem gasta).
+  const decisaoDeGrupo = msg.temMidia ? null : lerDecisaoDeGrupo(msg.texto);
+  if (decisaoDeGrupo) {
+    const { codigo, ...d } = decisaoDeGrupo;
+    const r = await decidirGrupo({ codigo }, d, { via: "whatsapp", autor, mensagemId: msg.id })
+      .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
+    await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo: ${d.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
+    return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
+  }
   // Etapa 6 — "relatório" (a mensagem inteira), reconhecido por CÓDIGO: ronda + relatório de modelo fixo, sem IA (nem gasto).
   // Mesma porta da pausa geral e do interruptor do relatório; o texto vai ao número do dono pelo envio do sistema.
   if (!msg.temMidia && ehComandoRelatorio(msg.texto)) {
@@ -514,6 +529,17 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     await getDb().update(doloresWhatsappConfig).set({ statusConexao: status }).where(eq(doloresWhatsappConfig.id, 1)).catch(() => undefined);
     return { status: 200, body: { ok: true, r: "conexao" } };
   }
+  // Etapa 7 — avisos de grupo (quem adicionou a Dolores; criação do grupo): só provam QUEM a colocou no grupo (regra do dono de
+  // 19/11: só o número dele pode) e criam o grupo. Nada é lido, respondido ou executado a partir deles.
+  const eventoDeGrupo = evento.replace(/-/g, ".");
+  if (eventoDeGrupo === "group.participants.update" || eventoDeGrupo === "groups.upsert") {
+    const autorDolores = await idDaDoloresSemCriar().catch(() => null);
+    const conf = await lerConfigMarcacoes().catch(() => null);
+    const r = await tratarEventoDeGrupo(cfg, eventoDeGrupo === "groups.upsert" ? "criacao" : "participantes", ev.data, {
+      agora, autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS, avisar: enviarAvisoAoDono, identidade: identidadeDaDolores(cfg, conf),
+    }).catch(e => { console.error("[dolores/whatsapp] falha no aviso de grupo", erroCurto(e)); return "grupo-evento-erro"; });
+    return { status: 200, body: { ok: true, r } };
+  }
   if (evento !== "messages.upsert") return { status: 200, body: { ok: true, r: "ignorado" } };
 
   const itens = (Array.isArray(ev.data) ? ev.data : [ev.data]).slice(0, MAX_ITENS);
@@ -530,11 +556,14 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const marcacoesDoAviso: unknown[] = [];
   for (const item of itens) {
     // Etapa 4 — GRUPO: registrado (se cadastrado e ativo); nunca vira comando, aprovação nem ação — nem quando quem escreveu
-    // no grupo é o dono. Grupo não cadastrado continua ignorado como antes ("grupo").
+    // no grupo é o dono. Etapa 7: grupo desconhecido entra sozinho (grupos-entrada.ts); desativado continua ignorado ("grupo").
     // Etapa 4b — a ÚNICA fala no grupo: quando a Dolores é MARCADA (menção real, por código), em grupo cadastrado e ativo e com
     // os interruptores ligados, ela responde só sobre aquele cliente (marcacao.ts) — depois dos itens do dono deste aviso.
     if (ehDeGrupo(item)) {
-      const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor });
+      // Etapa 7 — grupo desconhecido entra sozinho (tipo pelo nome da Evolution, teto diário, aviso ao dono); nunca fala nele
+      const instancia = cfg.instancia;
+      const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor,
+        entrar: async jid => (await entrarNoGrupo({ instancia, grupoJid: jid, agora: deps.agora(), autor, prazoFinal, canal: "whatsapp", avisar: enviarAvisoAoDono, numeroDono: cfg.numeroDono })).grupo });
       contar(g.resultado);
       // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
       if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
