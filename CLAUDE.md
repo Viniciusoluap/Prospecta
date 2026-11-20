@@ -195,3 +195,23 @@ qualquer agente que mexer nisso (story `docs/stories/epics/epic-025-dolores/E4b-
 - O escopo (um cliente só, sem dados pessoais nem valores) é travado no servidor, não no prompt.
 - Sem marcação, grupo não cadastrado ou interruptor desligado: silêncio total.
 - A segurança continua prioridade: interruptor próprio desligado por padrão, tetos por grupo e por remetente, portão de QA.
+
+## WhatsApp — uma conexão só, feita em Integrações (REGRA — estabelecida pelo dono em 20/11/2026)
+
+Palavras do dono: "Não, eu quero uma conexão só". O número conectado em Integrações é o da empresa: serve a Dolores E a
+Central WhatsApp (atendimento). Isto substitui a ideia anterior de "número exclusivo da Dolores, separado da Central".
+
+1. **A conexão é feita só em Configurações › Integrações** (QR code pela Evolution, ou API oficial da Meta). O bloco
+   "Minha Conexão WhatsApp" sai da aba "Minha conexão" da Central para o admin; lá fica só "Conexões dos Corretores".
+   Corretor e colaborador continuam conectando o próprio número na aba deles (não têm acesso a Integrações).
+2. **A Central reflete essa conexão**: Conversas, Enviar mensagem e Templates usam o número conectado em Integrações.
+3. **Quem trata cada mensagem que chega nesse número** (decidido por código, nunca pela IA):
+   - conversa direta do número do dono → Dolores (comandos); nunca aparece na Central;
+   - conversa direta de qualquer outro número → Central (atendimento humano); a Dolores não responde nem age;
+   - grupos → Dolores, pelas regras de 17/11 e 19/11 (só quando marcada; só grupo que o dono adicionou).
+4. **A Dolores continua sem enviar nada a cliente**: quem escreve ao cliente pela Central é gente da equipe. As
+   respostas e os avisos da Dolores vão só ao número do dono (e ao grupo, quando marcada).
+5. **API oficial da Meta**: é opção para a mesma conexão única, mas não entrega mensagens de grupo — com ela a Dolores
+   não atua em grupos. A tela avisa isso antes de trocar.
+6. Segurança continua prioridade: conversa do dono com a Dolores e avisos dela nunca ficam visíveis a corretor ou
+   colaborador pela Central; só admin envia pela conexão da empresa, como já era.
