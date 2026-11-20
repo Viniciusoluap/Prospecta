@@ -268,3 +268,145 @@ describe("idempotência, concorrência e migração", () => {
     await q(`DELETE FROM whatsapp_campanhas WHERE id = ${id}`).catch(() => undefined); // saudações podem segurar (FK antiga)
   });
 });
+
+// ── Rodada 2 do portão (commit 7705439): tentar quebrar as correções e conferir que arquivos LEGÍTIMOS passam ──
+
+const seg = (m: number, corpo: Buffer) => { const h = Buffer.alloc(4); h[0] = 0xff; h[1] = m; h.writeUInt16BE(corpo.length + 2, 2); return Buffer.concat([h, corpo]); };
+const sof = (m: number, largura: number, altura: number) => { const c = Buffer.alloc(15); c[0] = 8; c.writeUInt16BE(altura, 1); c.writeUInt16BE(largura, 3); c[5] = 3; return seg(m, c); };
+const sos = () => seg(0xda, Buffer.from([3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0]));
+const dados = (n: number) => { const d = Buffer.alloc(n, 0x12); for (let k = 0; k < n; k += 97) { d[k] = 0xff; if (k + 1 < n) d[k + 1] = 0x00; } return d; };
+const jpg = (...meio: Buffer[]) => Buffer.concat([Buffer.from([0xff, 0xd8]), ...meio, Buffer.from([0xff, 0xd9])]);
+const app1ComMiniatura = () => seg(0xe1, Buffer.concat([Buffer.from("Exif\0\0"), jpg(sof(0xc0, 160, 120), seg(0xc4, Buffer.alloc(20)), sos(), dados(300))]));
+const fullbox = (tipo: string, escalaOff: number, escala: number, dur: number, tam = 100) => { const c = Buffer.alloc(tam); c.writeUInt32BE(escala, escalaOff); c.writeUInt32BE(dur, escalaOff + 4); return caixa(tipo, c); };
+const m4aCompleto = (p: { mvhdEscala: number; mvhdDur: number; mdhdEscala: number; mdhdDur: number; mdat: number; moovNoFim?: boolean; metaTrak?: boolean }) => {
+  const hdlr = (t: string) => { const h = Buffer.alloc(24); h.write(t, 8, "latin1"); return caixa("hdlr", h); };
+  const trak = caixa("trak", caixa("mdia", fullbox("mdhd", 12, p.mdhdEscala, p.mdhdDur, 24), hdlr("soun")));
+  const meta = p.metaTrak ? [caixa("trak", caixa("mdia", fullbox("mdhd", 12, 1000, 1, 24), hdlr("meta")))] : [];
+  const moov = caixa("moov", fullbox("mvhd", 12, p.mvhdEscala, p.mvhdDur), trak, ...meta);
+  const ftyp = caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1"));
+  const mdat = caixa("mdat", Buffer.alloc(p.mdat, 0x21));
+  return p.moovNoFim ? Buffer.concat([ftyp, mdat, moov]) : Buffer.concat([ftyp, moov, mdat]);
+};
+
+describe("rodada 2 — imagem: o parser novo", () => {
+  it("JPG legítimos passam: baseline com EXIF e miniatura dentro do APP1; progressivo com vários SOS e DHT entre eles; reinícios", () => {
+    const base = jpg(seg(0xe0, Buffer.from("JFIF\0\x01\x01\0\0\x01\0\x01\0\0")), app1ComMiniatura(), seg(0xdb, Buffer.alloc(65)), sof(0xc0, 4032, 3024), seg(0xc4, Buffer.alloc(30)), sos(), dados(5000));
+    expect(conferirMidiaSaudacao("imagem", base)).toMatchObject({ ok: true, mime: "image/jpeg" });
+    const prog = jpg(seg(0xdb, Buffer.alloc(65)), sof(0xc2, 1600, 1200), seg(0xc4, Buffer.alloc(30)), sos(), dados(800), seg(0xc4, Buffer.alloc(30)), sos(), dados(800), sos(), dados(800));
+    expect(conferirMidiaSaudacao("imagem", prog)).toMatchObject({ ok: true });
+    const reinicio = jpg(sof(0xc0, 100, 100), sos(), dados(100), Buffer.from([0xff, 0xd0]), dados(100), Buffer.from([0xff, 0xd1]), dados(100));
+    expect(conferirMidiaSaudacao("imagem", reinicio)).toMatchObject({ ok: true });
+  });
+  it("a miniatura do EXIF não engana a dimensão: quadro principal gigante com miniatura pequena é recusado", () => {
+    const b = jpg(app1ComMiniatura(), sof(0xc0, 30_000, 30_000), sos(), dados(500));
+    expect(conferirMidiaSaudacao("imagem", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/grande demais em pixels/) });
+  });
+  it("ACHADO R2-2: DOIS quadros SOF — o 1º gigante e o 2º pequeno: o parser fica com o ÚLTIMO e aceita", () => {
+    const b = jpg(sof(0xc0, 60_000, 60_000), sof(0xc0, 100, 100), sos(), dados(500));
+    expect(conferirMidiaSaudacao("imagem", b)).toMatchObject({ ok: true }); // deveria recusar (2 SOF) ou usar o 1º
+  });
+  it("segmento de tamanho 0 ou 1, marcador solto e lixo depois do FF D9 são recusados", () => {
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]), Buffer.alloc(40), Buffer.from([0xff, 0xd9])])).ok).toBe(false);
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1]), Buffer.alloc(40), Buffer.from([0xff, 0xd9])])).ok).toBe(false);
+    const ok = jpg(sof(0xc0, 100, 100), sos(), dados(200));
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([ok, Buffer.from("<html>")])).ok).toBe(false);
+  });
+  it("ACHADO R2-3 (usabilidade): foto de celular com dados DEPOIS do FF D9 (foto com movimento / MPF / Samsung) é recusada", () => {
+    const motion = Buffer.concat([jpg(sof(0xc0, 4000, 3000), sos(), dados(2000)), caixa("ftyp", Buffer.from("mp42\0\0\0\0", "latin1")), Buffer.alloc(5000, 1)]);
+    expect(conferirMidiaSaudacao("imagem", motion)).toMatchObject({ ok: false, erro: expect.stringMatching(/salve de novo/) });
+  });
+  it("PNG com muitos blocos legítimos passa; 5 MB de blocos mínimos e entradas degeneradas terminam rápido", () => {
+    const bloco = (t: string, n: number) => { const h = Buffer.alloc(8); h.writeUInt32BE(n, 0); h.write(t, 4, "latin1"); return Buffer.concat([h, Buffer.alloc(n, 1), Buffer.alloc(4)]); };
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(2000, 0); ihdr.writeUInt32BE(1500, 4); ihdr[8] = 8; ihdr[9] = 6;
+    const assinatura = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const cab = Buffer.concat([assinatura, Buffer.from([0, 0, 0, 13]), Buffer.from("IHDR"), ihdr, Buffer.alloc(4)]);
+    const muitos = Buffer.concat([cab, bloco("tEXt", 30), bloco("iCCP", 3000), ...Array.from({ length: 500 }, () => bloco("IDAT", 8192)), bloco("IEND", 0)]);
+    expect(conferirMidiaSaudacao("imagem", muitos)).toMatchObject({ ok: true, mime: "image/png" });
+    const minimos = Buffer.concat([cab, Buffer.alloc(5 * 1024 * 1024 - cab.length - 12, Buffer.concat([Buffer.from([0, 0, 0, 0]), Buffer.from("IDAT"), Buffer.alloc(4)]))]);
+    for (const b of [minimos, Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(5 * 1024 * 1024, 0xff)]),
+      Buffer.concat([jpg(sof(0xc0, 10, 10)), Buffer.alloc(0)]).subarray(0, 12), Buffer.concat([Buffer.from([0xff, 0xd8]), sof(0xc0, 10, 10), sos(), Buffer.alloc(5 * 1024 * 1024, 0)])]) {
+      const t = performance.now();
+      conferirMidiaSaudacao("imagem", b);
+      expect(performance.now() - t).toBeLessThan(3_000);
+    }
+  });
+});
+
+describe("rodada 2 — áudio: forjados e legítimos", () => {
+  it("M4A forjado com mvhd e mdhd CONCORDANDO (10 s) e 4 MB de mdat: recusado pela taxa de bytes", () => {
+    const b = m4aCompleto({ mvhdEscala: 1000, mvhdDur: 10_000, mdhdEscala: 44_100, mdhdDur: 441_000, mdat: 4 * 1024 * 1024 });
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/dados demais/) });
+  });
+  it("M4A legítimo: moov no fim (gravador do iPhone), escalas diferentes (600 × 44100), faixa de metadados extra, 1 min a 64 kbit/s", () => {
+    const b = m4aCompleto({ mvhdEscala: 600, mvhdDur: 36_000, mdhdEscala: 44_100, mdhdDur: 2_646_000 + 2112, mdat: 480_000, moovNoFim: true, metaTrak: true });
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: true, mime: "audio/mp4", duracaoS: 60 });
+  });
+  it("Opus legítimo (estilo WhatsApp: OpusHead, OpusTags, páginas de ~1 s, 16 kbit/s, 40 s) passa", () => {
+    const tags = Buffer.concat([Buffer.from("OpusTags"), Buffer.alloc(16)]);
+    const paginas = [paginaOgg(0, opusHead()), paginaOgg(0, tags)];
+    for (let s = 1; s <= 40; s++) paginas.push(paginaOgg(s * 48_000 + 312, Buffer.alloc(250, 7)));
+    expect(conferirMidiaSaudacao("audio", Buffer.concat(paginas))).toMatchObject({ ok: true, mime: "audio/ogg", duracaoS: 40 });
+  });
+  it("ACHADO R2-4: Opus de 30 min a baixa taxa com as posições de amostra 'comprimidas' (todas ≤ 40 s) passa como 40 s", () => {
+    // 90 000 pacotes de 20 ms (= 30 min) a ~6 kbit/s, em páginas cujo granule só vai até 40 s; o decodificador toca os pacotes
+    const toc20ms = 0x08 << 3 | 0x00; // config de 20 ms (SILK), 1 quadro
+    const paginas = [paginaOgg(0, opusHead()), paginaOgg(0, Buffer.concat([Buffer.from("OpusTags"), Buffer.alloc(16)]))];
+    const nPaginas = 1800;
+    for (let k = 1; k <= nPaginas; k++) {
+      // cada página: 50 pacotes de 15 bytes (1 s de áudio de verdade); granule declara k × 40/1800 s
+      const pacotes = Array.from({ length: 50 }, () => { const p = Buffer.alloc(15, 3); p[0] = toc20ms; return p; });
+      const h = Buffer.alloc(27); h.write("OggS", 0, "latin1"); h.writeBigUInt64LE(BigInt(Math.round(k * 40 / nPaginas * 48_000) + 312), 6); h[26] = 50;
+      paginas.push(Buffer.concat([h, Buffer.from(pacotes.map(p => p.length)), ...pacotes]));
+    }
+    const b = Buffer.concat(paginas);
+    expect(b.length / 40).toBeLessThan(64 * 1024);
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: true, duracaoS: 40 });
+  });
+  it("MP3 VBR (quadros de taxas diferentes) e com capa de 200 kB em 10 s", () => {
+    const quadro = (idx: number) => { const n = Math.floor(144 * [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320][idx] * 1000 / 44_100); const q = Buffer.alloc(n, 0x55); q[0] = 0xff; q[1] = 0xfb; q[2] = idx << 4; return q; };
+    const vbr = Buffer.concat(Array.from({ length: Math.ceil(30 * 44_100 / 1152) }, (_, k) => quadro([5, 9, 14, 7][k % 4])));
+    expect(conferirMidiaSaudacao("audio", vbr)).toMatchObject({ ok: true, mime: "audio/mpeg" });
+    const capa = 200 * 1024;
+    const tam = Buffer.from([(capa >> 21) & 0x7f, (capa >> 14) & 0x7f, (capa >> 7) & 0x7f, capa & 0x7f]);
+    const comCapa = Buffer.concat([Buffer.from("ID3\x03\x00\x00", "latin1"), tam, Buffer.alloc(capa, 1), Buffer.concat(Array.from({ length: Math.ceil(10 * 44_100 / 1152) }, () => quadro(9)))]);
+    // ACHADO R2-5 (usabilidade): (200 kB + 160 kB) / 10 s ≈ 36 kB/s passa; uma capa de 600 kB num jingle de 10 s seria recusada
+    expect(conferirMidiaSaudacao("audio", comCapa).ok).toBe(true);
+  });
+});
+
+describe("rodada 2 — eco durante o envio e sem confirmação", () => {
+  it("ACHADO R2-1: áudio da EQUIPE pelo celular DURANTE o envio automático (status 'enviando') é tido como automático e o id da equipe é sobrescrito", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    const up = await subir(admin, id, "audio", OGG10, "voz.ogg");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: up, nome: "voz.ogg" });
+    let rotaDaEquipe: unknown;
+    enviarMidia.mockImplementation(async () => {
+      // enquanto a Evolution não respondeu, a equipe manda um áudio do celular para o mesmo contato
+      rotaDaEquipe = (await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-DURANTE", message: { audioMessage: { seconds: 8, ptt: true } } })))).body.rota;
+      return "EVO-AUTOMATICO";
+    });
+    await chamar(aviso(direta()));
+    expect(rotaDaEquipe).toMatchObject({ "propria-automatica": 1 });
+    expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]);
+    expect(await q("SELECT external_id FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ external_id: "EVO-AUTOMATICO" }]); // o id da equipe sumiu
+    // o eco verdadeiro do automático chega depois e é reconhecido pelo id; o áudio da equipe nunca aparece como da equipe
+    await chamar(aviso(direta({ fromMe: true, id: "EVO-AUTOMATICO", message: { audioMessage: { seconds: 10, ptt: true } } })));
+    expect(await q("SELECT count(*)::int AS n FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ n: 1 }]);
+  });
+  it("imagem sem confirmação (exceção no envio): texto e áudio NÃO vão; registrada; reentrega não reenvia", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "imagem", uploadId: await subir(admin, id, "imagem", PNG, "f.png"), nome: "f.png" });
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: await subir(admin, id, "audio", OGG10, "v.ogg"), nome: "v.ogg" });
+    enviarMidia.mockImplementation(async () => { throw new DOMException("timeout", "TimeoutError"); });
+    const r = await chamar(aviso(direta({ id: "X1" })));
+    expect(r.body.rota).toMatchObject({ "saudacao-sem-confirmacao": 1 });
+    expect(enviarMidia).toHaveBeenCalledTimes(1);
+    expect(enviarTexto).not.toHaveBeenCalled();
+    expect(await q("SELECT situacao, texto_saiu, imagem_saiu, audio_saiu, sem_confirmacao FROM whatsapp_saudacoes")).toEqual([{ situacao: "erro", texto_saiu: false, imagem_saiu: null, audio_saiu: null, sem_confirmacao: true }]);
+    await chamar(aviso(direta({ id: "X1" }))); await chamar(aviso(direta({ texto: "oi?" })));
+    expect(enviarMidia).toHaveBeenCalledTimes(1);
+    expect(enviarTexto).not.toHaveBeenCalled();
+  });
+});
