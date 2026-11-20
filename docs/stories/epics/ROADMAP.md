@@ -294,3 +294,15 @@ Grupo Santa Fé em espera por ordem do dono; portar quando ele retomar a paridad
 - [ ] C3 — saudação da campanha com imagem e áudio (publicada aqui em 20/11, PR #267, `0137`): mídia no banco, conferida pelos bytes, uma saudação por número, sem duplicata quando o envio fica sem confirmação.
 - [ ] C6 — botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central (publicado aqui em 20/11, PR #266, `0138`). A parte da Dolores é exceção; no Santa Fé só faz sentido se houver atendimento automático.
 - [ ] C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C7 — registrada em 20/11/2026)
+
+A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa ser portada ao Santa Fé (na stack de lá).
+- [ ] C7 — integração com a YCloud (API oficial do WhatsApp, em coexistência): chave digitada pelo dono em Integrações (cifrada,
+  "terminando em …"), Testar com número/nome verificado/situação/qualidade/limite, bloqueio quando o número da API não é o da
+  empresa, modelos com situação de aprovação, campanha por modelo APROVADO com prévia, custo estimado e confirmação pela contagem,
+  envio em lotes retomáveis pela fila da YCloud (`externalId` único, 5 mensagens/s, limite diário lido da conta, tetos do painel,
+  opt-out permanente), aviso de entrega assinado (`/api/ycloud/webhook`, HMAC-SHA256 `t.corpo`, janela de 5 min, dedupe por id),
+  painel da campanha e auditoria; só administrador por papel. Migração aqui: `0141_ycloud.sql`. Story:
+  `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
+  coexistência na YCloud (é outra conta/outro número).
