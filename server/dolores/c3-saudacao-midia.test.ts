@@ -162,6 +162,11 @@ beforeEach(async () => {
   banco = await criarBanco();
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
+  // a tabela das partes é criada uma vez por processo pelo próprio módulo; cada banco novo do teste precisa dela
+  await banco.pg.exec(`CREATE TABLE IF NOT EXISTS document_upload_chunks (
+    upload_id varchar(64) NOT NULL, part integer NOT NULL CHECK (part BETWEEN 0 AND 19), total integer NOT NULL CHECK (total BETWEEN 1 AND 20),
+    user_id integer NOT NULL, scope varchar(150) NOT NULL, file_name varchar(255) NOT NULL,
+    data bytea NOT NULL CHECK (octet_length(data) BETWEEN 1 AND 1048576), created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (upload_id, part))`);
   await banco.pg.exec(`UPDATE dolores_whatsapp_config SET instancia = 'prospecta-dolores', status_conexao = 'conectado', numero_dono = '${DONO}',
       numero_dolores = '${EMPRESA}', ia_ligada = true WHERE id = 1;`);
   ENV.cookieSecret = "segredo-do-servidor-de-teste-0123456789";
