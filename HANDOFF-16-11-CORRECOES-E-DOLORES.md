@@ -378,3 +378,40 @@ Nada pendente de código. Acompanhar a validação do dono em produção (lista 
 
 ## Próximo passo exato (20/11, 01:50 UTC)
 Receber a etapa 9 do @dev → QA de segurança → corrigir → aplicar 0135 → publicar.
+
+## Atualização — 20/11, ~10:50 UTC
+
+### Concluído e publicado
+- **Etapa 9 — WhatsApp com conexão única, atendimento e campanhas** — PR #261 (`7ae8fd2`), migração `0135` aplicada
+  (com `lock_timeout`; tabelas pequenas). Autorizada pelo dono ("Autorizo os itens 1 a 7"); regra no CLAUDE.md
+  ("WhatsApp — uma conexão só, atendimento e campanhas"). Conexão da empresa em Integrações (instância já conectada,
+  sem novo QR); roteamento por código (dono → Dolores; lead → Central e Dolores se ligado; vários cadastros/usuário →
+  Central; desconhecido → Central + saudação; grupo → Dolores); saudação de campanha; Dolores atende cliente cadastrado
+  (desligado); ligação recusada com aviso e áudio transcrito pela Cloudflare (transcrição desligada; avisos ligados com
+  teto); disparo em massa pelo número principal bloqueado (10/min, 200/dia). Duas rodadas de QA (FAIL → CONCERNS).
+- Banco de produção: 0117–0135 aplicadas.
+
+### Pendente do dono (produção)
+1. Integrações › WhatsApp da empresa: "Reativar recebimento" (assina ligação e eventos de grupo).
+2. "Remover a conexão antiga da Central" (instância antiga da linha do admin; só limpa com confirmação da Evolution).
+3. Cloudflare: criar token com o modelo "Workers AI" e copiar o Account ID; cadastrar no cartão de transcrição.
+   (O dono pediu que eu cadastrasse; não é possível: a conexão da Cloudflare desta sessão não cria tokens, e chaves são
+   digitadas por ele.)
+4. Ligar quando quiser: "Dolores responde clientes", "transcrição"; criar a primeira campanha em Templates.
+5. Limites mensais da Dolores (15.000.000 / 1.000.000) e preços por modelo + cotação, se ainda não corrigidos.
+
+### Pendências técnicas (não travam)
+- Limpeza periódica de `whatsapp_roteamento_vistos` e dos contadores por minuto.
+- Conferir em produção o formato real da resposta do Whisper da Cloudflare (host bloqueado no ambiente de testes).
+- Dados antigos da instância antiga em `user_notifications` / Central de Vendas / mídias: contar pelo número do dono
+  (só leitura) antes de qualquer limpeza — limpeza exige confirmação do dono.
+- Coexistência (WhatsApp Web + API oficial): fase separada.
+
+### Testes
+- (a) automáticos: E9 no ramo de publicação — 50 arquivos / 843 testes; tsc e vite build ok; prévia READY.
+- (b) manuais: nenhum.
+- (c) produção, pelo dono: ligar para o número (deve recusar e mandar aviso); mandar mensagem de um número
+  desconhecido com campanha ativa; cliente cadastrado perguntando do andamento com o interruptor ligado.
+
+## Próximo passo exato (20/11, 10:50 UTC)
+Nada pendente de código no EPIC-025. Acompanhar a validação do dono em produção e corrigir o que ele apontar.
