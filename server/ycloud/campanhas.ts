@@ -12,7 +12,7 @@
 // - nenhum telefone, chave ou texto vai para log/auditoria.
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { leads, whatsappMessages } from "../../drizzle/schema.js";
-import { ycloudCampanhas, ycloudEnvios, ycloudOptout, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
+import { ycloudCampanhas, ycloudConfig, ycloudEnvios, ycloudOptout, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
 import { ehNumeroDoDono, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import {
   INTERVALO_MINIMO_ENVIO_MS, LOTE_ENVIO_YCLOUD, MAX_DESTINATARIOS_CAMPANHA, ORCAMENTO_LOTE_MS, RESERVA_EXPIRADA_MS, preencherPosicionais,
@@ -269,7 +269,29 @@ async function registrarNaCentral(conexaoId: number | null, e: { leadId: number 
   } catch { return null; }
 }
 
+/**
+ * UM lote por vez no sistema inteiro (duas abas, duas campanhas): o limite diário e as 5 mensagens/s são do NÚMERO. A trava vence
+ * sozinha depois de 70 s (a função da Vercel tem 60 s), então uma função que morreu não prende os envios.
+ */
+async function travarLote(agora: Date): Promise<boolean> {
+  await lerConfigYcloud();
+  const r = await getDb().update(ycloudConfig).set({ loteAte: new Date(agora.getTime() + 70_000) })
+    .where(and(eq(ycloudConfig.id, 1), or(isNull(ycloudConfig.loteAte), lt(ycloudConfig.loteAte, agora)))).returning({ id: ycloudConfig.id });
+  return r.length > 0;
+}
+async function destravarLote() {
+  await getDb().update(ycloudConfig).set({ loteAte: null }).where(eq(ycloudConfig.id, 1)).catch(() => undefined);
+}
+
 export async function enviarLote(campanhaId: number, userId: number): Promise<ResultadoLote> {
+  if (!(await travarLote(depsYcloud().agora()))) {
+    return { status: "enviando", enviadas: 0, falhas: 0, incertas: 0, restantes: (await contarRestantes(campanhaId)).fila, aguardarSegundos: 10, motivo: "Outro lote está sendo enviado agora; este continua em seguida." };
+  }
+  try { return await enviarLoteTravado(campanhaId, userId); }
+  finally { await destravarLote(); }
+}
+
+async function enviarLoteTravado(campanhaId: number, userId: number): Promise<ResultadoLote> {
   const d = depsYcloud();
   const db = getDb();
   const inicio = d.agora().getTime();
@@ -506,4 +528,25 @@ export async function registrarOptoutPeloPainel(alvo: { leadId?: number; envioId
 export async function totalOptout() {
   const [r] = await getDb().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(ycloudOptout);
   return Number(r?.n ?? 0);
+}
+
+// ── Eco em coexistência (proposta para o roteamento da Dolores) ──
+
+/** Janela em que uma mensagem "da empresa" (fromMe) que chega pela Evolution pode ser o eco de uma campanha da API. */
+export const JANELA_ECO_CAMPANHA_MS = 6 * 60 * 60_000;
+
+/**
+ * Em coexistência, a mensagem enviada pela API aparece no app e pode chegar pela Evolution como "enviada pela empresa" (fromMe). Hoje o
+ * roteamento (server/dolores/roteamento.ts, `tratarPropria`) só reconhece o eco automático do MESMO texto em até 5 min; fora disso trata
+ * como resposta da EQUIPE (grava de novo e cala a Dolores naquela conversa). Esta função responde, por código, se houve envio de
+ * campanha pela API a esse número nas últimas horas — para o roteamento tratar o eco como automático. NÃO está ligada ao roteamento
+ * nesta entrega (arquivo de outra frente): ver a story C7, "Eco em coexistência".
+ */
+export async function ehEcoDeCampanhaOficial(numero: string, agora: Date = depsYcloud().agora()): Promise<boolean> {
+  const e164 = telefoneE164(numero);
+  if (!e164) return false;
+  const desde = new Date(agora.getTime() - JANELA_ECO_CAMPANHA_MS);
+  const [r] = await getDb().select({ id: ycloudEnvios.id }).from(ycloudEnvios)
+    .where(and(eq(ycloudEnvios.telefone, e164), inArray(ycloudEnvios.status, ["aceita", "enviada", "entregue", "lida", "incerto"]), gte(ycloudEnvios.aceitoEm, desde))).limit(1);
+  return Boolean(r);
 }

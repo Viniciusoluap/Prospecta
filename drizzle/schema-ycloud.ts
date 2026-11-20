@@ -23,6 +23,7 @@ export const ycloudConfig = pgTable("ycloud_config", {
   conferidoEm: timestamp("conferido_em", { withTimezone: true }),
   webhookEndpointId: varchar("webhook_endpoint_id", { length: 80 }),
   webhookStatus: varchar("webhook_status", { length: 20 }),
+  loteAte: timestamp("lote_ate", { withTimezone: true }),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
 });

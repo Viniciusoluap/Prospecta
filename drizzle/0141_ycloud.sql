@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS "ycloud_config" (
   -- aviso de entrega (POST /webhookEndpoints); o segredo fica cifrado em dashboard_settings
   "webhook_endpoint_id" varchar(80),
   "webhook_status" varchar(20),
+  -- trava de UM lote por vez (em todas as campanhas): o limite diário e as 5 mensagens/s valem para o número inteiro
+  "lote_ate" timestamp with time zone,
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now(),
   "atualizado_por" integer REFERENCES "users"("id") ON DELETE SET NULL
 );

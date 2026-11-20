@@ -433,3 +433,31 @@ describe("rota publicada com corpo bruto", () => {
     }
   });
 });
+
+describe("eco em coexistência (proposta)", () => {
+  it("reconhece por código o envio recente de campanha ao número (para o roteamento não calar a Dolores)", async () => {
+    const { ehEcoDeCampanhaOficial } = await import("./campanhas.js");
+    await configurarTudo();
+    const { campanhaId } = await campanha([1]);
+    expect(await ehEcoDeCampanhaOficial("5599988881111", relogio)).toBe(false); // ainda na fila
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    expect(await ehEcoDeCampanhaOficial("5599988881111", relogio)).toBe(true);
+    expect(await ehEcoDeCampanhaOficial("5599977772222", relogio)).toBe(false);
+    expect(await ehEcoDeCampanhaOficial("5599988881111", new Date(relogio.getTime() + 7 * 60 * 60_000))).toBe(false);
+  });
+});
+
+describe("um lote por vez", () => {
+  it("com outro lote em andamento, nada é enviado e a tela é avisada para esperar", async () => {
+    await configurarTudo();
+    const { campanhaId } = await campanha([1, 2]);
+    await pg.exec(`UPDATE ycloud_config SET lote_ate = '${new Date(AGORA.getTime() + 30_000).toISOString()}'`);
+    const r = await admin().whatsappOficial.enviarLote({ campanhaId });
+    expect(r).toMatchObject({ enviadas: 0, restantes: 2 });
+    expect(r.aguardarSegundos).toBeGreaterThan(0);
+    expect(envioCalls()).toHaveLength(0);
+    relogio = new Date(AGORA.getTime() + 71_000); // trava vencida (função morta) não prende
+    expect((await admin().whatsappOficial.enviarLote({ campanhaId })).enviadas).toBe(2);
+    expect((await q<{ lote_ate: string | null }>("SELECT lote_ate FROM ycloud_config"))[0].lote_ate).toBeNull();
+  });
+});
