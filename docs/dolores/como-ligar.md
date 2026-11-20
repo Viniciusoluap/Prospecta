@@ -717,6 +717,11 @@ Em todos: só quando marcada, nunca faz nada a partir do grupo, os mesmos tetos,
   só registrados.
 - O relatório diário mostra quantos grupos novos aguardam a sua resposta.
 
-## 6. Conferir
+## 6. Reversão (cuidado apontado pelo QA)
+Antes de voltar ao código anterior à Etapa 7 com a 0133 já aplicada, **desative os grupos `recusado` e `aguardando_dono`**
+(`UPDATE dolores_grupos SET ativo = false WHERE situacao_confirmacao IN ('recusado', 'aguardando_dono')`, com a autorização do
+dono): o código antigo não conhece essas situações e trataria esses grupos como ativos (leria e registraria as mensagens deles).
+
+## 7. Conferir
 `dolores_acoes`: `grupo_entrada` (entrou / aguardando / recusado / rebaixado / aceito / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
 `grupo_leitura` (consultas feitas quando marcada, com o tipo), `atualizar_grupos` (botão da tela).
