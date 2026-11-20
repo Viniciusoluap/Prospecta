@@ -31,7 +31,7 @@ import { entradaSemArgumentos } from "./leitura/grupo-marcado.js";
 import type { Resultado } from "./leitura/comum.js";
 import { MINIMO_PARA_RESPONDER_MS, RESERVA_ENTRADA_GRUPO, lacoDeLeituraFechada, perguntaParaGravar, type CredencialGrupo, type EscopoDoGrupo, type FerramentaDoGrupo } from "./marcacao.js";
 import { podeFalarNoGrupo } from "./operacao.js";
-import { agoraDoRoteamento, chaveDoNumero, conversaEmSilencio, enviarAoContato, lerConfigAtendimento, vagaNoContador } from "./roteamento.js";
+import { agoraDoRoteamento, chaveDoNumero, conversaEmSilencio, enviarAoContato, lerConfigAtendimento, situacaoDoSilencio, vagaNoContador } from "./roteamento.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 
 /** A frase fixa, verdadeira, sem prometer nada. */
@@ -160,7 +160,10 @@ export async function tratarAtendimento(cfg: DoloresWhatsappConfig, conn: Conexa
       return l?.id ?? null;
     };
     // 2) a equipe respondeu nesta conversa há pouco: calada (registrado)
-    if (await conversaEmSilencio(e.numero, agora)) { await gravar("silencio", "a equipe respondeu nesta conversa: Dolores calada por algumas horas"); return "cliente-equipe-respondeu"; }
+    // EPIC-026 C6: "Assumir (humano)" pelo botão da Central cala sem prazo, até alguém devolver (vence o silêncio automático)
+    const silencio = await situacaoDoSilencio(e.numero, agora, cfg.instancia);
+    if (silencio.estado === "assumida") { await gravar("silencio", "a equipe assumiu esta conversa: Dolores calada até devolverem"); return "cliente-assumida"; }
+    if (silencio.estado !== "dolores") { await gravar("silencio", "a equipe respondeu nesta conversa: Dolores calada por algumas horas"); return "cliente-equipe-respondeu"; }
     // 3) pausa geral / conta desativada
     if (!(await podeFalarNoGrupo())) { await gravar("silencio", "Dolores pausada (pausa geral ou conta desativada)"); return "cliente-pausada"; }
     // 4) reivindica: no máximo UMA em andamento por número; a mesma mensagem uma vez só
@@ -254,7 +257,7 @@ async function responderCliente(cfg: DoloresWhatsappConfig, conn: ConexaoDaEmpre
 async function enviarAoContatoConferido(cfg: DoloresWhatsappConfig, conn: ConexaoDaEmpresa, e: EntradaDoCliente, texto: string, id: number, o: { autor: number | null; prazoFinal: number }) {
   const config = await lerConfigAtendimento();
   if (pausadaPorFalha || !config.clienteLigado) return false;
-  if (await conversaEmSilencio(e.numero)) return false;
+  if (await conversaEmSilencio(e.numero, agoraDoRoteamento(), cfg.instancia)) return false;
   const final = texto === FRASE_CLIENTE_EQUIPE ? texto : respostaSeguraAoCliente(texto, undefined).texto;
   return enviarAoContato({ cfg, conn, numero: e.numero, texto: final, tipo: "resposta_cliente", prazoFinal: o.prazoFinal, autor: o.autor, leadId: e.leadId, pedidoId: `cliente:${id}`, nome: e.nome ?? null });
 }

@@ -817,6 +817,22 @@ export const whatsappRouter = router({
     return { leadId: lead.id };
   }),
 
+  /**
+   * EPIC-026 C6: quem atende a conversa (Dolores, equipe pelo silêncio automático ou assumida) e se o botão aparece. Corretor,
+   * conversa reservada ou sem número → { mostrar: false }. Papel conferido no servidor (server/dolores/modo-conversa.ts).
+   */
+  atendimentoDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40) })).query(async ({ ctx, input }) => {
+    const { atendimentoDaConversa } = await import("./dolores/modo-conversa.js");
+    return atendimentoDaConversa(ctx.user, input.numero);
+  }),
+
+  /** EPIC-026 C6: "Assumir (humano)" / "Devolver para a Dolores". Nunca chama a IA nem envia mensagem. Só admin e colaborador. */
+  mudarAtendimentoDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), acao: z.enum(["assumir", "devolver"]) }).strict())
+    .mutation(async ({ ctx, input }) => {
+      const { mudarAtendimentoDaConversa } = await import("./dolores/modo-conversa.js");
+      return mudarAtendimentoDaConversa(ctx.user, input.numero, input.acao);
+    }),
+
   responder: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), texto: z.string().trim().min(1).max(4096) })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     // EPIC-026 C2: conversa de número não identificado ("@lid") não tem para onde responder pela Evolution (o envio exige número)
