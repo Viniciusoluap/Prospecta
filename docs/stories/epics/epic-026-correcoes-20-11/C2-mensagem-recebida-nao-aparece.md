@@ -112,8 +112,12 @@ ficou tolerante às formas conhecidas (objeto, lista, `{messages}`; `remoteJidAl
   (c) terceiro nunca no caminho do dono; (d)/(e) falha ao gravar fica registrada como erro; registro sem conteúdo para cada motivo
   de descarte, outra instância e evento não tratado; limpeza de 7 dias; tela só admin (colaborador/corretor FORBIDDEN) e sem
   conteúdo; Central recusa responder/criar lead/vincular; `@lid` × telefone; leitura estrita da consulta à Evolution.
-- Ajustados: `whatsapp-regras.test.ts` (campo `lid` na leitura). `e9-conexao-unica.test.ts` mantido (o `fromMe`/sem número
-  continua "nada").
+- Prova do "antes": os mesmos envelopes rodados contra `e978b14` (worktree temporária, teste reduzido): 6 de 7 FALHAVAM — (a) `@lid`
+  sem número, `@lid`+`remoteJidAlt`, `@lid`+`participantPn`, evento `messages-upsert`, `data` `{messages}`, sufixo `:12` — e o
+  controle (número normal) passava. Dos 6, os três últimos não deixavam registro NENHUM (nem `vistos`, nem auditoria): são os que
+  batem com o que se viu em produção, junto com "a Evolution não enviou" (17).
+- Ajustados: `e9-conexao-unica.test.ts` (`@lid` sem número → `central_sem_numero`; `fromMe` sem número continua "nada") e
+  `whatsapp-regras.test.ts` (campo `lid` na leitura).
 
 ## File List
 - `drizzle/0136_whatsapp_recebimento.sql` (novo), `drizzle/schema-whatsapp-atendimento.ts`
@@ -122,4 +126,13 @@ ficou tolerante às formas conhecidas (objeto, lista, `{messages}`; `remoteJidAl
 - `server/dolores/whatsapp.ts`, `server/dolores/roteamento.ts`, `server/dolores/router.ts`
 - `server/whatsapp-evolution-webhook.ts`, `server/whatsapp-router.ts`, `server/whatsapp-conexao-empresa.ts`, `server/_core/evolution.ts`
 - `client/src/components/admin/WhatsappEmpresaCard.tsx`, `client/src/components/whatsapp/ConversasWhatsApp.tsx`
-- `server/dolores/testes-banco.ts`, `server/dolores/c2-recebimento.test.ts` (novo), `server/dolores/whatsapp-regras.test.ts`
+- `server/dolores/testes-banco.ts`, `server/dolores/c2-recebimento.test.ts` (novo), `server/dolores/whatsapp-regras.test.ts`,
+  `server/dolores/e9-conexao-unica.test.ts`
+
+## Verificação
+- `npx tsc --noEmit`: ok. `npx vite build`: ok.
+- `npx vitest run server/dolores server/whatsapp server/integracoes-anthropic.test.ts server/auth-session.test.ts server/imports-esm.test.ts server/api-rotas-producao.test.ts --maxWorkers=2 --minWorkers=1`:
+  50 arquivos, 839 testes, 0 falhas (com o ajuste do e9 conferido em seguida: 38/38).
+
+## Change Log
+- 20/11/2026 — @dev (Dex): InProgress → InReview. Investigação, correção, migração 0136, tela de recebimento, testes.
