@@ -295,7 +295,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.direcao === "saida" ? "bg-green-800 text-white" : "bg-[#1A2332] text-gray-100"}`}>
                     {m.midia && <MidiaMensagem id={m.id} midia={m.midia} />}
                     {legenda(m.mensagem, m.midia)}
-                    <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.direcao === "saida" ? ` • ${m.status}` : ""}</div>
+                    <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.direcao === "saida" ? ` • ${m.status}` : ""}{m.automatica ? " • automática" : ""}</div>
                   </div>
                 </div>
               ))}

@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import type { WhatsappTemplate } from "@shared/whatsapp/templates";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
+import { CampanhasEAvisos } from "@/components/whatsapp/CampanhasEAvisos";
 import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
@@ -44,6 +45,8 @@ export default function AdminWhatsApp() {
   const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
+  // E9 (item 7): canal do disparo e o aviso de disparo em massa bloqueado pelo número principal
+  const canal = trpc.whatsapp.canalDisparo.useQuery(undefined, { retry: false });
   // Lote 03, correção 03: destinatários sempre atualizados com o CRM (ao abrir, ao voltar à aba e ao focar a janela).
   const leadsQuery = trpc.whatsapp.leadsParaEnvio.useQuery(undefined, { refetchOnMount: "always", refetchOnWindowFocus: true });
   // Lote 03, correção 04: indicadores contados no servidor, no período escolhido (padrão: 30 dias).
@@ -207,8 +210,18 @@ export default function AdminWhatsApp() {
               <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/10 p-4 rounded">
                 <AlertCircle size={18} className="text-yellow-400 shrink-0" />
                 <p className="text-sm text-yellow-200">
-                  Conecte o WhatsApp (QR code ou API oficial) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.
+                  {role === "admin"
+                    ? <>Conecte o WhatsApp da empresa em <a href={linkConexaoWhatsapp(role)} className="underline text-[#C9A961]">Configurações › Integrações</a>.</>
+                    : role === "colaborador"
+                      ? <>O WhatsApp da empresa ainda não está conectado: o administrador conecta em Configurações › Integrações.</>
+                      : <>Conecte o WhatsApp (QR code ou API oficial) na aba <button type="button" className="underline text-[#C9A961]" onClick={() => setActiveTab("conexao")}>Minha conexão</button>.</>}
                 </p>
+              </div>
+            )}
+            {canal.data?.aviso && (
+              <div className="flex items-center gap-3 border border-orange-500/30 bg-orange-500/10 p-3 rounded">
+                <AlertCircle size={16} className="text-orange-300 shrink-0" />
+                <p className="text-xs text-orange-100">{canal.data.aviso}</p>
               </div>
             )}
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>
@@ -320,6 +333,8 @@ export default function AdminWhatsApp() {
         {/* Templates */}
         {activeTab === "templates" && (
           <div className="space-y-4">
+            {role === "admin" && <CampanhasEAvisos />}
+            {canal.data?.aviso && <p className="text-xs text-orange-200">{canal.data.aviso}</p>}
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-gray-300">Gerencie os modelos usados na aba Enviar Mensagem.</p>
               <Button onClick={() => setEditor({ nome: "", categoria: "", conteudo: "" })} className="bg-[#C9A961] text-[#1A2332] hover:bg-[#B8985A]"><Plus className="mr-2 h-4 w-4" />Novo template</Button>

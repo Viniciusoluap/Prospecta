@@ -1,5 +1,7 @@
 // Pedido de 25/10 (noite), item 12: conexão do WhatsApp (QR code, estado, remover e conexões dos corretores).
-// Admin: fica em Configurações › Integrações. Corretor/colaborador: aba "Minha conexão" da Central WhatsApp.
+// EPIC-025 E9 (regra do dono de 20/11/2026, "uma conexão só"): o número da EMPRESA é conectado só em Configurações › Integrações.
+// Aba "Minha conexão": o admin vê só "Conexões dos Corretores"; o colaborador vê a situação da conexão da empresa (sem QR) e as
+// dos corretores; o corretor continua conectando o próprio número aqui.
 import { useState } from "react";
 import { CheckCircle2, WifiOff, Wifi } from "lucide-react";
 import { toast } from "sonner";
@@ -43,7 +45,17 @@ export function ConexaoWhatsApp({ role, mostrarCorretores = true }: { role: stri
 
   return (
       <div className="space-y-5">
-        {(role === "admin" || role === "colaborador" || role === "corretor") && (
+        {role === "colaborador" && (
+          <Card className={cardCls}>
+            <CardHeader><CardTitle className="text-sm text-gray-300">WhatsApp da empresa</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm text-gray-300">
+              <StatusConexao status={conexao.data?.status ?? "desconectado"} />
+              {conexao.data?.numero && <p className="text-xs text-gray-400">{conexao.data.numero}</p>}
+              <p className="text-xs">A Central usa o número da empresa, conectado pelo administrador em Configurações › Integrações.</p>
+            </CardContent>
+          </Card>
+        )}
+        {role === "corretor" && (
           <Card className={cardCls}>
             <CardHeader><CardTitle className="text-sm text-gray-300">Minha Conexão WhatsApp</CardTitle></CardHeader>
             <CardContent className="space-y-4">
@@ -60,7 +72,7 @@ export function ConexaoWhatsApp({ role, mostrarCorretores = true }: { role: stri
                 </div>
               ) : (
                 <div className="space-y-4">
-                <ConexaoQrCode podeConfigurarServidor={role === "admin"} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
+                <ConexaoQrCode podeConfigurarServidor={false} onConectado={() => utils.whatsapp.minhaConexao.invalidate()} />
                 <details className="border-t border-[#C9A961]/10 pt-3">
                 <summary className="cursor-pointer text-xs text-gray-300">Usar a API oficial do WhatsApp Business (Meta)</summary>
                 <form onSubmit={(e) => { e.preventDefault(); salvarConexao.mutate({ token: businessToken, phoneNumberId: businessPhoneId, numero: businessNumero }); }} className="space-y-3 mt-3">

@@ -26,7 +26,7 @@ export type CanalDolores = "ponte" | "whatsapp";
  * grupo os dados pessoais saem SEMPRE mascarados: a opção B do dono vale só para a conversa direta dele (o grupo é lido por
  * todos os participantes). Não é canal da auditoria (dolores_acoes.canal continua "ponte"/"whatsapp"/"tela").
  */
-export type CanalDoFiltro = CanalDolores | "grupo";
+export type CanalDoFiltro = CanalDolores | "grupo" | "cliente";
 
 /** Valor da variável sem espaços, sem aspas em volta e em minúsculas. */
 function valorNormalizado(nome: string): string | undefined {
@@ -72,6 +72,7 @@ function mascararNaPonte(): boolean {
  */
 export function mascararDadosPessoais(canal: CanalDoFiltro): boolean {
   if (canal === "grupo") return true; // etapa 4b: sempre, qualquer que seja a variável
+  if (canal === "cliente") return true; // etapa 9: a Dolores respondendo um CLIENTE na conversa direta — sempre mascarado
   if (canal === "whatsapp") return mascararNoWhatsapp();
   if (canal === "ponte") return mascararNaPonte();
   return true;
