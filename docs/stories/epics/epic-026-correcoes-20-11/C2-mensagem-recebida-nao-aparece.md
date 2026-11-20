@@ -119,6 +119,21 @@ ficou tolerante às formas conhecidas (objeto, lista, `{messages}`; `remoteJidAl
 - Ajustados: `e9-conexao-unica.test.ts` (`@lid` sem número → `central_sem_numero`; `fromMe` sem número continua "nada") e
   `whatsapp-regras.test.ts` (campo `lid` na leitura).
 
+## Correções do QA de segurança (20/11/2026, @dev Dex)
+Prova em `server/dolores/c2-qa-seguranca.test.ts` (um teste de regressão por achado; o antigo "LACUNA" foi invertido).
+1. **Importante** — conversa "número não identificado" (`@lid`) só aparece, com conteúdo, ao ADMIN (por papel). Para qualquer outro
+   papel fica oculta em lista, histórico, mídia, exclusão e prévia (via `numerosReservadosDoPapel` / `ocultarSemNumero` em
+   `server/whatsapp-conexao-empresa.ts`). O aviso gerado na gravação não leva texto nem nome e só vai a admin. Número confirmado
+   por aviso (e que não é o dono/empresa) → a conversa passa a aparecer normalmente para todos.
+2. **Baixo** — número vindo só do `findContacts` (origem `evolution`) é "provável": a conversa continua com a chave `@lid`
+   (responder/vincular/criar lead recusam); o admin vê `provavel` mascarado. A Evolution nunca sobrescreve par confirmado por
+   aviso; o aviso com o número no endereço libera a conversa (as linhas passam ao número).
+3. **Baixo** — no caminho de COMANDO só valem `remoteJid` numérico, `remoteJidAlt` e `senderPn`
+   (`numeroDaConversaDireta(key, "comando")`); `participantPn`/`participantAlt` só para Central/roteamento.
+4. **Baixo** — "não resolvido" guardado por 10 min por instância+`@lid` (origem `nao_resolvido`, número vazio — 0136 editada, ainda
+   não aplicada, continua aditiva e idempotente); teto de 2 consultas por aviso; itens do dono tratados antes dos de terceiros.
+5. **Mínimo** — conversa sem número não procura vínculo pela chave vazia (`vinculoManual` e lista).
+
 ## File List
 - `drizzle/0136_whatsapp_recebimento.sql` (novo), `drizzle/schema-whatsapp-atendimento.ts`
 - `server/whatsapp-recebimento.ts` (novo)
@@ -127,7 +142,7 @@ ficou tolerante às formas conhecidas (objeto, lista, `{messages}`; `remoteJidAl
 - `server/whatsapp-evolution-webhook.ts`, `server/whatsapp-router.ts`, `server/whatsapp-conexao-empresa.ts`, `server/_core/evolution.ts`
 - `client/src/components/admin/WhatsappEmpresaCard.tsx`, `client/src/components/whatsapp/ConversasWhatsApp.tsx`
 - `server/dolores/testes-banco.ts`, `server/dolores/c2-recebimento.test.ts` (novo), `server/dolores/whatsapp-regras.test.ts`,
-  `server/dolores/e9-conexao-unica.test.ts`
+  `server/dolores/e9-conexao-unica.test.ts`, `server/dolores/c2-qa-seguranca.test.ts` (QA + regressões das correções)
 
 ## Verificação
 - `npx tsc --noEmit`: ok. `npx vite build`: ok.
@@ -136,3 +151,4 @@ ficou tolerante às formas conhecidas (objeto, lista, `{messages}`; `remoteJidAl
 
 ## Change Log
 - 20/11/2026 — @dev (Dex): InProgress → InReview. Investigação, correção, migração 0136, tela de recebimento, testes.
+- 20/11/2026 — @dev (Dex): correções do QA de segurança (achados 1–5), com teste de regressão por achado.
