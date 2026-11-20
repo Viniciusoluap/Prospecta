@@ -13,6 +13,9 @@ import { desligamentoDoAtendimentoPorFalha, limparPausaDoAtendimento } from "./a
 import { registrarAcao } from "./auditoria.js";
 import { lerConfigAtendimento } from "./roteamento.js";
 import { removerCredencialCloudflare, salvarCredencialCloudflare, semSegredos, statusCloudflare } from "./transcricao.js";
+import { escopoMidiaSaudacao, LIMITE_AUDIO_SAUDACAO, LIMITE_IMAGEM_SAUDACAO } from "../../shared/whatsapp/saudacao-midia.js";
+import { clearUpload, readUpload } from "../document-upload-chunks.js";
+import { gravarMidiaDaCampanha, metasDasMidias, parteDaMidia, removerMidiaDaCampanha, type MetaDaMidia } from "./saudacao-midia.js";
 
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador configura o atendimento do WhatsApp da empresa." });
@@ -28,7 +31,7 @@ function exigirTextoFixo(t: string, max: number) {
 
 async function situacao() {
   const db = getDb();
-  const [config, campanhas, cloudflare, falha] = await Promise.all([
+  const [config, lista, cloudflare, falha, midias] = await Promise.all([
     lerConfigAtendimento(),
     db.select({
       id: whatsappCampanhas.id, nome: whatsappCampanhas.nome, empreendimento: whatsappCampanhas.empreendimento, texto: whatsappCampanhas.texto,
@@ -37,7 +40,13 @@ async function situacao() {
     }).from(whatsappCampanhas).orderBy(desc(whatsappCampanhas.ativa), desc(whatsappCampanhas.id)).limit(100).catch(() => []),
     statusCloudflare().catch(() => ({ configurado: false, conta: null, token: null, modelo: "" })),
     desligamentoDoAtendimentoPorFalha().catch(() => null),
+    metasDasMidias().catch((): MetaDaMidia[] => []),
   ]);
+  // EPIC-026 C3: metadados da imagem e do áudio de cada campanha (sem bytes; a pré-visualização vem por `midiaDaCampanha`)
+  const campanhas = lista.map(c => {
+    const daCampanha = midias.filter(m => m.campanhaId === c.id).map(({ campanhaId: _c, ...m }) => m);
+    return { ...c, imagem: daCampanha.find(m => m.tipo === "imagem") ?? null, audio: daCampanha.find(m => m.tipo === "audio") ?? null };
+  });
   const { id: _id, ...resto } = config;
   return { config: resto, campanhas, cloudflare, desligadoPorFalha: falha };
 }
@@ -87,7 +96,8 @@ export const atendimentoRouter = router({
       const [c] = await getDb().insert(whatsappCampanhas).values({ nome: input.nome, empreendimento: input.empreendimento || null, texto: input.texto, ativa: false, criadoPor: ctx.user.id, atualizadoPor: ctx.user.id })
         .returning({ id: whatsappCampanhas.id });
       await registrarAcao({ funcao: "campanha_saudacao", resultado: "ok", motivo: "campanha criada (inativa)", autorUserId: ctx.user.id, canal: "tela", resumo: { campanhaId: c.id } });
-      return situacao();
+      // EPIC-026 C3: o id da nova campanha volta junto, para a tela já oferecer anexar imagem e áudio
+      return { ...(await situacao()), criadaId: c.id };
     }),
 
   editarCampanha: soAdmin.input(z.object({ id: z.number().int().positive(), nome: z.string().trim().min(2).max(120), empreendimento: z.string().trim().max(160).optional(), texto: textoDaCampanha }).strict())
@@ -111,6 +121,45 @@ export const atendimentoRouter = router({
     await registrarAcao({ funcao: "campanha_saudacao", resultado: "ok", motivo: input.ativa ? "campanha ativada (as outras ficaram inativas)" : "campanha desativada", autorUserId: ctx.user.id, canal: "tela", resumo: { campanhaId: input.id, ativa: input.ativa } });
     return situacao();
   }),
+
+  /**
+   * EPIC-026 C3: grava (ou troca) a imagem OU o áudio da campanha. O arquivo subiu antes em partes de 1 MB (`documentChunks.part`,
+   * escopo da campanha e do tipo, só as partes deste usuário): nenhum pedido passa do limite de corpo da Vercel e nenhuma URL vem
+   * do cliente. Tipo pelos BYTES, tamanho e duração conferidos aqui (shared/whatsapp/saudacao-midia.ts).
+   */
+  salvarMidia: soAdmin.input(z.object({
+    campanhaId: z.number().int().positive(), tipo: z.enum(["imagem", "audio"]),
+    uploadId: z.string().regex(/^[a-zA-Z0-9-]{20,64}$/), nome: z.string().min(1).max(255),
+  }).strict()).mutation(async ({ ctx, input }) => {
+    const [c] = await getDb().select({ id: whatsappCampanhas.id }).from(whatsappCampanhas).where(eq(whatsappCampanhas.id, input.campanhaId)).limit(1);
+    if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada." });
+    let bytes: Buffer;
+    try { bytes = await readUpload(input.uploadId, ctx.user.id, escopoMidiaSaudacao(input.campanhaId, input.tipo), input.nome); }
+    catch { throw new TRPCError({ code: "BAD_REQUEST", message: "O envio do arquivo não chegou completo. Tente de novo." }); }
+    finally { await clearUpload(input.uploadId, ctx.user.id).catch(() => undefined); }
+    const teto = input.tipo === "imagem" ? LIMITE_IMAGEM_SAUDACAO : LIMITE_AUDIO_SAUDACAO;
+    if (bytes.length > teto) throw new TRPCError({ code: "BAD_REQUEST", message: `Arquivo acima de ${teto / (1024 * 1024)} MB.` });
+    const r = await gravarMidiaDaCampanha({ campanhaId: input.campanhaId, tipo: input.tipo, nome: input.nome, bytes, userId: ctx.user.id });
+    if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.erro });
+    await registrarAcao({ funcao: "campanha_saudacao", resultado: "ok", motivo: input.tipo === "imagem" ? "imagem da campanha gravada" : "áudio da campanha gravado",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { campanhaId: input.campanhaId, tipo: input.tipo, mime: r.mime, tamanho: r.tamanho, duracaoS: r.duracaoS } });
+    return situacao();
+  }),
+
+  removerMidia: soAdmin.input(z.object({ campanhaId: z.number().int().positive(), tipo: z.enum(["imagem", "audio"]) }).strict()).mutation(async ({ ctx, input }) => {
+    const removida = await removerMidiaDaCampanha(input.campanhaId, input.tipo);
+    if (removida) await registrarAcao({ funcao: "campanha_saudacao", resultado: "ok", motivo: input.tipo === "imagem" ? "imagem da campanha removida" : "áudio da campanha removido",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { campanhaId: input.campanhaId, tipo: input.tipo } });
+    return situacao();
+  }),
+
+  /** EPIC-026 C3: pré-visualização (só administrador), em pedaços de 1 MB; a tela junta e mostra. Nunca há URL pública da mídia. */
+  midiaDaCampanha: soAdmin.input(z.object({ campanhaId: z.number().int().positive(), tipo: z.enum(["imagem", "audio"]), offset: z.number().int().min(0).max(LIMITE_IMAGEM_SAUDACAO) }).strict())
+    .query(async ({ input }) => {
+      const m = await parteDaMidia(input.campanhaId, input.tipo, input.offset);
+      if (!m) throw new TRPCError({ code: "NOT_FOUND", message: "Arquivo não encontrado." });
+      return m;
+    }),
 
   salvarCloudflare: soAdmin.input(z.object({ conta: z.string().trim().min(1).max(64), token: z.string().trim().min(1).max(256) }).strict()).mutation(async ({ ctx, input }) => {
     try { await salvarCredencialCloudflare(input.conta, input.token); }

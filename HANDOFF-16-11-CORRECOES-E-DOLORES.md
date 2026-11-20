@@ -455,3 +455,48 @@ Receber o agente da C3 → QA de segurança → aplicar 0137 no Neon → publica
 da API oficial no cartão, com aviso sobre grupos) e C1B (integração YCloud: chave digitada pelo dono em Integrações;
 disparo de campanha pela YCloud; recebimento continua pela Evolution). Ler o resultado do teste do dono antes de
 liberar a vinculação.
+
+## Atualização — 20/11, ~20:55 UTC — EPIC-026: C6 e C3 publicadas; YCloud pausada
+
+### Concluído e publicado
+- **C6 — PR #266** (squash `80050d9`, produção READY): botão "Assumir (humano)" / "Devolver para a Dolores" na conversa
+  da Central (número da empresa). Tabela `whatsapp_atendimento_modo` (migração **0138**, aplicada antes do deploy).
+  Arquivos: `shared/dolores/modo-conversa.ts`, `server/dolores/modo-conversa.ts`, `server/dolores/roteamento.ts`,
+  `server/whatsapp-router.ts`, `ConversasWhatsApp.tsx`. QA de segurança: CONCERNS sem importante; M1, M2, B1–B3 corrigidos.
+- **C3 — PR #267** (squash `adb41c7`): saudação da campanha com imagem e áudio. Migração **0137** aplicada antes do
+  deploy (`whatsapp_campanha_midias` + 4 colunas em `whatsapp_saudacoes`). Arquivos: `shared/whatsapp/saudacao-midia.ts`,
+  `server/dolores/saudacao-midia.ts`, `server/dolores/roteamento.ts`, `server/_core/evolution.ts`,
+  `CampanhasEAvisos.tsx`. QA de segurança em 3 rodadas (CONCERNS, CONCERNS, PASS); tudo fechado com teste.
+- C2 confirmada em produção pelo dono (quadro "Recebimento": Central 1, Ignoradas 0; conversa apareceu).
+
+### YCloud (C1B) — pausada, depende do dono
+- Dono é admin dos portfólios "Grupo Eficaz" (verificação comercial REVOGADA; razão social "EFFICAZ…") e "Vinicius VFX".
+  O número pessoal dele (final 8139-2210) já tem conta na Meta; o da empresa (final 9100-2210) não tinha.
+- Tentou a coexistência 3× pelo iPad (método "Entrar com o app WhatsApp Business", por QR): a janela da Meta chega ao
+  "Finish", mas a página da YCloud fica carregando e a conta não aparece na lista. No celular fica "YCloud — termine a
+  configuração". Tradução automática do Chrome quebrava o formulário (erro ao escolher o país); sem tradução chega ao fim,
+  mas o retorno para a YCloud se perde no iPad. **Refazer em computador.** Antes: desconectar a YCloud no celular
+  (Configurações › Conta › Plataforma comercial) e esperar 15 min (erro #2655094).
+- **Cada tentativa DERRUBA a conexão da Evolution** (aparelhos conectados): religar pelo QR em Integrações › WhatsApp da
+  empresa e tocar em "Reativar recebimento". Em 20/11 ficou fora 16:54–17:06 e de novo desde 17:13 (BRT) — conferir.
+- Pesquisa da API: `docs.ycloud.com` liberado no ambiente. Fatos: `X-API-Key`, base `https://api.ycloud.com/v2`,
+  `POST /whatsapp/messages` (fila, template aprovado), `GET /whatsapp/phoneNumbers`, `GET /whatsapp/templates`,
+  webhooks com `YCloud-Signature` (segredo `whsec_…`, corpo bruto, deduplicar por `id`), coexistência a 5 msg/s, grupos
+  não passam pela API. Não assinar `whatsapp.inbound_message.received` (duplicaria com a Evolution).
+
+### Pendências
+- C1A/C1B: integração no Prospecta (chave digitada pelo dono em Integrações; disparo de campanha por template pela
+  YCloud; conferência do número; webhook de status com assinatura). Só faz sentido depois da vinculação concluída.
+- Teste em produção da C3: áudio chega como mensagem de voz? tempo de imagem grande.
+- Baixos registrados: teto de upload em partes por usuário (`server/document-upload-chunks.ts`, pré-existente);
+  `whatsapp_messages.external_id` sem índice único.
+
+### Testes
+- (a) Automáticos: #266 — tsc limpo, 53 arquivos / 919 testes, build ok. #267 (com a C6 junto) — tsc limpo,
+  55 arquivos / 979 testes, build ok.
+- (b) Manuais: dono testou a C2 em produção (ok).
+- (c) Pendentes em produção: botão Assumir/Devolver na conversa real; saudação com mídia; relatório na hora escolhida.
+
+## Próximo passo exato (20/11, 20:55 UTC)
+1. Dono: desconectar a YCloud no celular e religar o Prospecta pelo QR (está desconectado). 2. Conferir produção READY
+do `adb41c7`. 3. Quando houver computador: refazer a vinculação YCloud, religar o Prospecta e só então construir C1A/C1B.

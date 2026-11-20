@@ -112,6 +112,34 @@ export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string
 }
 
 /**
+ * EPIC-026 C3: imagem com legenda (uma mensagem só). O arquivo vai em base64 no próprio pedido — nunca por URL: a Evolution não
+ * busca nada no sistema e nada do sistema fica exposto. Devolve o id da mensagem, ou null se não foi aceita.
+ */
+export async function enviarImagemEvolution(c: EvolutionConfig, instancia: string, numero: string,
+  imagem: { base64: string; mime: string; nome: string; legenda: string }, fetchImpl: Fetch = fetch): Promise<string | null> {
+  const num = numero.replace(/\D/g, "");
+  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendMedia/${encodeURIComponent(instancia)}`, {
+    method: "POST",
+    body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, mediatype: "image", mimetype: imagem.mime,
+      caption: imagem.legenda, media: imagem.base64, fileName: imagem.nome }),
+  }, fetchImpl);
+  return r.ok ? (r.data?.key?.id ?? null) : null;
+}
+
+/**
+ * EPIC-026 C3: áudio como MENSAGEM DE VOZ (ptt). `encoding: true` pede à Evolution a conversão para OGG/Opus (aceita OGG, MP3 e
+ * M4A). Base64 no pedido, nunca URL. Devolve o id da mensagem, ou null se não foi aceita.
+ */
+export async function enviarAudioEvolution(c: EvolutionConfig, instancia: string, numero: string, base64: string, fetchImpl: Fetch = fetch): Promise<string | null> {
+  const num = numero.replace(/\D/g, "");
+  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendWhatsAppAudio/${encodeURIComponent(instancia)}`, {
+    method: "POST",
+    body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, audio: base64, encoding: true }),
+  }, fetchImpl);
+  return r.ok ? (r.data?.key?.id ?? null) : null;
+}
+
+/**
  * Pedido de 25/10 (Conversas): a Evolution passa a avisar o sistema de mensagens recebidas, status de
  * entrega/leitura e da conexão. Cabeçalho secreto para o sistema aceitar só avisos legítimos.
  */
