@@ -309,3 +309,33 @@ export async function rejeitarLigacoesEvolution(c: EvolutionConfig, instancia: s
   const r = await chamar(c, `/settings/set/${encodeURIComponent(instancia)}`, { method: "POST", body: JSON.stringify(corpo), signal: AbortSignal.timeout(8_000) }, fetchImpl);
   return r.ok;
 }
+
+/**
+ * EPIC-026 C2 — SÓ LEITURA: tenta descobrir o número real de um endereço "@lid" de conversa direta nos contatos da instância
+ * (POST /chat/findContacts/{instância} com `where.remoteJid`). Os campos variam por versão da Evolution; por isso a leitura é
+ * ESTRITA: só vale um contato que cite o MESMO "@lid" (em id/remoteJid/lid/jid) e traga um número na forma "…@s.whatsapp.net"
+ * (remoteJid, remoteJidAlt, phoneNumber, pn, senderPn ou jid). Se a Evolution ignorar o filtro e devolver outros contatos, eles não
+ * citam o "@lid" e não contam; dois números diferentes para o mesmo "@lid" → null (nunca adivinha). Falha/sem resposta → null.
+ */
+export async function numeroDoLidEvolution(c: EvolutionConfig, instancia: string, lid: string, fetchImpl: Fetch = fetch, prazoMs = 3_000): Promise<string | null> {
+  if (!/^\d{5,25}@lid$/.test(lid)) return null;
+  let r;
+  try {
+    r = await chamar<unknown>(c, `/chat/findContacts/${encodeURIComponent(instancia)}`, {
+      method: "POST", body: JSON.stringify({ where: { remoteJid: lid } }), signal: AbortSignal.timeout(prazoMs),
+    }, fetchImpl);
+  } catch { return null; }
+  if (!r.ok) return null;
+  const lista = Array.isArray(r.data) ? r.data.slice(0, 50) : r.data && typeof r.data === "object" ? [r.data] : [];
+  const achados = new Set<string>();
+  for (const x of lista) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    const citaOLid = [o.id, o.remoteJid, o.lid, o.jid].some(v => typeof v === "string" && v.trim() === lid);
+    if (!citaOLid) continue;
+    for (const v of [o.remoteJid, o.remoteJidAlt, o.phoneNumber, o.pn, o.senderPn, o.jid]) {
+      const n = typeof v === "string" ? /^(\d{10,15})(?::\d{1,3})?@s\.whatsapp\.net$/.exec(v.trim())?.[1] : undefined;
+      if (n) achados.add(n);
+    }
+  }
+  return achados.size === 1 ? Array.from(achados)[0] : null;
+}

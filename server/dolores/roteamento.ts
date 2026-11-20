@@ -14,7 +14,7 @@ import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { avaliacoes, financiamentos, leads, operationalProjects, regularizacoes, users, whatsappMessages } from "../../drizzle/schema.js";
 import {
   whatsappAtendimentoConfig, whatsappAtendimentoContagem, whatsappAvisosNumero, whatsappCampanhas, whatsappRoteamentoVistos, whatsappSaudacoes,
-  whatsappSilencio, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
+  whatsappSilencio, whatsappLidNumeros, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
 } from "../../drizzle/schema-whatsapp-atendimento.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
@@ -23,7 +23,7 @@ import { formaCanonicaDoNumero, textoFixoInvalido, type Categoria } from "../../
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { cortarResposta, ehNumeroDoDono, mascararNumero, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import { ENV } from "../_core/env.js";
-import { enviarTextoEvolution } from "../_core/evolution.js";
+import { enviarTextoEvolution, numeroDoLidEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { finalDoTelefone, gravarItemNaCentral, type LeadCandidato } from "../whatsapp-evolution-webhook.js";
 import type { ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
@@ -45,8 +45,17 @@ const envioPadrao: EnvioAoContato = async ({ instancia, numero, texto, prazoMs }
   // sem prévia de link; a chave da Evolution nunca segue redirecionamento para outro host
   return enviarTextoEvolution({ ...c, semRedirecionamento: true }, instancia, numero, texto, comPrazo, { linkPreview: false });
 };
-type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoContato };
-const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao };
+/** EPIC-026 C2: o número real de um "@lid" consultado na Evolution (só leitura, prazo curto). null = não deu para saber. */
+export type ResolverLid = (p: { instancia: string; lid: string; prazoMs: number }) => Promise<string | null>;
+const resolverLidPadrao: ResolverLid = async ({ instancia, lid, prazoMs }) => {
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const c = await configEvolution();
+  if (!c) return null;
+  const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
+  return numeroDoLidEvolution({ ...c, semRedirecionamento: true }, instancia, lid, comPrazo, prazoMs);
+};
+type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoContato; resolverLid: ResolverLid };
+const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao, resolverLid: resolverLidPadrao };
 let deps: Dependencias = { ...padrao };
 /** Só para testes. Sem argumento, volta ao padrão. */
 export function definirDependenciasRoteamento(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
@@ -184,9 +193,56 @@ export async function identificarRemetente(numero: string): Promise<Remetente> {
 
 // ── Central ──
 
-/** Mensagem recebida de terceiro gravada na Central (conexão da empresa). Nunca a do dono nem de grupo (quem chama decide). */
-export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, mensagem?: string | null, leadsCandidatos?: LeadCandidato[]) {
-  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: mensagem ?? null, leadsCandidatos });
+/**
+ * Mensagem recebida de terceiro gravada na Central (conexão da empresa). Nunca a do dono nem de grupo (quem chama decide).
+ * EPIC-026 C2: `numero` é o número conferido pelo roteamento — obrigatório quando o endereço é "@lid" (antes a mensagem com "@lid" e
+ * número no `remoteJidAlt`/`senderPn` era reivindicada e depois NÃO entrava na Central, porque a gravação só aceitava
+ * "@s.whatsapp.net"). `semNumero` grava a conversa de número não identificado (chave = o "@lid").
+ */
+export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, o: { mensagem?: string | null; leadsCandidatos?: LeadCandidato[]; numero?: string | null; semNumero?: string | null } = {}) {
+  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: o.mensagem ?? null, leadsCandidatos: o.leadsCandidatos, numero: o.numero ?? null, semNumero: o.semNumero ?? null });
+}
+
+// ── EPIC-026 C2: o número real dos endereços "@lid" ──
+
+/** O número já conhecido deste "@lid" nesta instância (aprendido do aviso ou da Evolution), ou null. Falha ao ler → null. */
+export async function numeroConhecidoDoLid(instancia: string, lid: string): Promise<string | null> {
+  try {
+    const [r] = await getDb().select({ numero: whatsappLidNumeros.numero }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.lid, lid.slice(0, 40)))).limit(1);
+    return r?.numero ?? null;
+  } catch { return null; }
+}
+
+/**
+ * Guarda o número de um "@lid" (só quando é novo ou mudou) e, se mudou, a conversa de "número não identificado" desse "@lid" na
+ * Central passa a ser a do número (as linhas gravadas com o "@lid" ganham o número; se o número for o do dono ou o da empresa, a
+ * conversa some da Central pelo filtro de sempre). Nunca lança.
+ */
+export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; numero: string; origem: "aviso" | "evolution"; connectionId: number | null }): Promise<boolean> {
+  const numero = p.numero.replace(/\D/g, "").slice(0, 20);
+  if (!/^\d{10,15}$/.test(numero) || !/^\d{5,25}@lid$/.test(p.lid)) return false;
+  try {
+    const db = getDb();
+    const r = await db.insert(whatsappLidNumeros).values({ instancia: p.instancia, lid: p.lid, numero, origem: p.origem })
+      .onConflictDoUpdate({ target: [whatsappLidNumeros.instancia, whatsappLidNumeros.lid], set: { numero, origem: p.origem, atualizadoEm: sql`now()` },
+        setWhere: sql`${whatsappLidNumeros.numero} <> ${numero}` })
+      .returning({ lid: whatsappLidNumeros.lid });
+    if (!r.length) return false;
+    if (p.connectionId !== null) {
+      await db.update(whatsappMessages).set({ destinatario: numero, updatedAt: new Date() })
+        .where(and(eq(whatsappMessages.connectionId, p.connectionId), eq(whatsappMessages.destinatario, p.lid)));
+    }
+    return true;
+  } catch (e) {
+    console.error("[dolores/roteamento] falha ao guardar o número do @lid", erroParaLog(e));
+    return false;
+  }
+}
+
+/** Consulta o número de um "@lid" na Evolution (dependência substituível nos testes). Falha → null. */
+export async function consultarNumeroDoLid(instancia: string, lid: string, prazoMs: number): Promise<string | null> {
+  try { return await deps.resolverLid({ instancia, lid, prazoMs }); } catch { return null; }
 }
 
 /** Troca o texto de uma mensagem RECEBIDA que o próprio aviso acabou de gravar (o áudio transcrito). */
@@ -219,7 +275,8 @@ export async function tratarPropria(conn: ConexaoDaEmpresa, item: unknown, p: { 
       return "propria-automatica";
     }
   }
-  await gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false });
+  // EPIC-026 C2: o número conferido vai junto (o endereço pode ser "@lid", que a gravação sozinha não aceitava)
+  await gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, numero: p.numero });
   await silenciarConversa(p.numero, p.silencioHoras, p.enviadaEm ?? deps.agora());
   return "propria-equipe";
 }
@@ -240,7 +297,8 @@ export async function enviarAoContato(p: { cfg: DoloresWhatsappConfig; conn: Con
     registrarAcao({ funcao: "whatsapp_automatica", resultado, motivo, autorUserId: p.autor, canal: "whatsapp", pedidoId: p.pedidoId,
       resumo: { tipo: p.tipo, destino: mascararNumero(p.numero), ...extra } });
   const destino = p.numero.replace(/\D/g, "");
-  if (!/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return false; }
+  // EPIC-026 C2: "@lid" (número não identificado) nunca vira destino — os dígitos dele não são telefone
+  if (/@/.test(p.numero) || !/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return false; }
   if (ehNumeroDoDono(destino, p.cfg.numeroDono) || ehNumeroDoDono(destino, p.cfg.numeroDolores)) { await auditar("recusada", "destino é o dono ou o próprio número; nada foi enviado"); return false; }
   if (!p.cfg.instancia || p.cfg.statusConexao !== "conectado" || p.conn.instancia !== p.cfg.instancia) { await auditar("recusada", "conexão da empresa desconectada; nada foi enviado"); return false; }
   if (!(await podeFalarNoGrupo())) { await auditar("recusada", "Dolores pausada (pausa geral ou conta desativada); nada foi enviado"); return false; }
