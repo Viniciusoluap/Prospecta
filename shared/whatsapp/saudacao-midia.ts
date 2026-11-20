@@ -297,9 +297,11 @@ function duracaoM4a(b: Uint8Array): number | null {
   if (b.length < 16 || ascii(b, 4, 4) !== "ftyp") return null;
   const topo = caixas(b, 0, b.length);
   const moov = topo.find(c => c.tipo === "moov");
+  if (topo.some(c => c.tipo === "moof")) return null; // QA-SEG C3 R3-2: arquivo fragmentado (gravado em partes): fora
   const mdat = topo.filter(c => c.tipo === "mdat").reduce((t, c) => t + (c.fim - c.inicio), 0);
   if (!moov || mdat <= 0) return null;
   const dentro = caixas(b, moov.inicio, moov.fim);
+  if (dentro.some(c => c.tipo === "mvex")) return null; // fragmentado
   const mvhdCaixa = dentro.find(c => c.tipo === "mvhd");
   const mvhd = mvhdCaixa ? duracaoDoCabecalho(b, mvhdCaixa, 12, 20) : null;
   if (!mvhd || !mvhd.escala) return null;
@@ -318,13 +320,15 @@ function duracaoM4a(b: Uint8Array): number | null {
     if (!mdhd || !mdhd.escala) return null;
     const daFaixa = mdhd.duracao / mdhd.escala;
     if (Math.abs(daFaixa - segundos) > Math.max(1, segundos * 0.05)) return null; // cabeçalhos que não concordam
-    // QA-SEG C3 R2-4: a tabela de tempos das amostras (stts) da faixa de som, quando existe, precisa somar a mesma duração
+    // QA-SEG C3 R2-4/R3-2: a tabela de tempos das amostras (stts) da faixa de som é OBRIGATÓRIA (ao menos uma entrada) e precisa
+    // somar a mesma duração do mdhd
     const minf = dentroMdia.find(c => c.tipo === "minf");
     const stbl = minf ? caixas(b, minf.inicio, minf.fim).find(c => c.tipo === "stbl") : undefined;
     const stts = stbl ? caixas(b, stbl.inicio, stbl.fim).find(c => c.tipo === "stts") : undefined;
-    if (stts) {
+    if (!stts) return null;
+    {
       const n = stts.fim - stts.inicio >= 8 ? u32(b, stts.inicio + 4) : -1;
-      if (n < 0 || stts.inicio + 8 + n * 8 > stts.fim) return null;
+      if (n < 1 || stts.inicio + 8 + n * 8 > stts.fim) return null;
       let total = 0;
       for (let k = 0; k < n; k++) total += u32(b, stts.inicio + 8 + k * 8) * u32(b, stts.inicio + 12 + k * 8);
       if (Math.abs(total / mdhd.escala - daFaixa) > Math.max(1, daFaixa * 0.05)) return null;
@@ -367,7 +371,9 @@ export function conferirMidiaSaudacao(tipo: TipoMidiaSaudacao, b: Uint8Array): M
   }
   if (b.length > LIMITE_AUDIO_SAUDACAO) return { ok: false, erro: `O áudio passa de ${mb(LIMITE_AUDIO_SAUDACAO)}. Envie um áudio menor.` };
   const audio = lerAudioSaudacao(b);
-  if (!audio) return { ok: false, erro: "Não reconheci este áudio. Envie em OGG (Opus, o do WhatsApp), MP3 ou M4A." };
+  if (!audio) return { ok: false, erro: b.length >= 8 && ascii(b, 4, 4) === "ftyp"
+    ? "Não consegui conferir este M4A (formato incomum ou incompleto). Salve o áudio de novo em MP3 ou M4A comum."
+    : "Não reconheci este áudio. Envie em OGG (Opus, o do WhatsApp), MP3 ou M4A." };
   if (audio.duracaoS > DURACAO_MAX_AUDIO_SAUDACAO_S + FOLGA_DURACAO_S)
     return { ok: false, erro: `O áudio tem ${Math.round(audio.duracaoS)} segundos; o máximo é 2 minutos (${DURACAO_MAX_AUDIO_SAUDACAO_S} segundos).` };
   if (audio.duracaoS < 0.5) return { ok: false, erro: "O áudio está vazio ou curto demais." };

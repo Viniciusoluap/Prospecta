@@ -76,14 +76,17 @@ const caixa = (tipo: string, ...dentro: Buffer[]) => {
   h.writeUInt32BE(8 + corpo.length, 0); h.write(tipo, 4, "latin1");
   return Buffer.concat([h, corpo]);
 };
-/** M4A: ftyp + moov(mvhd + uma faixa com o manipulador pedido). */
+/** Tabela de tempos (stts) com UMA entrada: amostras de 1024 que somam `total` unidades da escala da faixa. */
+const sttsDe = (total: number) => { const c = Buffer.alloc(16); c.writeUInt32BE(1, 4); c.writeUInt32BE(Math.round(total / 1024), 8); c.writeUInt32BE(1024, 12); return caixa("stts", c); };
+/** M4A: ftyp + moov(mvhd + uma faixa com o manipulador pedido, mdhd e stts). */
 function m4a(segundos: number, manipulador = "soun") {
   const mvhd = Buffer.alloc(100);
   mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(Math.round(segundos * 1000), 16);
   const hdlr = Buffer.alloc(24); hdlr.write(manipulador, 8, "latin1");
   const mdhd = Buffer.alloc(24); mdhd.writeUInt32BE(44_100, 12); mdhd.writeUInt32BE(Math.round(segundos * 44_100), 16);
   return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")),
-    caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("mdhd", mdhd), caixa("hdlr", hdlr)))), caixa("mdat", Buffer.alloc(4000, 0x21))]);
+    caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("mdhd", mdhd), caixa("hdlr", hdlr), caixa("minf", caixa("stbl", sttsDe(segundos * 44_100)))))),
+    caixa("mdat", Buffer.alloc(4000, 0x21))]);
 }
 
 /** M4A de 10 s com o conteúdo da "mdia" depois do mdhd trocado (hdlr + minf/stbl/stts). */
@@ -294,7 +297,7 @@ describe("gravação pela tela do administrador", () => {
     await expect(anexar(admin, id, "imagem", Buffer.from("MZ executável disfarçado de foto"), "foto.png")).rejects.toThrow(/não é uma imagem JPG ou PNG/);
     await expect(anexar(admin, id, "imagem", Buffer.concat([JPG, Buffer.alloc(LIMITE_IMAGEM_SAUDACAO)]), "grande.jpg")).rejects.toThrow(/acima de 5 MB|passa de 5 MB/);
     await expect(anexar(admin, id, "audio", ogg(150), "longo.ogg")).rejects.toThrow(/máximo é 2 minutos/);
-    await expect(anexar(admin, id, "audio", m4a(30, "vide"), "video.m4a")).rejects.toThrow(/Não reconheci este áudio/);
+    await expect(anexar(admin, id, "audio", m4a(30, "vide"), "video.m4a")).rejects.toThrow(/Salve o áudio de novo em MP3 ou M4A comum/);
     expect(await q("SELECT * FROM whatsapp_campanha_midias")).toEqual([]);
   });
   it("QA-SEG R2-3: foto com movimento — só a imagem é guardada (tamanho e hash do corte) e só ela vai à Evolution", async () => {
@@ -316,6 +319,20 @@ describe("gravação pela tela do administrador", () => {
     };
     expect(lerAudioSaudacao(comStts(Math.round(10 * 44_100 / 1024)))).toMatchObject({ mime: "audio/mp4" });
     expect(lerAudioSaudacao(comStts(Math.round(600 * 44_100 / 1024)))).toBeNull();
+  });
+  it("QA-SEG R3-2: M4A sem stts, com stts vazio ou fragmentado (moof/mvex) é recusado com mensagem simples", () => {
+    const semStts = m4aCom(caixa("hdlr", (() => { const h = Buffer.alloc(24); h.write("soun", 8, "latin1"); return h; })()));
+    expect(conferirMidiaSaudacao("audio", semStts)).toMatchObject({ ok: false, erro: expect.stringMatching(/Salve o áudio de novo em MP3 ou M4A comum/) });
+    const hdlrSom = caixa("hdlr", (() => { const h = Buffer.alloc(24); h.write("soun", 8, "latin1"); return h; })());
+    const vazio = caixa("stts", Buffer.alloc(8));
+    expect(lerAudioSaudacao(m4aCom(Buffer.concat([hdlrSom, caixa("minf", caixa("stbl", vazio))])))).toBeNull();
+    const fragmentado = Buffer.concat([m4a(10), caixa("moof", Buffer.alloc(16))]);
+    expect(lerAudioSaudacao(fragmentado)).toBeNull();
+    const comMvex = m4a(10);
+    const i = comMvex.indexOf(Buffer.from("moov")) - 4;
+    const novo = Buffer.concat([comMvex.subarray(0, i), caixa("moov", comMvex.subarray(i + 8, i + comMvex.readUInt32BE(i)), caixa("mvex", Buffer.alloc(8))), comMvex.subarray(i + comMvex.readUInt32BE(i))]);
+    expect(lerAudioSaudacao(m4a(10))).toMatchObject({ mime: "audio/mp4" });
+    expect(lerAudioSaudacao(novo)).toBeNull();
   });
   it("criar campanha devolve o id (a tela já oferece anexar)", async () => {
     const r = await caller("admin").dolores.atendimento.criarCampanha({ nome: "Nova", texto: "Olá, nova campanha!" });

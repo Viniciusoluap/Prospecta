@@ -10,7 +10,7 @@
 // - os avisos de ligação e de áudio (no máximo 1 a cada N horas por número).
 // Nada aqui é comando: comando continua só do número do dono, por texto, em server/dolores/whatsapp.ts.
 import { createHmac } from "node:crypto";
-import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { avaliacoes, financiamentos, leads, operationalProjects, regularizacoes, users, whatsappMessages } from "../../drizzle/schema.js";
 import {
   whatsappAtendimentoConfig, whatsappAtendimentoContagem, whatsappAvisosNumero, whatsappCampanhas, whatsappRoteamentoVistos, whatsappSaudacoes,
@@ -411,20 +411,29 @@ export async function enviarAoContatoComResultado(p: PedidoAoContato): Promise<R
     if (!externalId) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)";
   } catch (e) { motivo = `sem confirmação do envio (tempo esgotado ou conexão caiu): ${erroParaLog(e)}`; semConfirmacao = true; }
   if (linha) {
-    // QA-SEG C3 R2-1: durante o envio, um eco com o rótulo da mídia pode ter casado com esta linha e gravado o id dele. Se esse id
-    // não é o que a Evolution devolveu (ou o envio não foi confirmado), o eco NÃO era nosso: na dúvida é da EQUIPE — vira mensagem
-    // própria (não automática) com aquele id, a Dolores fica calada na conversa e a linha automática fica com o id real (ou nenhum).
-    const [atual] = await db.select({ externalId: whatsappMessages.externalId }).from(whatsappMessages).where(eq(whatsappMessages.id, linha.id)).limit(1)
-      .catch(() => [] as { externalId: string | null }[]);
-    const idDoEco = atual?.externalId ?? null;
-    const ecoDeOutro = idDoEco !== null && idDoEco !== externalId;
-    await db.update(whatsappMessages).set({
-      status: externalId ? "enviada" : "falhou",
-      ...(externalId ? { externalId } : { erroMsg: semConfirmacao ? "Sem confirmação do envio (pode ter chegado)" : "Erro ao enviar", ...(ecoDeOutro ? { externalId: null } : {}) }),
-      updatedAt: new Date(),
-    }).where(eq(whatsappMessages.id, linha.id)).catch(e => console.error("[dolores/roteamento] falha ao atualizar a mensagem automática", erroParaLog(e)));
-    if (ecoDeOutro) await mensagemDaEquipeNoEnvio(p, { connectionId: p.conn.id, destino, mensagem: naCentral, externalId: idDoEco })
-      .catch(e => console.error("[dolores/roteamento] falha ao separar a mensagem da equipe", erroParaLog(e)));
+    // QA-SEG C3 R2-1/R3-1: durante o envio, um eco com o rótulo da mídia pode ter casado com esta linha e gravado o id dele. O update
+    // final é ATÔMICO e condicional: só pega a linha se ela continua sem id ou já está com o id REAL devolvido pela Evolution. Se não
+    // pegar, o eco gravado NÃO era nosso: na dúvida é da EQUIPE — vira mensagem própria (não automática) com aquele id, a Dolores
+    // fica calada na conversa e a linha automática fica com o id real (ou nenhum, se não saiu).
+    try {
+      const resultado = externalId
+        ? { status: "enviada", externalId, updatedAt: new Date() }
+        : { status: "falhou", erroMsg: semConfirmacao ? "Sem confirmação do envio (pode ter chegado)" : "Erro ao enviar", updatedAt: new Date() };
+      const pegou = await db.update(whatsappMessages).set(resultado)
+        .where(and(eq(whatsappMessages.id, linha.id), externalId
+          ? sql`(${whatsappMessages.externalId} IS NULL OR ${whatsappMessages.externalId} = ${externalId})`
+          : isNull(whatsappMessages.externalId)))
+        .returning({ id: whatsappMessages.id });
+      if (!pegou.length) {
+        const [atual] = await db.select({ externalId: whatsappMessages.externalId }).from(whatsappMessages).where(eq(whatsappMessages.id, linha.id)).limit(1);
+        await db.update(whatsappMessages).set({ ...resultado, externalId: externalId ?? null }).where(eq(whatsappMessages.id, linha.id));
+        if (atual?.externalId) await mensagemDaEquipeNoEnvio(p, { connectionId: p.conn.id, destino, mensagem: naCentral, externalId: atual.externalId });
+      }
+      // R3-1: o eco VERDADEIRO pode ter chegado depois do da equipe e entrado como "da equipe" com o id real — é a própria saudação:
+      // sai a duplicata (a mensagem da equipe, com o id dela, fica), e a saudação aparece uma vez só, como automática
+      if (externalId) await db.delete(whatsappMessages).where(and(eq(whatsappMessages.connectionId, p.conn.id), eq(whatsappMessages.externalId, externalId),
+        eq(whatsappMessages.automatica, false), ne(whatsappMessages.id, linha.id), eq(whatsappMessages.direcao, "saida")));
+    } catch (e) { console.error("[dolores/roteamento] falha ao atualizar a mensagem automática", erroParaLog(e)); }
   }
   await auditar(externalId ? "ok" : "erro", motivo, { caracteres: final.length, duracaoMs: deps.ms() - inicio, ...(semConfirmacao ? { semConfirmacao: true } : {}) });
   return externalId ? "ok" : semConfirmacao ? "sem_confirmacao" : "falhou";

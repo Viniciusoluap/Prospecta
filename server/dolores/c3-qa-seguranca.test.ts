@@ -280,7 +280,9 @@ const app1ComMiniatura = () => seg(0xe1, Buffer.concat([Buffer.from("Exif\0\0"),
 const fullbox = (tipo: string, escalaOff: number, escala: number, dur: number, tam = 100) => { const c = Buffer.alloc(tam); c.writeUInt32BE(escala, escalaOff); c.writeUInt32BE(dur, escalaOff + 4); return caixa(tipo, c); };
 const m4aCompleto = (p: { mvhdEscala: number; mvhdDur: number; mdhdEscala: number; mdhdDur: number; mdat: number; moovNoFim?: boolean; metaTrak?: boolean }) => {
   const hdlr = (t: string) => { const h = Buffer.alloc(24); h.write(t, 8, "latin1"); return caixa("hdlr", h); };
-  const trak = caixa("trak", caixa("mdia", fullbox("mdhd", 12, p.mdhdEscala, p.mdhdDur, 24), hdlr("soun")));
+  // R3-2: a faixa de som precisa da tabela de tempos (stts) somando a duração do mdhd (amostras de 1024)
+  const sttsC = Buffer.alloc(16); sttsC.writeUInt32BE(1, 4); sttsC.writeUInt32BE(Math.round(p.mdhdDur / 1024), 8); sttsC.writeUInt32BE(1024, 12);
+  const trak = caixa("trak", caixa("mdia", fullbox("mdhd", 12, p.mdhdEscala, p.mdhdDur, 24), hdlr("soun"), caixa("minf", caixa("stbl", caixa("stts", sttsC)))));
   const meta = p.metaTrak ? [caixa("trak", caixa("mdia", fullbox("mdhd", 12, 1000, 1, 24), hdlr("meta")))] : [];
   const moov = caixa("moov", fullbox("mvhd", 12, p.mvhdEscala, p.mvhdDur), trak, ...meta);
   const ftyp = caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1"));
@@ -446,7 +448,7 @@ describe("rodada 3", () => {
     expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]);
     expect(await q("SELECT external_id, automatica FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ external_id: "EVO-REAL", automatica: true }]);
   });
-  it("ACHADO R3-1: eco da EQUIPE e eco VERDADEIRO durante o mesmo envio (equipe primeiro): o id real fica em DUAS linhas", async () => {
+  it("CORRIGIDO R3-1: eco da EQUIPE e eco VERDADEIRO durante o mesmo envio (equipe primeiro): cada id em UMA linha, a saudação uma vez só como automática", async () => {
     const id = await campanhaAtiva();
     const admin = caller("admin");
     await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: await subir(admin, id, "audio", OGG10, "voz.ogg"), nome: "voz.ogg" });
@@ -458,8 +460,10 @@ describe("rodada 3", () => {
     await chamar(aviso(direta()));
     expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1); // lado seguro: a Dolores fica calada
     const linhas = await q<{ external_id: string }>("SELECT external_id FROM whatsapp_messages WHERE direcao = 'saida' AND external_id IS NOT NULL ORDER BY id");
-    expect(linhas.filter(l => l.external_id === "EVO-REAL").length).toBe(2); // duplicata na Central (o automático aparece também como da equipe)
+    expect(linhas.filter(l => l.external_id === "EVO-REAL").length).toBe(1); // sem duplicata na Central
     expect(linhas.filter(l => l.external_id === "EQUIPE-1").length).toBe(1);
+    expect(await q("SELECT external_id, automatica FROM whatsapp_messages WHERE mensagem = '[áudio]' ORDER BY id")).toEqual([
+      { external_id: "EVO-REAL", automatica: true }, { external_id: "EQUIPE-1", automatica: false }]);
   });
   it("R2-3: o apêndice é de fato cortado — gravado e enviado só até o fim da imagem, mesmo com HTML/ZIP depois de um falso 'ftyp' ou antes de 'SEFT'", async () => {
     const id = await campanhaAtiva();
