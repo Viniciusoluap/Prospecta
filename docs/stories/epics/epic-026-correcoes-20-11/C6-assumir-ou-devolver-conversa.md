@@ -1,6 +1,6 @@
 # C6 — Botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central WhatsApp
 
-Status: InProgress (ramo `epic026-c6`; aguarda portão de QA de segurança).
+Status: InReview (ramo `epic026-c6`; aguarda portão de QA de segurança).
 Epic: EPIC-026 — Correções de 20/11/2026 (`EPIC.md`).
 Paridade: a Dolores é exceção (exclusiva do Prospecta); nada a portar para o Grupo Santa Fé.
 Migração: `drizzle/0138_atendimento_modo_conversa.sql` (aditiva; NÃO aplicada — aplicar no Neon na publicação).
@@ -86,4 +86,20 @@ se `ate > agora`; `tratarAtendimento` confere antes de responder e de novo na ho
 - `docs/stories/epics/epic-026-correcoes-20-11/EPIC.md`
 
 ## Testes
-Ver o relatório do @dev no fim desta etapa (preenchido ao concluir).
+(a) Automáticos (20/11):
+- `server/dolores/c6-assumir-devolver.test.ts` — 15 testes, todos passam: precedência pura; migração 0138 aditiva e idempotente;
+  assumir (calada sem prazo, resposta manual da equipe não muda, nenhum envio e nenhuma chamada à IA pelo botão, motivo próprio
+  em `dolores_atendimentos`); devolver (próxima mensagem respondida, antigas não; silêncio automático encerrado na hora; eco
+  atrasado não recala; resposta nova da equipe recala pelo prazo normal; assunção presa à instância; pausa geral continua
+  valendo); recusas (atendimento desligado não liga nada; não cliente; conversa inexistente; dono, empresa, grupo, "@lid");
+  permissões pelo `appRouter` (admin e colaborador com o módulo sim; corretor, colaborador sem o módulo e inativo não; entrada
+  estrita); auditoria sem telefone.
+- Regressão: `npx vitest run server/dolores --maxWorkers=2 --minWorkers=1` → 51 arquivos, 875 testes passam;
+  `server/whatsapp-*` → 6 arquivos, 52 testes passam. `npx tsc --noEmit` passa.
+(b) Manuais: nenhum (sem ambiente com WhatsApp conectado nesta sessão).
+(c) Pendentes de validação em produção: aplicar a 0138 no Neon; na Central, abrir a conversa de um cliente cadastrado com o
+atendimento ligado, "Assumir (humano)", mandar uma mensagem do celular do cliente (a Dolores não responde; registro
+"a equipe assumiu esta conversa"), "Devolver para a Dolores" e mandar outra (ela responde).
+
+## Change Log
+- 20/11/2026 — @dev (Dex): Ready → InProgress → InReview. Implementação completa; aguarda @qa (portão de segurança).
