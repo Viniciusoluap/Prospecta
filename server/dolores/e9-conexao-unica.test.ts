@@ -113,8 +113,8 @@ describe("roteamento — regras puras (por código, nunca pelo texto)", () => {
     expect(decidirRota(lerParaRoteamento({ ...direta(), key: { remoteJid: GRUPO, id: "G1", participant: `${JOAO}@s.whatsapp.net` } }), DONO, "cliente")).toEqual({ destino: "grupo" });
     // estrangeiro com os mesmos 8 finais do dono não é o dono
     expect(decidirRota(d("995591234567"), DONO, "desconhecido").destino).toBe("central");
-    // @lid sem número conferível → nada
-    expect(decidirRota(lerParaRoteamento({ ...direta(), key: { remoteJid: "123@lid", id: "L1" } }), DONO, null)).toMatchObject({ destino: "nada" });
+    // @lid sem número conferível → Central como "número não identificado" (EPIC-026 C2: nenhuma mensagem some sem registro)
+    expect(decidirRota(lerParaRoteamento({ ...direta(), key: { remoteJid: "123@lid", id: "L1" } }), DONO, null)).toEqual({ destino: "central_sem_numero", lid: "123@lid" });
   });
   it("fromMe: nunca é comando; com o dono nunca vai à Central; com os demais vai como saída", () => {
     expect(decidirRota(lerParaRoteamento(direta({ de: DONO, fromMe: true })), DONO, null)).toMatchObject({ destino: "nada" });
