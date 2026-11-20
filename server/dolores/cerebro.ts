@@ -157,7 +157,7 @@ export const AVISO_RESPOSTA_CORTADA = "(continua — a resposta passou do tamanh
 /** QA E8 A2 — frases fixas (código) sobre ações na resposta cortada ou interrompida. */
 export const AVISO_FERRAMENTA_CORTADA = "A consulta/ação que eu ia fazer foi cortada e NÃO foi executada.";
 export const NADA_ALTERADO = "Nada foi alterado no sistema.";
-export const CONFIRA_O_QUADRO = "Confira no quadro do sistema, no começo da resposta, o que foi registrado ou ficou na fila.";
+export const CONFIRA_O_QUADRO = "Confira no quadro do sistema (na primeira mensagem) o que foi registrado ou ficou na fila.";
 
 const textoDe = (blocos: Bloco[]) => blocos.filter((b): b is BlocoTexto => b.type === "text" && typeof (b as BlocoTexto).text === "string").map(b => b.text).join("\n").trim();
 

@@ -40,10 +40,11 @@ describe("QA item 1 — partes da resposta", () => {
     expect(partes.length).toBeGreaterThan(1);
     expect(partes[0]).toMatch(/^\(1\/\d\)\n\*Feito por este pedido\*\n- tarefa criada \[QUADRO\]\n\n- 1\. Cliente 1/);
     expect(partes.slice(1).some(p => p.includes("[QUADRO]"))).toBe(false);
-    // pouco tempo (uma parte só): o quadro continua inteiro no começo, o texto do modelo é que é cortado
+    // pouco tempo (uma parte só): o quadro continua inteiro (fecha a mensagem), o texto do modelo é que é cortado
     const uma = partesDaResposta(texto, quadro, undefined, 1);
     expect(uma).toHaveLength(1);
-    expect(uma[0].startsWith(quadro)).toBe(true);
+    expect(uma[0].endsWith(`\n\n${quadro}`)).toBe(true);
+    expect(uma[0].length).toBeLessThanOrEqual(3800);
     expect(uma[0]).toMatch(/Resposta cortada por tamanho/);
     // quadro grande (fila cheia): vai sozinho na 1ª, sem corte
     const grande = `*Na fila*\n${"- [ABCDE] item da fila ".repeat(160)}FIM`;
@@ -224,7 +225,8 @@ describe("QA item 2 — parcial em max_tokens", () => {
     await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11."));
     expect(await q("SELECT id FROM dolores_acoes WHERE funcao = 'criar_tarefa' AND resultado = 'ok'")).toHaveLength(1);
     const texto = enviar.mock.calls[0][0].texto as string;
-    expect(texto.startsWith("*Registrado no sistema por mim*")).toBe(true);
+    expect(enviar).toHaveBeenCalledTimes(1); // mensagem única: é a primeira, e o quadro do sistema vai nela
+    expect(texto).toMatch(/\*Registrado no sistema por mim\* \(em nome da usuária Dolores\):\n- Tarefa #\d+ "Cobrar certidão no cartório"/);
     expect(texto).toContain(AVISO_FERRAMENTA_CORTADA);
     expect(texto).toMatch(/Confira no quadro do sistema/);
     expect(texto).not.toMatch(/Nada foi alterado/);

@@ -234,7 +234,7 @@ export function semNumeracaoForjada(texto: string): string {
  * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
  * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber é cortado na última com o aviso de
  * sempre ("Resposta cortada por tamanho"). `quadros` (o que foi feito e a fila, montados pelo sistema) NUNCA é cortado e vai
- * SEMPRE no começo da PRIMEIRA mensagem (QA E8 A1: a primeira é a que sai antes de o tempo acabar; o quadro é a fonte da
+ * SEMPRE na PRIMEIRA mensagem — no fim dela quando a resposta é uma mensagem só; no começo quando há várias (QA E8 A1: a primeira é a que sai antes de o tempo acabar; o quadro é a fonte da
  * verdade sobre o que foi gravado); o texto do modelo vem depois e é ele que é cortado. `maxPartes` menor (pouco tempo para
  * enviar) corta o texto livre, nunca os quadros. A numeração "(n/m)" escrita pelo modelo no começo de linha sai (A3).
  */
@@ -242,10 +242,15 @@ export function partesDaResposta(texto: string, quadros: string | null = null, m
   const t = semNumeracaoForjada(texto).trim();
   const q = (quadros ?? "").trim();
   const n = Math.max(1, Math.floor(maxPartes));
-  const inteiro = q ? (t ? `${q}\n\n${t}` : q) : t;
+  // Uma mensagem só: ela É a primeira — o texto vem antes e os quadros fecham a mensagem (a instrução "Responda só aprovar…"
+  // fica no fim, como sempre); sem caber, quem é cortado é o texto do modelo, nunca os quadros.
+  const inteiro = q ? (t ? `${t}\n\n${q}` : q) : t;
   if (inteiro.length <= max) return [inteiro];
-  // uma mensagem só: os quadros estão no começo; cortarResposta corta o FIM (o texto do modelo)
-  if (n === 1) return [cortarResposta(inteiro, max)];
+  if (n === 1) {
+    if (!q) return [cortarResposta(t, max)];
+    const espaco = max - q.length - 2;
+    return [t && espaco >= 200 ? `${cortarResposta(t, espaco)}\n\n${q}` : cortarResposta(q, max)];
+  }
   const cap = max - TAMANHO_NUMERACAO;
   let partes: string[];
   if (!q) partes = pedacos(t, cap, n);
