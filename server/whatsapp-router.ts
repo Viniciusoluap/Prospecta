@@ -166,8 +166,11 @@ async function vinculosDaConexao(connectionId: number): Promise<Map<string, numb
 
 /** Lead do vínculo manual da conversa (tem prioridade sobre a inferência pelo telefone). */
 async function vinculoManual(connectionId: number, numero: string): Promise<number | null> {
+  // QA-SEG C2 achado 5: conversa de número não identificado não tem vínculo (a chave dela seria "" e casaria com vínculo vazio)
+  const chave = chaveTelefone(numero);
+  if (!chave || ehConversaSemNumero(numero) || /@/.test(numero)) return null;
   const [v] = await getDb().select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
-    .where(and(eq(whatsappConversationLinks.connectionId, connectionId), eq(whatsappConversationLinks.phoneKey, chaveTelefone(numero)))).limit(1);
+    .where(and(eq(whatsappConversationLinks.connectionId, connectionId), eq(whatsappConversationLinks.phoneKey, chave))).limit(1);
   return v?.leadId ?? null;
 }
 
@@ -595,7 +598,8 @@ export const whatsappRouter = router({
     ]);
     for (const g of grupos) {
       // Lote 03, correção 02: o vínculo manual (lead ativo) vence a inferência pelo telefone.
-      const manual = vinculos.get(chaveTelefone(g.numero));
+      // QA-SEG C2 achado 5: sem número, sem busca de vínculo (chaveTelefone("…@lid") = "")
+      const manual = g.semNumero ? undefined : vinculos.get(chaveTelefone(g.numero));
       const r = resolverLeadConversa({
         manual: manual && contatos.some(l => l.id === manual) ? manual : null,
         porTelefone: contatos.find(l => mesmoTelefone(l.telefone, g.numero))?.id,

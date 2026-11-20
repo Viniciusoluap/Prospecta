@@ -217,6 +217,18 @@ describe("3 — Central: conversa sem número não envia a lugar nenhum", () => 
   });
 });
 
+describe("achado 5 — conversa sem número nunca procura vínculo pela chave vazia", () => {
+  it("um vínculo com phone_key vazio (lixo) não é aplicado à conversa @lid na lista nem no histórico", async () => {
+    await chamar(aviso(item({ key: { remoteJid: LID } })));
+    const [m] = await q<{ connection_id: number }>(`SELECT connection_id FROM whatsapp_messages WHERE destinatario = '${LID}'`);
+    await banco.pg.exec(`INSERT INTO whatsapp_conversation_links (connection_id, phone_key, lead_id) VALUES (${m.connection_id}, '', 1)`);
+    const admin = caller("admin", 1);
+    const c = (await admin.whatsapp.conversas()).find(x => x.numero === LID);
+    expect(c).toMatchObject({ semNumero: true, leadId: null, vinculo: null });
+    expect((await admin.whatsapp.mensagensConversa({ numero: LID })).length).toBe(1);
+  });
+});
+
 describe("4 — diagnóstico", () => {
   it("aviso SEM segredo válido não grava nada em whatsapp_recebimento_contagem nem em whatsapp_lid_numeros", async () => {
     for (const token of [null, "errado", ""]) {
