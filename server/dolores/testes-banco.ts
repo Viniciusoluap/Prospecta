@@ -71,8 +71,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const e9 = MIGRACAO_0135();
   await pg.exec(e9);
   await pg.exec(e9);
+  // EPIC-026 C2 (registro do recebimento e números dos "@lid"): migração 0136, também duas vezes.
+  const c2 = MIGRACAO_0136();
+  await pg.exec(c2);
+  await pg.exec(c2);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0136 = () => readFileSync(new URL("../../drizzle/0136_whatsapp_recebimento.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0135 = () => readFileSync(new URL("../../drizzle/0135_whatsapp_conexao_unica.sql", import.meta.url), "utf8");
 export const MIGRACAO_0133 = () => readFileSync(new URL("../../drizzle/0133_dolores_grupos_tipo.sql", import.meta.url), "utf8");
