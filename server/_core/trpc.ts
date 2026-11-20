@@ -95,6 +95,9 @@ const MODULOS_DA_FILA_DO_CRM: AdminModule[] = [
 const procedimentoModules: Record<string, AdminModule[]> = {
   "leadServices.listForModule": MODULOS_DA_FILA_DO_CRM,
   "leadServices.materializePending": MODULOS_DA_FILA_DO_CRM,
+  // EPIC-027 C3 (decisão do dono de 20/11, noite): classificar grupo da Dolores (tipo e vínculo) — admin e colaborador com o módulo
+  // WhatsApp. O resto de "dolores.*" continua só do admin (o router confere o PAPEL de novo).
+  "dolores.grupos.definirTipo": ["whatsapp"],
 };
 
 /**

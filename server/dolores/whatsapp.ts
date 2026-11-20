@@ -39,10 +39,10 @@ import { registrarEvento } from "./operacao.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
 import { entrarNoGrupo, tratarEventoDeGrupo } from "./grupos-entrada.js";
-import { decidirGrupo } from "./grupos-decisao.js";
-import { lerDecisaoDeGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { decidirGrupo, decidirPelaOpcao } from "./grupos-decisao.js";
+import { lerDecisaoDeGrupo, lerRespostaNumerada } from "../../shared/dolores/grupos-tipo.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
-import { identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
+import { aprenderLidDaPropriaMensagem, aprenderLidDoAvisoDeGrupo, identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
 import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas-obra.js";
 import { decidirRota, ehSoAudio, lerParaRoteamento, type ItemRoteado } from "../../shared/dolores/roteamento.js";
 import { conexaoDaEmpresa, type ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
@@ -366,6 +366,18 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo: ${d.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
     return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
+  }
+  // EPIC-027 C3 — a resposta SÓ com o número da opção ("3", "1 456") à pergunta do tipo de um grupo: vale para o único grupo que
+  // espera o tipo (nenhum → segue o caminho normal). Mesmas travas do comando acima (só o dono, conversa direta, sem mídia, sem IA).
+  const opcao = msg.temMidia ? null : lerRespostaNumerada(msg.texto);
+  if (opcao) {
+    const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id })
+      .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pela opção", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
+    if (r) {
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal });
+      await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo pela opção: ${opcao.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
+      return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
+    }
   }
   // Etapa 6 — "relatório" (a mensagem inteira), reconhecido por CÓDIGO: ronda + relatório de modelo fixo, sem IA (nem gasto).
   // Mesma porta da pausa geral e do interruptor do relatório; o texto vai ao número do dono pelo envio do sistema.
@@ -738,6 +750,8 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
   const eventoDeGrupo = evento.replace(/-/g, ".");
   if (eventoDeGrupo === "group.participants.update" || eventoDeGrupo === "groups.upsert") {
     const autorDolores = await idDaDoloresSemCriar().catch(() => null);
+    // EPIC-027 C4: os participantes do aviso trazem o par @lid ↔ número da conta (WhatsApp) — aprende antes de conferir quem entrou
+    await aprenderLidDoAvisoDeGrupo(cfg, ev.data).catch(() => false);
     const conf = await lerConfigMarcacoes().catch(() => null);
     const r = await tratarEventoDeGrupo(cfg, eventoDeGrupo === "groups.upsert" ? "criacao" : "participantes", ev.data, {
       agora, autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS, avisar: enviarAvisoAoDono, identidade: identidadeDaDolores(cfg, conf),
@@ -785,6 +799,8 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
     // Etapa 4b — a ÚNICA fala no grupo: quando a Dolores é MARCADA (menção real, por código), em grupo cadastrado e ativo e com
     // os interruptores ligados, ela responde só sobre aquele cliente (marcacao.ts) — depois dos itens do dono deste aviso.
     if (ehDeGrupo(item)) {
+      // EPIC-027 C4: mensagem que a PRÓPRIA conta mandou no grupo traz o @lid dela (fonte do WhatsApp, nunca de terceiro)
+      if ((item as { key?: { fromMe?: unknown } }).key?.fromMe === true) await aprenderLidDaPropriaMensagem(cfg, item);
       // Etapa 7 — grupo desconhecido entra sozinho (tipo pelo nome da Evolution, teto diário, aviso ao dono); nunca fala nele
       const instancia = cfg.instancia;
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor,
@@ -792,7 +808,9 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
       contar(g.resultado);
       registro.item("grupo", g.resultado, "grupo");
       // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
-      if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
+      // EPIC-027 C4: grupo fora da lista, desativado ou recusado também passa (só para o quadro: `tratarMarcacao` não grava nem
+      // responde nada lá; sem marcação real, nem consulta o banco)
+      if (g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
       // Etapa 6 — evento (só registro; nunca ação): documento recebido em grupo cadastrado. Desligado por padrão.
       if (g.aClassificar && g.mensagemId) await registrarEvento({ tipo: "documento_grupo", chave: `grupo-msg:${g.mensagemId}`, origemTabela: "dolores_grupo_mensagens", origemId: g.mensagemId });
       // no máximo UMA classificação por aviso, e só com tempo de sobra; o resto fica "a classificar" (a tela e o próximo
@@ -903,7 +921,11 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
   for (const item of marcacoesDoAviso) {
     const r = await tratarMarcacao(cfg, item, { autor, prazoFinal, obterCredencial: credencialDaMarcacao })
       .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a marcação no grupo", erroCurto(e)); return "marcacao-erro"; });
-    if (r) contar(r);
+    if (r) {
+      contar(r);
+      // EPIC-027 C4: toda marcação (ou possível marcação) deixa o desfecho no quadro, sem texto nem telefone
+      registro.item("marcacao", r.replace(/:/g, "."), "grupo");
+    }
   }
   // Etapa 9 — depois do dono e das marcações: áudio (transcrição ou aviso) e a resposta a cliente cadastrado; cada um confere o prazo
   for (const p of pendentes) {

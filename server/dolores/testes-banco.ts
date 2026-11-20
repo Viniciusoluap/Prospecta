@@ -83,8 +83,16 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const c6 = MIGRACAO_0138();
   await pg.exec(c6);
   await pg.exec(c6);
+  // EPIC-027 C3 (classificar grupo aceito pela tela; aceitar recusado continua só do dono): migração 0139, também duas vezes.
+  if (!opcoes.semEtapa7) {
+    const c3 = MIGRACAO_0139();
+    await pg.exec(c3);
+    await pg.exec(c3);
+  }
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0139 = () => readFileSync(new URL("../../drizzle/0139_dolores_grupos_classificar_pela_tela.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0138 = () => readFileSync(new URL("../../drizzle/0138_atendimento_modo_conversa.sql", import.meta.url), "utf8");
 export const MIGRACAO_0137 = () => readFileSync(new URL("../../drizzle/0137_saudacao_midia.sql", import.meta.url), "utf8");
