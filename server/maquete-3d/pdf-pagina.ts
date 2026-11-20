@@ -7,7 +7,8 @@
 import { inflateSync } from "node:zlib";
 
 type Ref = { ref: number };
-type Valor = number | string | boolean | null | Ref | Valor[] | Dic | { nome: string };
+/** Texto literal "(...)" e hexadecimal "<...>" ficam marcados (com os bytes como estão) para poderem ser reescritos. */
+type Valor = number | string | boolean | null | Ref | Valor[] | Dic | { nome: string } | { texto: string } | { hex: string };
 type Dic = { dic: Record<string, Valor> };
 
 const ehRef = (v: unknown): v is Ref => !!v && typeof v === "object" && "ref" in v;
@@ -67,9 +68,9 @@ function lerValor(t: string, i: number): [Valor, number] {
       if (t[j] === "(") prof++;
       else if (t[j] === ")" && --prof === 0) break;
     }
-    return [t.slice(i + 1, j), j + 1];
+    return [{ texto: t.slice(i + 1, j) }, j + 1];
   }
-  if (c === "<") { const j = t.indexOf(">", i); return [t.slice(i + 1, j), j + 1]; }
+  if (c === "<") { const j = t.indexOf(">", i); return [{ hex: t.slice(i + 1, j) }, j + 1]; }
   let j = i;
   while (j < t.length && !DELIM.test(t[j])) j++;
   const palavra = t.slice(i, j);
@@ -171,25 +172,35 @@ class LeitorPdf {
     return m ? this.dic({ ref: Number(m[1]) }) : null;
   }
 
-  /** Páginas na ordem da árvore, com os recursos herdados do nó de cima. */
-  paginas(): { dic: Record<string, Valor>; recursos: Record<string, Valor> | null }[] {
-    const raiz = this.raiz(), saida: { dic: Record<string, Valor>; recursos: Record<string, Valor> | null }[] = [];
+  /**
+   * Páginas na ordem da árvore, com os recursos herdados do nó de cima. `ref`: o número do objeto da página (quando
+   * ela é um objeto indireto); `herdados`: os atributos herdáveis (Resources, MediaBox, CropBox, Rotate) como estão
+   * gravados no nó mais próximo que os define (para copiar a página sozinha num PDF novo).
+   */
+  paginas(): PaginaLida[] {
+    const raiz = this.raiz(), saida: PaginaLida[] = [];
     const visitados = new Set<number>();
-    const andar = (v: Valor | undefined, herdados: Record<string, Valor> | null, prof: number) => {
+    const andar = (v: Valor | undefined, recursosAcima: Record<string, Valor> | null, herdadosAcima: Record<string, Valor>, prof: number) => {
       if (prof > 30 || saida.length > 2000) return;
       if (ehRef(v)) { if (visitados.has(v.ref)) return; visitados.add(v.ref); }
       const d = this.dic(v);
       if (!d) return;
-      const recursos = this.dic(d.Resources) ?? herdados;
+      const recursos = this.dic(d.Resources) ?? recursosAcima;
+      const herdados = { ...herdadosAcima };
+      for (const k of HERDAVEIS) if (d[k] !== undefined) herdados[k] = d[k];
       const tipo = (d.Type as { nome?: string } | undefined)?.nome;
       if (tipo === "Pages" || Array.isArray(this.resolver(d.Kids))) {
-        for (const k of (this.resolver(d.Kids) as Valor[]) ?? []) andar(k, recursos, prof + 1);
-      } else saida.push({ dic: d, recursos });
+        for (const k of (this.resolver(d.Kids) as Valor[]) ?? []) andar(k, recursos, herdados, prof + 1);
+      } else saida.push({ dic: d, recursos, ref: ehRef(v) ? v.ref : null, herdados });
     };
-    andar(raiz?.Pages, null, 0);
+    andar(raiz?.Pages, null, {}, 0);
     return saida;
   }
 }
+
+/** Atributos que a página herda do nó "Pages" de cima (PDF 1.7, 7.7.3.4). */
+const HERDAVEIS = ["Resources", "MediaBox", "CropBox", "Rotate"] as const;
+type PaginaLida = { dic: Record<string, Valor>; recursos: Record<string, Valor> | null; ref: number | null; herdados: Record<string, Valor> };
 
 function filtros(l: LeitorPdf, d: Dic): string[] {
   const f = l.resolver(d.dic.Filter);
@@ -279,4 +290,128 @@ export function pdfDeUmJpeg(img: ImagemDaPagina): Buffer {
   por(`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(o => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`);
   por(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   return Buffer.concat(partes);
+}
+
+// ── Uma página só (EPIC-027 C1): a prancha vetorial vai à IA sem o resto do arquivo ──
+
+const numeroPdf = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(6).replace(/\.?0+$/, "") || "0");
+const nomePdf = (s: string) => `/${Array.from(s).map(c => {
+  const k = c.charCodeAt(0);
+  return k < 0x21 || k > 0x7e || "#()<>[]{}/%".includes(c) ? `#${k.toString(16).padStart(2, "0")}` : c;
+}).join("")}`;
+/** Subtipos de anotação que não fazem parte do desenho (link, campo de formulário, balão): ficam fora da página copiada. */
+const ANOTACOES_FORA = new Set(["Link", "Widget", "Popup"]);
+/** Em anotações, chaves que apontam para outras páginas ou ações (puxariam o arquivo inteiro). */
+const CHAVES_DE_ANOTACAO_FORA = ["P", "Dest", "A", "AA", "Popup", "IRT"];
+
+export type PaginaExtraida = { pdf: Buffer } | { motivo: string };
+
+/**
+ * Copia a página `pagina` (1 = primeira) num PDF novo de uma página só: o dicionário da página (com os atributos
+ * herdados), o conteúdo e tudo o que ele usa (fontes, imagens, formulários, camadas), com os fluxos copiados byte a
+ * byte (sem recomprimir). Ficam de fora as outras páginas, a árvore de páginas, links e campos de formulário.
+ * Sem biblioteca nova: o mesmo leitor mínimo de objetos de `jpegDaPagina`. PDF criptografado ou estrutura que este
+ * leitor não entende: devolve o motivo, e quem chama manda o PDF original com a instrução da página.
+ */
+export function pdfDaPagina(dados: Buffer, pagina: number): PaginaExtraida {
+  try {
+    const l = new LeitorPdf(dados);
+    if (l.criptografado) return { motivo: "o PDF é protegido (criptografado)" };
+    const paginas = l.paginas();
+    const pg = paginas[pagina - 1];
+    if (!pg) return { motivo: `a página ${pagina} não foi encontrada na estrutura do arquivo (${paginas.length} página(s) lidas)` };
+    const raiz = l.raiz();
+    // Números novos: 1 catálogo, 2 árvore de páginas, 3 a página; o resto na ordem em que aparece.
+    const novos = new Map<number, number>();
+    const fila: number[] = [];
+    if (pg.ref !== null) novos.set(pg.ref, 3);
+    let proximo = 4;
+    const ehPaginaOuArvore = (d: Record<string, Valor> | null) => {
+      const tipo = (d?.Type as { nome?: string } | undefined)?.nome;
+      return tipo === "Page" || tipo === "Pages";
+    };
+    const escrever = (v: Valor | undefined, prof = 0): string => {
+      if (prof > 60) throw new Error("estrutura funda demais");
+      if (v === undefined || v === null) return "null";
+      if (typeof v === "number") return numeroPdf(v);
+      if (typeof v === "boolean") return String(v);
+      if (typeof v === "string") return v === "R" ? "null" : v;
+      if (Array.isArray(v)) return `[${v.map(x => escrever(x, prof + 1)).join(" ")}]`;
+      if (ehRef(v)) {
+        const ja = novos.get(v.ref);
+        if (ja) return `${ja} 0 R`;
+        const o = l.objeto(v.ref);
+        if (!o) return "null";
+        // Outra página (ou a árvore delas): nunca entra, senão o arquivo inteiro viria junto.
+        if (ehDic(o.valor) && ehPaginaOuArvore(o.valor.dic)) return "null";
+        const n = proximo++;
+        novos.set(v.ref, n);
+        fila.push(v.ref);
+        return `${n} 0 R`;
+      }
+      if (ehNome(v)) return nomePdf(v.nome);
+      if ("texto" in v) return `(${v.texto})`;
+      if ("hex" in v) return `<${v.hex}>`;
+      if (ehDic(v)) return ehPaginaOuArvore(v.dic) ? "null" : escreverDic(v.dic, prof);
+      return "null";
+    };
+    const escreverDic = (d: Record<string, Valor>, prof: number): string => {
+      const anotacao = (d.Type as { nome?: string } | undefined)?.nome === "Annot" || (d.Rect !== undefined && d.Subtype !== undefined);
+      const partes: string[] = [];
+      for (const [k, x] of Object.entries(d)) {
+        if (k === "Parent" && ehRef(x)) continue;
+        if (anotacao && CHAVES_DE_ANOTACAO_FORA.includes(k)) continue;
+        partes.push(`${nomePdf(k)} ${escrever(x, prof + 1)}`);
+      }
+      return `<<${partes.join(" ")}>>`;
+    };
+
+    // A página: o próprio dicionário, sem a ligação à árvore, com os atributos herdados e só as anotações do desenho.
+    const dicPagina: Record<string, Valor> = { ...pg.herdados, ...pg.dic, Type: { nome: "Page" } };
+    delete dicPagina.Parent;
+    delete dicPagina.Thumb;
+    delete dicPagina.B;
+    const anotacoes = l.resolver(dicPagina.Annots);
+    if (Array.isArray(anotacoes)) {
+      const ficam = anotacoes.filter(a => !ANOTACOES_FORA.has(((l.dic(a)?.Subtype as { nome?: string } | undefined)?.nome) ?? ""));
+      if (ficam.length) dicPagina.Annots = ficam; else delete dicPagina.Annots;
+    } else delete dicPagina.Annots;
+    const corpoPagina = escreverDic(dicPagina, 0).replace(/^<</, "<</Parent 2 0 R ");
+
+    const ocProps = raiz?.OCProperties !== undefined ? escrever(raiz.OCProperties) : null;
+    const corpos = new Map<number, { texto: string; fluxo?: Buffer }>();
+    for (let i = 0; i < fila.length; i++) {
+      if (fila.length > 20_000) return { motivo: "a página usa objetos demais" };
+      const num = fila[i];
+      const o = l.objeto(num)!;
+      if (o.fluxo && ehDic(o.valor)) {
+        const dic: Record<string, Valor> = { ...o.valor.dic, Length: o.fluxo.length };
+        corpos.set(novos.get(num)!, { texto: escreverDic(dic, 0), fluxo: o.fluxo });
+      } else corpos.set(novos.get(num)!, { texto: escrever(o.valor) });
+    }
+
+    const partes: Buffer[] = [];
+    const offsets: number[] = [];
+    let tam = 0;
+    const por = (b: Buffer | string) => { const x = typeof b === "string" ? Buffer.from(b, "latin1") : b; partes.push(x); tam += x.length; };
+    const obj = (n: number, corpo: string, fluxo?: Buffer) => {
+      offsets[n] = tam;
+      if (fluxo) { por(`${n} 0 obj\n${corpo}\nstream\n`); por(fluxo); por("\nendstream\nendobj\n"); }
+      else por(`${n} 0 obj\n${corpo}\nendobj\n`);
+    };
+    por("%PDF-1.7\n%\xE2\xE3\xCF\xD3\n");
+    obj(1, `<</Type /Catalog /Pages 2 0 R${ocProps ? ` /OCProperties ${ocProps}` : ""}>>`);
+    obj(2, "<</Type /Pages /Kids [3 0 R] /Count 1>>");
+    obj(3, corpoPagina);
+    for (let n = 4; n < proximo; n++) {
+      const c = corpos.get(n);
+      obj(n, c?.texto ?? "null", c?.fluxo);
+    }
+    const xref = tam;
+    por(`xref\n0 ${proximo}\n0000000000 65535 f \n${offsets.slice(1, proximo).map(o => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`);
+    por(`trailer\n<< /Size ${proximo} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return { pdf: Buffer.concat(partes) };
+  } catch (e) {
+    return { motivo: `a estrutura do PDF não pôde ser copiada (${e instanceof Error ? e.message.slice(0, 120) : "erro"})` };
+  }
 }

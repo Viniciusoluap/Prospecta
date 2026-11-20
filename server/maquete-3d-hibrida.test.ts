@@ -20,6 +20,7 @@ import { jpegDaPagina, ladosDoJpeg, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.
 import { lerConfig } from "../shared/maquete-3d/regras.js";
 import { appRouter } from "./routers.js";
 import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
+import { loteSimulado } from "./fixtures/maquete-3d/lote-simulado.js";
 
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
 const RASTER = pdfDeUmJpeg({ jpeg: JPEG, ...ladosDoJpeg(JPEG)! });
@@ -64,6 +65,8 @@ async function criarBanco() {
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 let pedidos: PedidoIA[];
 let respostas: (unknown | Error)[];
+/** EPIC-027 C1: erros ao CRIAR o lote (a resposta, quando vem, sai de `respostas` ao terminar). */
+let errosNoEnvio: Error[];
 let credencial: CredencialIA | null;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
 const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
@@ -82,11 +85,11 @@ async function pedido(documentos: (typeof VET)[]) {
   await colaborador().iniciarLeitura({ id });
   return id;
 }
-/** Avança até acabar, parar num erro ou num "aguardando". */
+/** Avança até acabar, parar num erro ou num "aguardando" (o lote em andamento na IA não para: a tela consulta de novo). */
 async function ler(id: number) {
   for (let i = 0; i < 20; i++) {
     const r = await colaborador().avancarLeitura({ id });
-    if (r.erro || r.aguardando || !r.proximo) return r;
+    if (r.erro || (r.aguardando && r.aguardando.motivo !== "lote") || !r.proximo) return r;
   }
   throw new Error("a leitura não terminou");
 }
@@ -103,17 +106,19 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
                (1, 'arq2', 'pdf', 'escaneada.pdf', 'escaneada.pdf', 'application/pdf', 10, 1, 'd2', 'active'),
                (1, 'arq3', 'pdf', 'escaneada-2.pdf', 'escaneada-2.pdf', 'application/pdf', 10, 1, 'd3', 'active');
     `);
-    pedidos = []; respostas = []; credencial = null;
+    pedidos = []; respostas = []; errosNoEnvio = []; credencial = null;
     definirDependencias({
       agora: () => new Date("2026-11-16T13:00:00Z"),
       lerPdf: async d => (d.nome.startsWith("escaneada") ? RASTER : VETORIAL),
       credencialIA: async () => credencial,
-      ia: async p => {
-        pedidos.push(p);
-        const r = respostas.shift() ?? RESPOSTA_IA;
-        if (r instanceof Error) throw r;
-        return { json: r, entrada: 2500, saida: 900, modelo: p.credencial?.modelo ?? p.config.modeloIA };
-      },
+      ia: async () => { throw new Error("a leitura de prancha não usa mais a chamada direta"); },
+      lote: loteSimulado({
+        aoEnviar: p => { pedidos.push(p); const e = errosNoEnvio.shift(); if (e) throw e; },
+        responder: p => {
+          const r = respostas.shift() ?? RESPOSTA_IA;
+          return r instanceof Error ? r : { json: r, entrada: 2500, saida: 900, modelo: p.credencial?.modelo ?? p.config.modeloIA };
+        },
+      }).cliente,
     });
   });
   afterEach(async () => { definirDependencias(); await banco.pg.close(); });
@@ -244,24 +249,28 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     expect(pedidos).toHaveLength(2);
   });
 
-  it("tempo esgotado ou IA sobrecarregada: erro do passo com mensagem simples, e o mesmo passo é repetido", async () => {
+  it("EPIC-027 C1: envio sem resposta a tempo conta como usado (o lote pode existir); recusa da API no envio e lote sem resultado não são cobrados", async () => {
     credencial = PAINEL;
     await configurar({ motor: "hibrido" });
     const id = await pedido([IMG]);
     await ler(id);
     await admin().confirmarIA({ id });
     // Erros reais do SDK (QA rodada 2, N2: o SDK deixa `name === "Error"`; o tipo vem da classe).
-    respostas.push(new APIConnectionTimeoutError(), APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, undefined, new Headers()));
-    expect((await ler(id)).erro).toContain("passou do tempo limite");
-    // O tempo esgotado pode ter sido cobrado: a prancha autorizada foi usada e repetir pede nova confirmação.
+    errosNoEnvio.push(new APIConnectionTimeoutError(), APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, undefined, new Headers()));
+    expect((await ler(id)).erro).toContain("O envio da prancha à IA não teve resposta a tempo");
+    // O lote pode ter sido criado e lido: a prancha autorizada foi usada e repetir pede nova confirmação.
     expect((await ler(id)).aguardando).toMatchObject({ motivo: "confirmacao" });
     expect(pedidos).toHaveLength(1);
     await admin().confirmarIA({ id });
     expect((await ler(id)).erro).toBe("A IA está sobrecarregada agora. Tente de novo este passo em instantes.");
-    // Sobrecarga (529) não é cobrada: a prancha volta para a confirmação e o passo se repete sem perguntar de novo.
+    // Sobrecarga (529) ao criar o lote: nada foi criado nem cobrado; a prancha volta e o passo se repete sem perguntar.
+    // Agora o lote é criado, mas termina com erro da API ("errored"): não cobrado, volta de novo.
+    respostas.push(new Error("invalid_request_error: imagem ilegível"));
+    expect((await ler(id)).erro).toContain("A IA não aceitou o pedido desta prancha (motivo: invalid_request_error: imagem ilegível): nada foi cobrado e a confirmação foi devolvida");
+    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 1, usadas: 0 });
     expect(await ler(id)).toMatchObject({ status: "em_revisao", erro: null });
-    expect(pedidos).toHaveLength(3);
-    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 2 });
+    expect(pedidos).toHaveLength(4);
+    expect((await admin().detalhe({ id })).ia).toMatchObject({ lidasNaMaquete: 2, usadas: 1 });
     expect(pedidos.every(p => p.anexos?.length === 1)).toBe(true);
   });
 
@@ -296,14 +305,16 @@ describe("leitura híbrida — critérios, envio e conversão", () => {
   });
 
   it("envio: o JPEG da página como imagem; JPEG grande num PDF de uma página; prancha vetorial, o PDF original", () => {
-    expect(anexoDaPagina(RASTER, "x.pdf", 1, 1, 1)).toEqual({ anexo: { tipo: "imagem", base64: JPEG.toString("base64") }, envio: "imagem" });
+    expect(anexoDaPagina(RASTER, "x.pdf", 1, 1, 1)).toEqual({ anexo: { tipo: "imagem", base64: JPEG.toString("base64") }, envio: "imagem", deImagem: true });
     // JPEG de 4 MB (o de verdade com bytes a mais no fim): não cabe como imagem, vai num PDF só daquela página.
     const grande = Buffer.concat([JPEG, Buffer.alloc(4_000_000, 0)]);
     const r = anexoDaPagina(pdfDeUmJpeg({ jpeg: grande, ...ladosDoJpeg(JPEG)! }), "x.pdf", 1, 1, 1);
     expect(r.envio).toBe("pdf_pagina");
     expect(jpegDaPagina(Buffer.from((r.anexo as { base64: string }).base64, "base64"), 1)!.jpeg.equals(grande)).toBe(true);
-    expect(anexoDaPagina(VETORIAL, "s.pdf", 2, 2)).toMatchObject({ envio: "pdf_original", anexo: { tipo: "pdf", nome: "s.pdf" } });
-    expect(() => anexoDaPagina(VETORIAL, "s.pdf", 2, 101)).toThrow("mais que as 100");
+    // EPIC-027 C1: prancha vetorial de um PDF com várias páginas vai só com a página dela.
+    expect(anexoDaPagina(VETORIAL, "s.pdf", 2, 2)).toMatchObject({ envio: "pdf_pagina", deImagem: false, anexo: { tipo: "pdf", nome: "s.pdf — página 2" } });
+    expect(anexoDaPagina(VETORIAL, "s.pdf", 2, 2, 0, false)).toMatchObject({ envio: "pdf_original", anexo: { tipo: "pdf", nome: "s.pdf" } });
+    expect(() => anexoDaPagina(VETORIAL, "s.pdf", 2, 101, 0, false)).toThrow("mais que as 100");
   });
 
   it("extrai o JPEG da página certa, inclusive com o dicionário da página comprimido num fluxo de objetos (PDF 1.5)", () => {

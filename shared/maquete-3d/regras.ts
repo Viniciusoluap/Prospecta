@@ -125,7 +125,20 @@ export type PassoLeitura = {
   envio?: "imagem" | "pdf_pagina" | "pdf_original" | null;
   /** Vezes seguidas em que o passo devolveu o controle sem chamar a IA por falta de tempo na função (QA rodada 2, N7). */
   adiado?: number;
+  /** Por que a prancha foi inteira para a IA (quando não deu para separar só a página): fica registrado no passo. */
+  envioMotivo?: string | null;
+  /**
+   * EPIC-027 C1 — leitura em segundo plano: o lote da Anthropic com a requisição desta prancha. Gravado logo depois
+   * de criado; enquanto houver lote, o passo fica "executando" (a reserva não vence pelo tempo) e cada "avançar"
+   * só consulta. Sobrevive a recarregar e a fechar a página. O id do lote não é segredo (a chave nunca fica aqui).
+   */
+  lote?: LoteDoPasso | null;
 };
+
+/** "em_andamento": a API não separa "na fila" de "sendo lida". "cancelando": o cancelamento foi pedido. */
+export type SituacaoLote = "em_andamento" | "cancelando";
+/** `imagem`: a prancha foi como imagem (a resposta é conferida como leitura de imagem, sem cotas confirmadas por traço). */
+export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number };
 
 /**
  * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta
