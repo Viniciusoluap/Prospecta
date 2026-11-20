@@ -223,6 +223,16 @@ export const textoDoAvisoDeEntradaNoAdministrativo = (p: { nomeDoGrupo: string |
   `Dolores: ${p.quantos === 1 ? "uma pessoa foi adicionada" : `${p.quantos} pessoas foram adicionadas`} ao grupo administrativo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}. Lá eu respondo sobre tudo da operação (menos senhas e dados bancários). Se não foi você quem autorizou, confira o grupo${p.codigo ? ` ou responda: grupo ${p.codigo} ignorar` : ""}.`;
 
 /**
+ * QA-SEG E7 r2 (R2-2) — alguém que não é o dono recolocou a Dolores num grupo que o DONO já decidiu (adicionou ou aceitou): o
+ * grupo continua como ele decidiu (não é rebaixado) e ele é avisado. `quem`: nome de terceiro (limpo, entre «») ou, sem nome, o
+ * final do número (nunca o número completo).
+ */
+export function textoDoAvisoDeRecolocada(p: { quem: string | null; finalDoNumero: string | null; nomeDoGrupo: string | null; codigo: string | null }): string {
+  const quem = limparNomeDeTerceiro(p.quem) ? entreAspas(p.quem, "") : p.finalDoNumero ? `Alguém (número com final ${p.finalDoNumero})` : "Alguém que não é você";
+  return `Dolores: ${quem} me recolocou no grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}. O grupo continua como você decidiu.${p.codigo ? ` Se não quiser mais que eu participe, responda: grupo ${p.codigo} ignorar` : ""}`;
+}
+
+/**
  * QA-SEG E7 (achado 2) — o campo de criação do aviso `groups.upsert` (segundos ou milissegundos) mostra um grupo criado AGORA
  * (no máximo `JANELA_CRIACAO_MS` atrás; relógio adiantado até 1 min)? Sem o campo, ou antigo → false (o criador não prova nada).
  */

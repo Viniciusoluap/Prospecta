@@ -35,7 +35,7 @@ import { doloresMarcacoesContagem, doloresMarcacoesGrupo } from "../../drizzle/s
 import { diaDeImperatriz, jidDeGrupoValido } from "../../shared/dolores/grupos.js";
 import {
   MAX_AVISOS_SEM_PROVA_DIA, autorEhODono, autoriaPendente, avisoDoTetoDeEntrada, avisoDoTetoSemProva, criacaoRecente, descobrirTipoDoGrupo, donoNoMetadado, ehADolores,
-  gerarCodigoDeGrupo, lerParticipante, textoDoAvisoDeAutoriaDesconhecida, textoDoAvisoDeEntrada, textoDoAvisoDeEntradaNoAdministrativo, textoDoAvisoDeRecusa,
+  gerarCodigoDeGrupo, lerParticipante, numeroDoJid, textoDoAvisoDeAutoriaDesconhecida, textoDoAvisoDeEntrada, textoDoAvisoDeEntradaNoAdministrativo, textoDoAvisoDeRecolocada, textoDoAvisoDeRecusa,
   textoDoResumoDeSemProva, tipoEfetivo, type AdicionadoPor, type ClienteParaTipo, type MetadadoDoGrupo, type ProvaAdicao, type TipoGrupo,
 } from "../../shared/dolores/grupos-tipo.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
@@ -109,7 +109,12 @@ async function clientesDoCrm(): Promise<ClienteParaTipo[]> {
 }
 
 /** Prova vinda de um aviso de grupo da Evolution: autor provado o dono, provado outra pessoa, ou aviso sem autor provado. */
-export type Adicao = { autor: "dono" | "outro" | "nao_provado"; prova: ProvaAdicao };
+export type Adicao = { autor: "dono" | "outro" | "nao_provado"; prova: ProvaAdicao;
+  /** Quem adicionou (só para o aviso ao dono, nunca gravado): nome que veio no aviso e o final do número, se provado. */
+  quem?: { nome: string | null; finalDoNumero: string | null } };
+
+/** `decidido_por` gravado quando o grupo entra pelo aviso de "add" com o autor = número do dono (QA-SEG E7 r2, R2-2). */
+export const DECISAO_ADD_DO_DONO = "whatsapp:add-do-dono";
 
 export type ResultadoEntrada =
   | { resultado: "existente"; grupo: DoloresGrupo }
@@ -201,6 +206,8 @@ async function entrarAgora(p: PedidoDeEntrada, chave: string): Promise<Resultado
         instancia: p.instancia, grupoJid: p.grupoJid, nome: rotulo, nomeWhatsapp, tipo: descoberto.tipo, leadId: descoberto.leadId, obraId: null,
         origem: "automatico", situacaoConfirmacao: situacao, codigo, ativo: true, criadoPorUserId: null, atualizadoPorUserId: null,
         adicionadoPor, provaAdicao: prova,
+        // QA-SEG E7 r2 (R2-2): o add PROVADO do dono é decisão dele — um terceiro que remova e readicione a Dolores não rebaixa
+        ...(peloDono && prova === "evento_add" ? { decididoEm: new Date(), decididoPor: DECISAO_ADD_DO_DONO } : {}),
       }).onConflictDoNothing().returning();
       if (linha) { grupo = linha; break; }
       // outro aviso paralelo (outra instância) criou o mesmo grupo: usa o dele (e confere a prova deste pedido nele)
@@ -238,8 +245,27 @@ async function tratarExistente(ja: DoloresGrupo, p: PedidoDeEntrada): Promise<Do
     if (p.adicao.prova === "evento_add" && (ja.situacaoConfirmacao === "recusado" || autoriaPendente(ja))) return aceitarPeloDono(ja, p);
     return ja;
   }
-  if (ja.origem !== "automatico" || ja.decididoEm !== null || ja.situacaoConfirmacao === "recusado") return ja;
+  if (ja.origem !== "automatico" || ja.situacaoConfirmacao === "recusado") return ja;
+  // QA-SEG E7 r2 (R2-2): grupo que o dono já decidiu (adicionou ou aceitou) não é rebaixado por add de terceiro: o dono é avisado
+  if (ja.decididoEm !== null) { await avisarRecolocada(ja, p); return ja; }
   return rebaixar(ja, p);
+}
+
+/** Um aviso por grupo por dia, com teto diário próprio; só ao número do dono. Nada muda no grupo. */
+async function avisarRecolocada(g: DoloresGrupo, p: PedidoDeEntrada): Promise<void> {
+  if (!p.avisar || !g.ativo) return;
+  try {
+    const dia = diaDeImperatriz(p.agora);
+    if (!(await primeiraVez(`aviso-recolocada:${g.id}:${dia}`))) return;
+    const config = await lerConfigGrupos();
+    if (!(await vaga(`avisos-recolocada:${dia}`, config.tetoAvisosGruposDia))) return;
+    await registrarAcao({ funcao: "grupo_entrada_aviso", resultado: "ok", autorUserId: p.autor, canal: p.canal, pedidoId: `grupo:${g.id}:recolocada:${dia}`,
+      motivo: "outra pessoa recolocou a Dolores num grupo que o dono já decidiu: nada muda, dono avisado", resumo: { grupoId: g.id, autor: p.adicao?.autor ?? null } });
+    await p.avisar(textoDoAvisoDeRecolocada({ quem: p.adicao?.quem?.nome ?? null, finalDoNumero: p.adicao?.quem?.finalDoNumero ?? null, nomeDoGrupo: g.nomeWhatsapp ?? g.nome, codigo: g.codigo }),
+      { funcao: "grupo_entrada_aviso", pedidoId: `grupo:${g.id}:recolocada:${dia}`, autor: p.autor, prazoFinal: p.prazoFinal, canal: p.canal, resumo: { grupoId: g.id } }).catch(() => undefined);
+  } catch (e) {
+    console.error("[dolores/grupos-entrada] falha ao avisar que recolocaram a Dolores", erroParaLog(e));
+  }
 }
 
 async function rebaixar(g: DoloresGrupo, p: PedidoDeEntrada): Promise<DoloresGrupo> {
@@ -344,12 +370,16 @@ export async function tratarEventoDeGrupo(cfg: DoloresWhatsappConfig, evento: "p
     // reserva pelos dados do grupo (achado 1a)
     let adicao: Adicao = { autor: "nao_provado", prova: "evento_add" };
     const porNumero = autores.find(a => /@s\.whatsapp\.net$/.test(a));
-    if (porNumero) adicao = { autor: autorEhODono(porNumero, cfg.numeroDono) ? "dono" : "outro", prova: "evento_add" };
+    // nome de quem adicionou, se o aviso trouxer (só vai no aviso ao dono, limpo; nunca gravado)
+    const nomeDeQuem = [d.authorName, d.pushName, d.notify].find((v): v is string => typeof v === "string" && !!v.trim())?.slice(0, 120) ?? null;
+    const quem = (numero: string | null) => ({ nome: nomeDeQuem, finalDoNumero: numero ? numero.slice(-4) : null });
+    if (porNumero) adicao = { autor: autorEhODono(porNumero, cfg.numeroDono) ? "dono" : "outro", prova: "evento_add", quem: quem(numeroDoJid(porNumero)) };
     else if (autores.length && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_PERGUNTAR_NOME_MS) {
       meta = await deps.metadado(cfg.instancia, jid, Math.min(5_000, ctx.prazoFinal - deps.ms() - 3_000)).catch(() => null);
       const mapa = new Map((meta?.participantes ?? []).filter(x => x.lid && x.numero).map(x => [x.lid!, x.numero!]));
       const resolvido = autores.find(a => mapa.has(a.trim()));
-      if (resolvido) adicao = { autor: autorEhODono(resolvido, cfg.numeroDono, mapa) ? "dono" : "outro", prova: "evento_add" };
+      if (resolvido) adicao = { autor: autorEhODono(resolvido, cfg.numeroDono, mapa) ? "dono" : "outro", prova: "evento_add", quem: quem(mapa.get(resolvido.trim()) ?? null) };
+      else adicao = { ...adicao, quem: quem(null) };
     }
     const r = await entrarNoGrupo({ ...base, grupoJid: jid, adicao, metadado: meta });
     return `grupo-evento-${r.resultado}`;
@@ -392,7 +422,8 @@ async function avisarEntradaNoAdministrativo(instancia: string, jid: string, qua
     const dia = diaDeImperatriz(base.agora);
     if (!(await primeiraVez(`aviso-adm-entrada:${g.id}:${dia}`))) return "grupo-evento-outro";
     const config = await lerConfigGrupos();
-    if (!(await vaga(`avisos-grupos:${dia}`, config.tetoAvisosGruposDia))) return "grupo-evento-outro";
+    // QA-SEG E7 r2 (item 6): contador próprio — não gasta (nem é gasto por) os avisos de grupo novo
+    if (!(await vaga(`avisos-adm-entrada:${dia}`, config.tetoAvisosGruposDia))) return "grupo-evento-outro";
     await registrarAcao({ funcao: "grupo_entrada_aviso", resultado: "ok", autorUserId: base.autor, canal: "whatsapp", pedidoId: `grupo:${g.id}:adm-entrada:${dia}`,
       motivo: "alguém foi adicionado a um grupo administrativo aceito: dono avisado", resumo: { grupoId: g.id, quantos: Math.min(quantos, 1024) } });
     await base.avisar(textoDoAvisoDeEntradaNoAdministrativo({ nomeDoGrupo: g.nomeWhatsapp ?? g.nome, quantos: Math.min(quantos, 1024), codigo: g.codigo }),

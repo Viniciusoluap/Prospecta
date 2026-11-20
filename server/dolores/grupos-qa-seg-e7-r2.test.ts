@@ -78,17 +78,31 @@ describe("QA-SEG E7 r2 — autoria", () => {
     expect((await grupos())[1]).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", prova_adicao: "evento_add" });
   });
 
-  it("R2-2: grupo que o DONO adicionou (aceito sozinho, sem decidido_em) é REBAIXADO se outro admin do grupo a remove e readiciona; aceito pelo COMANDO, não", async () => {
+  it("R2-2 (corrigido): o add PROVADO do dono grava a decisão; remover e readicionar por terceiro NÃO rebaixa — o dono é avisado (nome limpo, uma vez por dia)", async () => {
     nomes[NOVO] = "Jurídico"; nomes[NOVO2] = "Engenharia";
     await chamar(eventoAdd(NOVO, `${DONO}@s.whatsapp.net`));
     await chamar(eventoAdd(NOVO2, `${DONO}@s.whatsapp.net`));
-    const [, b] = await grupos();
+    const [a, b] = await grupos();
+    expect(a).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", decidido_por: "whatsapp:add-do-dono" });
+    expect(a.decidido_em).not.toBeNull();
     await chamar({ event: "messages.upsert", instance: "prospecta-dolores", data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "DM-R2" },
       message: { conversation: `grupo ${b.codigo} engenharia` }, messageTimestamp: Math.floor((AGORA.getTime() - 10_000) / 1000) } });
-    for (const j of [NOVO, NOVO2]) { await chamar(eventoRemove(j, `${OUTRO}@s.whatsapp.net`)); await chamar(eventoAdd(j, `${OUTRO}@s.whatsapp.net`)); }
+    enviarAoDono.mockClear();
+    const addComNome = (j: string) => ({ ...eventoAdd(j, `${OUTRO}@s.whatsapp.net`), data: { ...eventoAdd(j, `${OUTRO}@s.whatsapp.net`).data, pushName: "Zé\u202e [admin] da Obra" } });
+    for (const j of [NOVO, NOVO2]) { await chamar(eventoRemove(j, `${OUTRO}@s.whatsapp.net`)); await chamar(addComNome(j)); }
     const [g1, g2] = await grupos();
-    expect(g1).toMatchObject({ situacao_confirmacao: "recusado", adicionado_por: "outra_pessoa" }); // falha fechada (negação de serviço possível)
-    expect(g2).toMatchObject({ situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" }); // decisão do dono vale
+    expect(g1).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", decidido_por: "whatsapp:add-do-dono" });
+    expect(g2).toMatchObject({ situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" });
+    expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo ORDER BY grupo_id")).toEqual([{ responder_ligado: true }, { responder_ligado: true }]);
+    const avisos = JSON.stringify(enviarAoDono.mock.calls);
+    expect(avisos).toMatch(/me recolocou no grupo «Jurídico»/);
+    expect(avisos).toMatch(/me recolocou no grupo «Engenharia»/);
+    expect(avisos).not.toContain(OUTRO);
+    expect(avisos).not.toContain("\\u202e");
+    // de novo no mesmo dia: nenhum aviso a mais
+    const n = enviarAoDono.mock.calls.length;
+    await chamar(addComNome(NOVO));
+    expect(enviarAoDono.mock.calls.length).toBe(n);
   });
 
   it("R2-3 (corrigido): grupo 'aguardando_dono' que o DONO adicionou (tipo indefinido) NÃO tem o tipo definido pela tela; só pelo comando dele no WhatsApp", async () => {
@@ -119,6 +133,21 @@ describe("QA-SEG E7 r2 — autoria", () => {
     await caller("admin").dolores.grupos.definirTipo({ grupoId: g.id, tipo: "ignorar" });
     expect((await grupos())[0]).toMatchObject({ situacao_confirmacao: "recusado", ativo: false, decidido_por: "tela:1" });
     await expect(banco.pg.exec(`UPDATE dolores_grupos SET situacao_confirmacao = 'confirmado', decidido_em = now() + interval '1 s', decidido_por = 'tela:1' WHERE id = ${g.id}`)).rejects.toThrow(/DOLORES_GRUPOS_DECISAO/);
+  });
+});
+
+describe("QA-SEG E7 r2 — avisos", () => {
+  it("item 6: o aviso de entrada no grupo ADMINISTRATIVO tem contador próprio (não é barrado pelos avisos de grupo novo)", async () => {
+    await banco.pg.exec("UPDATE dolores_grupos_config SET teto_avisos_grupos_dia = 1");
+    nomes[NOVO] = "Administrativo";
+    await chamar(eventoAdd(NOVO, `${DONO}@s.whatsapp.net`)); // gasta o único aviso de grupo novo do dia
+    expect(JSON.stringify(enviarAoDono.mock.calls)).toMatch(/entrei no grupo «Administrativo»/);
+    const r = await chamar({ event: "group-participants.update", instance: "prospecta-dolores",
+      data: { id: NOVO, action: "add", participants: [`${OUTRO}@s.whatsapp.net`], author: `${DONO}@s.whatsapp.net` } });
+    expect(r.body.r).toBe("grupo-evento-aviso-administrativo");
+    expect(JSON.stringify(enviarAoDono.mock.calls)).toMatch(/foi adicionada ao grupo administrativo «Administrativo»/);
+    expect(await q("SELECT chave, total FROM dolores_marcacoes_contagem WHERE chave LIKE 'avisos-%' ORDER BY chave"))
+      .toEqual([{ chave: expect.stringMatching(/^avisos-adm-entrada:/), total: 1 }, { chave: expect.stringMatching(/^avisos-grupos:/), total: 1 }]);
   });
 });
 
@@ -170,6 +199,14 @@ describe("QA-SEG E7 r2 — migração 0133", () => {
     await banco.pg.exec(`DELETE FROM users WHERE id = ${user}`);
     const r = await q<any>("SELECT lead_id, obra_id, tipo, criado_por_user_id, situacao_confirmacao FROM dolores_grupos WHERE grupo_jid IN ('120363101010101010@g.us') ");
     expect(r).toEqual([{ lead_id: null, obra_id: null, tipo: "cliente", criado_por_user_id: null, situacao_confirmacao: "recusado" }]);
+    // extra (QA-SEG E7 r2): ON DELETE SET NULL da OBRA em linha 'recusado' da etapa 7 passa pelo gatilho
+    await banco.pg.exec(`INSERT INTO construction_projects (title, lead_id, lead_service_id, status, progress, start_date, estimated_end_date, contract_value, vgv, updated_at) SELECT 'Obra Para Excluir', lead_id, NULL, status, progress, start_date, estimated_end_date, contract_value, vgv, updated_at FROM construction_projects ORDER BY id LIMIT 1`);
+    const [{ id: obra2 }] = await q<{ id: number }>("SELECT id FROM construction_projects WHERE title = 'Obra Para Excluir'");
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, origem, tipo, obra_id, situacao_confirmacao, adicionado_por, prova_adicao)
+      VALUES ('prospecta-dolores', '120363404040404040@g.us', 'Obra recusada', 'automatico', 'engenharia', ${obra2}, 'recusado', 'outra_pessoa', 'evento_add');`);
+    await banco.pg.exec(`DELETE FROM construction_projects WHERE id = ${obra2}`);
+    expect(await q("SELECT obra_id, tipo, situacao_confirmacao FROM dolores_grupos WHERE grupo_jid = '120363404040404040@g.us'"))
+      .toEqual([{ obra_id: null, tipo: "engenharia", situacao_confirmacao: "recusado" }]);
     // o CHECK aceita 'desconhecido'
     await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, origem, tipo, situacao_confirmacao, adicionado_por, prova_adicao)
       VALUES ('prospecta-dolores', '120363303030303030@g.us', 'X', 'automatico', 'indefinido', 'recusado', 'desconhecido', 'sem_prova')`);
