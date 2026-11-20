@@ -773,3 +773,54 @@ custo real estimado). Se quiser que o limite conte o cache pelo peso real, é um
 - `dolores_precos_modelo` e `dolores_cotacao` (quem mudou fica em `atualizado_por`); `dolores_acoes` com `operacao_config`
   ("preço por modelo alterado pela tela", "cotação do dólar alterada pela tela").
 - Resposta em várias mensagens: uma linha `whatsapp_resposta` por mensagem, com `parte: "1/3"` no resumo.
+
+# Etapa 9 — WhatsApp com uma conexão só, atendimento e campanhas (20/11/2026)
+
+Regra do dono: CLAUDE.md, "WhatsApp — uma conexão só, atendimento e campanhas". Story:
+`docs/stories/epics/epic-025-dolores/E9-conexao-unica-e-atendimento.md`. Tudo o que é novo nasce DESLIGADO.
+
+## 1. Banco (equipe técnica)
+- Aplicar `drizzle/0135_whatsapp_conexao_unica.sql` (aditiva e idempotente; pode rodar duas vezes). Não mexe na instância
+  conectada nem na linha do admin em `whatsapp_connections`.
+
+## 2. A conexão (administrador, Integrações › "WhatsApp da empresa (Dolores e Central)")
+1. O número que já estava conectado na Dolores continua conectado: **não leia QR de novo**.
+2. Clique **"Reativar recebimento"** UMA vez depois desta atualização: ele registra de novo o aviso da Evolution com o evento
+   de LIGAÇÃO (`CALL`) e liga a recusa automática de ligações (lendo e regravando as configurações da instância, só trocando
+   `rejectCall`). Sem isso, o aviso "não atendo ligações" não sai.
+3. A Central (Conversas, Enviar mensagem, Templates) do admin e do colaborador passa a usar esse número. A aba "Minha conexão"
+   do admin mostra só as conexões dos corretores; corretores continuam conectando o próprio número ali.
+
+## 3. Ordem para ligar (cada passo é opcional; nada liga sozinho)
+1. **Saudação de campanha** — Central › Templates › "Saudação de campanha": cadastre a campanha (nome, empreendimento
+   opcional, texto FIXO, sem `{{…}}`) e clique **Ativar** (só uma fica ativa). Vai UMA vez por número a quem não está
+   cadastrado. Teto diário em Integrações › "Atendimento pelo WhatsApp da empresa" (padrão 50/dia).
+2. **Avisos de ligação e de áudio** — textos na mesma tela (padrão já preenchido); no máximo 1 a cada 3 h por número.
+3. **Dolores responde clientes cadastrados** — Integrações › "Atendimento pelo WhatsApp da empresa" › Ligar. Exige a IA da
+   Dolores ligada, a chave da Anthropic e os limites mensais. Modelo: Integrações › Anthropic › Modelo por função ›
+   "Dolores — resposta a cliente cadastrado" (o mais barato basta). Tetos: 10 por cliente/dia, 100 por dia; orçamento
+   próprio de 10% do limite mensal; calada por 6 h na conversa em que a equipe respondeu.
+4. **Transcrição de áudio (Cloudflare Workers AI, faixa gratuita)**:
+   - No painel da Cloudflare: Workers AI › copiar o **Account ID** (32 caracteres) e criar um **API Token** com a permissão
+     "Workers AI — Read/Edit" (só ela).
+   - Em Integrações › "Atendimento pelo WhatsApp da empresa" › Cloudflare: colar os dois e Salvar (a tela mostra só o final).
+   - Depois, "Transcrição de áudio" › Ligar. Duração máxima 120 s; 10 por número/dia; 100 por dia.
+   - Modelo `@cf/openai/whisper-large-v3-turbo`, chamado em
+     `POST https://api.cloudflare.com/client/v4/accounts/{Account ID}/ai/run/@cf/openai/whisper-large-v3-turbo` com
+     `{ "audio": "<base64>", "task": "transcribe", "language": "pt" }`. **Conferir na documentação oficial ao ligar**: o host
+     da Cloudflare não estava liberado na rede do ambiente de desenvolvimento, e os testes usam cliente simulado.
+   - O áudio vai à Cloudflare: isso entra no termo de consentimento (pendência do jurídico).
+
+## 4. O que NUNCA muda
+- Comando só do número do dono, por TEXTO, na conversa direta. Áudio do dono não é transcrito nem vira comando (ele recebe
+  "só entendo texto"). Mensagem de cliente, de grupo, áudio transcrito e o que o próprio número enviou nunca são comando.
+- A conversa do dono com a Dolores e os grupos nunca aparecem na Central.
+- Disparo em massa pelo número principal fica bloqueado até a coexistência com a API oficial (fase separada): a aba
+  "Enviar mensagem" aceita um contato por vez pelo número da empresa.
+
+## 5. Conferir
+- `whatsapp_messages.automatica = true`: o que o sistema enviou sozinho (resposta da Dolores, saudação, aviso).
+- `dolores_atendimentos`: cada mensagem de cliente tratada (situação, motivo, tokens); `whatsapp_saudacoes`: quem recebeu
+  qual campanha (número só como resumo HMAC e mascarado); `dolores_acoes` com `whatsapp_automatica`, `cliente_atendimento`,
+  `cliente_leitura`, `configurar_atendimento`, `campanha_saudacao`, `configurar_cloudflare`.
+- Desligar tudo: "Desligar" nos dois interruptores e "Desativar" na campanha. A pausa geral da Dolores também cala tudo isso.
