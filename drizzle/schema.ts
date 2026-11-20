@@ -2141,6 +2141,8 @@ export const whatsappMessages = pgTable("whatsapp_messages", {
   midiaMime: varchar("midia_mime", { length: 120 }),
   midiaNome: varchar("midia_nome", { length: 255 }),
   midiaTamanho: integer("midia_tamanho"),
+  // EPIC-025 E9 (migração 0135): enviada sozinha pelo sistema (resposta da Dolores, saudação, aviso de ligação/áudio).
+  automatica: boolean("automatica").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

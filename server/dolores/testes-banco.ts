@@ -11,7 +11,7 @@ const TABELAS = [
   "users", "leads", "leadServices", "regularizacoes", "regularizacaoDocuments", "regularizacaoEtapas", "regularizacaoItensFinanceiros",
   "regularizacaoRecebimentos", "leadActivities", "leadDocuments", "leadFollowUps", "tasks", "whatsappMessages", "constructionProjects",
   "constructionStages", "constructionProgressHistory", "constructionPciVersions", "obraMeasurements", "obraMovimentos", "financiamentos",
-  "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies",
+  "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies", "avaliacoes", "incorporationUnits",
   "whatsappConnections",
 ];
 
@@ -67,9 +67,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
     await pg.exec(tipo);
     await pg.exec(tipo);
   }
+  // Etapa 9 (conexão única, atendimento e campanhas): migração 0135, também duas vezes.
+  const e9 = MIGRACAO_0135();
+  await pg.exec(e9);
+  await pg.exec(e9);
   return { pg, db: drizzle(pg) };
 }
 
+export const MIGRACAO_0135 = () => readFileSync(new URL("../../drizzle/0135_whatsapp_conexao_unica.sql", import.meta.url), "utf8");
 export const MIGRACAO_0133 = () => readFileSync(new URL("../../drizzle/0133_dolores_grupos_tipo.sql", import.meta.url), "utf8");
 
 /** "Agora" dos testes: 16/11/2026 09:00 em Imperatriz. */
