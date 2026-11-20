@@ -50,7 +50,7 @@ rodava uma vez por dia às 07:00 de Brasília (`0 10 * * *`); hora mais tarde fa
 - `vercel.json` — 8 entradas diárias.
 - `client/src/components/admin/DoloresOperacaoCard.tsx` — texto explicativo (a lista já vinha de `HORAS_DO_RELATORIO`).
 - `server/dolores/c4-horario-relatorio.test.ts` (novo); ajustes em `server/dolores/operacao.test.ts` e
-  `server/dolores/operacao-qa-seguranca.test.ts` (hora 6 agora é recusada; 7..14 aceitas).
+  `server/dolores/operacao-qa-seguranca.test.ts` e `server/dolores/operacao-regras.test.ts` (hora 6 agora é recusada; 7..14 aceitas; 08 espera as 08:00).
 
 ## Testes
 - (a) Automáticos: `c4-horario-relatorio.test.ts` — cada hora 7..14 com o dia inteiro de chamadas (e reentrega de cada
