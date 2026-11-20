@@ -57,7 +57,11 @@ export function lerParaRoteamento(item: unknown): ItemRoteado {
     if (forma !== "numero" && forma !== "lid") return { tipo: "ignorar", motivo: "outro_destino" };
     const m = desembrulhar(d.message ?? {});
     if (m.reactionMessage || m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
-    const texto = typeof m.conversation === "string" ? m.conversation : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
+    // EPIC-026 C3: imagem e áudio enviados pelo número da empresa ganham o mesmo rótulo da Central ("[imagem] legenda", "[áudio]"),
+    // para o eco da saudação com mídia ser reconhecido como AUTOMÁTICO (e não calar a Dolores como se fosse a equipe)
+    const legenda = typeof m.imageMessage?.caption === "string" ? m.imageMessage.caption.trim() : "";
+    const texto = typeof m.conversation === "string" ? m.conversation : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text
+      : m.imageMessage ? (legenda ? `[imagem] ${legenda}` : "[imagem]") : m.audioMessage ? "[áudio]" : "";
     const s = segundos(d.messageTimestamp);
     return { tipo: "propria", externalId: id, numero: numeroDaConversaDireta(key), lid: lidDaConversa(key), enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim() };
   }
