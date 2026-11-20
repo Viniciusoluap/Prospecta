@@ -657,6 +657,10 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   const prazoFinal = inicio + PRAZO_TOTAL_MS;
   const contagem: Record<string, number> = {};
   const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
+  // Etapa 9: o que o roteamento fez (Central, saudação, cliente, áudio) fica à parte de `r` (que continua a contagem do que é ou não
+  // comando, como antes: "nao-autorizado", "propria", "repetida"…)
+  const rota: Record<string, number> = {};
+  const contarRota = (k: string) => { rota[k] = (rota[k] ?? 0) + 1; };
   let semTempoReivindicadas = 0;
   const autor = await idDaDoloresSemCriar().catch(() => null);
   const interrompidos = await recuperarPedidosInterrompidos(cfg, autor, prazoFinal);
@@ -705,14 +709,16 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     const roteado = lerParaRoteamento(item);
     if (roteado.tipo === "propria") {
       const rota = decidirRota(roteado, cfg.numeroDono, null);
-      if (rota.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) { contar("propria"); continue; }
+      contar("propria");
+      const destino = decidirRota(roteado, cfg.numeroDono, null);
+      if (destino.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) continue;
       try {
-        if (!(await reivindicarRoteamento(cfg.instancia, roteado.externalId))) { contar("repetida"); continue; }
+        if (!(await reivindicarRoteamento(cfg.instancia, roteado.externalId))) { contarRota("repetida"); continue; }
         const conn = await conexaoDaEmpresa();
-        if (!conn) { contar("central-sem-conexao"); continue; }
+        if (!conn) { contarRota("central-sem-conexao"); continue; }
         const config = await lerConfigAtendimento();
-        contar(await tratarPropria(conn, item, { numero: rota.numero, texto: roteado.texto, externalId: roteado.externalId, enviadaEm: roteado.enviadaEm, silencioHoras: config.silencioHoras }));
-      } catch (e) { console.error("[dolores/whatsapp] falha ao tratar mensagem enviada pelo número da empresa", erroCurto(e)); contar("erro"); }
+        contarRota(await tratarPropria(conn, item, { numero: destino.numero, texto: roteado.texto, externalId: roteado.externalId, enviadaEm: roteado.enviadaEm, silencioHoras: config.silencioHoras }));
+      } catch (e) { console.error("[dolores/whatsapp] falha ao tratar mensagem enviada pelo número da empresa", erroCurto(e)); contarRota("erro"); }
       continue;
     }
     const m = lerMensagemEvolution(item);
@@ -720,7 +726,10 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
     // Etapa 9 — direta de quem não é o dono: roteamento (Central, saudação, cliente cadastrado, áudio). Nunca comando.
     if (!doDono && roteado.tipo === "direta") {
-      for (const k of await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes })) contar(k);
+      const ks = await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes });
+      // em `r`, como antes: não é comando ("nao-autorizado"), ou reentrega/erro
+      contar(ks[0] === "repetida" || ks[0] === "erro" ? ks[0] : "nao-autorizado");
+      for (const k of ks) if (k !== "repetida" && k !== "erro") contarRota(k);
       continue;
     }
     if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
@@ -772,7 +781,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   for (const p of pendentes) {
     const r = await tratarPendente(cfg, p, { autor, prazoFinal })
       .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a mensagem de cliente", erroCurto(e)); return ["cliente-erro"]; });
-    for (const k of r) contar(k);
+    for (const k of r) contarRota(k);
   }
   if (contagem.reacao || contagem.edicao || contagem.interacao) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "reação, edição, fixação, enquete ou botão: ignorada, sem resposta", autorUserId: autor, canal: "whatsapp",
@@ -785,7 +794,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
   if (contagem.antiga) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });
   }
-  return { status: 200, body: { ok: true, r: contagem } };
+  return { status: 200, body: { ok: true, r: contagem, ...(Object.keys(rota).length ? { rota } : {}) } };
 }
 
 const router = Router();

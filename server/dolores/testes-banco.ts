@@ -12,7 +12,7 @@ const TABELAS = [
   "regularizacaoRecebimentos", "leadActivities", "leadDocuments", "leadFollowUps", "tasks", "whatsappMessages", "constructionProjects",
   "constructionStages", "constructionProgressHistory", "constructionPciVersions", "obraMeasurements", "obraMovimentos", "financiamentos",
   "financiamentoChecklistItems", "bpoClients", "bpoLancamentos", "bankTransactions", "bankAccounts", "imoveis", "operationalProjects", "incorporationStudies", "avaliacoes", "incorporationUnits",
-  "whatsappConnections",
+  "whatsappConnections", "whatsappConversationLinks", "userNotifications",
 ];
 
 let ddl: string | null = null;

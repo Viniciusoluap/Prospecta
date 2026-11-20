@@ -140,7 +140,7 @@ export async function transcreverAudio(p: { instancia: string; externalId: strin
     return texto ? { ok: true, texto, base64: arquivo.base64, mime: arquivo.mime } : { ok: false, motivo: "vazia" };
   } catch (e) {
     // a mensagem do erro pode trazer o pedido: sai só o nome/HTTP, sem token nem conta
-    console.error("[dolores/transcricao] a transcrição falhou", semSegredos(e instanceof Error ? e.message : "erro", cred));
+    console.error("[dolores/transcricao] a transcrição falhou", semSegredos(erroParaLog(e), cred));
     return { ok: false, motivo: "falha" };
   }
 }

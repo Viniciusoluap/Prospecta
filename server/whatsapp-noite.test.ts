@@ -15,6 +15,17 @@ import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp } from "../
 
 vi.mock("./db.js", () => ({ getDb: vi.fn(), getUserById: vi.fn() }));
 vi.mock("./_core/auth-utils.js", () => ({ getTokenFromRequest: vi.fn(), verifySessionToken: vi.fn() }));
+// EPIC-025 E9: admin e colaborador usam a conexão da EMPRESA (resolvida por código). Aqui, como antes, a linha do banco falso é a
+// conexão do admin (sem ir à configuração da Dolores): o comportamento da Central sobre ela é o que estes testes conferem.
+vi.mock("./whatsapp-conexao-empresa.js", async orig => ({
+  ...(await orig<typeof import("./whatsapp-conexao-empresa.js")>()),
+  conexaoDaEmpresa: async () => {
+    const { getDb: db } = await import("./db.js");
+    const { whatsappConnections: t } = await import("../drizzle/schema.js");
+    const [c] = (await db().select().from(t).where(undefined as never).limit(1)) as Array<Record<string, unknown>>;
+    return c ? { ...c, daEmpresa: true, numeroMascarado: null } : null;
+  },
+}));
 
 const app = router({ whatsapp: whatsappRouter });
 const ctx = (user: Record<string, unknown>) => ({ user: { active: true, ...user }, req: {}, res: {} }) as never;
