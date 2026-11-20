@@ -273,6 +273,9 @@ export const whatsappRouter = router({
     return lista.map(l => ({ id: l.id, pendentes: documentosPendentes(docs.filter(d => d.leadId === l.id), Boolean(l.conjuge || l.composicao)) }));
   }),
 
+  /** E9 (item 7): o canal do disparo e o aviso de disparo em massa bloqueado pelo número principal (a tela mostra). */
+  canalDisparo: adminProcedure.query(({ ctx }) => canalDeDisparo({ daEmpresa: usaConexaoDaEmpresa(ctx.user.role) })),
+
   minhaConexao: adminProcedure.query(async ({ ctx }) => {
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return null;

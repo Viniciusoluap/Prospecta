@@ -299,7 +299,9 @@ describe("Conexão consolidada em Serviços › WhatsApp", () => {
     expect(abaInicialCentral("admin", "conexao")).toBe("conexao");
     expect(abaInicialCentral("admin", null)).toBe("conversas");
     expect(abaInicialCentral("corretor", "conexao")).toBe("conexao");
-    expect(linkConexaoWhatsapp("admin")).toBe("/admin/whatsapp?aba=conexao");
+    // EPIC-025 E9: o admin conecta o número da empresa em Integrações
+    expect(linkConexaoWhatsapp("admin")).toBe("/admin/integracoes#whatsapp-empresa");
+    expect(linkConexaoWhatsapp("colaborador")).toBe("/admin/whatsapp?aba=conexao");
     expect(linkConexaoWhatsapp("corretor")).toBe("/admin/whatsapp?aba=conexao");
   });
 

@@ -23,6 +23,7 @@ import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas 
 import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
+import { atendimentoRouter } from "./atendimento-router.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -121,6 +122,7 @@ export const doloresRouter = router({
   grupos: gruposRouter,
   notas: notasRouter,
   operacao: operacaoRouter,
+  atendimento: atendimentoRouter,
   status: soAdmin.query(() => situacao()),
 
   /** Cria a instância própria da Dolores (se não existir) e devolve o QR code para escanear com o celular DELA. */
