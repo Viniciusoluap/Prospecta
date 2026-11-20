@@ -49,6 +49,8 @@ rodava uma vez por dia às 07:00 de Brasília (`0 10 * * *`); hora mais tarde fa
   agendada — a regra ">=" cobre isso (a chamada das 13 UTC cai sempre nas 10h de Brasília). O projeto passa de 3 para
   10 entradas de cron. **Pendente de conferência na publicação**: confirmar no painel da Vercel que os 8 crons
   aparecem (o limite de quantidade de crons do plano não pôde ser consultado daqui, sem acesso à internet).
+- Fuso fixo em UTC−3 (Brasília/Imperatriz, sem horário de verão): se o horário de verão voltar, as 8 entradas do cron
+  (`vercel.json` / `CRON_DOLORES_AGENDAS`) e a conta `relogioBrasilia` em `shared/dolores/operacao.ts` mudam JUNTAS.
 
 ## Arquivos
 - `shared/dolores/operacao.ts` — lista de horas, `horaDoRelatorio`, `CRON_DOLORES_AGENDAS`, `CAMINHOS_CRON_DOLORES`, `janelaRondaDoRelatorio`.

@@ -575,6 +575,8 @@ O relatório diário sai na execução do dia se a hora escolhida na tela já ti
 banco, trata como 07:00). A conta sai de uma constante só, `CRON_DOLORES_AGENDA` em `shared/dolores/operacao.ts`, que um teste
 confere contra o `vercel.json`. Para outro horário fixo, a equipe técnica muda o `schedule` no `vercel.json` **e** essa
 constante (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
+**Fuso fixo em UTC−3** (sem horário de verão): se o horário de verão voltar, as 8 entradas do cron no `vercel.json`
+(`CRON_DOLORES_AGENDAS`) e a conta do horário de Brasília (`relogioBrasilia`) mudam juntas.
 Cada seção da ronda roda com `SET LOCAL statement_timeout` igual ao tempo que resta do prazo (piso 1 s, teto 15 s): a seção que
 estoura vira "sem leitura" na ronda e no relatório, sem derrubar as outras.
 
