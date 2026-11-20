@@ -26,8 +26,24 @@ import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolore
 
 // ── Arquivos de teste, montados byte a byte ──
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR"), Buffer.alloc(200, 7)]);
-const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]), Buffer.from("JFIF"), Buffer.alloc(200, 3), Buffer.from([0xff, 0xd9])]);
+/** Bloco PNG (tamanho, tipo, dados, CRC — o CRC não é conferido). */
+const blocoPng = (tipo: string, dados: Buffer) => {
+  const h = Buffer.alloc(8); h.writeUInt32BE(dados.length, 0); h.write(tipo, 4, "latin1");
+  return Buffer.concat([h, dados, Buffer.alloc(4)]);
+};
+const png = (largura = 10, altura = 10) => {
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(largura, 0); ihdr.writeUInt32BE(altura, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), blocoPng("IHDR", ihdr), blocoPng("IDAT", Buffer.alloc(200, 7)), blocoPng("IEND", Buffer.alloc(0))]);
+};
+const PNG = png();
+/** JPG: SOI, APP0, SOF0 (largura × altura), SOS, dados (com FF 00 e um reinício) e EOI. */
+const jpg = (largura = 10, altura = 10, depoisDoFim = Buffer.alloc(0)) => {
+  const sof = Buffer.from([0xff, 0xc0, 0, 17, 8, altura >> 8, altura & 255, largura >> 8, largura & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  const sos = Buffer.from([0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 63, 0]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]), Buffer.from("JFIF\0\x01\x01\0\0\x01\0\x01\0\0", "latin1"), sof, sos,
+    Buffer.alloc(150, 3), Buffer.from([0xff, 0x00, 0x12, 0xff, 0xd0, 0x34]), Buffer.from([0xff, 0xd9]), depoisDoFim]);
+};
+const JPG = jpg();
 
 /** Ogg/Opus com a duração pedida (pre-skip 312, 48 kHz). */
 function ogg(segundos: number) {
@@ -42,7 +58,9 @@ function ogg(segundos: number) {
   const head = Buffer.alloc(19);
   head.write("OpusHead", 0, "latin1");
   head[8] = 1; head[9] = 1; head.writeUInt16LE(312, 10); head.writeUInt32LE(48_000, 12);
-  return Buffer.concat([pagina(0, head), pagina(0, Buffer.alloc(20, 1)), Buffer.alloc(500, 9), pagina(Math.round(segundos * 48_000) + 312, Buffer.alloc(30, 2))]);
+  const bos = pagina(0, head);
+  bos[5] = 0x02; // início do fluxo
+  return Buffer.concat([bos, pagina(0, Buffer.alloc(20, 1)), pagina(Math.round(segundos * 24_000) + 312, Buffer.alloc(200, 9)), pagina(Math.round(segundos * 48_000) + 312, Buffer.alloc(30, 2))]);
 }
 /** MP3 MPEG-1 camada III, 128 kbit/s, 44,1 kHz: quadros de 417 bytes, 1152 amostras cada. */
 function mp3(segundos: number) {
@@ -62,7 +80,9 @@ function m4a(segundos: number, manipulador = "soun") {
   const mvhd = Buffer.alloc(100);
   mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(Math.round(segundos * 1000), 16);
   const hdlr = Buffer.alloc(24); hdlr.write(manipulador, 8, "latin1");
-  return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")), caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("hdlr", hdlr))))]);
+  const mdhd = Buffer.alloc(24); mdhd.writeUInt32BE(44_100, 12); mdhd.writeUInt32BE(Math.round(segundos * 44_100), 16);
+  return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")),
+    caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("mdhd", mdhd), caixa("hdlr", hdlr)))), caixa("mdat", Buffer.alloc(4000, 0x21))]);
 }
 
 describe("conferência pelos bytes (tela e servidor)", () => {
@@ -95,6 +115,28 @@ describe("conferência pelos bytes (tela e servidor)", () => {
     expect(conferirMidiaSaudacao("audio", mp3(130))).toMatchObject({ ok: false, erro: expect.stringMatching(/máximo é 2 minutos/) });
     expect(conferirMidiaSaudacao("audio", m4a(121))).toMatchObject({ ok: false });
     expect(conferirMidiaSaudacao("audio", Buffer.alloc(0))).toMatchObject({ ok: false, erro: "O arquivo está vazio." });
+  });
+  it("QA-SEG achado 2: estrutura da imagem e teto de pixels", () => {
+    expect(conferirMidiaSaudacao("imagem", png(8000, 5000))).toMatchObject({ ok: true }); // 40 MP no limite
+    expect(conferirMidiaSaudacao("imagem", png(8001, 10))).toMatchObject({ ok: false, erro: expect.stringMatching(/grande demais em pixels/) });
+    expect(conferirMidiaSaudacao("imagem", png(7000, 7000))).toMatchObject({ ok: false, erro: expect.stringMatching(/40 megapixels/) });
+    expect(conferirMidiaSaudacao("imagem", jpg(9000, 100)).ok).toBe(false);
+    expect(conferirMidiaSaudacao("imagem", jpg(4000, 3000))).toMatchObject({ ok: true, mime: "image/jpeg" });
+    // lixo depois do fim, imagem cortada, sem SOF, PNG sem IEND/IDAT
+    expect(conferirMidiaSaudacao("imagem", jpg(10, 10, Buffer.from("<html><script>x</script></html>")))).toMatchObject({ ok: false, erro: expect.stringMatching(/incompleta ou tem algo a mais/) });
+    expect(conferirMidiaSaudacao("imagem", jpg(10, 10, Buffer.alloc(16, 0))).ok).toBe(true); // preenchimento curto de zeros
+    expect(conferirMidiaSaudacao("imagem", JPG.subarray(0, JPG.length - 2)).ok).toBe(false);
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([Buffer.from([0xff, 0xd8]), JPG.subarray(JPG.indexOf(Buffer.from([0xff, 0xda])))])).ok).toBe(false);
+    expect(conferirMidiaSaudacao("imagem", PNG.subarray(0, PNG.length - 12)).ok).toBe(false);
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([PNG, Buffer.from("PK\x03\x04 zip escondido", "latin1")])).ok).toBe(false);
+  });
+  it("QA-SEG achado 3: M4A com mdhd que não bate com o mvhd é recusado; tamanho incompatível com a duração também", () => {
+    const b = m4a(10);
+    const i = b.indexOf(Buffer.from("mdhd")) + 4;
+    b.writeUInt32BE(44_100 * 100, i + 16); // a faixa diz 100 s
+    expect(lerAudioSaudacao(b)).toBeNull();
+    const ogg1s = ogg(1);
+    expect(conferirMidiaSaudacao("audio", Buffer.concat([ogg1s.subarray(0, ogg1s.length - 59), Buffer.alloc(0)])).ok).toBe(false); // última página cortada
   });
   it("nome sanitizado: sem caminho, sem caracteres estranhos, com a extensão do tipo REAL", () => {
     expect(nomeSeguroDaMidia("../../etc/passwd.png", "image/jpeg")).toBe("passwd.jpg");
@@ -313,6 +355,30 @@ describe("envio da saudação: ordem, queda para texto e uma vez por número", (
     await chamar(aviso(direta()));
     expect(ordem).toEqual(["imagem:Olá! Conheça o Residencial Prospecta.", "texto:Olá! Conheça o Residencial Prospecta."]);
     expect(await saudacoes()).toEqual([{ situacao: "erro", texto_saiu: false, imagem_saiu: false, audio_saiu: false }]);
+  });
+  it("QA-SEG achado 5: imagem SEM CONFIRMAÇÃO (prazo estourado) → o texto não vai de novo e o áudio também não; fica registrado", async () => {
+    const id = await campanhaAtiva();
+    await anexar(caller("admin"), id, "imagem", PNG, "foto.png");
+    await anexar(caller("admin"), id, "audio", ogg(10), "voz.ogg");
+    enviarMidia.mockImplementation(async (p: { midia: { tipo: string } }) => { ordem.push(p.midia.tipo); throw Object.assign(new Error("tempo esgotado"), { name: "TimeoutError" }); });
+    const r = await chamar(aviso(direta()));
+    expect(ordem).toEqual(["imagem"]);
+    expect(enviarTexto).not.toHaveBeenCalled();
+    expect(r.body.rota).toMatchObject({ "saudacao-sem-confirmacao": 1 });
+    expect(await q("SELECT situacao, texto_saiu, imagem_saiu, audio_saiu, sem_confirmacao FROM whatsapp_saudacoes")).toEqual([
+      { situacao: "erro", texto_saiu: false, imagem_saiu: null, audio_saiu: false, sem_confirmacao: true }]);
+  });
+  it("QA-SEG achado 5: sem tempo para mídia no prazo do aviso → texto puro, sem tentar a mídia", async () => {
+    const id = await campanhaAtiva();
+    await anexar(caller("admin"), id, "imagem", PNG, "foto.png");
+    definirDependenciasRoteamento({ agora: () => AGORA, ms: () => 0, enviar: enviarTexto as never, enviarMidia: enviarMidia as never });
+    const { enviarSaudacao, lerConfigAtendimento } = await import("./roteamento.js");
+    // 5 s até o fim do prazo: abaixo dos 6 s mínimos para mídia, acima do mínimo do texto
+    const k = await enviarSaudacao({ cfg: { instancia: "prospecta-dolores", statusConexao: "conectado", numeroDono: DONO, numeroDolores: EMPRESA } as never,
+      conn: { id: 1, instancia: "prospecta-dolores" } as never, numero: ESTRANHO, prazoFinal: 5_000, autor: null, config: await lerConfigAtendimento() });
+    expect(k).toBe("saudacao-enviada-parcial");
+    expect(ordem).toEqual(["texto:Olá! Conheça o Residencial Prospecta."]);
+    expect(enviarMidia).not.toHaveBeenCalled();
   });
   it("mídia gravada que não passa mais na conferência não sai: só o texto", async () => {
     const id = await campanhaAtiva();

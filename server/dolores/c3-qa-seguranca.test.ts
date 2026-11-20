@@ -1,5 +1,6 @@
 // EPIC-026 C3 — portão de QA de SEGURANÇA (independente). Provas de achados e de defesas que seguram.
-// Os testes marcados "ACHADO" descrevem o comportamento ATUAL (frágil): quando a correção entrar, a expectativa deve ser invertida.
+// Os testes marcados "ACHADO" descreviam o comportamento frágil; com as correções (achados 1, 2, 3 e 5) a expectativa foi invertida
+// ("CORRIGIDO"). Os arquivos de exemplo passaram a ter a estrutura mínima válida (PNG com IDAT/IEND; Ogg sem lixo entre páginas).
 // PGlite; nada sai para a rede.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,13 +27,15 @@ import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolore
 const pngComDimensao = (largura: number, altura: number) => {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(largura, 0); ihdr.writeUInt32BE(altura, 4); ihdr[8] = 8; ihdr[9] = 6;
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR"), ihdr, Buffer.alloc(4), Buffer.alloc(64, 0)]);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR"), ihdr, Buffer.alloc(4),
+    Buffer.from([0, 0, 0, 8]), Buffer.from("IDAT"), Buffer.alloc(8, 1), Buffer.alloc(4), Buffer.from([0, 0, 0, 0]), Buffer.from("IEND"), Buffer.alloc(4)]);
 };
 const PNG = pngComDimensao(10, 10);
 const paginaOgg = (granule: number, pacote: Buffer, serial = 0) => {
   const h = Buffer.alloc(27);
   h.write("OggS", 0, "latin1"); h[4] = 0;
   h.writeBigUInt64LE(BigInt(granule), 6); h.writeUInt32LE(serial, 14); h[26] = 1;
+  if (pacote.subarray(0, 8).toString("latin1") === "OpusHead" || pacote[0] === 0x80) h[5] = 0x02; // início do fluxo
   return Buffer.concat([h, Buffer.from([pacote.length]), pacote]);
 };
 const opusHead = () => {
@@ -58,19 +61,20 @@ const m4a = (segundos: number, extra: Buffer[] = []) => {
 };
 
 describe("conferência pelos bytes — tentativas de quebrar", () => {
-  it("ACHADO: JPG é só o prefixo FF D8 FF — qualquer conteúdo depois passa (poliglota/HTML/truncado)", () => {
+  it("CORRIGIDO (achado 2): JPG só com o prefixo FF D8 FF não passa (poliglota/HTML/truncado)", () => {
     const poliglota = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from("<html><script>alert(1)</script></html>")]);
-    expect(conferirMidiaSaudacao("imagem", poliglota)).toMatchObject({ ok: true, mime: "image/jpeg" });
-    expect(conferirMidiaSaudacao("imagem", Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toMatchObject({ ok: true }); // 5 bytes, sem fim de imagem
+    expect(conferirMidiaSaudacao("imagem", poliglota)).toMatchObject({ ok: false });
+    expect(conferirMidiaSaudacao("imagem", Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toMatchObject({ ok: false }); // 5 bytes, sem fim de imagem
   });
-  it("ACHADO: PNG com dimensão gigante (bomba de descompressão) passa — não há teto de largura × altura", () => {
-    expect(conferirMidiaSaudacao("imagem", pngComDimensao(100_000, 100_000))).toMatchObject({ ok: true, mime: "image/png" });
+  it("CORRIGIDO (achado 2): PNG com dimensão gigante (bomba de descompressão) é recusado — teto de 8 000 px por lado e 40 MP", () => {
+    expect(conferirMidiaSaudacao("imagem", pngComDimensao(100_000, 100_000))).toMatchObject({ ok: false, erro: expect.stringMatching(/grande demais em pixels/) });
+    expect(conferirMidiaSaudacao("imagem", pngComDimensao(10, 10))).toMatchObject({ ok: true, mime: "image/png" });
   });
   it("SVG, HTML, GIF e MZ continuam recusados", () => {
     for (const s of ["<svg xmlns='http://www.w3.org/2000/svg'/>", "<!doctype html><html>", "GIF89a" + "x".repeat(50), "MZ" + "\0".repeat(100)])
       expect(conferirMidiaSaudacao("imagem", Buffer.from(s)).ok).toBe(false);
   });
-  it("ACHADO: Ogg/Opus com 30 min de páginas e uma última página forjada de 10 s passa como 10 s", () => {
+  it("CORRIGIDO (achado 3): Ogg/Opus com 30 min de páginas e uma última página forjada de 10 s vale pela MAIOR posição (30 min) e é recusado", () => {
     const pacote = Buffer.alloc(200, 1);
     const paginas: Buffer[] = [paginaOgg(0, opusHead()), paginaOgg(0, Buffer.alloc(20, 1))];
     // 1 página a cada 20 ms de áudio até 30 min (granule crescente), depois a última página diz 10 s
@@ -78,16 +82,18 @@ describe("conferência pelos bytes — tentativas de quebrar", () => {
     paginas.push(paginaOgg(10 * 48_000 + 312, pacote));
     const b = Buffer.concat(paginas);
     expect(b.length).toBeLessThan(5 * 1024 * 1024);
-    expect(lerAudioSaudacao(b)).toEqual({ mime: "audio/ogg", duracaoS: 10 });
+    expect(lerAudioSaudacao(b)?.duracaoS).toBeGreaterThanOrEqual(30 * 60 - 1);
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/máximo é 2 minutos/) });
   });
-  it("ACHADO: Ogg com OpusHead e um 2º fluxo de vídeo (Theora) passa como áudio", () => {
+  it("CORRIGIDO (achado 3): Ogg com OpusHead e um 2º fluxo de vídeo (Theora) é recusado", () => {
     const theora = Buffer.concat([Buffer.from([0x80]), Buffer.from("theora"), Buffer.alloc(40)]);
     const b = Buffer.concat([paginaOgg(0, opusHead(), 1), paginaOgg(0, theora, 2), Buffer.alloc(1000, 7), paginaOgg(10 * 48_000 + 312, Buffer.alloc(30), 1)]);
-    expect(lerAudioSaudacao(b)?.mime).toBe("audio/ogg");
+    expect(lerAudioSaudacao(b)).toBeNull();
+    expect(conferirMidiaSaudacao("audio", b).ok).toBe(false);
   });
-  it("ACHADO: M4A declara 10 s no mvhd e carrega 4 MB de 'mdat' sem conferência cruzada", () => {
+  it("CORRIGIDO (achado 3): M4A que declara 10 s no mvhd e carrega 4 MB de 'mdat' é recusado (sem mdhd e tamanho incompatível)", () => {
     const b = m4a(10, [caixa("mdat", Buffer.alloc(4 * 1024 * 1024, 0x21))]);
-    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: true, duracaoS: 10 });
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: false });
   });
   it("MP3: a duração é a soma dos quadros — 30 min a 8 kbit/s (cabe em 5 MB) é recusado", () => {
     const b = mp3Frames(30 * 60);
@@ -148,7 +154,7 @@ async function subir(c: ReturnType<typeof caller>, campanhaId: number, tipo: "im
     await c.documentChunks.part({ uploadId, part, total, scope: escopoMidiaSaudacao(campanhaId, tipo), fileName: nome, base64: bytes.subarray(part * 1024 * 1024, (part + 1) * 1024 * 1024).toString("base64") });
   return uploadId;
 }
-const OGG10 = Buffer.concat([paginaOgg(0, opusHead()), paginaOgg(0, Buffer.alloc(20, 1)), Buffer.alloc(500, 9), paginaOgg(10 * 48_000 + 312, Buffer.alloc(30, 2))]);
+const OGG10 = Buffer.concat([paginaOgg(0, opusHead()), paginaOgg(0, Buffer.alloc(20, 1)), paginaOgg(5 * 48_000 + 312, Buffer.alloc(200, 9)), paginaOgg(10 * 48_000 + 312, Buffer.alloc(30, 2))]);
 
 beforeEach(async () => {
   banco = await criarBanco();
@@ -214,7 +220,7 @@ describe("permissão e partes", () => {
 });
 
 describe("eco de mídia reconhecido como automático (shared/dolores/roteamento.ts)", () => {
-  it("ACHADO: depois de um áudio automático que FALHOU, o áudio da EQUIPE pelo celular (até 5 min) é tido como automático e não cala a Dolores", async () => {
+  it("CORRIGIDO (achado 1): depois de um áudio automático que FALHOU, o áudio da EQUIPE pelo celular é da equipe e cala a Dolores", async () => {
     const id = await campanhaAtiva();
     const admin = caller("admin");
     const up = await subir(admin, id, "audio", OGG10, "voz.ogg");
@@ -224,10 +230,10 @@ describe("eco de mídia reconhecido como automático (shared/dolores/roteamento.
     expect((await q<{ status: string }>(`SELECT status FROM whatsapp_messages WHERE mensagem = '[áudio]'`)).map(r => r.status)).toEqual(["falhou"]);
     // a equipe grava um áudio para o mesmo contato pelo celular (fromMe, id novo, que o sistema nunca enviou)
     const r = await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-AUDIO-1", message: { audioMessage: { seconds: 25, ptt: true } } })));
-    expect(r.body.rota).toMatchObject({ "propria-automatica": 1 });
-    expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]); // deveria ter silenciado a Dolores nesta conversa
-    // e a linha "falhou" da saudação ganhou o id do áudio da equipe (a Central mostra a mensagem da equipe como automática que falhou)
-    expect(await q("SELECT status, automatica, external_id FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ status: "falhou", automatica: true, external_id: "EQUIPE-AUDIO-1" }]);
+    expect(r.body.rota).toMatchObject({ "propria-equipe": 1 });
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1); // a Dolores fica calada nesta conversa
+    // a linha "falhou" da saudação fica como estava; o áudio da equipe entra como mensagem da equipe
+    expect(await q("SELECT status, automatica, external_id FROM whatsapp_messages WHERE mensagem = '[áudio]' AND automatica")).toEqual([{ status: "falhou", automatica: true, external_id: null }]);
   });
   it("sem envio automático pendente, imagem/áudio da equipe pelo celular continuam calando a Dolores", async () => {
     await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-IMG-1", message: { imageMessage: { caption: "planta" } } })));

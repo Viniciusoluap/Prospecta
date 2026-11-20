@@ -8,11 +8,12 @@
 --   Evolution em base64, nunca por URL) e na pré-visualização da tela do administrador. Apagar a campanha apaga a mídia.
 -- "whatsapp_saudacoes.texto_saiu / imagem_saiu / audio_saiu": o que de fato saiu em cada saudação (null = a campanha não tinha
 --   aquela parte). A saudação continua UMA vez por número por campanha; a falha de uma parte fica registrada e nada é reenviado.
---   ADD COLUMN sem padrão: nenhuma linha existente muda de conteúdo.
+--   "sem_confirmacao" = true: algum envio estourou o prazo sem resposta da Evolution (pode ter chegado); nada foi repetido para não
+--   duplicar mensagem ao cliente (a parte sem confirmação fica null). ADD COLUMN sem padrão: nenhuma linha existente muda de conteúdo.
 --
 -- Somente ADITIVA e IDEMPOTENTE (CREATE/ADD ... IF NOT EXISTS). Nenhum dado existente é alterado ou apagado.
 -- Reversão: DROP TABLE "whatsapp_campanha_midias"; ALTER TABLE "whatsapp_saudacoes" DROP COLUMN "texto_saiu",
---   DROP COLUMN "imagem_saiu", DROP COLUMN "audio_saiu" (nada depende deles).
+--   DROP COLUMN "imagem_saiu", DROP COLUMN "audio_saiu", DROP COLUMN "sem_confirmacao" (nada depende deles).
 
 CREATE TABLE IF NOT EXISTS "whatsapp_campanha_midias" (
   "campanha_id" integer NOT NULL REFERENCES "whatsapp_campanhas"("id") ON DELETE CASCADE,
@@ -34,3 +35,4 @@ CREATE TABLE IF NOT EXISTS "whatsapp_campanha_midias" (
 ALTER TABLE "whatsapp_saudacoes" ADD COLUMN IF NOT EXISTS "texto_saiu" boolean;
 ALTER TABLE "whatsapp_saudacoes" ADD COLUMN IF NOT EXISTS "imagem_saiu" boolean;
 ALTER TABLE "whatsapp_saudacoes" ADD COLUMN IF NOT EXISTS "audio_saiu" boolean;
+ALTER TABLE "whatsapp_saudacoes" ADD COLUMN IF NOT EXISTS "sem_confirmacao" boolean;

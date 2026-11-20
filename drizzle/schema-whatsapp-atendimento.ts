@@ -55,6 +55,8 @@ export const whatsappSaudacoes = pgTable("whatsapp_saudacoes", {
   textoSaiu: boolean("texto_saiu"),
   imagemSaiu: boolean("imagem_saiu"),
   audioSaiu: boolean("audio_saiu"),
+  // QA-SEG C3 achado 5: algum envio ficou sem confirmação (prazo estourado); nada foi repetido
+  semConfirmacao: boolean("sem_confirmacao"),
 }, t => [uniqueIndex("whatsapp_saudacoes_uma_por_numero").on(t.campanhaId, t.chaveNumero)]);
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });

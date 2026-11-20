@@ -79,7 +79,11 @@ export const agoraDoRoteamento = () => deps.agora();
 
 const PRAZO_ENVIO_MS = 8_000;
 /** EPIC-026 C3: a mídia (até 5 MB em base64) leva mais tempo para subir à Evolution e ao WhatsApp. */
-export const PRAZO_ENVIO_MIDIA_MS = 20_000;
+export const PRAZO_ENVIO_MIDIA_MS = 15_000;
+/** Mídia só é tentada com pelo menos isto até o fim do prazo do aviso (senão estouraria e ficaria sem confirmação). */
+export const MINIMO_PARA_ENVIAR_MIDIA_MS = 6_000;
+/** QA-SEG C3 achado 1: o eco de uma MÍDIA automática só casa com envio EM ANDAMENTO, criado há no máximo isto (relógio do banco). */
+export const JANELA_ECO_MIDIA_MS = PRAZO_ENVIO_MIDIA_MS + 15_000;
 /** Com menos que isto até o fim do prazo do aviso, nada é enviado. */
 export const MINIMO_PARA_ENVIAR_CONTATO_MS = 1_500;
 /** Tamanho máximo do que vai a um contato numa mensagem (curta). */
@@ -327,13 +331,22 @@ export async function tratarPropria(conn: ConexaoDaEmpresa, item: unknown, p: { 
   }
   if (p.texto) {
     const limite = new Date(deps.agora().getTime() - 5 * 60_000);
+    // QA-SEG C3 achado 1: o rótulo de mídia ("[imagem] …", "[áudio]") é genérico — a equipe manda áudio e foto pelo celular. Ele só
+    // casa com uma mídia automática EM ANDAMENTO ("enviando"), criada há pouco (relógio do banco). Fora disso, é da EQUIPE (cala a
+    // Dolores): na dúvida, erra para o lado humano.
+    const ehRotuloDeMidia = /^\[(imagem|áudio)\]/.test(p.texto);
+    const janela = ehRotuloDeMidia
+      ? and(eq(whatsappMessages.status, "enviando"), sql`${whatsappMessages.createdAt} > now() - make_interval(secs => ${JANELA_ECO_MIDIA_MS / 1000})`)
+      : gt(whatsappMessages.createdAt, limite);
     const pendentes = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario }).from(whatsappMessages)
       .where(and(eq(whatsappMessages.connectionId, conn.id), eq(whatsappMessages.automatica, true), isNull(whatsappMessages.externalId),
-        eq(whatsappMessages.mensagem, p.texto.slice(0, 4000)), gt(whatsappMessages.createdAt, limite))).limit(5);
+        eq(whatsappMessages.mensagem, p.texto.slice(0, 4000)), janela)).limit(5);
     const pendente = pendentes.find(x => ehNumeroDoDono(x.destinatario, p.numero) || formaCanonicaDoNumero(x.destinatario) === formaCanonicaDoNumero(p.numero));
     if (pendente) {
-      await db.update(whatsappMessages).set({ externalId: p.externalId, updatedAt: new Date() }).where(and(eq(whatsappMessages.id, pendente.id), isNull(whatsappMessages.externalId)));
-      return "propria-automatica";
+      const casou = await db.update(whatsappMessages).set({ externalId: p.externalId, updatedAt: new Date() })
+        .where(and(eq(whatsappMessages.id, pendente.id), isNull(whatsappMessages.externalId), ...(ehRotuloDeMidia ? [eq(whatsappMessages.status, "enviando")] : [])))
+        .returning({ id: whatsappMessages.id });
+      if (casou.length || !ehRotuloDeMidia) return "propria-automatica";
     }
   }
   // EPIC-026 C2: o número conferido vai junto (o endereço pode ser "@lid", que a gravação sozinha não aceitava)
@@ -352,25 +365,36 @@ export type TipoAutomatica = "saudacao" | "aviso_ligacao" | "aviso_audio" | "res
  * filtros: links fora da lista permitida viram "[link removido]", dados pessoais SEMPRE mascarados (canal "cliente"), segredos
  * fora, tamanho curto. A mensagem entra na Central marcada como AUTOMÁTICA antes do envio (o eco não vira "da equipe").
  */
-export async function enviarAoContato(p: { cfg: DoloresWhatsappConfig; conn: ConexaoDaEmpresa; numero: string; texto: string; tipo: TipoAutomatica; prazoFinal: number;
-  autor: number | null; leadId?: number | null; pedidoId: string; nome?: string | null; midia?: MidiaParaEnvio | null }): Promise<boolean> {
+type PedidoAoContato = { cfg: DoloresWhatsappConfig; conn: ConexaoDaEmpresa; numero: string; texto: string; tipo: TipoAutomatica; prazoFinal: number;
+  autor: number | null; leadId?: number | null; pedidoId: string; nome?: string | null; midia?: MidiaParaEnvio | null };
+export async function enviarAoContato(p: PedidoAoContato): Promise<boolean> {
+  return (await enviarAoContatoComResultado(p)) === "ok";
+}
+
+/**
+ * EPIC-026 C3 (QA-SEG achado 5): o resultado em três: "ok" (a Evolution aceitou), "falhou" (não saiu: recusado aqui ou a Evolution
+ * RESPONDEU com erro) e "sem_confirmacao" (o pedido estourou o prazo ou caiu no meio — pode ter chegado). Quem chama não deve
+ * mandar de novo o mesmo conteúdo no caso "sem_confirmacao" (evita mensagem em dobro para o cliente).
+ */
+export type ResultadoAoContato = "ok" | "falhou" | "sem_confirmacao";
+export async function enviarAoContatoComResultado(p: PedidoAoContato): Promise<ResultadoAoContato> {
   const midia = p.midia ?? null;
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}) =>
     registrarAcao({ funcao: "whatsapp_automatica", resultado, motivo, autorUserId: p.autor, canal: "whatsapp", pedidoId: p.pedidoId,
       resumo: { tipo: p.tipo, destino: mascararNumero(p.numero), ...(midia ? { midia: midia.tipo } : {}), ...extra } });
   const destino = p.numero.replace(/\D/g, "");
   // EPIC-026 C2: "@lid" (número não identificado) nunca vira destino — os dígitos dele não são telefone
-  if (/@/.test(p.numero) || !/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return false; }
-  if (ehNumeroDoDono(destino, p.cfg.numeroDono) || ehNumeroDoDono(destino, p.cfg.numeroDolores)) { await auditar("recusada", "destino é o dono ou o próprio número; nada foi enviado"); return false; }
-  if (!p.cfg.instancia || p.cfg.statusConexao !== "conectado" || p.conn.instancia !== p.cfg.instancia) { await auditar("recusada", "conexão da empresa desconectada; nada foi enviado"); return false; }
-  if (!(await podeFalarNoGrupo())) { await auditar("recusada", "Dolores pausada (pausa geral ou conta desativada); nada foi enviado"); return false; }
+  if (/@/.test(p.numero) || !/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return "falhou"; }
+  if (ehNumeroDoDono(destino, p.cfg.numeroDono) || ehNumeroDoDono(destino, p.cfg.numeroDolores)) { await auditar("recusada", "destino é o dono ou o próprio número; nada foi enviado"); return "falhou"; }
+  if (!p.cfg.instancia || p.cfg.statusConexao !== "conectado" || p.conn.instancia !== p.cfg.instancia) { await auditar("recusada", "conexão da empresa desconectada; nada foi enviado"); return "falhou"; }
+  if (!(await podeFalarNoGrupo())) { await auditar("recusada", "Dolores pausada (pausa geral ou conta desativada); nada foi enviado"); return "falhou"; }
   // EPIC-026 C3: o áudio vai sem texto; a imagem leva o texto (já filtrado) como legenda
   const final = midia?.tipo === "audio" ? "" : cortarResposta(sanitizarTexto(tratarLinksDaResposta(p.texto, urlDoSistemaParaLinks()), filtroDaSaida("cliente")), MAX_CARACTERES_CONTATO).trim();
-  if (!final && midia?.tipo !== "audio") { await auditar("recusada", "texto vazio depois dos filtros; nada foi enviado"); return false; }
+  if (!final && midia?.tipo !== "audio") { await auditar("recusada", "texto vazio depois dos filtros; nada foi enviado"); return "falhou"; }
   // na Central, no mesmo formato das mídias recebidas ("[imagem] legenda", "[áudio]"); o eco do envio é reconhecido por esse texto
   const naCentral = midia ? rotuloDaMidiaNaCentral(midia.tipo, final) : final;
   const restante = p.prazoFinal - deps.ms();
-  if (restante < MINIMO_PARA_ENVIAR_CONTATO_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo do aviso"); return false; }
+  if (restante < MINIMO_PARA_ENVIAR_CONTATO_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo do aviso"); return "falhou"; }
   const db = getDb();
   const [linha] = await db.insert(whatsappMessages).values({
     connectionId: p.conn.id, leadId: p.leadId ?? null, destinatario: destino, nomeDestinatario: p.nome ?? null, mensagem: naCentral,
@@ -379,18 +403,19 @@ export async function enviarAoContato(p: { cfg: DoloresWhatsappConfig; conn: Con
   const inicio = deps.ms();
   let externalId: string | null = null;
   let motivo: string | null = null;
+  let semConfirmacao = false;
   try {
     externalId = midia
       ? await deps.enviarMidia({ instancia: p.cfg.instancia, numero: destino, midia, legenda: final, prazoMs: Math.min(PRAZO_ENVIO_MIDIA_MS, restante) })
       : await deps.enviar({ instancia: p.cfg.instancia, numero: destino, texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) });
     if (!externalId) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)";
-  } catch (e) { motivo = `falha no envio: ${erroParaLog(e)}`; }
+  } catch (e) { motivo = `sem confirmação do envio (tempo esgotado ou conexão caiu): ${erroParaLog(e)}`; semConfirmacao = true; }
   if (linha) {
-    await db.update(whatsappMessages).set({ status: externalId ? "enviada" : "falhou", ...(externalId ? { externalId } : { erroMsg: "Erro ao enviar" }), updatedAt: new Date() })
+    await db.update(whatsappMessages).set({ status: externalId ? "enviada" : "falhou", ...(externalId ? { externalId } : { erroMsg: semConfirmacao ? "Sem confirmação do envio (pode ter chegado)" : "Erro ao enviar" }), updatedAt: new Date() })
       .where(eq(whatsappMessages.id, linha.id)).catch(e => console.error("[dolores/roteamento] falha ao atualizar a mensagem automática", erroParaLog(e)));
   }
-  await auditar(externalId ? "ok" : "erro", motivo, { caracteres: final.length, duracaoMs: deps.ms() - inicio });
-  return !!externalId;
+  await auditar(externalId ? "ok" : "erro", motivo, { caracteres: final.length, duracaoMs: deps.ms() - inicio, ...(semConfirmacao ? { semConfirmacao: true } : {}) });
+  return externalId ? "ok" : semConfirmacao ? "sem_confirmacao" : "falhou";
 }
 
 /** EPIC-026 C3: o texto da mídia automática na Central — igual ao das mídias recebidas (textoDaMensagem da Evolution). */
@@ -428,19 +453,41 @@ export async function enviarSaudacao(p: { cfg: DoloresWhatsappConfig; conn: Cone
       pedidoId: `saudacao:${campanha.id}`, resumo: { tipo: "saudacao", destino: mascararNumero(p.numero) } });
     return "saudacao-teto";
   }
-  // EPIC-026 C3: imagem com o texto como legenda (uma mensagem só); se a imagem falhar, o texto puro; depois o áudio como mensagem
-  // de voz — só se o texto saiu. Cada parte UMA vez: a reivindicação acima já impede qualquer nova tentativa da saudação deste
-  // número nesta campanha, e o que saiu fica registrado (texto_saiu, imagem_saiu, audio_saiu).
+  // EPIC-026 C3: imagem com o texto como legenda (uma mensagem só); se a Evolution RESPONDER com erro na imagem, o texto puro; depois
+  // o áudio como mensagem de voz — só se o texto saiu. Cada parte UMA vez: a reivindicação acima já impede qualquer nova tentativa da
+  // saudação deste número nesta campanha, e o que saiu fica registrado (texto_saiu, imagem_saiu, audio_saiu).
+  // QA-SEG achado 5: imagem SEM CONFIRMAÇÃO (prazo estourado: pode ter chegado com a legenda) → o texto NÃO vai de novo e o áudio
+  // também não (nada em dobro para o cliente); registra imagem_saiu = null, texto_saiu = false e sem_confirmacao = true.
+  // Orçamento: imagem até 15 s + texto até 8 s (só se a imagem falhou de fato) + áudio até 15 s = 38 s, dentro dos 45 s do aviso; cada
+  // envio também para no prazo final, e mídia só é tentada com pelo menos 6 s pela frente.
   const midias = await midiasParaEnvio(campanha.id).catch(() => ({ imagem: null, audio: null }));
   const base = { cfg: p.cfg, conn: p.conn, numero: p.numero, texto: campanha.texto, tipo: "saudacao" as const, prazoFinal: p.prazoFinal, autor: p.autor, pedidoId: `saudacao:${campanha.id}` };
-  const tentar = (midia: MidiaParaEnvio | null) => enviarAoContato({ ...base, midia }).catch(e => { console.error("[dolores/roteamento] falha no envio da saudação", erroParaLog(e)); return false; });
-  const imagemSaiu = midias.imagem ? await tentar(midias.imagem) : null;
-  const textoSaiu = imagemSaiu === true ? true : await tentar(null);
-  const audioSaiu = midias.audio ? (textoSaiu ? await tentar(midias.audio) : false) : null;
-  await db.update(whatsappSaudacoes).set({ situacao: textoSaiu ? "enviada" : "erro", enviadaEm: textoSaiu ? deps.agora() : null, textoSaiu, imagemSaiu, audioSaiu })
+  const tentar = (midia: MidiaParaEnvio | null): Promise<ResultadoAoContato> => enviarAoContatoComResultado({ ...base, midia })
+    .catch(e => { console.error("[dolores/roteamento] falha no envio da saudação", erroParaLog(e)); return "falhou" as const; });
+  const haTempoParaMidia = () => p.prazoFinal - deps.ms() >= MINIMO_PARA_ENVIAR_MIDIA_MS;
+  let semConfirmacao = false;
+  let imagemSaiu: boolean | null = null;
+  let textoSaiu = false;
+  if (midias.imagem && haTempoParaMidia()) {
+    const r = await tentar(midias.imagem);
+    if (r === "ok") { imagemSaiu = true; textoSaiu = true; }
+    else if (r === "sem_confirmacao") semConfirmacao = true; // imagemSaiu fica null (desconhecido); o texto não vai de novo
+    else imagemSaiu = false;
+  } else if (midias.imagem) imagemSaiu = false; // sem tempo para a imagem: vai o texto puro
+  if (!textoSaiu && !semConfirmacao) textoSaiu = (await tentar(null)) === "ok";
+  let audioSaiu: boolean | null = null;
+  if (midias.audio) {
+    if (!textoSaiu || !haTempoParaMidia()) audioSaiu = false;
+    else {
+      const r = await tentar(midias.audio);
+      audioSaiu = r === "ok" ? true : r === "sem_confirmacao" ? null : false;
+      if (r === "sem_confirmacao") semConfirmacao = true;
+    }
+  }
+  await db.update(whatsappSaudacoes).set({ situacao: textoSaiu ? "enviada" : "erro", enviadaEm: textoSaiu ? deps.agora() : null, textoSaiu, imagemSaiu, audioSaiu, semConfirmacao })
     .where(eq(whatsappSaudacoes.id, reivindicada.id)).catch(() => undefined);
-  if (!textoSaiu) return "saudacao-erro";
-  return (imagemSaiu === false || audioSaiu === false) ? "saudacao-enviada-parcial" : "saudacao-enviada";
+  if (!textoSaiu) return semConfirmacao ? "saudacao-sem-confirmacao" : "saudacao-erro";
+  return (imagemSaiu === false || (midias.audio !== null && audioSaiu !== true)) ? "saudacao-enviada-parcial" : "saudacao-enviada";
 }
 
 // ── Avisos de ligação e de áudio ──

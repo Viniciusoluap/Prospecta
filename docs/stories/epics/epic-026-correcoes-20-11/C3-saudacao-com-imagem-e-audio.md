@@ -50,13 +50,33 @@ vez, enviado UMA vez por número a quem escreve e não está cadastrado (`enviar
   sem URL pública, nada do sistema fica exposto e não há como a Evolution (ou alguém) buscar outro arquivo.
 - [AUTO-DECISION] Formatos de áudio → OGG/Opus, MP3 e M4A (AAC): os que a Evolution converte para mensagem de voz e os que celular
   e computador gravam. WAV ficou de fora (5 MB de WAV dão menos de 30 s).
-- [AUTO-DECISION] Prazo do envio de mídia → 20 s por arquivo (texto continua 8 s), sempre dentro do prazo total do aviso (45 s).
+- Prazo do envio de mídia → 15 s por arquivo (texto continua 8 s); mídia só é tentada com pelo menos 6 s até o fim do prazo do
+  aviso (senão: imagem → texto puro; áudio → não vai). Pior caso: imagem 15 s + texto 8 s (só quando a imagem falhou de fato) +
+  áudio 15 s = 38 s, dentro dos 45 s do aviso (função de 60 s); cada envio também para no prazo final. (Portão de QA, achado 5b.)
 - [AUTO-DECISION] Na Central, a mídia automática aparece com o mesmo rótulo das mídias recebidas ("[imagem] legenda", "[áudio]"),
   sem o arquivo (a Central não tenta baixar). O eco fromMe de imagem/áudio passa a ter esse mesmo texto no roteamento, para casar
   com a linha automática; para mídia que a equipe manda pelo celular nada muda (não há linha automática igual).
-- Risco aceito: se a Evolution entregar a imagem mas o pedido estourar o prazo (sem resposta), o sistema considera falha e manda o
-  texto puro — a pessoa pode receber o texto duas vezes (com a imagem e sozinho). Preferido a correr o risco de o texto não sair.
+- Imagem SEM CONFIRMAÇÃO (o pedido estourou o prazo ou a conexão caiu — pode ter chegado com a legenda): o texto NÃO vai de novo
+  e o áudio também não (o dono prefere não duplicar mensagem ao cliente). Só cai para texto puro quando a Evolution RESPONDE com
+  erro. Registro: `imagem_saiu` = null (desconhecido), `texto_saiu` = false, `sem_confirmacao` = true, situação "erro" (não conta
+  como saudação enviada). Áudio sem confirmação: `audio_saiu` = null e `sem_confirmacao` = true. (Portão de QA, achado 5a.)
 - Retorno novo `saudacao-enviada-parcial` (texto saiu, alguma mídia falhou) na contagem de rotas do aviso (só contagem, sem conteúdo).
+
+## Correções do portão de QA de segurança (CONCERNS, 20/11)
+- [x] Achado 1 (importante) — eco de mídia: o rótulo genérico ("[áudio]", "[imagem] …") só casa com mídia automática EM ANDAMENTO
+      (`status = 'enviando'`), criada há no máximo 30 s (`JANELA_ECO_MIDIA_MS`, relógio do banco); a gravação do id também exige
+      "enviando". Fora disso é da EQUIPE e cala a Dolores (na dúvida, lado humano). O eco de TEXTO ficou como antes.
+- [x] Achado 2 (médio) — imagem: largura e altura lidas (IHDR no PNG; SOF0/SOF1/SOF2 no JPG), recusa acima de 8 000 px por lado ou
+      40 megapixels; estrutura mínima exigida (PNG: IHDR primeiro, blocos encadeados, IDAT e IEND; JPG: segmentos com tamanho,
+      SOF, SOS e EOI FF D9); depois do fim só até 64 bytes de zeros (poliglota e arquivo truncado recusados). Efeito colateral
+      aceito: foto "com movimento" (vídeo colado depois do JPG) é recusada com mensagem para salvar como JPG comum.
+- [x] Achado 3 (médio) — áudio: Ogg percorre todas as páginas encadeadas (sem lixo entre elas), usa a MAIOR posição, exige início
+      do fluxo com OpusHead e recusa segundo fluxo (outro número de série ou segundo início); M4A exige mdhd da faixa de som
+      concordando com o mvhd (até 1 s ou 5 %), uma faixa de som, nenhuma de vídeo e o mdat; para todos, tamanho/duração até
+      64 kB/s (`MAX_BYTES_POR_SEGUNDO_AUDIO`).
+- [x] Achado 5 (baixo) — sem duplicata e dentro do tempo (decisões acima). Coluna nova `sem_confirmacao` na mesma 0137 (ainda não
+      aplicada).
+- Achados 4 (teto de envio em partes por usuário, pré-existente) e 6 (aplicar 0137 antes da publicação): com a sessão principal.
 
 ## Tarefas
 - [x] Regras puras: `shared/whatsapp/saudacao-midia.ts` (tipo pelos bytes, duração Ogg/MP3/M4A, limites, nome seguro, escopo).
@@ -73,7 +93,8 @@ vez, enviado UMA vez por número a quem escreve e não está cadastrado (`enviar
 - [ ] Aplicar `0137` no Neon de produção (feito pela sessão principal) e conferir na tela publicada com um número de teste.
 
 ## Testes
-(a) automáticos — `server/dolores/c3-saudacao-midia.test.ts` (18 testes): validação pelos bytes (PNG/JPG, arquivo falso, SVG,
+(a) automáticos — `server/dolores/c3-saudacao-midia.test.ts` (22 testes) e `server/dolores/c3-qa-seguranca.test.ts` (17, do portão de QA, com os
+"ACHADO" invertidos para "CORRIGIDO"): validação pelos bytes (PNG/JPG, arquivo falso, SVG,
 GIF, áudio no lugar da imagem e o contrário), duração de OGG/MP3/M4A, vídeo MP4 recusado, limites de 5 MB e 2 minutos, nome
 sanitizado, corpo dos pedidos à Evolution (base64, legenda, `encoding`), permissão por papel pelo `appRouter`, partes de outro
 usuário recusadas, URL recusada pelo esquema estrito, gravação/pré-visualização/remoção, ordem do envio (imagem+legenda → áudio;
@@ -96,8 +117,10 @@ automáticas. Conferir também o tempo do envio de uma imagem de 5 MB.
 - `shared/dolores/roteamento.ts`
 - `server/dolores/testes-banco.ts`
 - `server/dolores/c3-saudacao-midia.test.ts` (novo)
+- `server/dolores/c3-qa-seguranca.test.ts` (do portão de QA; expectativas invertidas e exemplos com estrutura válida)
 - `client/src/components/whatsapp/CampanhasEAvisos.tsx`
 - `docs/stories/epics/ROADMAP.md`
 
 ## Change Log
 - 20/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementação completa; aguarda portão de QA.
+- 20/11/2026 — @dev (Dex): correções dos achados 1, 2, 3 e 5 do portão de QA de segurança; volta para InReview.
