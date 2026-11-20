@@ -124,6 +124,26 @@ export const whatsappRecebimentoContagem = pgTable("whatsapp_recebimento_contage
   ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
 }, t => [primaryKey({ columns: [t.hora, t.evento, t.destino, t.motivo, t.endereco] })]);
 
+// ── EPIC-026 C6 (migração 0138_atendimento_modo_conversa.sql): "Assumir (humano)" / "Devolver para a Dolores" ──
+
+export const MODOS_ATENDIMENTO = ["humano", "dolores"] as const;
+export type ModoAtendimento = (typeof MODOS_ATENDIMENTO)[number];
+
+/** Quem atende a conversa (instância + resumo HMAC do número). "humano": calada sem prazo; "dolores": devolvida em `alteradoEm`. */
+export const whatsappAtendimentoModo = pgTable("whatsapp_atendimento_modo", {
+  id: serial("id").primaryKey(),
+  instancia: varchar("instancia", { length: 80 }).notNull(),
+  chaveNumero: varchar("chave_numero", { length: 32 }).notNull(),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  modo: varchar("modo", { length: 8 }).$type<ModoAtendimento>().notNull(),
+  alteradoEm: timestamp("alterado_em", { withTimezone: true }).defaultNow().notNull(),
+  alteradoPor: integer("alterado_por").references(() => users.id, { onDelete: "set null" }),
+}, t => [
+  uniqueIndex("whatsapp_atendimento_modo_conversa_uidx").on(t.instancia, t.chaveNumero),
+  index("whatsapp_atendimento_modo_chave_idx").on(t.chaveNumero),
+]);
+export type WhatsappAtendimentoModo = typeof whatsappAtendimentoModo.$inferSelect;
+
 /** O número real de um endereço "@lid" (aprendido do aviso ou consultado na Evolution). Nunca serve para comando. */
 export const whatsappLidNumeros = pgTable("whatsapp_lid_numeros", {
   instancia: varchar("instancia", { length: 80 }).notNull(),
