@@ -168,11 +168,10 @@ describe("QA-SEG C6 — falha segura e migração", () => {
   it("0138 aplicada 3× e ON DELETE SET NULL do usuário: a linha continua (assumida), só perde o autor", async () => {
     await conversaDoJoao();
     await banco.pg.exec(MIGRACAO_0138());
-    await colaborador().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
-    await banco.pg.exec(`DELETE FROM dolores_acoes WHERE autor_user_id = 2`).catch(() => undefined);
-    await banco.pg.exec(`DELETE FROM users WHERE id = 2`).catch(() => undefined);
-    const [l] = await modos();
-    if (l.alterado_por === null) expect(l.modo).toBe("humano");
+    const [{ id: qa }] = await q<{ id: number }>(`INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('qa', 'QA Temp', 'colaborador', true, 'hash') RETURNING id`);
+    await caller("colaborador", qa).whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
+    await banco.pg.exec(`DELETE FROM dolores_acoes WHERE autor_user_id = ${qa}; DELETE FROM users WHERE id = ${qa}`);
+    expect(await modos()).toEqual([{ modo: "humano", alterado_por: null, lead_id: 2 }]);
     expect((await situacaoDoSilencio(JOAO, AGORA, "prospecta-dolores")).estado).toBe("assumida");
     await expect(banco.pg.exec(`INSERT INTO whatsapp_atendimento_modo (instancia, chave_numero, modo) VALUES ('x', 'y', 'outro')`)).rejects.toThrow();
   });
@@ -181,8 +180,9 @@ describe("QA-SEG C6 — falha segura e migração", () => {
 describe("QA-SEG C6 — Devolver não fura o silêncio", () => {
   it("devolver em laço não dispara IA nem mensagem e não responde nada antigo", async () => {
     await conversaDoJoao();
-    await chamar(direta({ texto: "pergunta sem resposta" }));
-    enviarAoContato.mockClear();
+    await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
+    expect(await chamar(direta({ texto: "pergunta sem resposta" }))).toMatchObject({ "cliente-assumida": 1 });
+    enviarAoContato.mockClear(); pedidos = []; vi.mocked(configuracaoAnthropicPainel).mockClear();
     for (let i = 0; i < 5; i++) {
       await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
       await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "devolver" });
