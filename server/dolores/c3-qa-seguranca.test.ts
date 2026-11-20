@@ -1,0 +1,264 @@
+// EPIC-026 C3 — portão de QA de SEGURANÇA (independente). Provas de achados e de defesas que seguram.
+// Os testes marcados "ACHADO" descrevem o comportamento ATUAL (frágil): quando a correção entrar, a expectativa deve ser invertida.
+// PGlite; nada sai para a rede.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn(), getDashboardSetting: vi.fn(), saveDashboardSetting: vi.fn() }));
+vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => null) }));
+vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
+
+import { conferirMidiaSaudacao, escopoMidiaSaudacao, lerAudioSaudacao } from "../../shared/whatsapp/saudacao-midia.js";
+import { ENV } from "../_core/env.js";
+import { getDashboardSetting, getDb, saveDashboardSetting } from "../db.js";
+import { appRouter } from "../routers.js";
+import { limparPausaDoAtendimento } from "./atendimento.js";
+import { definirClienteModelo } from "./cerebro.js";
+import { definirDependenciasMarcacao } from "./marcacao.js";
+import { esquecerUsuarioDolores } from "./perfil.js";
+import { definirDependenciasPonte } from "./ponte.js";
+import { definirDependenciasRoteamento } from "./roteamento.js";
+import { AGORA, CENARIO, criarBanco, MIGRACAO_0137 } from "./testes-banco.js";
+import { definirDependenciasTranscricao } from "./transcricao.js";
+import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+
+// ── Arquivos montados byte a byte ──
+
+const pngComDimensao = (largura: number, altura: number) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(largura, 0); ihdr.writeUInt32BE(altura, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR"), ihdr, Buffer.alloc(4), Buffer.alloc(64, 0)]);
+};
+const PNG = pngComDimensao(10, 10);
+const paginaOgg = (granule: number, pacote: Buffer, serial = 0) => {
+  const h = Buffer.alloc(27);
+  h.write("OggS", 0, "latin1"); h[4] = 0;
+  h.writeBigUInt64LE(BigInt(granule), 6); h.writeUInt32LE(serial, 14); h[26] = 1;
+  return Buffer.concat([h, Buffer.from([pacote.length]), pacote]);
+};
+const opusHead = () => {
+  const head = Buffer.alloc(19);
+  head.write("OpusHead", 0, "latin1"); head[8] = 1; head[9] = 1; head.writeUInt16LE(312, 10); head.writeUInt32LE(48_000, 12);
+  return head;
+};
+const mp3Frames = (segundos: number) => {
+  // MPEG-2.5 camada III, 8 kbit/s, 8 kHz: quadro de 72 bytes = 0,072 s
+  const q = Buffer.alloc(72, 0x55);
+  q[0] = 0xff; q[1] = 0xe2; q[2] = 0x18; q[3] = 0x00;
+  return Buffer.concat(Array.from({ length: Math.ceil(segundos / 0.072) }, () => q));
+};
+const caixa = (tipo: string, ...dentro: Buffer[]) => {
+  const corpo = Buffer.concat(dentro);
+  const h = Buffer.alloc(8); h.writeUInt32BE(8 + corpo.length, 0); h.write(tipo, 4, "latin1");
+  return Buffer.concat([h, corpo]);
+};
+const m4a = (segundos: number, extra: Buffer[] = []) => {
+  const mvhd = Buffer.alloc(100); mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(Math.round(segundos * 1000), 16);
+  const hdlr = Buffer.alloc(24); hdlr.write("soun", 8, "latin1");
+  return Buffer.concat([caixa("ftyp", Buffer.from("M4A \x00\x00\x00\x00", "latin1")), caixa("moov", caixa("mvhd", mvhd), caixa("trak", caixa("mdia", caixa("hdlr", hdlr)))), ...extra]);
+};
+
+describe("conferência pelos bytes — tentativas de quebrar", () => {
+  it("ACHADO: JPG é só o prefixo FF D8 FF — qualquer conteúdo depois passa (poliglota/HTML/truncado)", () => {
+    const poliglota = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from("<html><script>alert(1)</script></html>")]);
+    expect(conferirMidiaSaudacao("imagem", poliglota)).toMatchObject({ ok: true, mime: "image/jpeg" });
+    expect(conferirMidiaSaudacao("imagem", Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toMatchObject({ ok: true }); // 5 bytes, sem fim de imagem
+  });
+  it("ACHADO: PNG com dimensão gigante (bomba de descompressão) passa — não há teto de largura × altura", () => {
+    expect(conferirMidiaSaudacao("imagem", pngComDimensao(100_000, 100_000))).toMatchObject({ ok: true, mime: "image/png" });
+  });
+  it("SVG, HTML, GIF e MZ continuam recusados", () => {
+    for (const s of ["<svg xmlns='http://www.w3.org/2000/svg'/>", "<!doctype html><html>", "GIF89a" + "x".repeat(50), "MZ" + "\0".repeat(100)])
+      expect(conferirMidiaSaudacao("imagem", Buffer.from(s)).ok).toBe(false);
+  });
+  it("ACHADO: Ogg/Opus com 30 min de páginas e uma última página forjada de 10 s passa como 10 s", () => {
+    const pacote = Buffer.alloc(200, 1);
+    const paginas: Buffer[] = [paginaOgg(0, opusHead()), paginaOgg(0, Buffer.alloc(20, 1))];
+    // 1 página a cada 20 ms de áudio até 30 min (granule crescente), depois a última página diz 10 s
+    for (let g = 960; g <= 30 * 60 * 48_000; g += 960 * 50) paginas.push(paginaOgg(g + 312, pacote));
+    paginas.push(paginaOgg(10 * 48_000 + 312, pacote));
+    const b = Buffer.concat(paginas);
+    expect(b.length).toBeLessThan(5 * 1024 * 1024);
+    expect(lerAudioSaudacao(b)).toEqual({ mime: "audio/ogg", duracaoS: 10 });
+  });
+  it("ACHADO: Ogg com OpusHead e um 2º fluxo de vídeo (Theora) passa como áudio", () => {
+    const theora = Buffer.concat([Buffer.from([0x80]), Buffer.from("theora"), Buffer.alloc(40)]);
+    const b = Buffer.concat([paginaOgg(0, opusHead(), 1), paginaOgg(0, theora, 2), Buffer.alloc(1000, 7), paginaOgg(10 * 48_000 + 312, Buffer.alloc(30), 1)]);
+    expect(lerAudioSaudacao(b)?.mime).toBe("audio/ogg");
+  });
+  it("ACHADO: M4A declara 10 s no mvhd e carrega 4 MB de 'mdat' sem conferência cruzada", () => {
+    const b = m4a(10, [caixa("mdat", Buffer.alloc(4 * 1024 * 1024, 0x21))]);
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: true, duracaoS: 10 });
+  });
+  it("MP3: a duração é a soma dos quadros — 30 min a 8 kbit/s (cabe em 5 MB) é recusado", () => {
+    const b = mp3Frames(30 * 60);
+    expect(b.length).toBeLessThan(5 * 1024 * 1024);
+    expect(conferirMidiaSaudacao("audio", b)).toMatchObject({ ok: false, erro: expect.stringMatching(/máximo é 2 minutos/) });
+  });
+  it("entradas degeneradas de 5 MB não travam nem demoram (sem laço infinito)", () => {
+    const n = 5 * 1024 * 1024;
+    const entradas: Record<string, Buffer> = {
+      zeros: Buffer.alloc(n, 0),
+      ffs: Buffer.alloc(n, 0xff),
+      oggs: Buffer.alloc(n, Buffer.from("OggS\0")),
+      cabecalhoMp3: Buffer.alloc(n, Buffer.from([0xff, 0xfb, 0x90, 0x00])),
+      caixasZero: Buffer.concat([Buffer.from("\0\0\0\x10ftypM4A \0\0\0\0", "latin1"), Buffer.alloc(n - 16, 0)]),
+      caixasMinimas: Buffer.concat([Buffer.from("\0\0\0\x10ftypM4A \0\0\0\0", "latin1"), Buffer.alloc(n - 16, Buffer.from("\0\0\0\x08moov", "latin1"))]),
+      id3Gigante: Buffer.concat([Buffer.from("ID3\x03\x00\x00\x7f\x7f\x7f\x7f", "latin1"), Buffer.alloc(n - 10, 0xff)]),
+      oggSemOpus: Buffer.concat([Buffer.from("OggS"), Buffer.alloc(n - 4, 0x4f)]),
+    };
+    for (const [nome, b] of Object.entries(entradas)) {
+      const t = performance.now();
+      conferirMidiaSaudacao("audio", b);
+      conferirMidiaSaudacao("imagem", b);
+      const ms = performance.now() - t;
+      expect(ms, nome).toBeLessThan(3_000);
+    }
+  });
+});
+
+// ── Com banco ──
+
+const DONO = "5599991234567";
+const EMPRESA = "5599900001111";
+const ESTRANHO = "5511955554444";
+let banco: Awaited<ReturnType<typeof criarBanco>>;
+let falhar: Set<string>;
+let enviarTexto: ReturnType<typeof vi.fn>;
+let enviarMidia: ReturnType<typeof vi.fn>;
+const segredoAntes = ENV.cookieSecret;
+const q = async <T = any>(s: string) => (await banco.pg.query<T>(s)).rows;
+let seq = 0;
+const direta = (p: { de?: string; texto?: string; fromMe?: boolean; id?: string; message?: Record<string, unknown> } = {}) => ({
+  key: { remoteJid: `${p.de ?? ESTRANHO}@s.whatsapp.net`, fromMe: p.fromMe ?? false, id: p.id ?? `QA${++seq}` },
+  message: p.message ?? { conversation: p.texto ?? "Oi, quero saber do lançamento" },
+  messageTimestamp: Math.floor((AGORA.getTime() - 20_000) / 1000), pushName: "Contato",
+});
+const aviso = (item: unknown) => ({ event: "messages.upsert", instance: "prospecta-dolores", data: item });
+const chamar = (body: unknown) => tratarWebhookDolores({ headers: { "x-webhook-token": segredoWebhookDolores() }, body, ip: "203.0.113.9" } as never);
+const caller = (role: string, id = 1, permissoes: string[] = ["whatsapp"]) =>
+  appRouter.createCaller({ user: { id, role, active: true, permissions: JSON.stringify(permissoes) }, req: {}, res: {} } as never);
+const anonimo = () => appRouter.createCaller({ user: null, req: {}, res: {} } as never);
+async function campanhaAtiva() {
+  const [c] = await q<{ id: number }>(`INSERT INTO whatsapp_campanhas (nome, texto, ativa) VALUES ('Lançamento', 'Olá! Conheça o Residencial.', true) RETURNING id`);
+  return c.id;
+}
+async function subir(c: ReturnType<typeof caller>, campanhaId: number, tipo: "imagem" | "audio", bytes: Buffer, nome: string, uploadId = `qa-envio-${++seq}-abcdefghijklmnop`) {
+  const total = Math.ceil(bytes.length / (1024 * 1024));
+  for (let part = 0; part < total; part++)
+    await c.documentChunks.part({ uploadId, part, total, scope: escopoMidiaSaudacao(campanhaId, tipo), fileName: nome, base64: bytes.subarray(part * 1024 * 1024, (part + 1) * 1024 * 1024).toString("base64") });
+  return uploadId;
+}
+const OGG10 = Buffer.concat([paginaOgg(0, opusHead()), paginaOgg(0, Buffer.alloc(20, 1)), Buffer.alloc(500, 9), paginaOgg(10 * 48_000 + 312, Buffer.alloc(30, 2))]);
+
+beforeEach(async () => {
+  banco = await criarBanco();
+  vi.mocked(getDb).mockReturnValue(banco.db as never);
+  await banco.pg.exec(CENARIO);
+  await banco.pg.exec(`CREATE TABLE IF NOT EXISTS document_upload_chunks (
+    upload_id varchar(64) NOT NULL, part integer NOT NULL CHECK (part BETWEEN 0 AND 19), total integer NOT NULL CHECK (total BETWEEN 1 AND 20),
+    user_id integer NOT NULL, scope varchar(150) NOT NULL, file_name varchar(255) NOT NULL,
+    data bytea NOT NULL CHECK (octet_length(data) BETWEEN 1 AND 1048576), created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (upload_id, part))`);
+  await banco.pg.exec(`UPDATE dolores_whatsapp_config SET instancia = 'prospecta-dolores', status_conexao = 'conectado', numero_dono = '${DONO}',
+      numero_dolores = '${EMPRESA}', ia_ligada = true WHERE id = 1;`);
+  ENV.cookieSecret = "segredo-do-servidor-de-teste-0123456789";
+  esquecerUsuarioDolores();
+  limparPausaDoAtendimento();
+  definirDependenciasPonte({ agora: () => AGORA });
+  definirDependenciasWhatsapp({ agora: () => AGORA, enviar: (async () => true) as never });
+  falhar = new Set();
+  enviarTexto = vi.fn(async () => (falhar.has("texto") ? null : `EVO${++seq}`));
+  enviarMidia = vi.fn(async (p: { midia: { tipo: string } }) => (falhar.has(p.midia.tipo) ? null : `EVO${++seq}`));
+  definirDependenciasRoteamento({ agora: () => AGORA, enviar: enviarTexto as never, enviarMidia: enviarMidia as never });
+  definirClienteModelo((async () => { throw new Error("sem IA"); }) as never);
+  definirDependenciasMarcacao({ agora: () => AGORA, enviar: (async () => { throw new Error("nada vai a grupo"); }) as never, contador: async () => 1_000,
+    cliente: async () => { throw new Error("sem IA aqui"); } });
+  const painel = new Map<string, string>();
+  vi.mocked(getDashboardSetting).mockImplementation(async k => painel.get(k));
+  vi.mocked(saveDashboardSetting).mockImplementation(async (k, v) => { painel.set(k, v); });
+  definirDependenciasTranscricao({ baixar: async () => { throw new Error("sem download"); }, cliente: async () => { throw new Error("sem cliente"); } });
+});
+afterEach(() => {
+  ENV.cookieSecret = segredoAntes;
+  definirDependenciasPonte(); definirDependenciasWhatsapp(); definirClienteModelo(); definirDependenciasMarcacao();
+  definirDependenciasRoteamento(); definirDependenciasTranscricao();
+  vi.clearAllMocks();
+});
+
+describe("permissão e partes", () => {
+  it("anônimo não chega a nenhuma das três rotas", async () => {
+    const id = await campanhaAtiva();
+    await expect(anonimo().dolores.atendimento.removerMidia({ campanhaId: id, tipo: "imagem" })).rejects.toMatchObject({ code: expect.stringMatching(/^(UNAUTHORIZED|FORBIDDEN)$/) });
+    await expect(anonimo().dolores.atendimento.midiaDaCampanha({ campanhaId: id, tipo: "imagem", offset: 0 })).rejects.toMatchObject({ code: expect.stringMatching(/^(UNAUTHORIZED|FORBIDDEN)$/) });
+    await expect(anonimo().dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "imagem", uploadId: "x".repeat(24), nome: "a.png" })).rejects.toMatchObject({ code: expect.stringMatching(/^(UNAUTHORIZED|FORBIDDEN)$/) });
+  });
+  it("outro usuário não sobrescreve a parte do administrador (mesmo uploadId)", async () => {
+    const id = await campanhaAtiva();
+    const up = await subir(caller("admin"), id, "imagem", PNG, "foto.png");
+    await expect(subir(caller("colaborador", 7), id, "imagem", Buffer.from("lixo-lixo"), "foto.png", up)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await caller("admin").dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "imagem", uploadId: up, nome: "foto.png" });
+    expect((await q<{ tamanho: number }>("SELECT tamanho FROM whatsapp_campanha_midias"))[0].tamanho).toBe(PNG.length);
+  });
+  it("partes de uma campanha não servem para outra (escopo)", async () => {
+    const a = await campanhaAtiva();
+    const [b] = await q<{ id: number }>(`INSERT INTO whatsapp_campanhas (nome, texto, ativa) VALUES ('B', 'Olá B.', false) RETURNING id`);
+    const up = await subir(caller("admin"), a, "imagem", PNG, "foto.png");
+    await expect(caller("admin").dolores.atendimento.salvarMidia({ campanhaId: b.id, tipo: "imagem", uploadId: up, nome: "foto.png" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller("admin").dolores.atendimento.salvarMidia({ campanhaId: a, tipo: "audio", uploadId: up, nome: "foto.png" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+  it("ACHADO (pré-existente, herdado): qualquer usuário logado grava até 20 MB por uploadId no escopo da saudação, sem teto por usuário", async () => {
+    const id = await campanhaAtiva();
+    const corretor = caller("corretor", 9, []);
+    for (let k = 0; k < 3; k++) await subir(corretor, id, "imagem", Buffer.alloc(2 * 1024 * 1024, 1), "x.png");
+    expect((await q<{ n: string }>("SELECT count(*)::text AS n FROM document_upload_chunks WHERE user_id = 9"))[0].n).toBe("6");
+  });
+});
+
+describe("eco de mídia reconhecido como automático (shared/dolores/roteamento.ts)", () => {
+  it("ACHADO: depois de um áudio automático que FALHOU, o áudio da EQUIPE pelo celular (até 5 min) é tido como automático e não cala a Dolores", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    const up = await subir(admin, id, "audio", OGG10, "voz.ogg");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: up, nome: "voz.ogg" });
+    falhar.add("audio");
+    await chamar(aviso(direta()));
+    expect((await q<{ status: string }>(`SELECT status FROM whatsapp_messages WHERE mensagem = '[áudio]'`)).map(r => r.status)).toEqual(["falhou"]);
+    // a equipe grava um áudio para o mesmo contato pelo celular (fromMe, id novo, que o sistema nunca enviou)
+    const r = await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-AUDIO-1", message: { audioMessage: { seconds: 25, ptt: true } } })));
+    expect(r.body.rota).toMatchObject({ "propria-automatica": 1 });
+    expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]); // deveria ter silenciado a Dolores nesta conversa
+    // e a linha "falhou" da saudação ganhou o id do áudio da equipe (a Central mostra a mensagem da equipe como automática que falhou)
+    expect(await q("SELECT status, automatica, external_id FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ status: "falhou", automatica: true, external_id: "EQUIPE-AUDIO-1" }]);
+  });
+  it("sem envio automático pendente, imagem/áudio da equipe pelo celular continuam calando a Dolores", async () => {
+    await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-IMG-1", message: { imageMessage: { caption: "planta" } } })));
+    await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-AUD-1", message: { audioMessage: { seconds: 5 } } })));
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1);
+  });
+  it("mensagem de TERCEIRO com imagem/áudio nunca entra pelo caminho 'propria' (fromMe é exigido)", async () => {
+    await campanhaAtiva();
+    const r = await chamar(aviso(direta({ message: { audioMessage: { seconds: 5 } } })));
+    expect(JSON.stringify(r.body.rota)).not.toMatch(/propria/);
+  });
+});
+
+describe("idempotência, concorrência e migração", () => {
+  it("duas mensagens simultâneas do mesmo número + reentrega: UMA saudação, mídia enviada uma vez", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    const up = await subir(admin, id, "imagem", PNG, "foto.png");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "imagem", uploadId: up, nome: "foto.png" });
+    const item = direta({ id: "MESMO-ID" });
+    await Promise.all([chamar(aviso(direta())), chamar(aviso(direta())), chamar(aviso(item)), chamar(aviso(item))]);
+    expect((await q("SELECT id FROM whatsapp_saudacoes")).length).toBe(1);
+    expect(enviarMidia).toHaveBeenCalledTimes(1);
+  });
+  it("0137 aplicada mais 2× sobre banco com dados: sem erro, linha antiga intacta com NULL", async () => {
+    const id = await campanhaAtiva();
+    await q(`INSERT INTO whatsapp_saudacoes (campanha_id, chave_numero, remetente, situacao) VALUES (${id}, '551155554444', '55***', 'enviada')`);
+    await banco.pg.exec(MIGRACAO_0137()); await banco.pg.exec(MIGRACAO_0137());
+    expect(await q("SELECT situacao, texto_saiu, imagem_saiu, audio_saiu FROM whatsapp_saudacoes")).toEqual([{ situacao: "enviada", texto_saiu: null, imagem_saiu: null, audio_saiu: null }]);
+    await expect(q(`INSERT INTO whatsapp_campanha_midias (campanha_id, tipo, mime, nome, tamanho, sha256, conteudo) VALUES (${id}, 'imagem', 'audio/ogg', 'x', 1, 'x', '\\x00')`)).rejects.toThrow();
+    await q(`INSERT INTO whatsapp_campanha_midias (campanha_id, tipo, mime, nome, tamanho, sha256, conteudo) VALUES (${id}, 'imagem', 'image/png', 'x', 1, 'x', '\\x00')`);
+    await q(`DELETE FROM whatsapp_campanhas WHERE id = ${id}`).catch(() => undefined); // saudações podem segurar (FK antiga)
+  });
+});
