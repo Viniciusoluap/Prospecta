@@ -66,6 +66,7 @@ export function WhatsappEmpresaCard() {
             </div>
           )}
           <p className="text-xs text-gray-400">"Reativar recebimento" registra de novo o aviso de mensagens, grupos e LIGAÇÕES na Evolution (necessário uma vez depois desta atualização, para o aviso de ligação funcionar). Não desconecta nada.</p>
+          <RecebimentoUltimas24h />
           {qr && (
             <div className="rounded-lg bg-white p-3 text-center text-sm text-gray-800">
               <img src={qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`} alt="QR code para conectar o WhatsApp da empresa" className="mx-auto h-56 w-56" />
@@ -76,5 +77,57 @@ export function WhatsappEmpresaCard() {
         </>}
       </CardContent>
     </Card>
+  );
+}
+
+/** Motivos do registro do recebimento em português (o código grava só o motivo curto, sem conteúdo). */
+const MOTIVOS: Record<string, string> = {
+  "instancia-desconhecida": "aviso de outra instância",
+  "evento-nao-tratado": "evento que o sistema não trata",
+  status: "status/lista de transmissão",
+  sem_id: "sem identificador da mensagem",
+  outro_destino: "endereço em forma desconhecida",
+  reacao: "reação", edicao: "edição ou apagamento", interacao: "fixação, enquete ou botão",
+  "propria-numero": "do próprio número da empresa", "lid-do-dono": "do dono, sem número no aviso (não é comando)",
+  "nao-autorizado": "remetente sem permissão", "sem-numero": "sem número conferível",
+};
+const ENDERECOS: Record<string, string> = { numero: "com número", lid: "@lid (sem número)", grupo: "grupo", status: "status", vazio: "sem endereço", outro: "endereço desconhecido" };
+
+/**
+ * EPIC-026 C2 (regra do dono de 20/11/2026: nenhuma mensagem some sem registro) — o que chegou ao webhook da empresa nas últimas
+ * 24 h e o destino de cada item. Só contagens: nenhum texto, número ou nome. Só admin (o servidor confere o papel).
+ */
+function RecebimentoUltimas24h() {
+  const [aberto, setAberto] = useState(false);
+  const r = trpc.dolores.recebimento.useQuery(undefined, { enabled: aberto, retry: false, refetchInterval: aberto ? 15_000 : false });
+  const d = r.data;
+  return (
+    <div className="rounded-lg border border-white/10 p-2 text-xs text-gray-200">
+      <button type="button" className="font-semibold text-[#C9A961] underline" onClick={() => setAberto(a => !a)} aria-expanded={aberto}>
+        Recebimento nas últimas 24 h {aberto ? "▲" : "▼"}
+      </button>
+      {aberto && (r.isLoading ? <p className="mt-2 text-gray-300">Carregando…</p> : r.error ? <p role="alert" className="mt-2 text-red-300">{r.error.message}</p> : d && (
+        <div className="mt-2 space-y-1">
+          <p>Chegaram ao sistema: <strong>{d.chegaram}</strong> aviso(s), dos quais <strong>{d.mensagens.total}</strong> mensagem(ns)
+            {d.mensagens.total > 0 && <> ({Object.entries(d.mensagens.porEndereco).map(([k, v]) => `${v} ${ENDERECOS[k] ?? k}`).join(", ")})</>}.</p>
+          <ul className="list-disc pl-5">
+            <li>Foram para a Central: <strong>{d.central}</strong>{d.centralSemNumero > 0 && <> (+ <strong>{d.centralSemNumero}</strong> de número não identificado)</>}</li>
+            <li>Foram para a Dolores (comandos do dono): <strong>{d.dolores}</strong></li>
+            <li>De grupos: <strong>{d.grupos}</strong> · enviadas pelo número da empresa: <strong>{d.enviadasPelaEmpresa}</strong></li>
+            <li>Repetidas (reentrega, sem duplicar): <strong>{d.repetidas}</strong> · com erro: <strong className={d.erros ? "text-red-300" : ""}>{d.erros}</strong>
+              {d.semDesfecho > 0 && <> · sem desfecho registrado: <strong className="text-red-300">{d.semDesfecho}</strong></>}</li>
+            <li>Outros avisos (conexão, situação de envio, ligação, grupo): <strong>{d.outrosEventos}</strong></li>
+          </ul>
+          <p>Ignoradas: <strong>{d.ignoradas.reduce((s, i) => s + i.total, 0)}</strong></p>
+          {d.ignoradas.length > 0 && (
+            <ul className="list-disc pl-5">
+              {d.ignoradas.map(i => <li key={`${i.evento}-${i.motivo}-${i.endereco}`}>{i.total} × {MOTIVOS[i.motivo] ?? (i.motivo || "sem motivo")}{i.endereco ? ` (${ENDERECOS[i.endereco] ?? i.endereco})` : ""}{i.evento !== "messages.upsert" ? ` — ${i.evento}` : ""}</li>)}
+            </ul>
+          )}
+          {d.chegaram === 0 && <p className="text-amber-200">Nada chegou nas últimas 24 h: se alguém escreveu para o número da empresa, o aviso não saiu da Evolution (confira a conexão e use "Reativar recebimento").</p>}
+          <p className="text-gray-400">Contagem desde {d.desde.replace("T", " ")}h (UTC). Só números: nenhum texto, telefone ou nome é guardado.</p>
+        </div>
+      ))}
+    </div>
   );
 }
