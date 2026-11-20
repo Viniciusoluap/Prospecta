@@ -14,8 +14,9 @@ import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { avaliacoes, financiamentos, leads, operationalProjects, regularizacoes, users, whatsappMessages } from "../../drizzle/schema.js";
 import {
   whatsappAtendimentoConfig, whatsappAtendimentoContagem, whatsappAvisosNumero, whatsappCampanhas, whatsappRoteamentoVistos, whatsappSaudacoes,
-  whatsappSilencio, whatsappLidNumeros, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
+  whatsappSilencio, whatsappLidNumeros, whatsappAtendimentoModo, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
 } from "../../drizzle/schema-whatsapp-atendimento.js";
+import { estadoDoAtendimento, silencioValeDepoisDeDevolver, type EstadoDoAtendimento } from "../../shared/dolores/modo-conversa.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
 import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
@@ -114,25 +115,69 @@ export async function reivindicarRoteamento(instancia: string, externalId: strin
   return r.length === 1;
 }
 
-/** A equipe respondeu: a Dolores fica calada nesta conversa até `desde + horas`. Nunca encurta um silêncio maior já gravado. */
+/** EPIC-026 C6: a tabela da migração 0138 ainda não existe (publicação antes da migração) → sem assunção, regra de sempre. */
+const semTabelaDoModo = (e: unknown) => {
+  const c = e as { code?: unknown; cause?: { code?: unknown } } | null;
+  return c?.code === "42P01" || c?.cause?.code === "42P01";
+};
+
+/** EPIC-026 C6: a hora do último "Devolver para a Dolores" desta conversa (qualquer instância), ou null. Falha ao ler → lança. */
+async function devolvidaEm(chave: string): Promise<Date | null> {
+  try {
+    const [r] = await getDb().select({ em: sql<Date | null>`max(${whatsappAtendimentoModo.alteradoEm})`.mapWith(v => (v ? new Date(v) : null)) })
+      .from(whatsappAtendimentoModo).where(and(eq(whatsappAtendimentoModo.chaveNumero, chave), eq(whatsappAtendimentoModo.modo, "dolores")));
+    return r?.em ?? null;
+  } catch (e) {
+    if (semTabelaDoModo(e)) return null;
+    throw e;
+  }
+}
+
+/**
+ * A equipe respondeu: a Dolores fica calada nesta conversa até `desde + horas`. Nunca encurta um silêncio maior já gravado.
+ * EPIC-026 C6: mensagem da equipe ANTERIOR ao último "Devolver para a Dolores" (eco atrasado) não cala de novo; a enviada depois
+ * dele cala pelo prazo normal. Falha ao ler o "Devolver" → cala (falha fechada).
+ */
 export async function silenciarConversa(numero: string, horas: number, desde: Date = deps.agora()): Promise<void> {
   const chave = chaveDoNumero(numero);
   if (!chave) return;
+  const devolvida = await devolvidaEm(chave).catch(() => null);
+  if (!silencioValeDepoisDeDevolver(desde, devolvida)) return;
   const ate = new Date(desde.getTime() + Math.max(1, horas) * 60 * 60_000);
   await getDb().insert(whatsappSilencio).values({ chaveNumero: chave, ate })
     .onConflictDoUpdate({ target: whatsappSilencio.chaveNumero, set: { ate, atualizadoEm: sql`now()` }, setWhere: sql`${whatsappSilencio.ate} < ${ate}` });
 }
 
-/** A Dolores está calada nesta conversa? Falha ao ler → calada (falha fechada). */
-export async function conversaEmSilencio(numero: string, agora: Date = deps.agora()): Promise<boolean> {
+/**
+ * EPIC-026 C6 — quem atende a conversa agora: "assumida" (a equipe assumiu pelo botão, sem prazo) > "silencio" (a equipe respondeu
+ * há menos de N horas; `ate` = até quando) > "dolores". A assunção conta em QUALQUER instância (QA-SEG C6 B3); `_instancia` fica
+ * na assinatura só por compatibilidade. Falha ao ler → "silencio" sem prazo (calada).
+ */
+export async function situacaoDoSilencio(numero: string, agora: Date = deps.agora(), _instancia?: string | null): Promise<{ estado: EstadoDoAtendimento; ate: Date | null }> {
   const chave = chaveDoNumero(numero);
-  if (!chave) return true;
+  if (!chave) return { estado: "silencio", ate: null };
+  const db = getDb();
+  let modo: "humano" | "dolores" | null = null;
   try {
-    const [r] = await getDb().select({ ate: whatsappSilencio.ate }).from(whatsappSilencio).where(eq(whatsappSilencio.chaveNumero, chave)).limit(1);
-    return !!r && r.ate.getTime() > agora.getTime();
-  } catch {
-    return true;
+    // QA-SEG C6 B3: "humano" vale em QUALQUER instância (na dúvida, Dolores calada); "dolores" só tira a assunção se não houver
+    // nenhuma linha "humano" para este número
+    const linhas = await db.select({ modo: whatsappAtendimentoModo.modo }).from(whatsappAtendimentoModo).where(eq(whatsappAtendimentoModo.chaveNumero, chave));
+    modo = linhas.some(l => l.modo === "humano") ? "humano" : linhas.length ? "dolores" : null;
+  } catch (e) {
+    if (!semTabelaDoModo(e)) return { estado: "silencio", ate: null };
   }
+  try {
+    const [r] = await db.select({ ate: whatsappSilencio.ate }).from(whatsappSilencio).where(eq(whatsappSilencio.chaveNumero, chave)).limit(1);
+    const estado = estadoDoAtendimento({ modo, silencioAte: r?.ate ?? null, agora });
+    return { estado, ate: estado === "silencio" ? r!.ate : null };
+  } catch {
+    return { estado: "silencio", ate: null };
+  }
+}
+
+/** A Dolores está calada nesta conversa (assumida pela equipe ou silêncio automático)? Falha ao ler → calada (falha fechada). */
+export async function conversaEmSilencio(numero: string, agora: Date = deps.agora(), instancia?: string | null): Promise<boolean> {
+  return (await situacaoDoSilencio(numero, agora, instancia)).estado !== "dolores";
 }
 
 // ── Quem é o remetente ──
