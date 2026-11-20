@@ -430,3 +430,70 @@ describe("rodada 2 — eco durante o envio e sem confirmação", () => {
     expect(enviarTexto).not.toHaveBeenCalled();
   });
 });
+
+// ── Rodada 3 do portão (commit 8465ee4) ──
+
+describe("rodada 3", () => {
+  it("normal: o eco verdadeiro da mídia DURANTE o envio continua automático (não cala a Dolores, não duplica)", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: await subir(admin, id, "audio", OGG10, "voz.ogg"), nome: "voz.ogg" });
+    enviarMidia.mockImplementation(async () => {
+      await chamar(aviso(direta({ fromMe: true, id: "EVO-REAL", message: { audioMessage: { seconds: 10, ptt: true } } })));
+      return "EVO-REAL";
+    });
+    await chamar(aviso(direta()));
+    expect(await q("SELECT * FROM whatsapp_silencio")).toEqual([]);
+    expect(await q("SELECT external_id, automatica FROM whatsapp_messages WHERE mensagem = '[áudio]'")).toEqual([{ external_id: "EVO-REAL", automatica: true }]);
+  });
+  it("ACHADO R3-1: eco da EQUIPE e eco VERDADEIRO durante o mesmo envio (equipe primeiro): o id real fica em DUAS linhas", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "audio", uploadId: await subir(admin, id, "audio", OGG10, "voz.ogg"), nome: "voz.ogg" });
+    enviarMidia.mockImplementation(async () => {
+      await chamar(aviso(direta({ fromMe: true, id: "EQUIPE-1", message: { audioMessage: { seconds: 8, ptt: true } } })));
+      await chamar(aviso(direta({ fromMe: true, id: "EVO-REAL", message: { audioMessage: { seconds: 10, ptt: true } } })));
+      return "EVO-REAL";
+    });
+    await chamar(aviso(direta()));
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1); // lado seguro: a Dolores fica calada
+    const linhas = await q<{ external_id: string }>("SELECT external_id FROM whatsapp_messages WHERE direcao = 'saida' AND external_id IS NOT NULL ORDER BY id");
+    expect(linhas.filter(l => l.external_id === "EVO-REAL").length).toBe(2); // duplicata na Central (o automático aparece também como da equipe)
+    expect(linhas.filter(l => l.external_id === "EQUIPE-1").length).toBe(1);
+  });
+  it("R2-3: o apêndice é de fato cortado — gravado e enviado só até o fim da imagem, mesmo com HTML/ZIP depois de um falso 'ftyp' ou antes de 'SEFT'", async () => {
+    const id = await campanhaAtiva();
+    const admin = caller("admin");
+    const imagem = jpg(sof(0xc0, 400, 300), sos(), dados(2000));
+    for (const sobra of [Buffer.concat([Buffer.from("\0\0\0\x10ftyp", "latin1"), Buffer.from("<html><script>alert(1)</script>PK\x03\x04")]),
+      Buffer.concat([Buffer.from("<html>x</html>PK\x03\x04zip"), Buffer.from("SEFT")])]) {
+      const b = Buffer.concat([imagem, sobra]);
+      await admin.dolores.atendimento.salvarMidia({ campanhaId: id, tipo: "imagem", uploadId: await subir(admin, id, "imagem", b, "f.jpg"), nome: "f.jpg" });
+      const [g] = await q<{ tamanho: number; n: number }>("SELECT tamanho, octet_length(conteudo) AS n FROM whatsapp_campanha_midias WHERE tipo = 'imagem'");
+      expect(g).toEqual({ tamanho: imagem.length, n: imagem.length });
+      const p = await admin.dolores.atendimento.midiaDaCampanha({ campanhaId: id, tipo: "imagem", offset: 0 });
+      expect(Buffer.from(p.base64, "base64").equals(imagem)).toBe(true);
+    }
+    enviarMidia.mockClear();
+    await chamar(aviso(direta()));
+    expect(Buffer.from(enviarMidia.mock.calls[0][0].midia.base64, "base64").equals(imagem)).toBe(true);
+    // lixo sem marcador de celular continua recusado
+    expect(conferirMidiaSaudacao("imagem", Buffer.concat([imagem, Buffer.from("<html>")])).ok).toBe(false);
+  });
+  it("R2-4: TOC do Opus com entradas degeneradas termina rápido; Opus com quadros de 60 ms (WhatsApp) passa", () => {
+    const n = 5 * 1024 * 1024;
+    const cab = Buffer.concat([paginaOgg(0, opusHead()), paginaOgg(0, Buffer.concat([Buffer.from("OpusTags"), Buffer.alloc(16)]))]);
+    const paginaVazia = () => { const h = Buffer.alloc(27 + 255); h.write("OggS", 0, "latin1"); h.writeBigUInt64LE(48_000n, 6); h[26] = 255; return h; }; // 255 pacotes de 0 bytes
+    const p = paginaVazia();
+    const degenerados = [Buffer.concat([cab, ...Array.from({ length: Math.floor((n - cab.length) / p.length) }, () => p)]),
+      Buffer.concat([cab, Buffer.alloc(n - cab.length, Buffer.from("OggS\0"))])];
+    for (const b of degenerados) { const t = performance.now(); conferirMidiaSaudacao("audio", b); expect(performance.now() - t).toBeLessThan(3_000); }
+    const pags = [cab];
+    for (let s = 1; s <= 30; s++) {
+      const pacotes = Array.from({ length: 16 }, () => { const x = Buffer.alloc(60, 5); x[0] = (3 << 3) | 0; return x; }); // SILK 60 ms
+      const h = Buffer.alloc(27); h.write("OggS", 0, "latin1"); h.writeBigUInt64LE(BigInt(Math.round(s * 0.96 * 48_000) + 312), 6); h[26] = 16;
+      pags.push(Buffer.concat([h, Buffer.from(pacotes.map(x => x.length)), ...pacotes]));
+    }
+    expect(conferirMidiaSaudacao("audio", Buffer.concat(pags))).toMatchObject({ ok: true, mime: "audio/ogg" });
+  });
+});
