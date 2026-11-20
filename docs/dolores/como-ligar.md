@@ -725,3 +725,51 @@ dono): o código antigo não conhece essas situações e trataria esses grupos c
 ## 7. Conferir
 `dolores_acoes`: `grupo_entrada` (entrou / aguardando / recusado / rebaixado / aceito / teto), `grupo_entrada_aviso` (aviso ao dono), `grupo_decisao` (comando ou tela),
 `grupo_leitura` (consultas feitas quando marcada, com o tipo), `atualizar_grupos` (botão da tela).
+
+---
+
+# Etapa 8 — Respostas longas e custo real
+
+Dois problemas reais de produção (19/11/2026): um pedido longo do dono ("divida os clientes do CRM em atraso até o fim do mês,
+igualmente por dia") voltou como "não consegui concluir" (a resposta parou por tamanho e o texto parcial era descartado), e a
+tela mostrava perto de US$ 2 para três perguntas no Haiku, quando o custo real foi de centavos.
+
+## 1. Banco (equipe técnica)
+Aplicar `drizzle/0134_dolores_precos.sql` no Neon (só aditiva e idempotente: `dolores_precos_modelo` e `dolores_cotacao`, com
+`atualizado_por` em ON DELETE SET NULL; nenhuma tabela existente muda). **O número é 0134** porque a 0133 é da etapa 7
+(`0133_dolores_grupos_tipo.sql`). Sem a 0134, a tela avisa "migração 0134 ainda não aplicada" e a estimativa usa só a reserva.
+
+## 2. Respostas longas (nada a ligar)
+- A resposta ao dono pode sair em **até 3 mensagens** seguidas, numeradas "(1/3)", cada uma com até 3.800 caracteres, cortadas
+  em quebra de linha. Todas passam pelos mesmos filtros (links, dados pessoais conforme o interruptor, segredos e bancários
+  sempre) e vão **só para o número do dono** (o destino é conferido uma vez e é o mesmo para todas). Se uma falhar, as seguintes
+  não saem. Os quadros do sistema (o que foi feito e a fila, com os códigos) nunca são cortados.
+- Se a IA parar por tamanho, o dono recebe o que já foi escrito, cortado no fim da última linha completa, com o aviso
+  "(continua — … peça o restante em partes …)". Se ela parou sem texto nenhum, o sistema faz uma última chamada sem consultas
+  pedindo a resposta curta. **"continuar" não foi implementado** (ver a story E8): o dono pede o resto em partes.
+- A saída de cada chamada vai até 5.000 tokens, limitada ao que cabe no tempo que resta do pedido (45 s).
+- Ferramenta nova: **`plano_de_atrasos`** (só leitura): os mesmos itens de `listar_atrasos`, do mais atrasado para o menos,
+  divididos **igualmente** pelos dias até a data-limite (padrão: fim do mês; só dias úteis seg–sex por padrão; feriados não são
+  conhecidos). Quem faz a conta é o sistema; a IA só repete.
+
+## 3. Custo real (administrador, em Integrações › "Dolores — operação contínua" › Gasto da IA)
+1. Em **Preços por modelo**, a tela lista os modelos que aparecem no consumo do mês e os escolhidos em Integrações › Anthropic.
+   Para cada um, digite os preços da página da Anthropic em **US$ por milhão de tokens**: entrada, saída, escrita de cache e
+   leitura de cache. Deixando escrita/leitura de cache vazias, o sistema assume **1,25×** e **0,1×** do preço de entrada (e a
+   tela diz isso). O sistema não inventa preço.
+2. Digite a **cotação do dólar** (R$ por US$) para ver em reais.
+3. A tela mostra o gasto do mês em US$ e R$, **por modelo** e **por função** (conversa com o dono; resposta em grupo; documentos
+   dos grupos e notas de obra — estas duas gravam o consumo do mesmo jeito e não dá para separar uma da outra).
+4. Os dois campos antigos (R$ por milhão, preço único) viraram **preço de reserva**: só valem para modelo sem preço cadastrado,
+   e a tela diz quando a estimativa usou a reserva. Se você tinha preenchido o preço do modelo mais caro neles, cadastre o preço
+   de cada modelo acima (a reserva deixa de ser usada para ele).
+O relatório do dono (diário e sob demanda) usa a mesma conta.
+
+**O limite mensal não mudou.** Ele continua em tokens e conta o cache (escrita e leitura) como entrada cheia — é conservador:
+para no limite antes do que o custo real faria. A tela mostra os dois números lado a lado ("entrada contada no limite" e o
+custo real estimado). Se quiser que o limite conte o cache pelo peso real, é uma decisão do dono (ver a story E8).
+
+## 4. Conferir
+- `dolores_precos_modelo` e `dolores_cotacao` (quem mudou fica em `atualizado_por`); `dolores_acoes` com `operacao_config`
+  ("preço por modelo alterado pela tela", "cotação do dólar alterada pela tela").
+- Resposta em várias mensagens: uma linha `whatsapp_resposta` por mensagem, com `parte: "1/3"` no resumo.

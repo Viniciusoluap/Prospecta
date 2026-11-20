@@ -53,7 +53,12 @@ export const LIBERADAS_ETAPA_5 = ["listar_notas_obra", "conciliar_nota_obra", "s
  * Etapa 6 — Operação contínua: a leitura da última ronda e do último relatório (somente leitura). A ronda e o relatório em si
  * não são ferramentas: rodam por código (cron, tela ou o comando "relatório" do dono), sem IA.
  */
-export const LIBERADAS_ETAPA_6 = ["relatorio_diario"] as const;
+export const LIBERADAS_ETAPA_6 = [
+  "relatorio_diario",
+  // Etapa 8 (respostas longas e custo): leitura DERIVADA de listar_atrasos (a mesma lista, só distribuída por dia, por código).
+  // Somente leitura; entra junto da etapa 6 para não mudar a etapa em vigor.
+  "plano_de_atrasos",
+] as const;
 
 const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6 };
 

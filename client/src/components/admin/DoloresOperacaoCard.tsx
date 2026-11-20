@@ -18,6 +18,11 @@ const campo = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white";
 const quando = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }) : "—");
 const n = (x: number) => x.toLocaleString("pt-BR");
 const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const usd = (x: number) => `US$ ${x.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: x < 1 ? 4 : 2 })}`;
+const dinheiro = (dolares: number | null, reais: number | null) =>
+  dolares == null && reais == null ? "sem preço" : `${dolares != null ? usd(dolares) : "US$ —"} · ${reais != null ? brl(reais) : "R$ — (falta a cotação)"}`;
+type CamposPreco = { entrada?: string; saida?: string; cacheEscrita?: string; cacheLeitura?: string };
+const CAMPOS_PRECO: Array<[keyof CamposPreco, string]> = [["entrada", "entrada"], ["saida", "saída"], ["cacheEscrita", "escrita de cache"], ["cacheLeitura", "leitura de cache"]];
 const pct = (uso: number, limite: number) => (limite > 0 ? Math.min(100, Math.round((uso / limite) * 100)) : 0);
 const ligado = (v: boolean) => <strong className={v ? "text-green-300" : "text-gray-300"}>{v ? "ligado" : "desligado"}</strong>;
 
@@ -28,8 +33,13 @@ export function DoloresOperacaoCard() {
   const erro = (e: { message: string }) => toast.error(e.message);
   const [motivo, setMotivo] = useState("");
   const [precos, setPrecos] = useState<{ entrada?: string; saida?: string }>({});
+  // Etapa 8 — preços por modelo (US$ por milhão) e cotação, editados na tela
+  const [precosModelo, setPrecosModelo] = useState<Record<string, CamposPreco>>({});
+  const [cotacao, setCotacao] = useState<string | undefined>(undefined);
   const pausar = trpc.dolores.operacao.pausar.useMutation({ onSuccess: async r => { toast.success(r.pausa?.pausada ? "Dolores pausada: tudo parado." : "Pausa geral desligada."); setMotivo(""); await recarregar(); }, onError: erro });
   const salvar = trpc.dolores.operacao.salvar.useMutation({ onSuccess: async () => { toast.success("Configuração salva."); setPrecos({}); await recarregar(); }, onError: erro });
+  const salvarPrecoModelo = trpc.dolores.operacao.salvarPrecoModelo.useMutation({ onSuccess: async (_r, v) => { toast.success(`Preço de ${v.modelo} salvo.`); setPrecosModelo(p => { const { [v.modelo]: _x, ...resto } = p; return resto; }); await recarregar(); }, onError: erro });
+  const salvarCotacao = trpc.dolores.operacao.salvarCotacao.useMutation({ onSuccess: async () => { toast.success("Cotação salva."); setCotacao(undefined); await recarregar(); }, onError: erro });
   const ronda = trpc.dolores.operacao.rodarRonda.useMutation({
     onSuccess: async r => { toast.success(r.nova ? `Ronda feita${r.falhas.length ? ` (sem leitura: ${r.falhas.join(", ")})` : ""}.` : "Já houve uma ronda neste minuto."); await recarregar(); },
     onError: erro,
@@ -70,22 +80,69 @@ export function DoloresOperacaoCard() {
           </section>
 
           <div className="grid gap-3 lg:grid-cols-2">
-            {/* Gasto do mês */}
-            <section className="space-y-2 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] p-3 text-sm">
+            {/* Gasto do mês — Etapa 8: por modelo e por tipo de token */}
+            <section className="space-y-2 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] p-3 text-sm lg:col-span-2">
               <h3 className="text-sm font-semibold text-[#C9A961]">Gasto da IA em {d.gasto.mes}</h3>
-              <p>Entrada: {n(d.gasto.uso.entrada)} de {n(d.gasto.limites.entrada)} tokens ({pct(d.gasto.uso.entrada, d.gasto.limites.entrada)}%)</p>
+              <p className="text-xs text-gray-300">Limite mensal (a trava de segurança, em tokens). Ele conta o cache como entrada cheia — por isso o número de entrada fica bem maior que o custo real.</p>
+              <p>Entrada contada no limite: {n(d.gasto.uso.entrada)} de {n(d.gasto.limites.entrada)} tokens ({pct(d.gasto.uso.entrada, d.gasto.limites.entrada)}%)
+                {d.gasto.custo && (d.gasto.custo.tokensNoLimite.entrada > 0) ? <span className="text-xs text-gray-400"> — sem cache: {n(d.gasto.custo.porModelo.reduce((s, m) => s + m.uso.entrada, 0))}; cache: {n(d.gasto.custo.porModelo.reduce((s, m) => s + m.uso.cacheEscrita + m.uso.cacheLeitura, 0))}</span> : null}</p>
               <p>Saída: {n(d.gasto.uso.saida)} de {n(d.gasto.limites.saida)} tokens ({pct(d.gasto.uso.saida, d.gasto.limites.saida)}%)</p>
               {d.gasto.bloqueio && <p role="alert" className="text-xs text-amber-200">{d.gasto.bloqueio === "sem_limite" ? "Limite mensal não definido: a IA não roda." : "Limite mensal atingido: a IA não roda até o mês que vem."}</p>}
-              <p>{d.gasto.reaisEstimados == null ? <span className="text-xs text-gray-400">Informe o preço por milhão de tokens abaixo para estimar em reais (o sistema não inventa preço).</span>
-                : <>Estimado: <strong>{brl(d.gasto.reaisEstimados)}</strong>{d.gasto.limiteEmReais != null ? ` · limite configurado ≈ ${brl(d.gasto.limiteEmReais)}` : ""} · teto do dono {brl(d.gasto.tetoDonoReais)}</>}</p>
+
+              <h4 className="pt-1 text-xs font-semibold text-gray-300">Custo real estimado (pelo preço de cada modelo)</h4>
+              {!d.gasto.custo ? <p className="text-xs text-amber-200">Não consegui calcular o custo agora.</p> : !d.gasto.custo.porModelo.length ? <p className="text-xs text-gray-400">Nada gasto neste mês.</p> : <>
+                <p>Total do mês: <strong>{d.gasto.custo.total.completo ? dinheiro(d.gasto.custo.total.dolares, d.gasto.custo.total.reais) : "incompleto (há modelo sem preço)"}</strong> · teto do dono {brl(d.gasto.tetoDonoReais)}</p>
+                <ul className="space-y-1 text-xs">{d.gasto.custo.porModelo.map(m => (
+                  <li key={m.modelo}><strong>{m.modelo}</strong>: {dinheiro(m.dolares, m.reais)}
+                    {m.fonte === "reserva" ? <span className="text-amber-200"> (sem preço cadastrado: usou o preço de reserva)</span> : m.fonte === "sem_preco" ? <span className="text-amber-200"> (sem preço: informe abaixo)</span> : null}
+                    <span className="text-gray-400"> · entrada {n(m.uso.entrada)}, saída {n(m.uso.saida)}, escrita de cache {n(m.uso.cacheEscrita)}, leitura de cache {n(m.uso.cacheLeitura)}</span></li>
+                ))}</ul>
+                <p className="text-xs text-gray-300">Por função: {d.gasto.custo.porFuncao.map(f => `${f.rotulo}: ${f.completo ? dinheiro(f.dolares, f.reais) : "sem preço"}`).join(" · ")}</p>
+                {d.gasto.custo.cacheAssumido && <p className="text-xs text-gray-400">Cache sem preço informado: assumi {String(d.gasto.fatoresCache.escrita).replace(".", ",")}× (escrita) e {String(d.gasto.fatoresCache.leitura).replace(".", ",")}× (leitura) do preço de entrada.</p>}
+              </>}
+
+              <h4 className="pt-1 text-xs font-semibold text-gray-300">Preços por modelo (US$ por milhão de tokens) — o sistema não inventa preço</h4>
+              {!d.gasto.precosDisponiveis ? <p className="text-xs text-amber-200">Preços por modelo indisponíveis: a migração 0134 ainda não foi aplicada (a estimativa usa só a reserva).</p> : <>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div><Label htmlFor="dol-cot" className="text-xs text-gray-300">Cotação do dólar (R$ por US$)</Label>
+                    <Input id="dol-cot" inputMode="decimal" className={`${campo} w-32`} placeholder={d.gasto.cotacao?.toString().replace(".", ",") ?? "vazio"} value={cotacao ?? ""} onChange={e => setCotacao(e.target.value)} /></div>
+                  <Button size="sm" variant="outline" className={botaoSec} disabled={salvarCotacao.isPending || cotacao === undefined}
+                    onClick={() => salvarCotacao.mutate({ cotacao: numeroPreco(cotacao) ?? null })}>Salvar cotação</Button>
+                </div>
+                {!d.gasto.precosPorModelo.length ? <p className="text-xs text-gray-400">Nenhum modelo em uso nem escolhido em Integrações › Anthropic.</p> : d.gasto.precosPorModelo.map(({ modelo, preco }) => {
+                  const ed = precosModelo[modelo] ?? {};
+                  const mudou = CAMPOS_PRECO.some(([k]) => ed[k] !== undefined);
+                  return (
+                    <div key={modelo} className="space-y-1 rounded border border-[#C9A961]/10 p-2">
+                      <p className="text-xs font-semibold">{modelo}{!preco || preco.entrada == null || preco.saida == null ? <span className="font-normal text-amber-200"> — sem preço (usa a reserva)</span> : null}</p>
+                      <div className="grid gap-2 sm:grid-cols-4">
+                        {CAMPOS_PRECO.map(([k, rotulo]) => (
+                          <div key={k}><Label htmlFor={`dol-p-${modelo}-${k}`} className="text-xs text-gray-300">{rotulo}</Label>
+                            <Input id={`dol-p-${modelo}-${k}`} inputMode="decimal" className={campo} value={ed[k] ?? ""}
+                              placeholder={preco?.[k] != null ? String(preco[k]).replace(".", ",") : k === "cacheEscrita" ? "vazio = 1,25× entrada" : k === "cacheLeitura" ? "vazio = 0,1× entrada" : "vazio"}
+                              onChange={e => setPrecosModelo(p => ({ ...p, [modelo]: { ...ed, [k]: e.target.value } }))} /></div>
+                        ))}
+                      </div>
+                      <Button size="sm" variant="outline" className={botaoSec} disabled={salvarPrecoModelo.isPending || !mudou}
+                        onClick={() => {
+                          const v = (k: keyof CamposPreco) => (ed[k] !== undefined ? numeroPreco(ed[k]) ?? null : preco?.[k] ?? null);
+                          salvarPrecoModelo.mutate({ modelo, entrada: v("entrada"), saida: v("saida"), cacheEscrita: v("cacheEscrita"), cacheLeitura: v("cacheLeitura") });
+                        }}>Salvar preço de {modelo}</Button>
+                    </div>
+                  );
+                })}
+              </>}
+
+              <h4 className="pt-1 text-xs font-semibold text-gray-300">Preço de reserva (R$ por milhão, preço único) — só para modelo sem preço cadastrado</h4>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div><Label htmlFor="dol-pe" className="text-xs text-gray-300">R$ por milhão — entrada</Label>
                   <Input id="dol-pe" inputMode="decimal" className={campo} placeholder={d.gasto.precos.entradaMilhao?.toString() ?? "vazio"} value={precos.entrada ?? ""} onChange={e => setPrecos({ ...precos, entrada: e.target.value })} /></div>
                 <div><Label htmlFor="dol-ps" className="text-xs text-gray-300">R$ por milhão — saída</Label>
                   <Input id="dol-ps" inputMode="decimal" className={campo} placeholder={d.gasto.precos.saidaMilhao?.toString() ?? "vazio"} value={precos.saida ?? ""} onChange={e => setPrecos({ ...precos, saida: e.target.value })} /></div>
               </div>
+              {d.gasto.limiteEmReais != null && <p className="text-xs text-gray-400">Limite configurado pelo preço de reserva ≈ {brl(d.gasto.limiteEmReais)}.</p>}
               <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending || (precos.entrada === undefined && precos.saida === undefined)}
-                onClick={() => salvar.mutate({ precoEntradaMilhao: numeroPreco(precos.entrada), precoSaidaMilhao: numeroPreco(precos.saida) })}>Salvar preços</Button>
+                onClick={() => salvar.mutate({ precoEntradaMilhao: numeroPreco(precos.entrada), precoSaidaMilhao: numeroPreco(precos.saida) })}>Salvar preços de reserva</Button>
             </section>
 
             {/* Interruptores */}
