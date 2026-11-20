@@ -94,8 +94,9 @@ contra a conta antiga (~US$ 1,85), reserva com aviso, relatório com a mesma con
 - Rotas novas: `soAdmin`, `.strict()`, id de modelo por regex, preços com teto, auditoria sem valores sensíveis.
 
 ## Correções do portão de QA de segurança (19/11)
-- **A1 (médio)** — os quadros do sistema (o que foi gravado e a fila, com código) vão SEMPRE no começo da PRIMEIRA mensagem
-  (`partesDaResposta`); o texto do modelo vem depois e é ele que se corta. O laço guarda 1,5 s a mais por parte extra
+- **A1 (médio)** — os quadros do sistema (o que foi gravado e a fila, com código) vão SEMPRE na PRIMEIRA mensagem
+  (`partesDaResposta`): abrem a 1ª quando há várias; numa mensagem só, ficam no fim dela (a instrução "Responda só aprovar…"
+  continua por último, como pedia o M5). Quem é cortado é sempre o texto do modelo. O laço guarda 1,5 s a mais por parte extra
   (`FOLGA_DO_LACO_MS` = 3 s + 2 × 1,5 s; `MINIMO_PARA_COMANDO_MS` acompanha) e o envio reduz o número de partes ao que cabe no
   tempo (`TEMPO_POR_PARTE_MS`). Se esta parte cabe e as seguintes não, ela leva "faltou parte da resposta; peça de novo em
   partes"; se uma parte depois da 1ª falha, uma mensagem curta avisa (se couber). A auditoria registra "resposta incompleta:
@@ -107,3 +108,6 @@ contra a conta antiga (~US$ 1,85), reserva com aviso, relatório com a mesma con
 - **A4 (baixo)** — a chamada de resumo não acontece com `TETO_ENTRADA_POR_PEDIDO` estourado (fica a frase fixa); documentado em
   `MAX_VOLTAS` que o máximo é MAX_VOLTAS + 1 chamadas (fechamento OU resumo).
 - Teste de custo com os preços reais do Haiku 5.5 (0,10 / 0,50 / 0,125 / 0,01 US$ por milhão): US$ 0,00875.
+
+Testes depois das correções (20/11): `npx tsc --noEmit` ok; vitest (mesmo conjunto, `--maxWorkers=2 --minWorkers=1`) 37 arquivos,
+666 testes, 0 falhas; `npx vite build` ok. `e8-qa-seguranca.test.ts`: os achados viraram provas da correção (A1 ×5, A2 ×2, A3, A4).
