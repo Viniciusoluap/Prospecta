@@ -424,6 +424,9 @@ async function novaTentativaDoCron(d: NonNullable<Awaited<ReturnType<typeof diar
   return (await enviarTextoGravado({ relatorioId: d.id, texto: d.texto, canal: "cron", autor, prazoFinal, resumo: { novaTentativaDoCron: true } })).situacao;
 }
 
+/** EPIC-026 C4: a ronda do dia criada há menos disto serve ao relatório (chamadas concorrentes não refazem a ronda). */
+const RONDA_RECENTE_MS = 5 * 60_000;
+
 /**
  * Execução do cron, chamada de hora em hora das 07h às 14h de Brasília (EPIC-026 C4: uma entrada diária por hora no
  * vercel.json, todas nesta função). Ignora query, corpo e o fim do caminho (nada do chamador muda o alvo, a janela ou o
@@ -432,7 +435,7 @@ async function novaTentativaDoCron(d: NonNullable<Awaited<ReturnType<typeof diar
  * ENVIO falhar, a chamada seguinte do mesmo dia reenvia o MESMO texto gravado, no máximo UMA vez por dia pelo cron (janela
  * "cron:<dia>"): um envio que na verdade saiu chega ao dono no máximo duas vezes; passou disso, fica o botão da tela.
  * "ja_enviado" só quando o último envio registrado foi "ok"; senão "nao_enviado_antes". Quando a ronda do dia é de uma
- * chamada anterior, o relatório usa uma ronda refeita na hora (janela "relatorio:<dia>").
+ * chamada anterior (criada há 5 min ou mais), o relatório usa uma ronda refeita na hora (janela "relatorio:<dia>").
  */
 export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!cronAutorizado(req.headers.authorization)) return { status: 401, body: { error: "Não autorizado" } };
@@ -459,8 +462,10 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
       if (montado) return { status: 200, body: { ok: true, ronda: ronda.nova ? "feita" : "ja-feita", relatorio: await novaTentativaDoCron(montado, agora, prazoFinal) } };
       // EPIC-026 C4: a ronda da manhã foi feita numa chamada anterior (hora escolhida depois dela, ou a chamada da hora falhou)
       // → refaz a ronda na hora do relatório, numa janela própria do dia (só inserção, uma por dia): dados frescos sem repetir.
+      // Ronda criada há menos de 5 min (chamada concorrente que perdeu a corrida) → serve, não lê tudo de novo.
       let base = ronda.ronda;
-      if (!ronda.nova) {
+      const idadeMs = relogio.ms() - new Date(ronda.ronda.criadoEm).getTime();
+      if (!ronda.nova && idadeMs >= RONDA_RECENTE_MS) {
         if (prazoFinal - relogio.ms() < MINIMO_PARA_RELATORIO_MS) return { status: 200, body: { ok: true, ronda: "ja-feita", relatorio: "sem-tempo" } };
         const fresca = await executarRonda({ janela: janelaRondaDoRelatorio(agora), origem: "cron", agora, prazoFinal, relogio: relogio.ms, config });
         if (fresca.ok) base = fresca.ronda; // não deu: usa a da manhã (o relatório não deixa de sair)

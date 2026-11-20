@@ -1,5 +1,5 @@
-// QA (Quinn) — testes de prova do portão de C4/C5 (EPIC-026). O achado do envio que falhou na hora escolhida (nunca reenviado)
-// foi corrigido e o teste invertido; o marcado "ACHADO" ainda documenta o comportamento atual.
+// QA (Quinn) — testes de prova do portão de C4/C5 (EPIC-026). Os dois achados do portão (envio que falhou na hora escolhida
+// nunca reenviado; perdedora da corrida refazendo a ronda) foram corrigidos e os testes abaixo foram invertidos.
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -101,13 +101,13 @@ describe("QA C4 — segredo e caminhos", () => {
 });
 
 describe("QA C4 — idempotência e interruptores", () => {
-  it("ACHADO: 3 chamadas concorrentes na hora 7 → 1 relatório e 1 envio, mas a perdedora da corrida refaz a ronda (janela relatorio:)", async () => {
+  it("3 chamadas concorrentes na hora 7 → 1 relatório, 1 envio e a perdedora da corrida NÃO refaz a ronda (só diaria:)", async () => {
     await config("rondas_ligadas = true, relatorio_ligado = true, relatorio_hora = 7");
     definirRelogioCron(relogioEm(utc(10)));
     const auth = { headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never;
     await Promise.all([tratarCronDolores(auth), tratarCronDolores(auth), tratarCronDolores(auth)]);
-    // esperado pela story: só diaria:<dia>; na corrida aparece também relatorio:<dia> (duas leituras completas numa chamada)
-    expect((await q<any>("SELECT janela FROM dolores_rondas ORDER BY id")).map(r => r.janela)).toEqual([`diaria:${DIA}`, `relatorio:${DIA}`]);
+    // a ronda diaria foi criada há menos de 5 min: serve ao relatório, nenhuma leitura completa a mais
+    expect((await q<any>("SELECT janela FROM dolores_rondas ORDER BY id")).map(r => r.janela)).toEqual([`diaria:${DIA}`]);
     expect(await q("SELECT id FROM dolores_relatorios")).toHaveLength(1);
     expect(enviar).toHaveBeenCalledTimes(1);
   });

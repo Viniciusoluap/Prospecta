@@ -42,7 +42,9 @@ rodava uma vez por dia às 07:00 de Brasília (`0 10 * * *`); hora mais tarde fa
   escolhida depois das 07h, ou a chamada da hora não chegou), o relatório usa uma ronda nova numa janela própria do dia
   (`relatorio:<dia>`, só inserção, única) — dados do momento, sem quebrar a idempotência. Se a ronda diária foi feita na
   mesma chamada, é ela que vai no relatório (não lê duas vezes). Se a ronda refeita falhar, o relatório sai com a da
-  manhã. Nunca há duas leituras completas na mesma chamada (cabe no prazo).
+  manhã. Nunca há duas leituras completas na mesma chamada (cabe no prazo): se a ronda `diaria` do dia foi criada há
+  menos de 5 minutos (chamada concorrente que perdeu a corrida), é ela que vai no relatório, sem refazer `relatorio:<dia>`
+  (correção do portão de QA).
 - Plano da Vercel: no Hobby cada cron roda no máximo uma vez por dia e pode disparar em qualquer minuto dentro da hora
   agendada — a regra ">=" cobre isso (a chamada das 13 UTC cai sempre nas 10h de Brasília). O projeto passa de 3 para
   10 entradas de cron. **Pendente de conferência na publicação**: confirmar no painel da Vercel que os 8 crons
