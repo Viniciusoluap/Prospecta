@@ -288,11 +288,12 @@ describe("permissões (caminho completo pelo appRouter)", () => {
     expect(JSON.stringify(s)).not.toContain(DONO);
     expect(JSON.stringify(s)).not.toMatch(/sk-ant/);
     await expect(admin.dolores.operacao.salvar({ relatorioLigado: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const ligado = await admin.dolores.operacao.salvar({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 6, precoEntradaMilhao: 15, precoSaidaMilhao: 75 });
-    expect(ligado.config).toMatchObject({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 6 });
+    const ligado = await admin.dolores.operacao.salvar({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 9, precoEntradaMilhao: 15, precoSaidaMilhao: 75 });
+    expect(ligado.config).toMatchObject({ rondasLigadas: true, relatorioLigado: true, relatorioHora: 9 });
     expect(ligado.gasto.reaisEstimados).toBe(0);
     await expect(admin.dolores.operacao.salvar({ relatorioHora: 24 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(admin.dolores.operacao.salvar({ relatorioHora: 8 })).rejects.toMatchObject({ code: "BAD_REQUEST" }); // depois do cron diário
+    await expect(admin.dolores.operacao.salvar({ relatorioHora: 15 })).rejects.toMatchObject({ code: "BAD_REQUEST" }); // EPIC-026 C4: só 07 a 14
+    await expect(admin.dolores.operacao.salvar({ relatorioHora: 6 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await admin.dolores.operacao.pausar({ pausada: true, motivo: "viagem" })).pausa).toEqual({ pausada: true, motivo: "viagem" });
     expect(await n("dolores_acoes", "funcao IN ('pausa_geral', 'operacao_config') AND canal = 'tela'")).toBe(2);
   });

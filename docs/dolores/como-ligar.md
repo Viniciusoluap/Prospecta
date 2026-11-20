@@ -570,13 +570,11 @@ tabela existente muda. Sem a 0131, a tela avisa e o cron responde "sem-configura
 feita no código, UTC−3). A rota só aceita o cabeçalho `Authorization: Bearer <CRON_SECRET>` que a própria Vercel manda
 (comparação em tempo constante); **sem `CRON_SECRET` cadastrado na Vercel, ela recusa sempre** (o cron `lead-card-due` já usa
 a mesma variável — confira que existe em Settings › Environment Variables). Query e corpo são ignorados. Cabe em 45 s.
-O relatório diário sai na execução do dia se a hora escolhida na tela já tiver chegado (padrão 07:00). Como o cron é diário,
-**a hora só vai até 07:00**: a tela só oferece 00:00–07:00 e o servidor recusa hora maior (e, se houver hora maior gravada no
-banco, trata como 07:00). A conta sai de uma constante só, `CRON_DOLORES_AGENDA` em `shared/dolores/operacao.ts`, que um teste
-confere contra o `vercel.json`. Para outro horário fixo, a equipe técnica muda o `schedule` no `vercel.json` **e** essa
-constante (no plano Hobby da Vercel só vale cron diário; de hora em hora exige o plano Pro — não conferido aqui).
-Cada seção da ronda roda com `SET LOCAL statement_timeout` igual ao tempo que resta do prazo (piso 1 s, teto 15 s): a seção que
-estoura vira "sem leitura" na ronda e no relatório, sem derrubar as outras.
+O relatório diário sai UMA vez por dia, na hora escolhida na tela entre **07:00 e 14:00** (Brasília; padrão 07:00). O cron
+chama a rotina nessas 8 horas (`CRON_DOLORES_AGENDAS` em `shared/dolores/operacao.ts`, conferida por teste contra o
+`vercel.json`); o relatório sai na primeira chamada em que a hora escolhida já chegou. Se o envio falhar, a chamada seguinte
+do mesmo dia reenvia o mesmo texto uma única vez; depois disso, fica o botão de reenvio na tela. Hora antiga gravada
+(00:00–06:00) vale 07:00.
 
 ## 3. Ligar (administrador, em Integrações › "Dolores — operação contínua")
 1. **Rondas** (liga a varredura diária).

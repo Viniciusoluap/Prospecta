@@ -16,7 +16,10 @@ export const MAX_EVENTOS_PRAZO_POR_RONDA = 100;
 
 const TRES_HORAS = 3 * 60 * 60_000;
 
-/** Dia civil, hora e minuto em Brasília/Imperatriz (UTC−3). */
+/**
+ * Dia civil, hora e minuto em Brasília/Imperatriz (UTC−3). Fuso FIXO: se o horário de verão voltar, esta conta e as 8
+ * entradas do cron da Dolores (CRON_DOLORES_AGENDAS / vercel.json, hoje 10h a 17h UTC) têm de mudar JUNTAS.
+ */
 export function relogioBrasilia(d: Date): { dia: string; hora: number; minuto: number; hhmm: string } {
   const s = new Date(d.getTime() - TRES_HORAS).toISOString();
   return { dia: s.slice(0, 10), hora: Number(s.slice(11, 13)), minuto: Number(s.slice(14, 16)), hhmm: s.slice(11, 16) };
@@ -31,36 +34,61 @@ export const janelaSobDemanda = (agora: Date) => {
 };
 
 /**
- * Agendamento do cron da Dolores na Vercel (vercel.json: "/api/cron/dolores"). É DIÁRIO: roda uma vez, às 10:00 UTC. Um
- * teste confere que o vercel.json bate com esta constante.
+ * EPIC-026 C4 — horas que o dono pode escolher para o relatório diário (Brasília): 07:00 a 14:00. A ÚNICA lista: a tela, a
+ * validação do servidor e o agendamento do cron saem daqui. O relatório continua saindo UMA vez por dia, na hora escolhida.
  */
-export const CRON_DOLORES_AGENDA = "0 10 * * *";
-/** Hora UTC do cron, tirada da agenda acima. */
+export const HORA_MIN_RELATORIO = 7;
+export const HORA_MAX_RELATORIO = 14;
+/** Hora padrão (e a que vale para valor antigo/fora da lista gravado no banco). */
+export const HORA_PADRAO_RELATORIO = 7;
+export const HORAS_DO_RELATORIO: readonly number[] = Array.from({ length: HORA_MAX_RELATORIO - HORA_MIN_RELATORIO + 1 }, (_, i) => HORA_MIN_RELATORIO + i);
+/** Hora do relatório válida (7 a 14). Valor antigo (0 a 6), fora da lista ou inválido → {@link HORA_PADRAO_RELATORIO}. */
+export const horaDoRelatorio = (hora: number) => {
+  const h = Number.isFinite(hora) ? Math.trunc(hora) : NaN;
+  return HORAS_DO_RELATORIO.includes(h) ? h : HORA_PADRAO_RELATORIO;
+};
+
+const doisDigitos = (h: number) => String(h).padStart(2, "0");
+/**
+ * Agendamentos do cron da Dolores na Vercel (vercel.json). Uma entrada DIÁRIA por hora da lista (07h a 14h de Brasília =
+ * 10h a 17h UTC; Brasília/Imperatriz é UTC−3 fixo): cada cron roda uma vez por dia, como o plano da Vercel exige. Caminhos
+ * distintos (a primeira continua "/api/cron/dolores"; as outras levam a hora no fim) só para a Vercel não ver entradas
+ * repetidas — o servidor IGNORA o fim do caminho: a hora vem do relógio. Um teste confere que o vercel.json bate com isto.
+ */
+export const CRON_DOLORES_AGENDAS: ReadonlyArray<{ path: string; schedule: string; horaBrasilia: number }> = HORAS_DO_RELATORIO.map(h => ({
+  path: h === HORA_MIN_RELATORIO ? "/api/cron/dolores" : `/api/cron/dolores/${doisDigitos(h)}`,
+  schedule: `0 ${(h + 3) % 24} * * *`,
+  horaBrasilia: h,
+}));
+/** Caminhos que o servidor atende com a MESMA rotina (nenhum muda nada). */
+export const CAMINHOS_CRON_DOLORES: readonly string[] = CRON_DOLORES_AGENDAS.map(a => a.path);
+/** Primeira chamada do dia (a de "/api/cron/dolores"). */
+export const CRON_DOLORES_AGENDA = CRON_DOLORES_AGENDAS[0].schedule;
+/** Hora UTC da primeira chamada do dia: 10. */
 export const HORA_CRON_DOLORES_UTC = Number(CRON_DOLORES_AGENDA.split(" ")[1]);
 /** A mesma hora em Brasília/Imperatriz (UTC−3): 07. */
 export const HORA_CRON_DOLORES_BRASILIA = (HORA_CRON_DOLORES_UTC + 21) % 24;
-/**
- * Hora mais tarde que o relatório diário aceita (achado 4 do QA de segurança): com o cron diário, ele só roda às
- * {@link HORA_CRON_DOLORES_BRASILIA}h de Brasília; uma hora depois disso faria o relatório nunca sair. Servidor e tela usam
- * esta constante.
- */
-export const HORA_MAX_RELATORIO = HORA_CRON_DOLORES_BRASILIA;
-/** Horas que a tela oferece (0 até {@link HORA_MAX_RELATORIO}). */
-export const HORAS_DO_RELATORIO: readonly number[] = Array.from({ length: HORA_MAX_RELATORIO + 1 }, (_, h) => h);
-/** Hora do relatório limitada ao que o cron diário alcança (0 a {@link HORA_MAX_RELATORIO}). */
-export const horaDoRelatorio = (hora: number) => Math.min(HORA_MAX_RELATORIO, Math.max(0, Number.isFinite(hora) ? Math.trunc(hora) : HORA_MAX_RELATORIO));
+/** Hora UTC da última chamada do dia: 17. */
+export const HORA_ULTIMO_CRON_DOLORES_UTC = Number(CRON_DOLORES_AGENDAS[CRON_DOLORES_AGENDAS.length - 1].schedule.split(" ")[1]);
+/** Janela da ronda refeita na hora do relatório (dados frescos quando a hora escolhida é depois da ronda da manhã). */
+export const janelaRondaDoRelatorio = (agora: Date) => `relatorio:${relogioBrasilia(agora).dia}`;
 
 /** Janela do reenvio, pela tela, do texto já gravado do relatório diário: uma por minuto (não monta outro relatório). */
 export const janelaReenvio = (agora: Date) => {
   const r = relogioBrasilia(agora);
   return `reenvio:${r.dia}T${r.hhmm}`;
 };
+/**
+ * Janela da ÚNICA nova tentativa do dia feita pelo cron quando o envio do diário falhou (EPIC-026 C4): uma por dia, na mesma
+ * tabela de janela única dos reenvios da tela. Um envio que na verdade saiu (tempo esgotado no provedor) chega no máximo duas vezes.
+ */
+export const janelaReenvioDoCron = (agora: Date) => `cron:${relogioBrasilia(agora).dia}`;
 /** Teto diário de relatórios sob demanda (tela + WhatsApp). Passou disso: frase fixa, sem ronda nem relatório. */
 export const MAX_RELATORIOS_SOB_DEMANDA_DIA = 20;
 /** Prefixo das janelas sob demanda de um dia (para contar o teto diário). */
 export const prefixoSobDemandaDoDia = (agora: Date) => `sob-demanda:${relogioBrasilia(agora).dia}T`;
 
-/** O relatório diário já pode sair? (hora local ≥ hora configurada, limitada à hora do cron). */
+/** O relatório diário já pode sair? (hora de Brasília ≥ hora configurada, de 7 a 14). */
 export const relatorioDiarioNaHora = (agora: Date, hora: number) => relogioBrasilia(agora).hora >= horaDoRelatorio(hora);
 
 const semAcento = (s: string) => s.normalize("NFD").replace(new RegExp("[\\u0300-\\u036f]", "g"), "").toLowerCase();

@@ -23,6 +23,7 @@ const dinheiro = (dolares: number | null, reais: number | null) =>
   dolares == null && reais == null ? "sem preço" : `${dolares != null ? usd(dolares) : "US$ —"} · ${reais != null ? brl(reais) : "R$ — (falta a cotação)"}`;
 type CamposPreco = { entrada?: string; saida?: string; cacheEscrita?: string; cacheLeitura?: string };
 const CAMPOS_PRECO: Array<[keyof CamposPreco, string]> = [["entrada", "entrada"], ["saida", "saída"], ["cacheEscrita", "escrita de cache"], ["cacheLeitura", "leitura de cache"]];
+const precoTxt = (x: number | null) => (x == null ? "—" : x.toLocaleString("pt-BR", { maximumFractionDigits: 4 }));
 const pct = (uso: number, limite: number) => (limite > 0 ? Math.min(100, Math.round((uso / limite) * 100)) : 0);
 const ligado = (v: boolean) => <strong className={v ? "text-green-300" : "text-gray-300"}>{v ? "ligado" : "desligado"}</strong>;
 
@@ -39,6 +40,7 @@ export function DoloresOperacaoCard() {
   const pausar = trpc.dolores.operacao.pausar.useMutation({ onSuccess: async r => { toast.success(r.pausa?.pausada ? "Dolores pausada: tudo parado." : "Pausa geral desligada."); setMotivo(""); await recarregar(); }, onError: erro });
   const salvar = trpc.dolores.operacao.salvar.useMutation({ onSuccess: async () => { toast.success("Configuração salva."); setPrecos({}); await recarregar(); }, onError: erro });
   const salvarPrecoModelo = trpc.dolores.operacao.salvarPrecoModelo.useMutation({ onSuccess: async (_r, v) => { toast.success(`Preço de ${v.modelo} salvo.`); setPrecosModelo(p => { const { [v.modelo]: _x, ...resto } = p; return resto; }); await recarregar(); }, onError: erro });
+  const usarSugerido = trpc.dolores.operacao.usarPrecoSugerido.useMutation({ onSuccess: async (_r, v) => { toast.success(`Preço sugerido gravado para ${v.modelo}.`); await recarregar(); }, onError: erro });
   const salvarCotacao = trpc.dolores.operacao.salvarCotacao.useMutation({ onSuccess: async () => { toast.success("Cotação salva."); setCotacao(undefined); await recarregar(); }, onError: erro });
   const ronda = trpc.dolores.operacao.rodarRonda.useMutation({
     onSuccess: async r => { toast.success(r.nova ? `Ronda feita${r.falhas.length ? ` (sem leitura: ${r.falhas.join(", ")})` : ""}.` : "Já houve uma ronda neste minuto."); await recarregar(); },
@@ -101,6 +103,20 @@ export function DoloresOperacaoCard() {
                 {d.gasto.custo.cacheAssumido && <p className="text-xs text-gray-400">Cache sem preço informado: assumi {String(d.gasto.fatoresCache.escrita).replace(".", ",")}× (escrita) e {String(d.gasto.fatoresCache.leitura).replace(".", ",")}× (leitura) do preço de entrada.</p>}
               </>}
 
+              {/* EPIC-026 C5 — previsão em reais para acompanhar o mês */}
+              <h4 className="pt-1 text-xs font-semibold text-gray-300">Previsão em reais</h4>
+              <ul className="space-y-1 text-xs">
+                <li>Gasto até agora: <strong>{d.gasto.previsao.gastoMesReais != null ? brl(d.gasto.previsao.gastoMesReais) : "sem como calcular (falta preço ou cotação)"}</strong></li>
+                <li>Projeção até o fim do mês, pelo ritmo atual: <strong>{d.gasto.previsao.projecaoFimDoMesReais != null ? brl(d.gasto.previsao.projecaoFimDoMesReais) : "—"}</strong></li>
+                <li>O máximo que os limites permitem (pior caso, tudo no modelo mais caro em uso): <strong>{d.gasto.previsao.limite?.piorCaso?.reais != null ? `${brl(d.gasto.previsao.limite.piorCaso.reais)} (${d.gasto.previsao.limite.piorCaso.modelo})` : "—"}</strong>
+                  {d.gasto.previsao.limite?.daConversa?.reais != null ? <span className="text-gray-400"> · só o modelo da conversa: {brl(d.gasto.previsao.limite.daConversa.reais)}</span> : null}</li>
+                <li className="text-gray-400">Teto do dono: {brl(d.gasto.tetoDonoReais)} por mês.</li>
+              </ul>
+              {d.gasto.previsao.limite?.semPreco.length ? <p className="text-xs text-amber-200">Sem preço cadastrado: {d.gasto.previsao.limite.semPreco.join(", ")} — a previsão pode ficar abaixo do real.</p> : null}
+              {d.gasto.previsao.limite?.acimaDoTeto && <p role="alert" className="text-xs font-semibold text-red-300">Atenção: os limites permitem gastar mais que o teto do dono. Diminua os limites no cartão "Dolores — WhatsApp".</p>}
+              {d.gasto.previsao.limite?.suspeita && <p role="alert" className="text-xs text-yellow-200">{d.gasto.previsao.limite.suspeita}</p>}
+              {d.gasto.previsao.projecaoFimDoMesReais != null && d.gasto.previsao.projecaoFimDoMesReais > d.gasto.tetoDonoReais && <p role="alert" className="text-xs font-semibold text-red-300">No ritmo atual, o mês passa do teto do dono.</p>}
+
               <h4 className="pt-1 text-xs font-semibold text-gray-300">Preços por modelo (US$ por milhão de tokens) — o sistema não inventa preço</h4>
               {!d.gasto.precosDisponiveis ? <p className="text-xs text-amber-200">Preços por modelo indisponíveis: a migração 0134 ainda não foi aplicada (a estimativa usa só a reserva).</p> : <>
                 <div className="flex flex-wrap items-end gap-2">
@@ -108,8 +124,10 @@ export function DoloresOperacaoCard() {
                     <Input id="dol-cot" inputMode="decimal" className={`${campo} w-32`} placeholder={d.gasto.cotacao?.toString().replace(".", ",") ?? "vazio"} value={cotacao ?? ""} onChange={e => setCotacao(e.target.value)} /></div>
                   <Button size="sm" variant="outline" className={botaoSec} disabled={salvarCotacao.isPending || cotacao === undefined}
                     onClick={() => salvarCotacao.mutate({ cotacao: numeroPreco(cotacao) ?? null })}>Salvar cotação</Button>
+                  {d.gasto.cotacao == null && <Button size="sm" variant="outline" className={botaoSec} disabled={salvarCotacao.isPending}
+                    onClick={() => salvarCotacao.mutate({ cotacao: d.gasto.sugestao.cotacao })}>Usar a sugerida (R$ {precoTxt(d.gasto.sugestao.cotacao)})</Button>}
                 </div>
-                {!d.gasto.precosPorModelo.length ? <p className="text-xs text-gray-400">Nenhum modelo em uso nem escolhido em Integrações › Anthropic.</p> : d.gasto.precosPorModelo.map(({ modelo, preco }) => {
+                {!d.gasto.precosPorModelo.length ? <p className="text-xs text-gray-400">Nenhum modelo em uso nem escolhido em Integrações › Anthropic.</p> : d.gasto.precosPorModelo.map(({ modelo, preco, sugerido }) => {
                   const ed = precosModelo[modelo] ?? {};
                   const mudou = CAMPOS_PRECO.some(([k]) => ed[k] !== undefined);
                   return (
@@ -123,6 +141,12 @@ export function DoloresOperacaoCard() {
                               onChange={e => setPrecosModelo(p => ({ ...p, [modelo]: { ...ed, [k]: e.target.value } }))} /></div>
                         ))}
                       </div>
+                      {sugerido && (!preco || preco.entrada == null || preco.saida == null) && (
+                        <div className="flex flex-wrap items-center gap-2 rounded bg-[#C9A961]/10 p-2 text-xs">
+                          <span>Preço sugerido ({d.gasto.sugestao.fonte}): entrada {precoTxt(sugerido.entrada)}, saída {precoTxt(sugerido.saida)}, escrita de cache {precoTxt(sugerido.cacheEscrita)}, leitura de cache {precoTxt(sugerido.cacheLeitura)}. Só entra na conta depois de gravado.</span>
+                          <Button size="sm" variant="outline" className={botaoSec} disabled={usarSugerido.isPending} onClick={() => usarSugerido.mutate({ modelo })}>Usar o sugerido</Button>
+                        </div>
+                      )}
                       <Button size="sm" variant="outline" className={botaoSec} disabled={salvarPrecoModelo.isPending || !mudou}
                         onClick={() => {
                           const v = (k: keyof CamposPreco) => (ed[k] !== undefined ? numeroPreco(ed[k]) ?? null : preco?.[k] ?? null);
@@ -165,7 +189,12 @@ export function DoloresOperacaoCard() {
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.rondasLigadas} disabled={salvar.isPending} aria-label="Rondas ligadas"
                 onCheckedChange={v => salvar.mutate(v ? { rondasLigadas: true } : { rondasLigadas: false, relatorioLigado: false })} /> Rondas</label>
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.relatorioLigado} disabled={salvar.isPending} aria-label="Relatório diário ligado"
-                onCheckedChange={v => salvar.mutate({ relatorioLigado: v })} /> Relatório diário</label>
+                onCheckedChange={v => salvar.mutate({ relatorioLigado: v })} /> Relatório diário
+                <span className={d.config.relatorioLigado && !d.config.rondasLigadas ? "text-xs font-semibold text-amber-300" : "text-xs text-gray-400"}>
+                  {d.config.relatorioLigado && !d.config.rondasLigadas
+                    ? "(rondas desligadas: nada sai — o relatório depende das rondas ligadas)"
+                    : "(o relatório depende das rondas ligadas)"}
+                </span></label>
               <label className="flex min-h-10 items-center gap-2"><Switch checked={d.config.eventosLigados} disabled={salvar.isPending} aria-label="Eventos ligados"
                 onCheckedChange={v => salvar.mutate({ eventosLigados: v })} /> Eventos</label>
               <label className="flex min-h-10 items-center gap-2">Relatório a partir das
@@ -175,10 +204,9 @@ export function DoloresOperacaoCard() {
                 </select></label>
             </div>
             <p className="text-xs text-gray-400">
-              O cron da Vercel chama a rotina uma vez por dia às {d.agendamento.horarioBrasilia} (Brasília; {d.agendamento.horarioUtc} UTC). O relatório diário sai nessa
-              execução se a hora escolhida já tiver chegado — por isso só dá para escolher até as {d.agendamento.horarioBrasilia} (uma hora depois disso faria o relatório
-              nunca sair; para outro horário, a equipe técnica muda o agendamento). Sob demanda: o botão abaixo ou a mensagem
-              "relatório" do dono no WhatsApp.
+              Horário de Brasília. A ronda do dia é feita uma vez, às {d.agendamento.horarioBrasilia}. O relatório diário sai uma vez por dia, na hora escolhida
+              (de 07:00 a 14:00); se a hora escolhida for depois das {d.agendamento.horarioBrasilia}, a ronda é refeita na hora do relatório para ir com os números
+              do momento. Sob demanda: o botão abaixo ou a mensagem "relatório" do dono no WhatsApp.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className={botaoSec} disabled={ronda.isPending || pausada} onClick={() => ronda.mutate()}>{ronda.isPending ? "Fazendo a ronda…" : "Fazer ronda agora"}</Button>
