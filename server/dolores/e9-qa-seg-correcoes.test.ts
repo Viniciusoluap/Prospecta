@@ -9,8 +9,9 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { gravarItemNaCentral, processarEventoEvolution } from "../whatsapp-evolution-webhook.js";
-import { identificarRemetente } from "./roteamento.js";
-import { CENARIO, criarBanco } from "./testes-banco.js";
+import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
+import { conversaEmSilencio, definirDependenciasRoteamento, identificarRemetente } from "./roteamento.js";
+import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
 const DONO = "5599991234567";
 const EMPRESA = "5599900001111";
@@ -42,6 +43,7 @@ beforeEach(async () => {
   }));
 });
 afterEach(() => {
+  definirDependenciasRoteamento();
   ENV.cookieSecret = segredoAntes;
   process.env.EVOLUTION_API_URL = envAntes.url;
   process.env.EVOLUTION_API_KEY = envAntes.key;
@@ -217,5 +219,51 @@ describe("achado 4 — quem escreveu é procurado no banco pelos 8 finais, sem t
     const idx = await q<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE indexname LIKE '%telefone_final8_idx' ORDER BY indexname");
     expect(idx.map(i => i.indexname)).toEqual(["avaliacoes_telefone_final8_idx", "financiamentos_telefone_final8_idx", "leads_telefone_final8_idx",
       "operational_projects_telefone_final8_idx", "regularizacoes_telefone_final8_idx", "users_telefone_final8_idx"]);
+  });
+});
+
+describe("achado 5 — ritmo dos envios manuais pelo número da empresa (laço de chamadas não vira disparo em massa)", () => {
+  it("no máximo 10 por minuto e 200 por dia, somando Enviar mensagem/Templates e responder, de todos os usuários; mensagem clara", async () => {
+    definirDependenciasRoteamento({ agora: () => AGORA });
+    for (let i = 0; i < 5; i++) expect(await caller("colaborador", 2).whatsapp.enviar({ mensagem: `Oferta ${i}`, destinatarios: [{ id: 2, nome: "x", telefone: "1" }] })).toMatchObject({ success: true, enviadas: 1 });
+    for (let i = 0; i < 5; i++) await caller("admin", 1).whatsapp.responder({ numero: JOAO, texto: `Oi ${i}` });
+    expect(envios()).toHaveLength(10);
+    const r = await caller("colaborador", 2).whatsapp.enviar({ mensagem: "Oferta 11", destinatarios: [{ id: 3, nome: "x", telefone: "1" }] });
+    expect(r).toMatchObject({ success: false, enviadas: 0 });
+    expect(String(r.error)).toMatch(/no máximo 10 mensagens por minuto/);
+    await expect(caller("admin", 1).whatsapp.responder({ numero: JOAO, texto: "Oi 11" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    expect(envios()).toHaveLength(10);
+    expect(await q("SELECT count(*)::int AS n FROM whatsapp_messages WHERE mensagem IN ('Oferta 11', 'Oi 11')")).toEqual([{ n: 0 }]);
+    // no minuto seguinte volta; com o dia no teto, recusa até amanhã
+    definirDependenciasRoteamento({ agora: () => new Date(AGORA.getTime() + 60_000) });
+    await caller("admin", 1).whatsapp.responder({ numero: JOAO, texto: "Oi de novo" });
+    expect(envios()).toHaveLength(11);
+    await banco.pg.exec(`UPDATE whatsapp_atendimento_contagem SET total = 200 WHERE chave = 'envio-manual-dia:${diaDeImperatriz(AGORA)}'`);
+    definirDependenciasRoteamento({ agora: () => new Date(AGORA.getTime() + 120_000) });
+    await expect(caller("colaborador", 2).whatsapp.responder({ numero: JOAO, texto: "Oi" })).rejects.toThrow(/200 mensagens por dia/);
+    expect(envios()).toHaveLength(11);
+  });
+
+  it("corretor pela conexão própria não entra no teto da empresa", async () => {
+    definirDependenciasRoteamento({ agora: () => AGORA });
+    await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, instancia, status) VALUES (3, 'evolution', 'prospecta-u3', 'conectado'); UPDATE leads SET broker_id = 3 WHERE id = 2;`);
+    for (let i = 0; i < 12; i++) await caller("corretor", 3, []).whatsapp.responder({ numero: JOAO, texto: `Oi ${i}` });
+    expect(envios()).toHaveLength(12);
+  });
+});
+
+describe("achado 6 — Enviar mensagem/Templates pela empresa também cala a Dolores na conversa", () => {
+  it("colaborador e admin: depois do envio ao cliente, a conversa fica em silêncio (a Dolores não responde por cima da equipe)", async () => {
+    definirDependenciasRoteamento({ agora: () => AGORA });
+    expect(await conversaEmSilencio(JOAO, AGORA)).toBe(false);
+    await caller("colaborador", 2).whatsapp.enviar({ mensagem: "Seu contrato está pronto", destinatarios: [{ id: 2, nome: "x", telefone: "1" }] });
+    expect(await conversaEmSilencio(JOAO, AGORA)).toBe(true);
+    expect(await conversaEmSilencio("5599977776666", AGORA)).toBe(false);
+    await caller("admin", 1).whatsapp.enviar({ mensagem: "Olá Ana", destinatarios: [{ id: 3, nome: "x", telefone: "1" }] });
+    expect(await conversaEmSilencio("5599977776666", AGORA)).toBe(true);
+    // envio que falhou não cala
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    await caller("admin", 1).whatsapp.enviar({ mensagem: "Olá Pedro", destinatarios: [{ id: 4, nome: "x", telefone: "1" }] });
+    expect(await conversaEmSilencio("5599966665555", AGORA)).toBe(false);
   });
 });

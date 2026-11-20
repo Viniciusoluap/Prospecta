@@ -24,7 +24,7 @@ import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 import {
   MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservados, usaConexaoDaEmpresa, type NumerosReservados,
 } from "./whatsapp-conexao-empresa.js";
-import { canalDeDisparo } from "./whatsapp-canais.js";
+import { canalDeDisparo, reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
 
 /** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
 async function donoDaConexao(userId: number, role: string): Promise<number | null> {
@@ -59,6 +59,14 @@ async function reservadosDoPapel(role: string): Promise<NumerosReservados | null
 const reservado = (r: NumerosReservados | null, numero: string | null | undefined) => !!r && ehNumeroReservado(numero, r);
 async function recusarNumeroReservado(role: string, numero: string) {
   if (reservado(await reservadosDoPapel(role), numero)) throw new TRPCError({ code: "FORBIDDEN", message: MENSAGEM_NUMERO_RESERVADO });
+}
+
+/** A equipe escreveu pelo número da empresa (Central): a Dolores fica calada nesta conversa por algumas horas (nunca lança). */
+async function silenciarPelaEquipe(numero: string) {
+  try {
+    const { lerConfigAtendimento, silenciarConversa } = await import("./dolores/roteamento.js");
+    await silenciarConversa(numero.replace(/\D/g, ""), (await lerConfigAtendimento()).silencioHoras);
+  } catch { /* o silêncio é proteção extra; a mensagem já saiu */ }
 }
 
 /** A conexão da empresa não se conecta, desconecta nem troca pela Central: só em Integrações (admin). */
@@ -512,8 +520,14 @@ export const whatsappRouter = router({
         const nomes = Array.from(new Set(pendentes.flatMap(d => textos.get(d.id)!.faltando))).map(n => `{{${n}}}`).join(", ");
         return { success: false, error: `Preencha ${nomes} antes de enviar (${pendentes.length} destinatário(s) sem esse dado).`, enviadas: 0, falhas: 0 };
       }
+      const daEmpresa = usaConexaoDaEmpresa(ctx.user.role);
       for (const dest of destinatarios) {
         const texto = textos.get(dest.id)!.texto;
+        // QA-SEG E9 achado 5: ritmo do número da empresa (por minuto e por dia), no servidor, antes de cada envio
+        if (daEmpresa) {
+          const teto = await reservarEnvioManualDaEmpresa();
+          if (teto) return enviadas || falhas ? { success: true, enviadas, falhas, error: teto } : { success: false, error: teto, enviadas, falhas };
+        }
         try {
           const externalId = await enviarUm(dest.telefone ?? "", texto);
           await db.insert(whatsappMessages).values({
@@ -521,6 +535,8 @@ export const whatsappRouter = router({
             mensagem: texto, externalId, status: externalId ? "enviada" : "falhou",
           });
           if (externalId) enviadas++; else falhas++;
+          // QA-SEG E9 achado 6: a equipe escreveu a esta pessoa pelo número da empresa → a Dolores fica calada nesta conversa
+          if (externalId && daEmpresa) await silenciarPelaEquipe(dest.telefone ?? "");
         } catch {
           await db.insert(whatsappMessages).values({
             connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone ?? "", nomeDestinatario: dest.nome,
@@ -782,6 +798,11 @@ export const whatsappRouter = router({
     if (!conn || conn.status !== "conectado") throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     // QA-SEG E9 achado 1: pela conexão da empresa ninguém escreve ao dono (seria se passar pela Dolores) nem ao próprio número
     await recusarNumeroReservado(ctx.user.role, input.numero);
+    // QA-SEG E9 achado 5: ritmo do número da empresa (por minuto e por dia), no servidor
+    if (usaConexaoDaEmpresa(ctx.user.role)) {
+      const teto = await reservarEnvioManualDaEmpresa();
+      if (teto) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: teto });
+    }
     const db = getDb();
     const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone, brokerId: leads.brokerId }).from(leads);
     const manual = await vinculoManual(conn.id, input.numero);
@@ -799,10 +820,7 @@ export const whatsappRouter = router({
     });
     if (!externalId) throw new TRPCError({ code: "BAD_REQUEST", message: "O WhatsApp não aceitou a mensagem. Confira a conexão." });
     // E9: a equipe respondeu pela Central no número da empresa → a Dolores fica calada nesta conversa por algumas horas
-    if (usaConexaoDaEmpresa(ctx.user.role)) {
-      const { lerConfigAtendimento, silenciarConversa } = await import("./dolores/roteamento.js");
-      await silenciarConversa(input.numero.replace(/\D/g, ""), (await lerConfigAtendimento()).silencioHoras).catch(() => undefined);
-    }
+    if (usaConexaoDaEmpresa(ctx.user.role)) await silenciarPelaEquipe(input.numero);
     return { ok: true };
   }),
 });
