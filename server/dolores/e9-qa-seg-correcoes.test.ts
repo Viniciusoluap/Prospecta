@@ -8,7 +8,8 @@ import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
-import { processarEventoEvolution } from "../whatsapp-evolution-webhook.js";
+import { gravarItemNaCentral, processarEventoEvolution } from "../whatsapp-evolution-webhook.js";
+import { identificarRemetente } from "./roteamento.js";
 import { CENARIO, criarBanco } from "./testes-banco.js";
 
 const DONO = "5599991234567";
@@ -180,5 +181,41 @@ describe("achado 2 — a instância antiga da Central do admin/colaborador", () 
     // depois de remover a antiga, confirma normalmente
     await caller("admin", 1).dolores.removerConexaoAntiga();
     expect(await caller("admin", 1).dolores.confirmarConexao()).toMatchObject({ status: "conectado" });
+  });
+});
+
+describe("achado 4 — quem escreveu é procurado no banco pelos 8 finais, sem tabela inteira e sem corte silencioso", () => {
+  it("com mais de 20.000 leads, o cliente cadastrado por último é achado; homônimo vira 'varios'; a Central reaproveita os candidatos", async () => {
+    await banco.pg.exec(`INSERT INTO leads (name, phone, city, stage, created_at, updated_at)
+      SELECT 'Lead ' || i, '119' || lpad(i::text, 8, '0'), 'São Paulo', 'attending', now(), now() FROM generate_series(1, 20050) AS i;
+      INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('Rita Nova', '(99) 95555-1234', 'Imperatriz', 'attending', now(), now()),
+        ('Outro DDD', '(11) 95555-1234', 'São Paulo', 'attending', now(), now());`);
+    const [{ id: rita }] = await q<{ id: number }>("SELECT id FROM leads WHERE name = 'Rita Nova'");
+    expect(rita).toBeGreaterThan(20_000);
+    const quem = await identificarRemetente("5599955551234");
+    expect(quem).toMatchObject({ categoria: "cliente", leadId: rita, cadastros: 1 });
+    // só vieram os candidatos com os mesmos 8 finais (Rita e o de outro DDD), não a tabela
+    expect(quem.candidatos?.map(c => c.nome)).toEqual(expect.arrayContaining(["Rita Nova", "Outro DDD"]));
+    expect(quem.candidatos).toHaveLength(2);
+    // gravar na Central com os candidatos do roteamento (reaproveitados): o lead certo (o DDD confere; o de outro DDD não)
+    await caller("admin", 1).whatsapp.minhaConexao();
+    const [conn] = await q<{ id: number; user_id: number }>("SELECT id, user_id FROM whatsapp_connections WHERE user_id = 1");
+    const item = { key: { remoteJid: "5599955551234@s.whatsapp.net", fromMe: false, id: "R1" }, message: { conversation: "oi" }, pushName: "Rita" };
+    const g = await gravarItemNaCentral({ id: conn.id, userId: 1, instancia: null }, item, { notificar: false, leadsCandidatos: quem.candidatos });
+    expect(g.leadId).toBe(rita);
+    // sem candidatos: a própria gravação filtra no banco e acha o mesmo
+    const g2 = await gravarItemNaCentral({ id: conn.id, userId: 1, instancia: null }, { ...item, key: { ...item.key, id: "R2" } }, { notificar: false });
+    expect(g2.leadId).toBe(rita);
+    // outro cadastro (financiamento de outro lead) com o mesmo telefone → vários (nunca adivinha)
+    await banco.pg.exec(`UPDATE financiamentos SET cliente_tel = '99955551234' WHERE lead_id = 2`);
+    expect(await identificarRemetente("5599955551234")).toMatchObject({ categoria: "varios", cadastros: 2 });
+    // número curto demais: ninguém
+    expect((await identificarRemetente("1234")).categoria).toBe("desconhecido");
+  });
+
+  it("a 0135 cria os índices de expressão (os 8 finais) nas seis tabelas consultadas", async () => {
+    const idx = await q<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE indexname LIKE '%telefone_final8_idx' ORDER BY indexname");
+    expect(idx.map(i => i.indexname)).toEqual(["avaliacoes_telefone_final8_idx", "financiamentos_telefone_final8_idx", "leads_telefone_final8_idx",
+      "operational_projects_telefone_final8_idx", "regularizacoes_telefone_final8_idx", "users_telefone_final8_idx"]);
   });
 });

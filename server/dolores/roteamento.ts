@@ -25,7 +25,7 @@ import { cortarResposta, ehNumeroDoDono, mascararNumero, normalizarNumeroDono } 
 import { ENV } from "../_core/env.js";
 import { enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
-import { gravarItemNaCentral } from "../whatsapp-evolution-webhook.js";
+import { finalDoTelefone, gravarItemNaCentral, type LeadCandidato } from "../whatsapp-evolution-webhook.js";
 import type { ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import { registrarAcao } from "./auditoria.js";
@@ -128,13 +128,13 @@ export async function conversaEmSilencio(numero: string, agora: Date = deps.agor
 
 // ── Quem é o remetente ──
 
-const MAX_LINHAS_POR_CADASTRO = 20_000;
 const casa = (remetente: string, telefone: string | null | undefined) => {
   const n = normalizarNumeroDono(telefone);
   return !!n && ehNumeroDoDono(remetente, n);
 };
 
-export type Remetente = { categoria: Categoria; leadId: number | null; cadastros: number };
+/** `candidatos`: os leads (inclusive excluídos) com os mesmos 8 finais — reaproveitados ao gravar na Central (sem consultar de novo). */
+export type Remetente = { categoria: Categoria; leadId: number | null; cadastros: number; candidatos?: LeadCandidato[] };
 
 /**
  * Identifica, POR CÓDIGO, quem escreveu: o número (só dígitos, com 55, vindo do endereço do WhatsApp) contra os telefones de
@@ -149,33 +149,44 @@ export type Remetente = { categoria: Categoria; leadId: number | null; cadastros
 export async function identificarRemetente(numero: string): Promise<Remetente> {
   const db = getDb();
   const d = numero.replace(/\D/g, "");
-  const [us, ls, fins, regs, avs, projs] = await Promise.all([
-    db.select({ id: users.id, phone: users.phone }).from(users).where(eq(users.active, true)).limit(MAX_LINHAS_POR_CADASTRO),
-    db.select({ id: leads.id, phone: leads.phone }).from(leads).where(isNull(leads.deletedAt)).limit(MAX_LINHAS_POR_CADASTRO),
-    db.select({ id: financiamentos.id, leadId: financiamentos.leadId, tel: financiamentos.clienteTel }).from(financiamentos).limit(MAX_LINHAS_POR_CADASTRO),
-    db.select({ id: regularizacoes.id, leadId: regularizacoes.leadId, tel: regularizacoes.clientPhone }).from(regularizacoes).limit(MAX_LINHAS_POR_CADASTRO),
-    db.select({ id: avaliacoes.id, leadId: avaliacoes.leadId, tel: avaliacoes.clienteTel }).from(avaliacoes).limit(MAX_LINHAS_POR_CADASTRO),
-    db.select({ id: operationalProjects.id, leadId: operationalProjects.leadId, tel: operationalProjects.clientPhone }).from(operationalProjects).limit(MAX_LINHAS_POR_CADASTRO),
+  // QA-SEG E9 achado 4: cada cadastro é filtrado NO BANCO pelos 8 dígitos finais (expressão dos índices da 0135), sem limite que
+  // corte candidatos; a conferência estrita (`casa`) continua em memória, só sobre esses.
+  const final = d.slice(-8);
+  if (final.length < 8) return { categoria: "desconhecido", leadId: null, cadastros: 0, candidatos: [] };
+  const mesmoFinal = (coluna: Parameters<typeof finalDoTelefone>[0]) => sql`${finalDoTelefone(coluna)} = ${final}`;
+  const [us, todosLeads, fins, regs, avs, projs] = await Promise.all([
+    db.select({ id: users.id, phone: users.phone }).from(users).where(and(eq(users.active, true), mesmoFinal(users.phone))),
+    db.select({ id: leads.id, nome: leads.name, phone: leads.phone, excluido: leads.deletedAt }).from(leads).where(mesmoFinal(leads.phone)),
+    db.select({ id: financiamentos.id, leadId: financiamentos.leadId, tel: financiamentos.clienteTel }).from(financiamentos).where(mesmoFinal(financiamentos.clienteTel)),
+    db.select({ id: regularizacoes.id, leadId: regularizacoes.leadId, tel: regularizacoes.clientPhone }).from(regularizacoes).where(mesmoFinal(regularizacoes.clientPhone)),
+    db.select({ id: avaliacoes.id, leadId: avaliacoes.leadId, tel: avaliacoes.clienteTel }).from(avaliacoes).where(mesmoFinal(avaliacoes.clienteTel)),
+    db.select({ id: operationalProjects.id, leadId: operationalProjects.leadId, tel: operationalProjects.clientPhone }).from(operationalProjects).where(mesmoFinal(operationalProjects.clientPhone)),
   ]);
-  if (us.some(u => casa(d, u.phone))) return { categoria: "usuario", leadId: null, cadastros: 0 };
+  const candidatos: LeadCandidato[] = todosLeads.map(l => ({ id: l.id, nome: l.nome, phone: l.phone }));
+  const ls = todosLeads.filter(l => !l.excluido);
+  const r = (x: Omit<Remetente, "candidatos">): Remetente => ({ ...x, candidatos });
+  if (us.some(u => casa(d, u.phone))) return r({ categoria: "usuario", leadId: null, cadastros: 0 });
   const identidades = new Set<string>();
   for (const l of ls) if (casa(d, l.phone)) identidades.add(`lead:${l.id}`);
   const ligados: Array<[string, Array<{ id: number; leadId: number | null; tel: string | null }>]> = [["fin", fins], ["reg", regs], ["aval", avs], ["proj", projs]];
   for (const [prefixo, linhas] of ligados) for (const x of linhas) if (casa(d, x.tel)) identidades.add(x.leadId ? `lead:${x.leadId}` : `${prefixo}:${x.id}`);
-  if (identidades.size === 0) return { categoria: "desconhecido", leadId: null, cadastros: 0 };
-  if (identidades.size > 1) return { categoria: "varios", leadId: null, cadastros: identidades.size };
+  if (identidades.size === 0) return r({ categoria: "desconhecido", leadId: null, cadastros: 0 });
+  if (identidades.size > 1) return r({ categoria: "varios", leadId: null, cadastros: identidades.size });
   const [unica] = Array.from(identidades);
-  if (!unica.startsWith("lead:")) return { categoria: "cadastro", leadId: null, cadastros: 1 };
+  if (!unica.startsWith("lead:")) return r({ categoria: "cadastro", leadId: null, cadastros: 1 });
   const leadId = Number(unica.slice(5));
-  // o lead ligado precisa estar ativo no CRM (financiamento ligado a lead excluído não vira cliente atendido)
-  return ls.some(l => l.id === leadId) ? { categoria: "cliente", leadId, cadastros: 1 } : { categoria: "cadastro", leadId: null, cadastros: 1 };
+  // o lead ligado precisa estar ativo no CRM (financiamento ligado a lead excluído não vira cliente atendido). O lead ligado a um
+  // cadastro pode ter OUTRO telefone (fora dos candidatos): confere no banco.
+  const ativo = ls.some(l => l.id === leadId)
+    || (await db.select({ id: leads.id }).from(leads).where(and(eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1)).length > 0;
+  return ativo ? r({ categoria: "cliente", leadId, cadastros: 1 }) : r({ categoria: "cadastro", leadId: null, cadastros: 1 });
 }
 
 // ── Central ──
 
 /** Mensagem recebida de terceiro gravada na Central (conexão da empresa). Nunca a do dono nem de grupo (quem chama decide). */
-export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, mensagem?: string | null) {
-  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: mensagem ?? null });
+export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, mensagem?: string | null, leadsCandidatos?: LeadCandidato[]) {
+  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: mensagem ?? null, leadsCandidatos });
 }
 
 /** Troca o texto de uma mensagem RECEBIDA que o próprio aviso acabou de gravar (o áudio transcrito). */

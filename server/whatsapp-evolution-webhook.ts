@@ -2,7 +2,7 @@
 // entrega/leitura e estado da conexão. Só aceita com o cabeçalho secreto registrado pelo próprio sistema.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql, type AnyColumn } from "drizzle-orm";
 import { leads, userNotifications, users, whatsappConnections, whatsappConversationLinks, whatsappMessages } from "../drizzle/schema.js";
 import { chaveTelefone } from "../shared/whatsapp/conversas.js";
 import { ENV } from "./_core/env.js";
@@ -29,6 +29,21 @@ function autorizado(recebido: unknown) {
 
 type Evento = { event?: string; instance?: string; data?: any };
 
+/**
+ * QA-SEG E9 achado 4: os 8 dígitos finais do telefone guardado na coluna (só dígitos) — a MESMA expressão dos índices da migração
+ * 0135. Filtra no banco os candidatos de um número (sem carregar a tabela inteira e sem limite que corte candidatos); a conferência
+ * fina (estrita ou pela chave da Central) continua em memória, sobre esses poucos.
+ */
+export const finalDoTelefone = (coluna: AnyColumn) => sql`right(regexp_replace(coalesce(${coluna}, ''), '\\D', '', 'g'), 8)`;
+export type LeadCandidato = { id: number; nome: string | null; phone: string | null };
+
+/** Leads (inclusive excluídos, como antes) cujo telefone termina nos mesmos 8 dígitos do número. Número curto → nenhum. */
+export async function leadsComOsMesmosFinais(numero: string): Promise<LeadCandidato[]> {
+  const final = numero.replace(/\D/g, "").slice(-8);
+  if (final.length < 8) return [];
+  return getDb().select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads).where(sql`${finalDoTelefone(leads.phone)} = ${final}`);
+}
+
 export type ResultadoGravacao = { id: number | null; nova: boolean; deMim: boolean; leadId: number | null; existente: { id: number; automatica: boolean } | null };
 
 /**
@@ -38,7 +53,7 @@ export type ResultadoGravacao = { id: number | null; nova: boolean; deMim: boole
  * grupo) — e lá a Central de Vendas e o download da mídia na hora ficam de fora (`centralVendas`/`baixarMidia` falsos).
  */
 export async function gravarItemNaCentral(conn: { id: number; userId: number; instancia: string | null }, d: any,
-  o: { centralVendas?: boolean; baixarMidia?: boolean; mensagem?: string | null; notificar?: boolean } = {}): Promise<ResultadoGravacao> {
+  o: { centralVendas?: boolean; baixarMidia?: boolean; mensagem?: string | null; notificar?: boolean; leadsCandidatos?: LeadCandidato[] } = {}): Promise<ResultadoGravacao> {
   const db = getDb();
   const vazio: ResultadoGravacao = { id: null, nova: false, deMim: Boolean(d?.key?.fromMe), leadId: null, existente: null };
   const jid: string = d?.key?.remoteJid ?? "";
@@ -51,11 +66,14 @@ export async function gravarItemNaCentral(conn: { id: number; userId: number; in
   }
   const numero = jid.split("@")[0];
   const deMim = Boolean(d?.key?.fromMe);
-  const todos = await db.select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads);
+  // QA-SEG E9 achado 4: só os leads com os mesmos 8 finais (do banco, ou os que o roteamento já trouxe), não a tabela inteira
+  const todos = o.leadsCandidatos ?? await leadsComOsMesmosFinais(numero);
   // Lote 03, correção 02: o vínculo manual da conversa vale mais que o telefone.
   const [vinculo] = await db.select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
     .where(and(eq(whatsappConversationLinks.connectionId, conn.id), eq(whatsappConversationLinks.phoneKey, chaveTelefone(numero)))).limit(1);
-  const lead = (vinculo ? todos.find(l => l.id === vinculo.leadId) : undefined) ?? todos.find(l => mesmoTelefone(l.phone, numero));
+  const manual = vinculo ? (todos.find(l => l.id === vinculo.leadId)
+    ?? (await db.select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads).where(inArray(leads.id, [vinculo.leadId])).limit(1))[0]) : undefined;
+  const lead = manual ?? todos.find(l => mesmoTelefone(l.phone, numero));
   const midia = midiaDaMensagem(d?.message);
   const texto = (o.mensagem ?? textoDaMensagem(d?.message)).slice(0, 4000);
   const [gravada] = await db.insert(whatsappMessages).values({

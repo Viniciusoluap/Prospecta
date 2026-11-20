@@ -555,7 +555,7 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
   let centralId: number | null = null;
   const nome = typeof (bruto as { pushName?: unknown })?.pushName === "string" ? String((bruto as { pushName: string }).pushName).slice(0, 120) : null;
   if (conn) {
-    try { centralId = (await gravarEntradaNaCentral(conn, bruto)).id; }
+    try { centralId = (await gravarEntradaNaCentral(conn, bruto, null, quem.candidatos)).id; }
     catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem na Central", erroCurto(e)); r.push("central-erro"); }
   } else r.push("central-sem-conexao");
   if (mensagemAntiga(d.enviadaEm, deps.agora())) { r.push("antiga"); return r; }

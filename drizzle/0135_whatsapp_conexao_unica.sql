@@ -26,7 +26,8 @@
 -- dado existente é alterado ou apagado; a instância conectada e a linha de whatsapp_connections do admin NÃO são tocadas (a
 -- Central do admin passa a usar a conexão da empresa por CÓDIGO, ao ler). Nenhuma tabela nova tem gatilho; as FKs ON DELETE SET
 -- NULL (usuário que mudou a configuração/criou a campanha, cliente do atendimento) não esbarram em guarda nenhuma.
--- Reversão: DROP TABLE "dolores_atendimentos", "whatsapp_atendimento_contagem", "whatsapp_roteamento_vistos", "whatsapp_silencio",
+-- Reversão: DROP INDEX "users_telefone_final8_idx", "leads_telefone_final8_idx", "financiamentos_telefone_final8_idx", "regularizacoes_telefone_final8_idx",
+-- "avaliacoes_telefone_final8_idx", "operational_projects_telefone_final8_idx"; DROP TABLE "dolores_atendimentos", "whatsapp_atendimento_contagem", "whatsapp_roteamento_vistos", "whatsapp_silencio",
 -- "whatsapp_avisos_numero", "whatsapp_saudacoes", "whatsapp_campanhas", "whatsapp_atendimento_config";
 -- ALTER TABLE "whatsapp_messages" DROP COLUMN "automatica" (nada depende delas).
 
@@ -137,3 +138,13 @@ CREATE INDEX IF NOT EXISTS "dolores_atendimentos_reserva_idx" ON "dolores_atendi
 CREATE INDEX IF NOT EXISTS "dolores_atendimentos_criado_idx" ON "dolores_atendimentos" ("criado_em");
 
 ALTER TABLE "whatsapp_messages" ADD COLUMN IF NOT EXISTS "automatica" boolean NOT NULL DEFAULT false;
+
+-- QA-SEG E9 achado 4: quem escreveu ao número da empresa é procurado no banco pelos 8 dígitos finais do telefone (só dígitos), sem
+-- carregar as tabelas inteiras a cada mensagem. Índices de EXPRESSÃO (a mesma de `finalDoTelefone`, server/whatsapp-evolution-webhook.ts);
+-- só leitura mais rápida — nenhum dado muda.
+CREATE INDEX IF NOT EXISTS "users_telefone_final8_idx" ON "users" ((right(regexp_replace(coalesce("phone", ''), '\D', '', 'g'), 8)));
+CREATE INDEX IF NOT EXISTS "leads_telefone_final8_idx" ON "leads" ((right(regexp_replace(coalesce("phone", ''), '\D', '', 'g'), 8)));
+CREATE INDEX IF NOT EXISTS "financiamentos_telefone_final8_idx" ON "financiamentos" ((right(regexp_replace(coalesce("cliente_tel", ''), '\D', '', 'g'), 8)));
+CREATE INDEX IF NOT EXISTS "regularizacoes_telefone_final8_idx" ON "regularizacoes" ((right(regexp_replace(coalesce("client_phone", ''), '\D', '', 'g'), 8)));
+CREATE INDEX IF NOT EXISTS "avaliacoes_telefone_final8_idx" ON "avaliacoes" ((right(regexp_replace(coalesce("cliente_tel", ''), '\D', '', 'g'), 8)));
+CREATE INDEX IF NOT EXISTS "operational_projects_telefone_final8_idx" ON "operational_projects" ((right(regexp_replace(coalesce("client_phone", ''), '\D', '', 'g'), 8)));
