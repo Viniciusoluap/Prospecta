@@ -9,11 +9,11 @@
 //   direta de telefone em 2+ cadastros distintos → Central (equipe); a Dolores não responde
 //   direta de usuário do sistema, ou de cadastro sem lead no CRM → Central; sem saudação, sem Dolores
 //   direta de número desconhecido → Central + saudação (item 3); a Dolores NÃO responde nem chama a IA
+//   direta SEM número conferível (endereço "@lid" sem o número) → Central como "número não identificado" (EPIC-026 C2: nenhuma
+//     mensagem some sem registro); nunca é o dono, nunca é comando, sem saudação, sem Dolores, sem resposta por aqui
 //   fromMe (enviada pelo número da empresa) → nunca é comando; com o dono ou em grupo nunca aparece na Central; com os demais,
 //     aparece na conversa (resposta automática marcada; a da equipe cala a Dolores naquela conversa por N horas)
-import { desembrulhar, ehNumeroDoDono, foiEncaminhada, lerMensagemEvolution, segundos } from "./whatsapp.js";
-
-const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
+import { desembrulhar, ehNumeroDoDono, foiEncaminhada, formaDoEndereco, lerMensagemEvolution, lidDaConversa, numeroDaConversaDireta, segundos } from "./whatsapp.js";
 
 /**
  * Forma canônica do número brasileiro para chaves (resumo, silêncio, saudação, tetos): "55" + DDD + os 8 finais, sem o nono dígito
@@ -35,17 +35,8 @@ export type AudioDeclarado = { segundos: number | null; tamanho: number | null; 
 export type ItemRoteado =
   | { tipo: "grupo" }
   | { tipo: "ignorar"; motivo: string }
-  | { tipo: "propria"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string }
-  | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean; audio: AudioDeclarado | null };
-
-function numeroDoEndereco(key: Record<string, unknown>): string | null {
-  const jid = typeof key.remoteJid === "string" ? key.remoteJid : "";
-  if (NUMERO_DO_JID.test(jid)) return NUMERO_DO_JID.exec(jid)![1];
-  if (jid.endsWith("@lid")) {
-    for (const alt of [key.senderPn, key.remoteJidAlt]) if (typeof alt === "string" && NUMERO_DO_JID.test(alt)) return NUMERO_DO_JID.exec(alt)![1];
-  }
-  return null;
-}
+  | { tipo: "propria"; externalId: string; numero: string | null; lid: string | null; enviadaEm: Date | null; texto: string }
+  | { tipo: "direta"; externalId: string; numero: string | null; lid: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean; audio: AudioDeclarado | null };
 
 const tamanho = (v: unknown): number | null => {
   const n = segundos(v); // mesmo formato (número, texto ou Long)
@@ -62,12 +53,13 @@ export function lerParaRoteamento(item: unknown): ItemRoteado {
   if (key.fromMe === true) {
     const id = typeof key.id === "string" ? key.id.trim().slice(0, 160) : "";
     if (!id) return { tipo: "ignorar", motivo: "sem_id" };
-    if (!NUMERO_DO_JID.test(jid) && !jid.endsWith("@lid")) return { tipo: "ignorar", motivo: "outro_destino" };
+    const forma = formaDoEndereco(jid);
+    if (forma !== "numero" && forma !== "lid") return { tipo: "ignorar", motivo: "outro_destino" };
     const m = desembrulhar(d.message ?? {});
     if (m.reactionMessage || m.protocolMessage || m.editedMessage) return { tipo: "ignorar", motivo: "edicao" };
     const texto = typeof m.conversation === "string" ? m.conversation : typeof m.extendedTextMessage?.text === "string" ? m.extendedTextMessage.text : "";
     const s = segundos(d.messageTimestamp);
-    return { tipo: "propria", externalId: id, numero: numeroDoEndereco(key), enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim() };
+    return { tipo: "propria", externalId: id, numero: numeroDaConversaDireta(key), lid: lidDaConversa(key), enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim() };
   }
   const lida = lerMensagemEvolution(item);
   if (lida.tipo === "ignorar") return { tipo: "ignorar", motivo: lida.motivo };
@@ -77,7 +69,8 @@ export function lerParaRoteamento(item: unknown): ItemRoteado {
     segundos: tamanho(a.seconds), tamanho: tamanho(a.fileLength),
     mime: typeof a.mimetype === "string" ? a.mimetype.split(";")[0].trim().slice(0, 60) : null,
   } : null;
-  return { ...lida, encaminhada: lida.encaminhada || foiEncaminhada(m), audio };
+  // QA-SEG C2 achado 3: a leitura do comando é estrita; para a Central/roteamento valem também participantPn/participantAlt
+  return { ...lida, numero: lida.numero ?? numeroDaConversaDireta(key, "roteamento"), encaminhada: lida.encaminhada || foiEncaminhada(m), audio };
 }
 
 /** Quem é o remetente da conversa direta, decidido no servidor pelo número (nunca pelo texto). */
@@ -88,17 +81,25 @@ export type Rota =
   | { destino: "dono" }
   | { destino: "nada"; motivo: string }
   | { destino: "central_saida"; numero: string }
+  /** EPIC-026 C2: conversa direta de terceiro sem número conferível — Central com o "@lid" como chave; nada automático. */
+  | { destino: "central_sem_numero"; lid: string }
   | { destino: "central"; numero: string; categoria: Categoria; dolores: boolean; saudacao: boolean };
 
 /**
  * A decisão. `categoria` só é usada para conversa direta que não é do dono (quem chama a resolve pelo número). O número do dono é
  * conferido aqui com a MESMA comparação estrita dos comandos: dono escrevendo → comando (nunca Central); fromMe para o dono →
- * nada (nunca Central). Sem número conferível → nada (não dá para responder nem gravar a conversa).
+ * nada (nunca Central). Sem número conferível: a recebida vai à Central como "número não identificado" (EPIC-026 C2); a enviada,
+ * nada.
  */
 export function decidirRota(item: ItemRoteado, numeroDono: string | null | undefined, categoria: Categoria | null): Rota {
   if (item.tipo === "grupo") return { destino: "grupo" };
   if (item.tipo === "ignorar") return { destino: "nada", motivo: item.motivo };
-  if (!item.numero) return { destino: "nada", motivo: "sem número conferível" };
+  if (!item.numero) {
+    // EPIC-026 C2: a mensagem RECEBIDA sem número aparece na Central (nunca é o dono: sem número não há como conferir). A enviada
+    // pelo número da empresa a um "@lid" fica fora (pode ser a conversa com o dono) e só deixa o registro de diagnóstico.
+    if (item.tipo === "direta" && item.lid) return { destino: "central_sem_numero", lid: item.lid };
+    return { destino: "nada", motivo: "sem número conferível" };
+  }
   if (item.tipo === "propria") {
     if (ehNumeroDoDono(item.numero, numeroDono)) return { destino: "nada", motivo: "conversa com o dono: nunca vai à Central" };
     return { destino: "central_saida", numero: item.numero };

@@ -110,3 +110,26 @@ export const doloresAtendimentos = pgTable("dolores_atendimentos", {
   index("dolores_atendimentos_criado_idx").on(t.criadoEm),
 ]);
 export type DoloresAtendimento = typeof doloresAtendimentos.$inferSelect;
+
+// ── EPIC-026 C2 (migração 0136_whatsapp_recebimento.sql): nenhuma mensagem some sem registro ──
+
+/** Diagnóstico do recebimento, sem conteúdo: contador por hora (UTC) × evento × destino × motivo × forma do endereço. 7 dias. */
+export const whatsappRecebimentoContagem = pgTable("whatsapp_recebimento_contagem", {
+  hora: varchar("hora", { length: 13 }).notNull(),
+  evento: varchar("evento", { length: 40 }).notNull(),
+  destino: varchar("destino", { length: 24 }).notNull(),
+  motivo: varchar("motivo", { length: 60 }).default("").notNull(),
+  endereco: varchar("endereco", { length: 12 }).default("").notNull(),
+  total: integer("total").default(0).notNull(),
+  ultimaEm: timestamp("ultima_em", { withTimezone: true }).defaultNow().notNull(),
+}, t => [primaryKey({ columns: [t.hora, t.evento, t.destino, t.motivo, t.endereco] })]);
+
+/** O número real de um endereço "@lid" (aprendido do aviso ou consultado na Evolution). Nunca serve para comando. */
+export const whatsappLidNumeros = pgTable("whatsapp_lid_numeros", {
+  instancia: varchar("instancia", { length: 80 }).notNull(),
+  lid: varchar("lid", { length: 40 }).notNull(),
+  numero: varchar("numero", { length: 20 }).notNull(),
+  /** "aviso" (confirmado), "evolution" (provável) ou "nao_resolvido" (consulta sem resultado; número vazio; vale 10 min). */
+  origem: varchar("origem", { length: 16 }).default("aviso").notNull(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+}, t => [primaryKey({ columns: [t.instancia, t.lid] })]);

@@ -25,6 +25,8 @@ import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
 import { atendimentoRouter } from "./atendimento-router.js";
+import { resumoDoRecebimento } from "../whatsapp-recebimento.js";
+import { agoraDoRoteamento } from "./roteamento.js";
 import { lerPrecos, previsaoDoLimiteAtual } from "./custo.js";
 import { lerConfigOperacao } from "./operacao.js";
 import { COTACAO_SUGERIDA, LIMITES_PADRAO } from "../../shared/dolores/precos-padrao.js";
@@ -267,6 +269,12 @@ export const doloresRouter = router({
   }),
 
   /** QA-SEG E9 achado 2: a conexão antiga da Central (admin/colaborador) ainda existe? Só a situação e o número mascarado. */
+  /**
+   * EPIC-026 C2 — "Recebimento nas últimas 24 h" (só ADMIN por papel): quantos avisos/mensagens chegaram ao webhook da empresa e o
+   * que foi feito com eles (Central, Dolores, grupos, ignoradas e por quê). Só contagens, sem conteúdo nem número.
+   */
+  recebimento: soAdmin.query(() => resumoDoRecebimento(agoraDoRoteamento(), 24)),
+
   conexaoAntiga: soAdmin.query(async () => {
     const c = await lerConfigWhatsapp().catch(() => null);
     const antigas = await conexoesAntigasDaCentral(c?.instancia ?? null);

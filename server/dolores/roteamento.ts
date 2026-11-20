@@ -10,11 +10,11 @@
 // - os avisos de ligação e de áudio (no máximo 1 a cada N horas por número).
 // Nada aqui é comando: comando continua só do número do dono, por texto, em server/dolores/whatsapp.ts.
 import { createHmac } from "node:crypto";
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { avaliacoes, financiamentos, leads, operationalProjects, regularizacoes, users, whatsappMessages } from "../../drizzle/schema.js";
 import {
   whatsappAtendimentoConfig, whatsappAtendimentoContagem, whatsappAvisosNumero, whatsappCampanhas, whatsappRoteamentoVistos, whatsappSaudacoes,
-  whatsappSilencio, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
+  whatsappSilencio, whatsappLidNumeros, type WhatsappAtendimentoConfig, AVISO_AUDIO_PADRAO, AVISO_LIGACAO_PADRAO,
 } from "../../drizzle/schema-whatsapp-atendimento.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
@@ -23,7 +23,7 @@ import { formaCanonicaDoNumero, textoFixoInvalido, type Categoria } from "../../
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { cortarResposta, ehNumeroDoDono, mascararNumero, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import { ENV } from "../_core/env.js";
-import { enviarTextoEvolution } from "../_core/evolution.js";
+import { enviarTextoEvolution, numeroDoLidEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { finalDoTelefone, gravarItemNaCentral, type LeadCandidato } from "../whatsapp-evolution-webhook.js";
 import type { ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
@@ -45,8 +45,17 @@ const envioPadrao: EnvioAoContato = async ({ instancia, numero, texto, prazoMs }
   // sem prévia de link; a chave da Evolution nunca segue redirecionamento para outro host
   return enviarTextoEvolution({ ...c, semRedirecionamento: true }, instancia, numero, texto, comPrazo, { linkPreview: false });
 };
-type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoContato };
-const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao };
+/** EPIC-026 C2: o número real de um "@lid" consultado na Evolution (só leitura, prazo curto). null = não deu para saber. */
+export type ResolverLid = (p: { instancia: string; lid: string; prazoMs: number }) => Promise<string | null>;
+const resolverLidPadrao: ResolverLid = async ({ instancia, lid, prazoMs }) => {
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const c = await configEvolution();
+  if (!c) return null;
+  const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
+  return numeroDoLidEvolution({ ...c, semRedirecionamento: true }, instancia, lid, comPrazo, prazoMs);
+};
+type Dependencias = { agora: () => Date; ms: () => number; enviar: EnvioAoContato; resolverLid: ResolverLid };
+const padrao: Dependencias = { agora: () => new Date(), ms: () => Date.now(), enviar: envioPadrao, resolverLid: resolverLidPadrao };
 let deps: Dependencias = { ...padrao };
 /** Só para testes. Sem argumento, volta ao padrão. */
 export function definirDependenciasRoteamento(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; }
@@ -184,9 +193,99 @@ export async function identificarRemetente(numero: string): Promise<Remetente> {
 
 // ── Central ──
 
-/** Mensagem recebida de terceiro gravada na Central (conexão da empresa). Nunca a do dono nem de grupo (quem chama decide). */
-export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, mensagem?: string | null, leadsCandidatos?: LeadCandidato[]) {
-  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: mensagem ?? null, leadsCandidatos });
+/**
+ * Mensagem recebida de terceiro gravada na Central (conexão da empresa). Nunca a do dono nem de grupo (quem chama decide).
+ * EPIC-026 C2: `numero` é o número conferido pelo roteamento — obrigatório quando o endereço é "@lid" (antes a mensagem com "@lid" e
+ * número no `remoteJidAlt`/`senderPn` era reivindicada e depois NÃO entrava na Central, porque a gravação só aceitava
+ * "@s.whatsapp.net"). `semNumero` grava a conversa de número não identificado (chave = o "@lid").
+ */
+export async function gravarEntradaNaCentral(conn: ConexaoDaEmpresa, item: unknown, o: { mensagem?: string | null; leadsCandidatos?: LeadCandidato[]; numero?: string | null; semNumero?: string | null } = {}) {
+  return gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, mensagem: o.mensagem ?? null, leadsCandidatos: o.leadsCandidatos, numero: o.numero ?? null, semNumero: o.semNumero ?? null });
+}
+
+// ── EPIC-026 C2: o número real dos endereços "@lid" ──
+
+/**
+ * O par já conhecido deste "@lid" nesta instância, ou null. `origem`: "aviso" = o número veio no ENDEREÇO de uma mensagem (confirmado);
+ * "evolution" = só a consulta de contatos da Evolution o informou (QA-SEG C2 achado 2: provável, não confirmado — a conversa continua
+ * "não identificada" para envio e vínculo). Falha ao ler → null.
+ */
+export type ParDoLid = { numero: string; origem: "aviso" | "evolution" };
+export async function numeroConhecidoDoLid(instancia: string, lid: string): Promise<ParDoLid | null> {
+  try {
+    const [r] = await getDb().select({ numero: whatsappLidNumeros.numero, origem: whatsappLidNumeros.origem }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.lid, lid.slice(0, 40)))).limit(1);
+    if (!r || !/^\d{10,15}$/.test(r.numero) || (r.origem !== "aviso" && r.origem !== "evolution")) return null;
+    return { numero: r.numero, origem: r.origem };
+  } catch { return null; }
+}
+
+/**
+ * Guarda o número de um "@lid" (só quando é novo ou mudou). Nunca lança.
+ * - origem "aviso" (o número veio no endereço da mensagem): vence qualquer par anterior; se mudou (número ou origem), as linhas da
+ *   Central gravadas com o "@lid" ganham o número (se for o do dono ou o da empresa, a conversa some da Central pelo filtro de sempre).
+ * - origem "evolution" (só a consulta de contatos): QA-SEG C2 achado 2 — nunca sobrescreve um par confirmado por aviso e NUNCA troca
+ *   as linhas da Central: a conversa continua "não identificada" (o admin vê o número só como "provável", mascarado).
+ */
+export async function lembrarNumeroDoLid(p: { instancia: string; lid: string; numero: string; origem: "aviso" | "evolution"; connectionId: number | null }): Promise<boolean> {
+  const numero = p.numero.replace(/\D/g, "").slice(0, 20);
+  if (!/^\d{10,15}$/.test(numero) || !/^\d{1,25}@lid$/.test(p.lid)) return false;
+  try {
+    const db = getDb();
+    const t = whatsappLidNumeros;
+    const quando = p.origem === "aviso"
+      ? sql`(${t.numero} <> ${numero} OR ${t.origem} <> 'aviso')`
+      : sql`(${t.origem} <> 'aviso' AND (${t.numero} <> ${numero} OR ${t.origem} <> 'evolution'))`;
+    const r = await db.insert(t).values({ instancia: p.instancia, lid: p.lid, numero, origem: p.origem })
+      .onConflictDoUpdate({ target: [t.instancia, t.lid], set: { numero, origem: p.origem, atualizadoEm: sql`now()` }, setWhere: quando })
+      .returning({ lid: t.lid });
+    if (!r.length) return false;
+    if (p.origem === "aviso" && p.connectionId !== null) {
+      await db.update(whatsappMessages).set({ destinatario: numero, updatedAt: new Date() })
+        .where(and(eq(whatsappMessages.connectionId, p.connectionId), eq(whatsappMessages.destinatario, p.lid)));
+    }
+    return true;
+  } catch (e) {
+    console.error("[dolores/roteamento] falha ao guardar o número do @lid", erroParaLog(e));
+    return false;
+  }
+}
+
+/** QA-SEG C2 achado 4: por quanto tempo um "@lid" que a Evolution não soube resolver não é consultado de novo. */
+export const CACHE_LID_NAO_RESOLVIDO_MS = 10 * 60_000;
+
+/** O "@lid" foi consultado sem resultado há menos de 10 min (nesta instância)? Falha ao ler → não (a consulta segue limitada por aviso). */
+export async function lidNaoResolvidoHaPouco(instancia: string, lid: string): Promise<boolean> {
+  try {
+    const [r] = await getDb().select({ em: whatsappLidNumeros.atualizadoEm }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.lid, lid.slice(0, 40)), eq(whatsappLidNumeros.origem, "nao_resolvido"))).limit(1);
+    return !!r && deps.agora().getTime() - new Date(r.em).getTime() < CACHE_LID_NAO_RESOLVIDO_MS;
+  } catch { return false; }
+}
+
+/** Guarda "não resolvido" (número vazio) para o "@lid"; nunca sobrescreve um par com número. Nunca lança. */
+export async function lembrarLidNaoResolvido(instancia: string, lid: string): Promise<void> {
+  if (!/^\d{1,25}@lid$/.test(lid)) return;
+  const t = whatsappLidNumeros;
+  const agora = deps.agora();
+  await getDb().insert(t).values({ instancia, lid, numero: "", origem: "nao_resolvido", atualizadoEm: agora })
+    .onConflictDoUpdate({ target: [t.instancia, t.lid], set: { atualizadoEm: agora }, setWhere: sql`${t.origem} = 'nao_resolvido'` })
+    .catch(e => console.error("[dolores/roteamento] falha ao guardar o @lid não resolvido", erroParaLog(e)));
+}
+
+/** QA-SEG C2 achado 2: os números PROVÁVEIS (só da consulta à Evolution, não confirmados) dos "@lid" desta instância. Falha → vazio. */
+export async function numerosProvaveisDosLids(instancia: string, lids: string[]): Promise<Map<string, string>> {
+  if (!lids.length) return new Map();
+  try {
+    const rows = await getDb().select({ lid: whatsappLidNumeros.lid, numero: whatsappLidNumeros.numero }).from(whatsappLidNumeros)
+      .where(and(eq(whatsappLidNumeros.instancia, instancia), eq(whatsappLidNumeros.origem, "evolution"), inArray(whatsappLidNumeros.lid, lids.slice(0, 500))));
+    return new Map(rows.filter(r => /^\d{10,15}$/.test(r.numero)).map(r => [r.lid, r.numero]));
+  } catch { return new Map(); }
+}
+
+/** Consulta o número de um "@lid" na Evolution (dependência substituível nos testes). Falha → null. */
+export async function consultarNumeroDoLid(instancia: string, lid: string, prazoMs: number): Promise<string | null> {
+  try { return await deps.resolverLid({ instancia, lid, prazoMs }); } catch { return null; }
 }
 
 /** Troca o texto de uma mensagem RECEBIDA que o próprio aviso acabou de gravar (o áudio transcrito). */
@@ -219,7 +318,8 @@ export async function tratarPropria(conn: ConexaoDaEmpresa, item: unknown, p: { 
       return "propria-automatica";
     }
   }
-  await gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false });
+  // EPIC-026 C2: o número conferido vai junto (o endereço pode ser "@lid", que a gravação sozinha não aceitava)
+  await gravarItemNaCentral(conn, item, { centralVendas: false, baixarMidia: false, numero: p.numero });
   await silenciarConversa(p.numero, p.silencioHoras, p.enviadaEm ?? deps.agora());
   return "propria-equipe";
 }
@@ -240,7 +340,8 @@ export async function enviarAoContato(p: { cfg: DoloresWhatsappConfig; conn: Con
     registrarAcao({ funcao: "whatsapp_automatica", resultado, motivo, autorUserId: p.autor, canal: "whatsapp", pedidoId: p.pedidoId,
       resumo: { tipo: p.tipo, destino: mascararNumero(p.numero), ...extra } });
   const destino = p.numero.replace(/\D/g, "");
-  if (!/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return false; }
+  // EPIC-026 C2: "@lid" (número não identificado) nunca vira destino — os dígitos dele não são telefone
+  if (/@/.test(p.numero) || !/^\d{10,15}$/.test(destino)) { await auditar("recusada", "destino não é um número de conversa direta; nada foi enviado"); return false; }
   if (ehNumeroDoDono(destino, p.cfg.numeroDono) || ehNumeroDoDono(destino, p.cfg.numeroDolores)) { await auditar("recusada", "destino é o dono ou o próprio número; nada foi enviado"); return false; }
   if (!p.cfg.instancia || p.cfg.statusConexao !== "conectado" || p.conn.instancia !== p.cfg.instancia) { await auditar("recusada", "conexão da empresa desconectada; nada foi enviado"); return false; }
   if (!(await podeFalarNoGrupo())) { await auditar("recusada", "Dolores pausada (pausa geral ou conta desativada); nada foi enviado"); return false; }

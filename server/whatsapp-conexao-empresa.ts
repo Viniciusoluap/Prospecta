@@ -9,6 +9,7 @@
 import { eq } from "drizzle-orm";
 import { users, whatsappConnections, type WhatsappConnection } from "../drizzle/schema.js";
 import { ehNumeroDoDono, mascararNumero } from "../shared/dolores/whatsapp.js";
+import { ehConversaSemNumero } from "../shared/whatsapp/conversas.js";
 import { getDb } from "./db.js";
 import { lerConfigWhatsapp } from "./dolores/consumo.js";
 
@@ -21,7 +22,14 @@ export type ConexaoDaEmpresa = WhatsappConnection & { daEmpresa: true; numeroMas
  * QA-SEG E9 achado 1: números que a Central NUNCA usa pela conexão da empresa — o do DONO (a conversa dele é com a Dolores; escrever a
  * ele pelo número da empresa é se passar pela Dolores) e o PRÓPRIO número da empresa. Lidos da configuração da Dolores, no servidor.
  */
-export type NumerosReservados = { dono: string | null; empresa: string | null };
+export type NumerosReservados = {
+  dono: string | null; empresa: string | null;
+  /**
+   * QA-SEG C2 achado 1: a conversa de "número não identificado" (endereço "@lid") fica oculta (lista, histórico, mídia, exclusão,
+   * busca, não lidas) para quem não é ADMIN (por papel) — pode ser o dono escrevendo de um "@lid" ainda não aprendido.
+   */
+  ocultarSemNumero?: boolean;
+};
 
 /** Falha ao ler a configuração → lança (quem chama fecha: não envia, não lista). */
 export async function numerosReservados(): Promise<NumerosReservados> {
@@ -30,10 +38,24 @@ export async function numerosReservados(): Promise<NumerosReservados> {
 }
 
 /**
+ * QA-SEG C2 achado 1: os números que a Central esconde de QUEM pede. Conexão da empresa (admin e colaborador): o dono e a empresa;
+ * além disso, para quem não é admin, toda conversa de número não identificado ("@lid"). Demais papéis (conexão própria): só o
+ * "@lid" (nunca deveria haver um ali; se houver, fica oculto). Falha ao ler a configuração → lança (quem chama fecha).
+ */
+export async function numerosReservadosDoPapel(role: string | null | undefined): Promise<NumerosReservados> {
+  const ocultarSemNumero = role !== "admin";
+  if (!usaConexaoDaEmpresa(role)) return { dono: null, empresa: null, ocultarSemNumero };
+  return { ...(await numerosReservados()), ocultarSemNumero };
+}
+
+/**
  * O número é o do dono ou o da empresa? Comparação ESTRITA (`ehNumeroDoDono`), sobre o número como ele SAI pela Evolution (sem o 55,
  * ela acrescenta — `enviarTextoEvolution`) e sobre o número como veio. Estrangeiro com os mesmos 8 finais não casa.
  */
 export function ehNumeroReservado(numero: string | null | undefined, r: NumerosReservados): boolean {
+  // EPIC-026 C2: o "@lid" (número não identificado) não é telefone — não se compara com o dono nem com a empresa pelos dígitos.
+  // QA-SEG C2 achado 1: para quem não é admin, ele é reservado (oculto) — qualquer forma de "@lid" (maiúsculas, sufixo de aparelho).
+  if (ehConversaSemNumero(numero) || /@lid\b/i.test(String(numero ?? ""))) return !!r.ocultarSemNumero;
   const d = String(numero ?? "").replace(/\D/g, "");
   if (!d) return false;
   const efetivo = d.startsWith("55") ? d : `55${d}`;
