@@ -404,7 +404,7 @@ describe("rodada 2 — eco durante o envio e sem confirmação", () => {
     expect(r.body.rota).toMatchObject({ "saudacao-sem-confirmacao": 1 });
     expect(enviarMidia).toHaveBeenCalledTimes(1);
     expect(enviarTexto).not.toHaveBeenCalled();
-    expect(await q("SELECT situacao, texto_saiu, imagem_saiu, audio_saiu, sem_confirmacao FROM whatsapp_saudacoes")).toEqual([{ situacao: "erro", texto_saiu: false, imagem_saiu: null, audio_saiu: null, sem_confirmacao: true }]);
+    expect(await q("SELECT situacao, texto_saiu, imagem_saiu, audio_saiu, sem_confirmacao FROM whatsapp_saudacoes")).toEqual([{ situacao: "erro", texto_saiu: false, imagem_saiu: null, audio_saiu: false, sem_confirmacao: true }]);
     await chamar(aviso(direta({ id: "X1" }))); await chamar(aviso(direta({ texto: "oi?" })));
     expect(enviarMidia).toHaveBeenCalledTimes(1);
     expect(enviarTexto).not.toHaveBeenCalled();
