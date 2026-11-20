@@ -79,7 +79,7 @@ sanitizado, corpo dos pedidos à Evolution (base64, legenda, `encoding`), permis
 usuário recusadas, URL recusada pelo esquema estrito, gravação/pré-visualização/remoção, ordem do envio (imagem+legenda → áudio;
 texto → áudio; só texto), queda para texto quando a imagem falha, idempotência com falha parcial (áudio falhou → nada reenviado),
 texto que não sai → áudio não vai, mídia gravada inválida não sai, eco reconhecido como automático.
-Suites `server/dolores` e `server/whatsapp*` rodadas inteiras (resultado no relatório da sessão).
+Suítes `server/dolores` e `server/whatsapp*` inteiras (51 arquivos, em 4 lotes): 878 testes passando, 0 falhas. `npx tsc --noEmit`: sem erros.
 (b) manuais — nenhum nesta sessão (sem Evolution real aqui).
 (c) pendentes de validação em produção — mandar de um número de teste desconhecido com uma campanha com imagem e áudio e conferir:
 a imagem chega com a legenda, o áudio chega como mensagem de voz (bolinha azul do microfone), e a Central mostra as duas como
