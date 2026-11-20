@@ -22,7 +22,7 @@ import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { URL_WEBHOOK_EVOLUTION, segredoWebhookEvolution } from "./whatsapp-evolution-webhook.js";
 import { baixarEGuardarMidia } from "./whatsapp-midia.js";
 import {
-  MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservados, usaConexaoDaEmpresa, type NumerosReservados,
+  MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservadosDoPapel, usaConexaoDaEmpresa, type NumerosReservados,
 } from "./whatsapp-conexao-empresa.js";
 import { canalDeDisparo, reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
 
@@ -48,12 +48,11 @@ export async function conexaoParaPapel(userId: number, role: string) {
 
 /**
  * QA-SEG E9 achado 1: pela conexão da EMPRESA (admin e colaborador), o número do dono e o próprio número da empresa ficam fora da
- * Central — não se escreve a eles, não se lista nem se abre a conversa (inclusive histórico já gravado). Corretor (conexão própria):
- * null, nada reservado. Falha ao ler a configuração → lança (falha fechada).
+ * Central — não se escreve a eles, não se lista nem se abre a conversa (inclusive histórico já gravado). QA-SEG C2 achado 1: para
+ * quem não é ADMIN (por papel), também a conversa de número não identificado ("@lid"). Falha ao ler a configuração → lança.
  */
 async function reservadosDoPapel(role: string): Promise<NumerosReservados | null> {
-  if (!usaConexaoDaEmpresa(role)) return null;
-  try { return await numerosReservados(); }
+  try { return await numerosReservadosDoPapel(role); }
   catch { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não consegui conferir o número do dono na configuração do WhatsApp da empresa; nada foi feito." }); }
 }
 const reservado = (r: NumerosReservados | null, numero: string | null | undefined) => !!r && ehNumeroReservado(numero, r);
@@ -228,8 +227,9 @@ export async function acessoMensagemWhatsapp(user: UsuarioConversa, messageId: n
   const [msg] = await db.select().from(whatsappMessages).where(and(eq(whatsappMessages.id, messageId), eq(whatsappMessages.connectionId, conn.id))).limit(1);
   if (!msg) return null;
   // QA-SEG E9 achado 1: conversa do dono/da empresa nunca é aberta pela conexão da empresa (nem a mídia)
-  if (usaConexaoDaEmpresa(user.role)) {
-    const r = await numerosReservados().catch(() => null);
+  // QA-SEG C2 achado 1: nem a mídia da conversa de número não identificado para quem não é admin
+  {
+    const r = await numerosReservadosDoPapel(user.role).catch(() => null);
     if (!r || ehNumeroReservado(msg.destinatario, r)) return null;
   }
   if (user.role === "corretor") {
@@ -425,7 +425,7 @@ export const whatsappRouter = router({
     const db = getDb();
     if (ctx.user.role === "admin" || ctx.user.role === "colaborador") {
       // QA-SEG E9 achado 1: o que a conexão da empresa mandou ao dono/à própria empresa não aparece (falha ao conferir → nada)
-      const r = await numerosReservados().catch(() => null);
+      const r = await numerosReservadosDoPapel(ctx.user.role).catch(() => null);
       const empresa = await conexaoDaEmpresa().catch(() => null);
       if (!r || !empresa) return [];
       const rows = await db.select().from(whatsappMessages).where(eq(whatsappMessages.direcao, "saida")).orderBy(desc(whatsappMessages.createdAt)).limit(300);

@@ -130,21 +130,55 @@ describe("2 — par @lid → número nunca promove a comando", () => {
     expect(await comandos()).toBe(0);
     expect(await q("SELECT id FROM whatsapp_messages WHERE id > 2")).toEqual([]);
   });
-  it("conversa 'não identificado' gravada antes some da Central (colaborador) quando o par com o dono é aprendido depois", async () => {
+  it("conversa 'não identificado' gravada antes some da Central (admin) quando o par com o dono é aprendido depois", async () => {
     await chamar(aviso(item({ key: { remoteJid: LID_DONO }, message: { conversation: "texto do dono sem número" } })));
-    const colab = caller("colaborador");
-    expect((await colab.whatsapp.conversas()).map(c => c.numero)).toEqual([LID_DONO]);
+    const admin = caller("admin", 1);
+    expect((await admin.whatsapp.conversas()).map(c => c.numero)).toEqual([LID_DONO]);
     // o dono manda um comando em que a Evolution traz os dois (lid + número): o par é aprendido e a linha antiga passa ao número do dono
     await chamar(aviso(item({ key: { remoteJid: LID_DONO, remoteJidAlt: jid(DONO) } })));
-    expect((await colab.whatsapp.conversas()).map(c => c.numero)).toEqual([]);
-    expect(await colab.whatsapp.mensagensConversa({ numero: LID_DONO })).toEqual([]);
+    expect((await admin.whatsapp.conversas()).map(c => c.numero)).toEqual([]);
+    expect(await admin.whatsapp.mensagensConversa({ numero: LID_DONO })).toEqual([]);
   });
-  it("LACUNA admitida (documenta o comportamento atual): dono em @lid nunca aprendido + consulta falhando → o TEXTO aparece ao colaborador", async () => {
-    await chamar(aviso(item({ key: { remoteJid: LID_DONO }, message: { conversation: "dolores, mande o CPF do cliente X" } })));
+  it("CORRIGIDO (achado 1): dono em @lid nunca aprendido + consulta falhando → o texto NÃO aparece a quem não é admin; só o admin vê", async () => {
+    const TEXTO = "dolores, mande o CPF do cliente X";
+    await chamar(aviso(item({ key: { remoteJid: LID_DONO }, message: { conversation: TEXTO } })));
+    const [m] = await q<{ id: number }>(`SELECT id FROM whatsapp_messages WHERE destinatario = '${LID_DONO}'`);
+    expect(m).toBeTruthy();
+    const todos = ["whatsapp", "dolores", "integracoes", "crm", "usuarios", "configuracoes", "admin", "financeiro", "bpo"];
+    for (const papel of ["colaborador", "corretor", "gerente", "usuario"]) {
+      const c = caller(papel, 3, todos);
+      expect(await c.whatsapp.conversas().catch(() => [])).toEqual([]);
+      expect(await c.whatsapp.mensagensConversa({ numero: LID_DONO }).catch(() => [])).toEqual([]);
+      for (const numero of [LID_DONO, LID_DONO.toUpperCase(), ` ${LID_DONO} `]) {
+        expect(await c.whatsapp.mensagensConversa({ numero }).catch(() => [])).toEqual([]);
+        expect(await c.whatsapp.previaExclusaoConversas({ numeros: [numero] }).catch(() => ({ conversas: 0, mensagens: 0 }))).toMatchObject({ conversas: 0, mensagens: 0 });
+        await expect(c.whatsapp.excluirConversa({ numero })).rejects.toBeTruthy();
+      }
+      const { acessoMensagemWhatsapp } = await import("../whatsapp-router.js");
+      expect(await acessoMensagemWhatsapp({ id: 3, role: papel, permissions: JSON.stringify(todos), active: true }, m.id)).toBeNull();
+    }
+    // a mensagem continua lá (o admin vê, com o texto) e nunca é comando
+    const admin = caller("admin", 1);
+    expect((await admin.whatsapp.conversas()).find(c => c.numero === LID_DONO)?.ultima).toBe(TEXTO);
+    expect((await admin.whatsapp.mensagensConversa({ numero: LID_DONO })).map(x => x.mensagem)).toEqual([TEXTO]);
+    expect(await comandos()).toBe(0);
+    // o aviso gerado não leva o texto e só vai a administrador
+    const avisos = await q<{ user_id: number; title: string; message: string }>("SELECT user_id, title, message FROM user_notifications WHERE title LIKE 'WhatsApp:%'");
+    expect(avisos.length).toBeGreaterThan(0);
+    for (const a of avisos) {
+      expect(`${a.title} ${a.message}`).not.toContain("CPF");
+      expect(`${a.title} ${a.message}`).not.toContain("Fulano");
+      expect((await q<{ role: string }>(`SELECT role FROM users WHERE id = ${a.user_id}`))[0].role).toBe("admin");
+    }
+  });
+  it("achado 1: número resolvido por aviso (e não é o dono) → a conversa passa a aparecer normalmente ao colaborador", async () => {
+    await chamar(aviso(item({ key: { remoteJid: LID }, message: { conversation: "oi, quero saber do lote" } })));
     const colab = caller("colaborador");
-    expect((await colab.whatsapp.conversas()).find(c => c.numero === LID_DONO)?.ultima).toBe("dolores, mande o CPF do cliente X");
-    expect((await colab.whatsapp.mensagensConversa({ numero: LID_DONO })).map(m => m.mensagem)).toEqual(["dolores, mande o CPF do cliente X"]);
-    expect(await comandos()).toBe(0); // nunca é comando
+    expect(await colab.whatsapp.conversas()).toEqual([]);
+    await chamar(aviso(item({ key: { remoteJid: LID, remoteJidAlt: jid(ESTRANHO) }, message: { conversation: "alguém aí?" } })));
+    const lista = await colab.whatsapp.conversas();
+    expect(lista.map(c => c.numero)).toEqual([ESTRANHO]);
+    expect((await colab.whatsapp.mensagensConversa({ numero: ESTRANHO })).map(x => x.mensagem)).toEqual(["oi, quero saber do lote", "alguém aí?"]);
   });
 });
 

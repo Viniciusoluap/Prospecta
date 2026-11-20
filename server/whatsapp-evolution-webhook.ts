@@ -44,6 +44,14 @@ export async function leadsComOsMesmosFinais(numero: string): Promise<LeadCandid
   return getDb().select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads).where(sql`${finalDoTelefone(leads.phone)} = ${final}`);
 }
 
+/** O usuário é administrador ativo (por papel)? Falha ao ler → não. */
+async function ehAdministrador(userId: number): Promise<boolean> {
+  try {
+    const [u] = await getDb().select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+    return u?.role === "admin";
+  } catch { return false; }
+}
+
 export type ResultadoGravacao = { id: number | null; nova: boolean; deMim: boolean; leadId: number | null; existente: { id: number; automatica: boolean } | null };
 
 /**
@@ -100,11 +108,13 @@ export async function gravarItemNaCentral(conn: { id: number; userId: number; in
     const { aoReceberMensagemWhatsapp } = await import("./central-vendas/entrada.js");
     await aoReceberMensagemWhatsapp({ connectionId: conn.id, messageId: gravada.id, numero, nome: d?.pushName ?? null, texto: textoDaMensagem(d?.message), temMidia: Boolean(midia), leadIdDaMensagem: lead?.id ?? null });
   }
-  if (!deMim && gravada && o.notificar !== false) {
+  // QA-SEG C2 achado 1: a de número não identificado pode ser do dono (comando) — o aviso não leva o texto nem o nome e só vai a
+  // administrador (a conexão da empresa é a linha do primeiro admin; conferido aqui pelo papel, falha fechada).
+  if (!deMim && gravada && o.notificar !== false && (!semNumero || await ehAdministrador(conn.userId))) {
     await db.insert(userNotifications).values({
       userId: conn.userId, type: "system",
-      title: `WhatsApp: nova mensagem de ${lead?.nome ?? d?.pushName ?? (semNumero ? "número não identificado" : numero)}`,
-      message: texto.slice(0, 300),
+      title: semNumero ? "WhatsApp: nova mensagem de número não identificado" : `WhatsApp: nova mensagem de ${lead?.nome ?? d?.pushName ?? numero}`,
+      message: semNumero ? "O WhatsApp não informou o número. Veja a conversa na Central (só administrador)." : texto.slice(0, 300),
       actionUrl: `/admin/whatsapp?aba=conversas&numero=${encodeURIComponent(numero)}`,
     });
   }
