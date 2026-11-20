@@ -1,6 +1,6 @@
 // Pedido de 25/10: WhatsApp por QR code via Evolution API (Baileys) hospedada pelo dono (Railway),
 // até a integração da Lógyca. Gêmeo de Grupo-Santa-Fe/web/src/lib/evolution.ts.
-import { chaveTelefone } from "../../shared/whatsapp/conversas.js";
+import { chaveTelefone, idSemNumero } from "../../shared/whatsapp/conversas.js";
 /**
  * `semRedirecionamento` (EPIC-025, QA E4 r2 N4): recusa redirecionamento (`redirect: "error"`), para o `apikey` nunca ir a
  * outro host. Ligado só nas chamadas da Dolores; a Central de Vendas segue como antes (o padrão do fetch, "follow"), porque
@@ -158,6 +158,9 @@ export function textoDaMensagem(message: Record<string, any> | undefined | null)
 
 /** Mesmo telefone? Compara DDD + 8 últimos dígitos (o WhatsApp às vezes omite o 9º dígito). */
 export function mesmoTelefone(a: string | null | undefined, b: string | null | undefined): boolean {
+  // EPIC-026 C2: conversa de número não identificado ("@lid") só é a mesma que o MESMO "@lid"; nunca casa com telefone
+  const la = idSemNumero(a), lb = idSemNumero(b);
+  if (la || lb) return la !== null && la === lb;
   const x = chaveTelefone(a), y = chaveTelefone(b);
   return Boolean(x) && x === y;
 }

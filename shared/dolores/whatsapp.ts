@@ -69,14 +69,56 @@ export function segundos(v: unknown): number | null {
   return null;
 }
 
-const NUMERO_DO_JID = /^(\d{10,15})@s\.whatsapp\.net$/;
+/** Número do endereço "5599…@s.whatsapp.net" (EPIC-026 C2: tolera o sufixo de aparelho ":12" que algumas versões mandam). */
+const NUMERO_DO_JID = /^(\d{10,15})(?::\d{1,3})?@s\.whatsapp\.net$/;
+const numeroDoJid = (v: unknown): string | null => (typeof v === "string" ? NUMERO_DO_JID.exec(v.trim())?.[1] ?? null : null);
+/** "<dígitos>@lid" (endereço novo do WhatsApp, sem o número). */
+const LID_DO_JID = /^(\d{5,25})(?::\d{1,3})?@lid$/;
+
+/**
+ * Campos em que a Evolution (conforme a versão) põe o número real de uma conversa direta com endereço "@lid": `remoteJidAlt`
+ * (v2.3+), `senderPn` (v2.1/2.2) e, em algumas versões, `participantPn`/`participantAlt`. Todos vêm do servidor do WhatsApp pela
+ * Evolution — nunca do texto da mensagem. Só vale o que tiver a forma de número ("…@s.whatsapp.net"). `participant` puro (sem
+ * "Pn"/"Alt") NÃO conta: em conversa direta ele não identifica o remetente com segurança.
+ */
+const CAMPOS_DO_NUMERO = ["remoteJidAlt", "senderPn", "participantPn", "participantAlt"] as const;
+
+/** O número da conversa DIRETA, pelo endereço (nunca pelo texto). `@lid` sem número conferível → null. */
+export function numeroDaConversaDireta(key: Record<string, unknown>): string | null {
+  const direto = numeroDoJid(key.remoteJid);
+  if (direto) return direto;
+  if (typeof key.remoteJid === "string" && LID_DO_JID.test(key.remoteJid.trim())) {
+    for (const campo of CAMPOS_DO_NUMERO) { const n = numeroDoJid(key[campo]); if (n) return n; }
+  }
+  return null;
+}
+/** O identificador "<dígitos>@lid" da conversa direta (sem o sufixo de aparelho), ou null. */
+export function lidDaConversa(key: Record<string, unknown>): string | null {
+  const m = typeof key.remoteJid === "string" ? LID_DO_JID.exec(key.remoteJid.trim()) : null;
+  return m ? `${m[1]}@lid` : null;
+}
+
+/** Forma do endereço, para o registro de diagnóstico (nunca o endereço em si). */
+export type FormaDoEndereco = "numero" | "lid" | "grupo" | "status" | "vazio" | "outro";
+export function formaDoEndereco(jid: unknown): FormaDoEndereco {
+  const j = typeof jid === "string" ? jid.trim() : "";
+  if (!j) return "vazio";
+  if (j.endsWith("@g.us")) return "grupo";
+  if (j.endsWith("@broadcast") || j.endsWith("@newsletter")) return "status";
+  if (NUMERO_DO_JID.test(j)) return "numero";
+  if (LID_DO_JID.test(j)) return "lid";
+  return "outro";
+}
 
 export type MensagemLida =
   | { tipo: "ignorar"; motivo: "grupo" | "status" | "propria" | "sem_id" | "outro_destino" | "reacao" | "edicao" | "interacao" }
-  | { tipo: "direta"; externalId: string; numero: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
+  | { tipo: "direta"; externalId: string; numero: string | null; lid: string | null; enviadaEm: Date | null; texto: string; temMidia: boolean; encaminhada: boolean };
 
-/** Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única). */
-const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"] as const;
+/**
+ * Embalagens do WhatsApp com a mensagem de verdade dentro (temporária, visualização única e — EPIC-026 C2 — a cópia de outro
+ * aparelho da mesma conta, `deviceSentMessage`, e a mensagem com legenda de documento fica com a mídia, como antes).
+ */
+const EMBALAGENS = ["ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension", "deviceSentMessage"] as const;
 export function desembrulhar(m: Record<string, any>): Record<string, any> {
   let atual = m;
   for (let i = 0; i < 4; i++) {
@@ -115,13 +157,10 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (key.fromMe === true) return { tipo: "ignorar", motivo: "propria" };
   const id = typeof key.id === "string" ? key.id.trim().slice(0, 160) : "";
   if (!id) return { tipo: "ignorar", motivo: "sem_id" };
-  let numero: string | null = null;
-  if (NUMERO_DO_JID.test(jid)) numero = NUMERO_DO_JID.exec(jid)![1];
-  else if (jid.endsWith("@lid")) {
-    for (const alt of [key.senderPn, key.remoteJidAlt]) {
-      if (typeof alt === "string" && NUMERO_DO_JID.test(alt)) { numero = NUMERO_DO_JID.exec(alt)![1]; break; }
-    }
-  } else return { tipo: "ignorar", motivo: "outro_destino" };
+  const forma = formaDoEndereco(jid);
+  if (forma !== "numero" && forma !== "lid") return { tipo: "ignorar", motivo: "outro_destino" };
+  const numero = numeroDaConversaDireta(key);
+  const lid = lidDaConversa(key);
   const m = desembrulhar(d.message ?? {});
   // reação e edição/apagamento não são pedido novo: ignoradas em silêncio (o webhook audita a contagem)
   if (m.reactionMessage) return { tipo: "ignorar", motivo: "reacao" };
@@ -134,8 +173,20 @@ export function lerMensagemEvolution(item: unknown): MensagemLida {
   if (!texto.trim() && INTERACOES.some(k => m[k])) return { tipo: "ignorar", motivo: "interacao" };
   const temMidia = Boolean(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.documentWithCaptionMessage || m.stickerMessage);
   const s = segundos(d.messageTimestamp);
-  return { tipo: "direta", externalId: id, numero, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
+  return { tipo: "direta", externalId: id, numero, lid, enviadaEm: s === null ? null : new Date(s * 1000), texto: texto.trim(), temMidia, encaminhada: foiEncaminhada(m) };
 }
+
+/**
+ * EPIC-026 C2 — os itens de um aviso `messages.upsert`, em qualquer das formas que a Evolution manda: um objeto (v2), uma lista, ou
+ * o formato do Baileys `{ messages: [...], type }`. Nada que não seja objeto entra.
+ */
+export function itensDoAviso(data: unknown, max: number): unknown[] {
+  const d = data as { messages?: unknown } | null | undefined;
+  const lista = Array.isArray(data) ? data : d && typeof d === "object" && Array.isArray(d.messages) && !("key" in (d as object)) ? d.messages : [data];
+  return lista.filter(x => x && typeof x === "object").slice(0, max);
+}
+/** Nome do evento normalizado: "MESSAGES_UPSERT", "messages-upsert" e "messages.upsert" → "messages.upsert". */
+export const normalizarEvento = (e: unknown) => String(e ?? "").trim().toLowerCase().replace(/[_-]/g, ".").slice(0, 40);
 
 /** Sem data, velha demais ou no futuro: não é comando (reentrega da Evolution, histórico, relógio errado). */
 export function mensagemAntiga(enviadaEm: Date | null, agora: Date, maxMs = IDADE_MAXIMA_MS): boolean {

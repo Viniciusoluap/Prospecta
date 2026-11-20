@@ -9,6 +9,7 @@
 import { eq } from "drizzle-orm";
 import { users, whatsappConnections, type WhatsappConnection } from "../drizzle/schema.js";
 import { ehNumeroDoDono, mascararNumero } from "../shared/dolores/whatsapp.js";
+import { ehConversaSemNumero } from "../shared/whatsapp/conversas.js";
 import { getDb } from "./db.js";
 import { lerConfigWhatsapp } from "./dolores/consumo.js";
 
@@ -34,6 +35,8 @@ export async function numerosReservados(): Promise<NumerosReservados> {
  * ela acrescenta — `enviarTextoEvolution`) e sobre o número como veio. Estrangeiro com os mesmos 8 finais não casa.
  */
 export function ehNumeroReservado(numero: string | null | undefined, r: NumerosReservados): boolean {
+  // EPIC-026 C2: o "@lid" (número não identificado) não é telefone — não se compara com o dono nem com a empresa pelos dígitos
+  if (ehConversaSemNumero(numero)) return false;
   const d = String(numero ?? "").replace(/\D/g, "");
   if (!d) return false;
   const efetivo = d.startsWith("55") ? d : `55${d}`;
