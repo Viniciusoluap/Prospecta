@@ -75,6 +75,10 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const c2 = MIGRACAO_0136();
   await pg.exec(c2);
   await pg.exec(c2);
+  // EPIC-026 C3 (mídia da saudação de campanha): migração 0137, também duas vezes.
+  const c3 = MIGRACAO_0137();
+  await pg.exec(c3);
+  await pg.exec(c3);
   // EPIC-026 C6 ("Assumir (humano)" / "Devolver para a Dolores"): migração 0138, também duas vezes.
   const c6 = MIGRACAO_0138();
   await pg.exec(c6);
@@ -83,6 +87,7 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
 }
 
 export const MIGRACAO_0138 = () => readFileSync(new URL("../../drizzle/0138_atendimento_modo_conversa.sql", import.meta.url), "utf8");
+export const MIGRACAO_0137 = () => readFileSync(new URL("../../drizzle/0137_saudacao_midia.sql", import.meta.url), "utf8");
 export const MIGRACAO_0136 = () => readFileSync(new URL("../../drizzle/0136_whatsapp_recebimento.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0135 = () => readFileSync(new URL("../../drizzle/0135_whatsapp_conexao_unica.sql", import.meta.url), "utf8");
