@@ -1,6 +1,6 @@
 # E9 — Conexão única do WhatsApp, atendimento e campanhas
 
-Status: InProgress
+Status: InReview (implementação concluída; aguarda o portão de QA de segurança — @qa)
 Epic: EPIC-025 (Etapa 9). Regra do dono: CLAUDE.md, seção "WhatsApp — uma conexão só, atendimento e campanhas (20/11/2026)",
 itens 1 a 8 ("Autorizo os itens 1 a 7, pode executar").
 Paridade: suspensa por ordem do dono em 16/11 (Grupo Santa Fé em espera); registrar no ROADMAP o que portar.
@@ -22,27 +22,100 @@ Migração: **`0135_whatsapp_conexao_unica.sql`** (0117–0134 já em produção
 5. `whatsapp_messages` não tem índice único por `external_id`; o webhook da Central evita duplicar por consulta prévia.
 
 ## Critérios de aceite (itens do dono)
-- [ ] AC1 — Conexão única em Integrações (cartão "WhatsApp da empresa (Dolores e Central)"), reaproveitando a instância já
-      conectada (sem novo QR). Central do admin opera por ela (conexão efetiva resolvida por código, sem gravar a linha do
-      admin). "Minha conexão": admin vê só "Conexões dos Corretores (n)"; corretor/colaborador como hoje.
-- [ ] AC2 — Roteamento num ponto só, por código, com reentrega sem duplicar.
-- [ ] AC3 — Saudação de campanha (uma ativa, uma vez por número por campanha, só a desconhecido, teto diário, texto fixo filtrado).
-- [ ] AC4 — Dolores atende cliente cadastrado (identificação estrita pelo telefone, escopo travado, sem valores, silêncio após a
-      equipe, interruptor desligado, tetos, orçamento próprio, falha fechada).
-- [ ] AC5 — Ligação e áudio (aviso 1x/3h, textos editáveis, grupo em silêncio; áudio do dono não vira comando).
-- [ ] AC6 — Transcrição pela Cloudflare Workers AI (credenciais no painel, desligada por padrão, tetos e prazo).
-- [ ] AC7 — Ponto único de escolha do canal de disparo (só Evolution; API oficial desligada) e aviso de disparo em massa bloqueado.
-- [ ] AC8 — Migração 0135 aditiva e idempotente (aplicada 2x nos testes).
+- [x] AC1 — Conexão única em Integrações: cartão "WhatsApp da empresa (Dolores e Central)" (`WhatsappEmpresaCard.tsx`) com estado,
+      número mascarado, QR, Conferir, Reativar recebimento e Desconectar — os MESMOS procedimentos `dolores.*` da instância
+      `prospecta-dolores` (já conectada: nenhum QR novo). O cartão da Dolores ficou com número do dono, limites e IA. A Central do
+      admin e do colaborador opera pela conexão da empresa (`server/whatsapp-conexao-empresa.ts`: a linha do 1º admin em
+      `whatsapp_connections` continua sendo o `connectionId`, NÃO é gravada; provider/instância/status/número vêm, ao ler, de
+      `dolores_whatsapp_config`). Conectar/desconectar/salvar API oficial/"ativar avisos" pela Central: recusados para admin e
+      colaborador (o "ativar avisos" da Central substituiria o aviso da Dolores na instância). "Minha conexão": admin vê só
+      "Conexões dos Corretores (n)"; colaborador vê a situação da conexão da empresa (sem QR) e as dos corretores; corretor igual.
+      Avisos "conecte o WhatsApp" do admin apontam para Integrações. Bloco da Evolution em Integrações com o texto novo.
+- [x] AC2 — Roteamento num ponto só (puro: `shared/dolores/roteamento.ts`; servidor: `server/dolores/roteamento.ts`; ligado em
+      `server/dolores/whatsapp.ts`), pelo endereço do WhatsApp e pelos cadastros — nunca pelo texto nem pela IA. A instância tem UM
+      aviso (o da Dolores, HMAC + instância, inalterados); o da Central ignora a instância da empresa (`instancia-da-empresa`) e
+      continua servindo os corretores. Reentrega: `whatsapp_roteamento_vistos` (instância + id) — não duplica conversa, saudação nem
+      resposta. `r` do aviso continua só "comando ou não"; o que o roteamento fez vai em `rota`.
+- [x] AC3 — Saudação de campanha em Central › Templates (`CampanhasEAvisos.tsx`, rotas `dolores.atendimento.*` só admin por
+      papel): nome, empreendimento opcional, texto fixo (sem `{{…}}`, pelos filtros de link e de dados), nasce inativa, UMA ativa
+      (índice único parcial no banco); uma vez por número por campanha (`whatsapp_saudacoes`, número só como resumo HMAC), só a
+      número desconhecido (nem cliente, nem usuário ativo, nem dono), só conversa direta e mensagem nova; teto diário (50).
+- [x] AC4 — Dolores atende cliente cadastrado (`server/dolores/atendimento.ts` + leituras `leitura/cliente-atendido.ts`):
+      identificação pelo número (estrita: `ehNumeroDoDono` contra `normalizarNumeroDono` de cada cadastro — leads, financiamentos,
+      regularizações, avaliações, projetos; obra, incorporação e jurídico pelo lead); 2+ cadastros distintos → equipe; cadastro
+      sem lead do CRM → equipe. 3 leituras fechadas sem argumento, presas ao lead; `semCamposDeValor` no servidor + filtro de saída
+      da E4b (com as fontes); canal "cliente" sempre mascarado; UMA mensagem curta (≤ 500); fora do escopo/sem resposta → "A
+      equipe responde por aqui."; nenhuma escrita, nada na fila. Interruptor próprio desligado; silêncio de 6 h quando a equipe
+      responde (fromMe da equipe pelo celular ou resposta pela Central); tetos 10/cliente/dia e 100/dia; orçamento próprio 10%
+      (`reservarAtendimento`, `parada` "cliente"); contagem prévia de tokens; UMA chamada de IA de terceiros por vez; falha fechada
+      quando o consumo não grava; pausa geral (`podeFalarNoGrupo`) antes e no envio; função "dolores_cliente" no painel de
+      modelos; chave só por `bloqueioAtual`.
+- [x] AC5 — Ligação: evento `CALL` assinado (`EVENTOS_WEBHOOK_DOLORES`; exige "Reativar recebimento"), só a oferta conta, grupo e
+      dono → nada; aviso por texto 1x/3 h por número. "Reativar recebimento" também liga `rejectCall` lendo e regravando as
+      configurações da instância (só troca `rejectCall`/`msgCall`; formato desconhecido → não grava). Áudio de cliente ou
+      desconhecido → transcrição; desligada/falha/longa/tetos → aviso de áudio (1x/3 h). Textos editáveis em Templates. Grupo:
+      silêncio. Áudio do dono: NÃO transcrito nem comando — ele recebe "só entendo texto" (decisão registrada abaixo).
+- [x] AC6 — Transcrição (`server/dolores/transcricao.ts`): Cloudflare Workers AI `@cf/openai/whisper-large-v3-turbo`; Account ID
+      + API Token cadastrados em Integrações (token cifrado em `dashboard_settings`, tela vê só os 4 finais; nunca em log/erro/
+      auditoria — `semSegredos`); download pela Evolution sem redirecionamento, teto de 4 MB; duração máxima 120 s pelo declarado
+      (nem baixa acima); tetos 10/número/dia e 100/dia; prazo dentro dos 60 s; interruptor desligado; só liga com a credencial; o
+      texto é de terceiro (vai à Central e ao atendimento do cliente; nunca comando).
+- [x] AC7 — `server/whatsapp-canais.ts` (`canalDeDisparo`): ponto único do canal; hoje só Evolution; "API oficial" desligada
+      (`API_OFICIAL_PARA_CAMPANHAS = false`); pelo número principal, 1 destinatário por envio, com o aviso na tela (Enviar
+      mensagem e Templates). Coexistência não implementada.
+- [x] AC8 — Migração `0135_whatsapp_conexao_unica.sql`: só CREATE … IF NOT EXISTS, um ADD COLUMN IF NOT EXISTS
+      (`whatsapp_messages.automatica`, padrão false) e INSERT … ON CONFLICT DO NOTHING; aplicada 2x em todo banco de teste e uma 3ª
+      no teste dela; sem gatilho; nada existente alterado.
 
 ## Decisões
-(preenchido ao longo da implementação)
+- [AUTO-DECISION] Central do admin ligada à empresa → por CÓDIGO ao ler (a linha do 1º admin continua o `connectionId`, sem
+  gravar). Todos os admins e o colaborador veem a mesma Central da empresa (antes cada admin tinha a própria linha).
+- [AUTO-DECISION] Colaborador "igual a hoje": continua usando a conexão da empresa (como já usava a do admin), mas não a conecta
+  nem desconecta mais (só o admin, em Integrações).
+- [AUTO-DECISION] Áudio do dono não vira comando nesta etapa (segurança): resposta fixa pedindo texto, sem transcrever.
+- [AUTO-DECISION] Disparo em massa pelo número principal = mais de 1 destinatário por envio (bloqueado até a coexistência).
+- [AUTO-DECISION] A Central de Vendas automática NÃO é acionada pelo número da empresa (evita duas respostas automáticas); a mídia
+  recebida pelo número da empresa não é baixada na hora (botão "baixar de novo" da Central).
+- [AUTO-DECISION] Cadastro com telefone mas sem lead do CRM → equipe (as leituras fechadas são do lead). Usuário ATIVO do sistema
+  com o telefone → só Central.
+- [AUTO-DECISION] A checagem "número já usado por outra conexão" do `confirmarConexao` passa a olhar só conexões de CORRETOR
+  (a do admin é a mesma conexão da empresa) — senão a confirmação removeria a instância da empresa.
+- [AUTO-DECISION] Saudação, avisos e respostas a cliente também param com a pausa geral da Dolores.
+- Ligação do dono: nada (não recebe aviso). Mensagem de terceiro continua auditada uma vez por remetente por hora
+  (`dolores_remetentes_estranhos`), com o motivo atualizado.
+
+## Pendências
+- Conferir na documentação oficial da Cloudflare o corpo/resposta do Whisper (host bloqueado neste ambiente; testes simulados).
+- O áudio enviado à Cloudflare entra no termo de consentimento (jurídico).
+- Limpeza periódica de `whatsapp_roteamento_vistos` (cresce uma linha por mensagem roteada) — não implementada.
+- Coexistência com a API oficial (fase separada).
+
+## Testes
+- `server/dolores/e9-conexao-unica.test.ts` (37): roteamento puro e no webhook (cada caso, fromMe, reentrega, grupo, webhook da
+  Central), saudação (uma vez por campanha, filtros, não a cadastrado/usuário/dono, uma ativa no banco e pela tela, só admin, teto),
+  cliente (desligado, escopo e sem valores, frase fixa, homônimo, tetos, pausa, IA desligada, nunca comando, mascarado), ligação e
+  áudio (1x/3h, transcrição desligada/ligada/longa/falha, token fora do log, dono, grupo), Cloudflare (só admin, só final, cifrado,
+  fora da auditoria, só liga com credencial), Central do admin (conectada sem QR, recusas, conversa do dono nunca, corretor intacto,
+  disparo em massa), privacidade (appRouter) e migração 3x.
+- Ajustados à regra nova (sem afrouxar segurança): `router.test.ts` (evento CALL; a linha do admin não conta, a de corretor sim),
+  `grupos-qa-r2.test.ts` (lista de arquivos que usam a Evolution com `semRedirecionamento`), `integracoes-modelo-por-funcao.test.ts`
+  (função nova), `whatsapp-noite.test.ts` (admin pela conexão da empresa).
 
 ## File List
-- `drizzle/0135_whatsapp_conexao_unica.sql` (novo)
-- `drizzle/schema-whatsapp-atendimento.ts` (novo)
-- `drizzle/schema.ts` (coluna `whatsapp_messages.automatica`)
-- `drizzle.config.ts`
-- `server/dolores/testes-banco.ts`
+- `drizzle/0135_whatsapp_conexao_unica.sql`, `drizzle/schema-whatsapp-atendimento.ts` (novos); `drizzle/schema.ts`, `drizzle.config.ts`
+- `shared/dolores/roteamento.ts` (novo); `shared/dolores/custo.ts`, `shared/funcoes-anthropic.ts`, `shared/whatsapp/central.ts`
+- `server/whatsapp-conexao-empresa.ts`, `server/whatsapp-canais.ts` (novos); `server/whatsapp-router.ts`, `server/whatsapp-evolution-webhook.ts`
+- `server/dolores/roteamento.ts`, `server/dolores/atendimento.ts`, `server/dolores/atendimento-router.ts`, `server/dolores/transcricao.ts`,
+  `server/dolores/leitura/cliente-atendido.ts` (novos); `server/dolores/whatsapp.ts`, `server/dolores/marcacao.ts` (laço com `uso`
+  parametrizável), `server/dolores/consumo.ts`, `server/dolores/custo.ts`, `server/dolores/dados-pessoais.ts`, `server/dolores/router.ts`,
+  `server/_core/evolution.ts`
+- `client/src/components/admin/WhatsappEmpresaCard.tsx`, `client/src/components/admin/AtendimentoEmpresaCard.tsx`,
+  `client/src/components/whatsapp/CampanhasEAvisos.tsx` (novos); `DoloresCard.tsx`, `ConexaoWhatsApp.tsx`, `ConversasWhatsApp.tsx`,
+  `AdminIntegracoes.tsx`, `AdminWhatsApp.tsx`
+- Testes: `server/dolores/e9-conexao-unica.test.ts` (novo), `server/dolores/testes-banco.ts`, `router.test.ts`, `grupos-qa-r2.test.ts`,
+  `server/integracoes-modelo-por-funcao.test.ts`, `server/whatsapp-noite.test.ts`
+- Docs: `docs/dolores/como-ligar.md` (Etapa 9), `docs/stories/epics/ROADMAP.md`, `docs/stories/epics/epic-025-dolores/EPIC.md`
 
 ## Change Log
 - 20/11/2026 — @dev (Dex): Ready → InProgress; levantamento e migração 0135.
+- 20/11/2026 — @dev (Dex): InProgress → InReview; AC1–AC8 implementados e testados; merge da `main` (#259, #260) sem mudança de conteúdo.
