@@ -20,10 +20,11 @@ export type PrecoModelo = { entrada: number | null; saida: number | null; cacheE
 export type PrecoReserva = { entradaMilhao: number | null; saidaMilhao: number | null };
 
 /** Grupo de uso de `dolores_consumo`, separado pela origem gravada (mensagem do dono, parada "grupo…", o resto). */
-export type FuncaoDoConsumo = "conversa" | "grupos" | "documentos_e_notas";
+export type FuncaoDoConsumo = "conversa" | "grupos" | "clientes" | "documentos_e_notas";
 export const ROTULO_FUNCAO_CONSUMO: Record<FuncaoDoConsumo, string> = {
   conversa: "Conversa com o dono (WhatsApp)",
   grupos: "Resposta em grupo quando marcada",
+  clientes: "Resposta a clientes cadastrados (conversa direta)",
   documentos_e_notas: "Documentos dos grupos e notas de obra",
 };
 
@@ -87,7 +88,7 @@ export function custoDoMes(linhas: ReadonlyArray<{ modelo: string; funcao: Funca
   const porModeloUso = new Map<string, UsoDetalhado>();
   for (const l of linhas) porModeloUso.set(l.modelo, somaUso(porModeloUso.get(l.modelo) ?? USO_ZERO, l.uso));
   const porModelo = Array.from(porModeloUso, ([m, u]) => custoDoModelo(m, u, tabela, reserva, cotacao)).sort((a, b) => a.modelo.localeCompare(b.modelo));
-  const funcoes: FuncaoDoConsumo[] = ["conversa", "grupos", "documentos_e_notas"];
+  const funcoes: FuncaoDoConsumo[] = ["conversa", "grupos", "clientes", "documentos_e_notas"];
   const porFuncao = funcoes.map(funcao => {
     const doGrupo = linhas.filter(l => l.funcao === funcao);
     const custos = doGrupo.map(l => custoDoModelo(l.modelo, l.uso, tabela, reserva, cotacao));

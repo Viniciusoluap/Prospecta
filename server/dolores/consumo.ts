@@ -6,6 +6,7 @@ import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
 import { doloresGrupoMensagens, doloresGruposConsumoMes } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoes } from "../../drizzle/schema-dolores-marcacoes.js";
+import { doloresAtendimentos } from "../../drizzle/schema-whatsapp-atendimento.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -82,9 +83,11 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     const grupos = await reservasDasClassificacoes(tx, agora, null);
     // Etapa 4b: e as das respostas em grupo (quando marcada) em andamento
     const marcacoes = await reservasDasMarcacoes(tx, agora, null);
+    // Etapa 9: e as das respostas a clientes cadastrados em andamento
+    const atendimentos = await reservasDosAtendimentos(tx, agora, null);
     if (reservado) {
-      reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada + marcacoes.entrada;
-      reservado.saida = Number(reservado.saida ?? 0) + grupos.saida + marcacoes.saida;
+      reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada + marcacoes.entrada + atendimentos.entrada;
+      reservado.saida = Number(reservado.saida ?? 0) + grupos.saida + marcacoes.saida + atendimentos.saida;
     }
     // QA r2 N3: só o uso REAL decide "limite atingido". Se o que bloqueia é a reserva de OUTRO pedido em andamento, o motivo
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
@@ -164,7 +167,9 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
     const classificacoes = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
     // E4b: uma resposta em grupo (quando marcada) em andamento também ocupa a vez — uma chamada de IA dos grupos por vez
     const respostas = await reservasDasMarcacoes(tx, agora, null);
-    const outras = { entrada: classificacoes.entrada + respostas.entrada, saida: classificacoes.saida + respostas.saida };
+    // E9: uma resposta a cliente cadastrado em andamento também ocupa a vez
+    const clientes = await reservasDosAtendimentos(tx, agora, null);
+    const outras = { entrada: classificacoes.entrada + respostas.entrada + clientes.entrada, saida: classificacoes.saida + respostas.saida + clientes.saida };
     const [andamento] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupoMensagens)
       .where(and(gt(doloresGrupoMensagens.reservaAte, agora), gt(doloresGrupoMensagens.reservaEntrada, 0), ne(doloresGrupoMensagens.id, p.mensagemGrupoId)));
     if (Number(andamento?.n ?? 0) > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_classificacao";
@@ -264,7 +269,8 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
     const agora = new Date();
     const classificacoes = await reservasDasClassificacoes(tx, agora, null);
     const outras = await reservasDasMarcacoes(tx, agora, p.marcacaoId);
-    if (classificacoes.entrada > 0 || classificacoes.saida > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_chamada";
+    const clientes = await reservasDosAtendimentos(tx, agora, null);
+    if (classificacoes.entrada > 0 || classificacoes.saida > 0 || outras.entrada > 0 || outras.saida > 0 || clientes.entrada > 0 || clientes.saida > 0) return "outra_chamada";
     const [usado] = await tx.select({
       entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
@@ -301,5 +307,76 @@ export async function liberarReservaMarcacao(marcacaoId: number) {
     await getDb().update(doloresMarcacoes).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresMarcacoes.id, marcacaoId));
   } catch (e) {
     console.error("[dolores/consumo] falha ao liberar a reserva da resposta em grupo", e instanceof Error ? e.name : "erro");
+  }
+}
+
+// ── Etapa 9 — respostas a clientes cadastrados (conversa direta) ──
+
+/** Reservas ainda válidas das respostas a clientes (dolores_atendimentos), menos a do próprio atendimento. Sem a 0135, zero. */
+async function reservasDosAtendimentos(tx: Transacao, agora: Date, excetoId: number | null): Promise<Uso> {
+  const existe = await tx.execute(sql`SELECT to_regclass('public.dolores_atendimentos') IS NOT NULL AS existe`);
+  if (!(existe as unknown as { rows: Array<{ existe: boolean }> }).rows[0]?.existe) return { entrada: 0, saida: 0 };
+  const [r] = await tx.select({
+    entrada: sql<number>`coalesce(sum(${doloresAtendimentos.reservaEntrada}), 0)`.mapWith(Number),
+    saida: sql<number>`coalesce(sum(${doloresAtendimentos.reservaSaida}), 0)`.mapWith(Number),
+  }).from(doloresAtendimentos).where(excetoId === null ? gt(doloresAtendimentos.reservaAte, agora)
+    : and(gt(doloresAtendimentos.reservaAte, agora), ne(doloresAtendimentos.id, excetoId)));
+  return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
+}
+
+/** E9 — orçamento PRÓPRIO das respostas a clientes cadastrados: % do limite mensal (separado do dos grupos). */
+export const ORCAMENTO_ATENDIMENTO_PCT = 10;
+/** E9 — prefixo de `dolores_consumo.parada` das chamadas das respostas a clientes (o uso delas no mês sai daí). */
+export const PARADA_CLIENTE = "cliente";
+
+export type BloqueioDoAtendimento = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_atendimento" | "outra_chamada";
+
+/**
+ * E9 — reserva do limite mensal para UMA chamada do laço de resposta a cliente, com a MESMA trava e as mesmas regras da resposta
+ * em grupo (reservarMarcacao), na ordem: 1) UMA chamada de IA de terceiros por vez (classificação, marcação ou outro atendimento
+ * com reserva válida → "outra_chamada"); 2) uso real do mês: limite atingido; 3) folga do dono; 4) orçamento próprio
+ * (ORCAMENTO_ATENDIMENTO_PCT% do limite, pelo uso com `parada` "cliente…"). A reserva fica no atendimento e vence sozinha.
+ */
+export async function reservarAtendimento(p: { mes: string; atendimentoId: number; limites: Limites; reserva: Uso; validadeMs: number }): Promise<BloqueioDoAtendimento | null> {
+  return getDb().transaction(async tx => {
+    await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
+    const agora = new Date();
+    const classificacoes = await reservasDasClassificacoes(tx, agora, null);
+    const marcacoes = await reservasDasMarcacoes(tx, agora, null);
+    const outros = await reservasDosAtendimentos(tx, agora, p.atendimentoId);
+    if ([classificacoes, marcacoes, outros].some(u => u.entrada > 0 || u.saida > 0)) return "outra_chamada";
+    const [usado] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
+    const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
+    if (real) return real;
+    const [comandos] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
+    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
+    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
+    if (Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada > teto.entrada
+      || Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida > teto.saida) return "folga_do_dono";
+    const [doCliente] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_CLIENTE + "%"}`));
+    const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_ATENDIMENTO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_ATENDIMENTO_PCT) / 100) };
+    if (Number(doCliente?.entrada ?? 0) + p.reserva.entrada > orcamento.entrada || Number(doCliente?.saida ?? 0) + p.reserva.saida > orcamento.saida) return "orcamento_atendimento";
+    await tx.update(doloresAtendimentos).set({
+      reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
+      reservaAte: new Date(agora.getTime() + p.validadeMs),
+    }).where(eq(doloresAtendimentos.id, p.atendimentoId));
+    return null;
+  });
+}
+
+/** Solta a reserva da resposta a cliente. Falha só vai para o log: a reserva vence sozinha. */
+export async function liberarReservaAtendimento(atendimentoId: number) {
+  try {
+    await getDb().update(doloresAtendimentos).set({ reservaEntrada: 0, reservaSaida: 0, reservaAte: null }).where(eq(doloresAtendimentos.id, atendimentoId));
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao liberar a reserva da resposta a cliente", e instanceof Error ? e.name : "erro");
   }
 }

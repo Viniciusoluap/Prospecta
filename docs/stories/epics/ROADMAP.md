@@ -266,4 +266,19 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
 - (não portar — exceção) Etapa 7 — grupos automáticos, por tipo (regra do dono de 19/11): grupo entra sozinho com o tipo pelo nome
   (cliente, pós-atendimento, jurídico, administrativo, parceiros, engenharia), aviso e comando "grupo CÓDIGO tipo [nº]" do dono,
   escopo da resposta por tipo travado no servidor (`0133`)
+- (não portar — exceção) Etapa 9, parte da DOLORES (regra do dono de 20/11; a exceção de 17/11 cobre só a Dolores): roteamento por
+  código no aviso da Dolores (dono → comandos; cliente cadastrado → Dolores; grupos), Dolores responde cliente cadastrado (escopo,
+  tetos, silêncio quando a equipe responde), transcrição de áudio pela Cloudflare para a Dolores, avisos e relatórios dela fora da
+  Central (`0135`).
+- [ ] Etapa 9, parte da CENTRAL WHATSAPP — portar ao Santa Fé quando o dono retomar a paridade (não é exceção: é regra de negócio da
+  Central, que existe nos dois). Separado por decisão do QA-SEG E9 (20/11):
+  - conexão ÚNICA da empresa feita só em Configurações › Integrações (QR), usada pela Central do admin e do colaborador; corretor
+    continua com a própria; a Central da empresa nunca escreve, lista nem abre a conversa do dono nem do próprio número;
+  - botão só-admin "Remover a conexão antiga da Central" (instância de antes da conexão única) e o aviso da Central ignorando a
+    instância gravada em linha de admin/colaborador;
+  - saudação de campanha (texto fixo em Templates, uma ativa, uma vez por número por campanha, só a desconhecido, teto diário);
+  - avisos de ligação e de áudio por texto (interruptor próprio, 1 a cada N horas por número, teto global diário, textos em Templates);
+  - bloqueio de disparo em massa no número principal (1 destinatário por envio) e teto de envios manuais (10 por minuto, 200 por dia);
+  - mensagens automáticas marcadas como tais na conversa da Central (`whatsapp_messages.automatica`);
+  - Enviar mensagem/Templates/responder pela empresa calam o atendimento automático na conversa por algumas horas.
 - [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**

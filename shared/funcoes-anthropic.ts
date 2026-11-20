@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas", "dolores_cliente"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -38,6 +38,12 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     rotulo: "Dolores — resposta em grupo quando marcada",
     descricao: "Responde no grupo de cliente cadastrado só quando alguém marca o número da Dolores, e só sobre o andamento e os documentos daquele cliente. Só gasta com o interruptor da IA e o \"responder quando marcada\" (geral e do grupo) ligados, até os tetos por grupo e por pessoa e dentro do limite mensal do cartão da Dolores.",
     recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar: a resposta é curta e as consultas já vêm prontas.",
+  },
+  dolores_cliente: {
+    id: "dolores_cliente",
+    rotulo: "Dolores — resposta a cliente cadastrado (conversa direta)",
+    descricao: "Responde, no número da empresa, o cliente cadastrado que escreve (ou manda áudio transcrito) — só sobre o andamento, as pendências e os documentos que faltam do caso dele, sem valores. Só gasta com o interruptor da IA da Dolores e o \"Dolores responde clientes cadastrados\" ligados, até os tetos por cliente e por dia e dentro do orçamento próprio no limite mensal do cartão da Dolores.",
+    recomendacao: "O modelo mais barato (ex.: Haiku) basta: a resposta é uma mensagem curta e as consultas já vêm prontas.",
   },
   dolores_notas: {
     id: "dolores_notas",

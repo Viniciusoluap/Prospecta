@@ -15,6 +15,17 @@ import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp } from "../
 
 vi.mock("./db.js", () => ({ getDb: vi.fn(), getUserById: vi.fn() }));
 vi.mock("./_core/auth-utils.js", () => ({ getTokenFromRequest: vi.fn(), verifySessionToken: vi.fn() }));
+// EPIC-025 E9: admin e colaborador usam a conexão da EMPRESA (resolvida por código). Aqui, como antes, a linha do banco falso é a
+// conexão do admin (sem ir à configuração da Dolores): o comportamento da Central sobre ela é o que estes testes conferem.
+vi.mock("./whatsapp-conexao-empresa.js", async orig => ({
+  ...(await orig<typeof import("./whatsapp-conexao-empresa.js")>()),
+  conexaoDaEmpresa: async () => {
+    const { getDb: db } = await import("./db.js");
+    const { whatsappConnections: t } = await import("../drizzle/schema.js");
+    const [c] = (await db().select().from(t).where(undefined as never).limit(1)) as Array<Record<string, unknown>>;
+    return c ? { ...c, daEmpresa: true, numeroMascarado: null } : null;
+  },
+}));
 
 const app = router({ whatsapp: whatsappRouter });
 const ctx = (user: Record<string, unknown>) => ({ user: { active: true, ...user }, req: {}, res: {} }) as never;
@@ -191,8 +202,11 @@ describe("Item 4 — mídia nas conversas", () => {
   function eventoImagem(fileLength: number) {
     return { event: "messages.upsert", instance: "prospecta-u1", data: { key: { remoteJid: "5599981392210@s.whatsapp.net", id: "MID1", fromMe: false }, pushName: "Ana", message: { imageMessage: { mimetype: "image/jpeg", fileLength, caption: "planta" } } } };
   }
+  // QA-SEG E9 achado 2: o aviso só grava na Central para a instância de quem conecta pela própria aba (aqui, um corretor); a de
+  // admin/colaborador (Central de antes da conexão única) é ignorada — server/dolores/e9-qa-seg-correcoes.test.ts
   const bancoWebhook = () => fakeDb(new Map<Tabela, unknown[][]>([
     [whatsappConnections, [[conn]]],
+    [users, [[{ role: "corretor" }]]],
     [whatsappMessages, [[]]],
     [leads, [[]]],
     [whatsappEvolutionSettings, [[]]],
@@ -299,7 +313,9 @@ describe("Conexão consolidada em Serviços › WhatsApp", () => {
     expect(abaInicialCentral("admin", "conexao")).toBe("conexao");
     expect(abaInicialCentral("admin", null)).toBe("conversas");
     expect(abaInicialCentral("corretor", "conexao")).toBe("conexao");
-    expect(linkConexaoWhatsapp("admin")).toBe("/admin/whatsapp?aba=conexao");
+    // EPIC-025 E9: o admin conecta o número da empresa em Integrações
+    expect(linkConexaoWhatsapp("admin")).toBe("/admin/integracoes#whatsapp-empresa");
+    expect(linkConexaoWhatsapp("colaborador")).toBe("/admin/whatsapp?aba=conexao");
     expect(linkConexaoWhatsapp("corretor")).toBe("/admin/whatsapp?aba=conexao");
   });
 

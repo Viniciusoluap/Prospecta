@@ -1,17 +1,17 @@
-// EPIC-025 (Dolores, etapa 2): WhatsApp da Dolores — só admin. Conexão própria por QR code (número dela, separado do
-// da Central de Vendas), número do dono (o único que comanda), limites mensais de tokens e o interruptor da IA,
-// DESLIGADO por padrão. Nenhum número completo, chave ou segredo aparece aqui.
+// EPIC-025 (Dolores, etapa 2): WhatsApp da Dolores — só admin. Número do dono (o único que comanda), limites mensais de tokens e o
+// interruptor da IA, DESLIGADO por padrão. Etapa 9 (regra do dono de 20/11/2026, "uma conexão só"): a conexão (QR code, Conferir,
+// Reativar recebimento, Desconectar) passou para o cartão "WhatsApp da empresa (Dolores e Central)" (WhatsappEmpresaCard).
+// Nenhum número completo, chave ou segredo aparece aqui.
 // EPIC-024 S-11: o modelo da Dolores é escolhido em Integrações › Anthropic › Modelo por função; aqui só aparece o em uso.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Bot, Info, Loader2 } from "lucide-react";
+import { Bot, Info } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const botaoSec = "border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const inputCls = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white placeholder:text-gray-500";
 const STATUS: Record<string, string> = { conectado: "conectado", aguardando_qr: "aguardando a leitura do QR code", desconectado: "desconectado" };
 const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -29,25 +29,11 @@ function irParaAnthropic(e: React.MouseEvent) {
 export function DoloresCard() {
   const utils = trpc.useUtils();
   const status = trpc.dolores.status.useQuery(undefined, { retry: false });
-  const [qr, setQr] = useState<string | null>(null);
   const [numeroDono, setNumeroDono] = useState("");
   const [limiteEntrada, setLimiteEntrada] = useState("");
   const [limiteSaida, setLimiteSaida] = useState("");
   const onError = (e: { message: string }) => toast.error(e.message);
   const recarregar = () => utils.dolores.status.invalidate();
-  // A consulta só lê a situação; conferir o número e ligar o aviso de mensagens é a mutação confirmarConexao.
-  const conexao = trpc.dolores.statusConexao.useQuery(undefined, { enabled: Boolean(qr), refetchInterval: 4000, retry: false });
-  const confirmar = trpc.dolores.confirmarConexao.useMutation({
-    onSuccess: async r => { setQr(null); if (r.status === "conectado") toast.success("Número da Dolores conectado."); await recarregar(); },
-    onError: async e => { setQr(null); toast.error(e.message); await recarregar(); },
-  });
-  useEffect(() => {
-    if (conexao.data?.status === "conectado" && !confirmar.isPending) confirmar.mutate();
-    if (conexao.error) { setQr(null); toast.error(conexao.error.message); void recarregar(); }
-  }, [conexao.data?.status, conexao.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  const conectar = trpc.dolores.conectar.useMutation({ onSuccess: r => { if (r.qrCode) setQr(r.qrCode); else confirmar.mutate(); }, onError });
-  const desconectar = trpc.dolores.desconectar.useMutation({ onSuccess: async () => { toast.success("Número da Dolores desconectado."); setQr(null); await recarregar(); }, onError });
-  const avisos = trpc.dolores.ativarAvisos.useMutation({ onSuccess: r => toast.success(r.mensagem), onError });
   const salvar = trpc.dolores.salvar.useMutation({
     onSuccess: async () => { toast.success("Configuração da Dolores salva."); setNumeroDono(""); setLimiteEntrada(""); setLimiteSaida(""); await recarregar(); },
     onError,
@@ -71,7 +57,7 @@ export function DoloresCard() {
       <CardContent className="space-y-4">
         {status.isLoading ? <p className="text-sm text-gray-300">Carregando…</p> : status.error ? <p role="alert" className="text-sm text-red-300">{status.error.message}</p> : s && <>
           <div className="grid gap-1 text-sm text-gray-200 md:grid-cols-2">
-            <p>Número da Dolores: {s.numeroDolores ?? "—"} ({STATUS[s.statusConexao] ?? s.statusConexao})</p>
+            <p>WhatsApp da empresa: {s.numeroDolores ?? "—"} ({STATUS[s.statusConexao] ?? s.statusConexao}) — conexão no cartão "WhatsApp da empresa"</p>
             <p>Número do dono (único que comanda): {s.numeroDono ?? "não cadastrado"}</p>
             <p>IA da Dolores: <strong className={s.iaLigada ? "text-green-300" : "text-gray-300"}>{s.iaLigada ? "ligada" : "desligada"}</strong>{s.pausada ? " · pausada" : ""}</p>
             <p>Modelo em uso: {s.modeloEmUso ? <code className="rounded bg-black/30 px-1">{s.modeloEmUso}</code> : "nenhum"}{s.origemModelo ? ` (${ORIGEM_MODELO[s.origemModelo] ?? s.origemModelo})` : ""}{" · "}
@@ -86,30 +72,16 @@ export function DoloresCard() {
             </div>
           )}
           <p className="flex items-start gap-2 rounded-lg border border-[#C9A961]/30 bg-[#C9A961]/10 p-2 text-xs text-gray-200">
-            <Info className="mt-0.5 h-3 w-3 shrink-0" /> Etapa 3: a Dolores lê o sistema, cria tarefas e registra acompanhamentos; cobranças e documentos esperam a aprovação do dono (fila abaixo) e nada é enviado a clientes. Ela responde apenas ao número do dono; mensagem de outro número é ignorada e registrada. Com a IA desligada, ela responde só uma frase fixa, sem gastar nada.
+            <Info className="mt-0.5 h-3 w-3 shrink-0" /> A Dolores lê o sistema, cria tarefas e registra acompanhamentos; cobranças e documentos esperam a aprovação do dono (fila abaixo). Comandos só do número do dono, por texto. Mensagem de outro número nunca é comando: vai para a Central e, se for cliente cadastrado e o "Dolores responde clientes cadastrados" estiver ligado (desligado por padrão), ela responde só sobre o caso dele. Com a IA desligada, ela responde ao dono só uma frase fixa, sem gastar nada.
           </p>
 
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className={botaoSec} disabled={conectar.isPending} onClick={() => conectar.mutate()}>
-              {conectar.isPending ? "Gerando…" : s.statusConexao === "conectado" ? "Conferir conexão" : "Conectar o número da Dolores (QR code)"}
-            </Button>
-            {s.instancia && <Button size="sm" variant="outline" className={botaoSec} disabled={avisos.isPending} onClick={() => avisos.mutate()}>Reativar recebimento</Button>}
-            {s.instancia && <Button size="sm" variant="outline" className={botaoSec} disabled={desconectar.isPending}
-              onClick={() => { if (window.confirm("Desconectar o número da Dolores? Ela deixa de receber os comandos até conectar de novo.")) desconectar.mutate(); }}>Desconectar</Button>}
             <Button size="sm" disabled={ligar.isPending} className={s.iaLigada ? "bg-red-700 text-white hover:bg-red-800" : "bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"}
               onClick={() => {
                 if (s.iaLigada) { ligar.mutate({ ligada: false }); return; }
                 if (window.confirm("Ligar a IA da Dolores? Cada comando do dono pelo WhatsApp passa a consumir créditos da Anthropic, até os limites mensais definidos aqui.")) ligar.mutate({ ligada: true });
               }}>{s.iaLigada ? "Desligar a IA" : "Ligar a IA"}</Button>
           </div>
-
-          {qr && (
-            <div className="rounded-lg bg-white p-3 text-center text-sm text-gray-800">
-              <img src={qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`} alt="QR code para conectar o WhatsApp da Dolores" className="mx-auto h-56 w-56" />
-              <p className="mt-2">No celular DA DOLORES: WhatsApp › Aparelhos conectados › Conectar aparelho. {conexao.isFetching && <Loader2 className="inline h-3 w-3 animate-spin" />}</p>
-              <p className="text-xs text-gray-500">Não use o número da empresa nem o do dono.</p>
-            </div>
-          )}
 
           <form className="grid gap-3 rounded-lg bg-[#1A2332] p-3 md:grid-cols-2" onSubmit={enviarConfig}>
             <div>
