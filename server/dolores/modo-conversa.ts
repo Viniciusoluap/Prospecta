@@ -10,7 +10,7 @@
 //   encerra o silêncio automático daquele momento. Tetos, pausa geral, interruptor e filtros da Dolores continuam como estão.
 // - Auditoria em dolores_acoes ("atendimento_conversa"): quem, quando, id da conversa e do lead. Nunca o telefone.
 import { TRPCError } from "@trpc/server";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { users, whatsappMessages } from "../../drizzle/schema.js";
 import { whatsappAtendimentoModo, whatsappSilencio } from "../../drizzle/schema-whatsapp-atendimento.js";
 import { type AcaoDoAtendimento, type EstadoDoAtendimento } from "../../shared/dolores/modo-conversa.js";
@@ -18,7 +18,8 @@ import { ehConversaSemNumero } from "../../shared/whatsapp/conversas.js";
 import { mesmoTelefone } from "../_core/evolution.js";
 import { podeUsarModulo } from "../_core/rbac.js";
 import { getDb } from "../db.js";
-import { MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservadosDoPapel, usaConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
+import { finalDoTelefone } from "../whatsapp-evolution-webhook.js";
+import { conexaoDaEmpresa, ehNumeroReservado, numerosReservadosDoPapel, usaConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
 import { registrarAcao } from "./auditoria.js";
 import { lerConfigWhatsapp } from "./consumo.js";
 import { agoraDoRoteamento, chaveDoNumero, identificarRemetente, lerConfigAtendimento, situacaoDoSilencio } from "./roteamento.js";
@@ -42,8 +43,10 @@ export const MOTIVO_NAO_ELEGIVEL = {
   varios: "A Dolores não responde esta conversa: o telefone está em mais de um cadastro.",
   usuario: "A Dolores não responde esta conversa: o número é de um usuário do sistema.",
   cadastro: "A Dolores não responde esta conversa: o cadastro não está ligado a um lead do CRM.",
-  semConversa: "Conversa não encontrada na Central da empresa.",
 } as const;
+
+/** QA-SEG C6 B2: a recusa única para conversa do dono, da empresa ou inexistente (a mutação não serve de oráculo). */
+export const MENSAGEM_SEM_CONVERSA = "Não dá para mudar o atendimento desta conversa: ela não está na Central da empresa.";
 
 /** Número da Central (só dígitos, às vezes sem o 55) na forma do webhook (com 55), para identificar o remetente igual. */
 const comDdi = (numero: string) => { const d = numero.replace(/\D/g, ""); return d.length === 10 || d.length === 11 ? `55${d}` : d; };
@@ -63,14 +66,19 @@ async function conferir(user: Usuario, numero: string, exigir: boolean): Promise
   let reservados;
   try { reservados = await numerosReservadosDoPapel(user.role); }
   catch { return recusa("BAD_REQUEST", "Não consegui conferir o número do dono na configuração do WhatsApp da empresa; nada foi feito."); }
-  if (ehNumeroReservado(numero, reservados)) return recusa("FORBIDDEN", MENSAGEM_NUMERO_RESERVADO);
+  // QA-SEG C6 B2: a conversa do dono/da empresa e a conversa que não existe dão a MESMA recusa (sem oráculo)
+  if (ehNumeroReservado(numero, reservados)) return recusa("BAD_REQUEST", MENSAGEM_SEM_CONVERSA);
   const chave = chaveDoNumero(comDdi(numero));
   if (!chave) return recusa("BAD_REQUEST", "Número da conversa inválido.");
   const [conn, cfg] = await Promise.all([conexaoDaEmpresa(), lerConfigWhatsapp().catch(() => null)]);
   if (!conn) return recusa("BAD_REQUEST", MOTIVO_NAO_ELEGIVEL.desconectado);
   const db = getDb();
-  const destinos = await db.select({ destinatario: whatsappMessages.destinatario }).from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id));
-  if (!destinos.some(m => mesmoTelefone(m.destinatario, numero))) return recusa("BAD_REQUEST", MOTIVO_NAO_ELEGIVEL.semConversa);
+  // QA-SEG C6 M2: só os destinatários com os mesmos 8 dígitos finais, filtrados no banco (connection_id usa o índice
+  // whatsapp_messages_conversa_idx); a conferência exata (DDD + 8 finais, `mesmoTelefone`) continua em memória sobre esses poucos
+  const final = comDdi(numero).slice(-8);
+  const destinos = await db.selectDistinct({ destinatario: whatsappMessages.destinatario }).from(whatsappMessages)
+    .where(and(eq(whatsappMessages.connectionId, conn.id), sql`${finalDoTelefone(whatsappMessages.destinatario)} = ${final}`)).limit(20);
+  if (!destinos.some(m => mesmoTelefone(m.destinatario, numero) && !ehNumeroReservado(m.destinatario, reservados))) return recusa("BAD_REQUEST", MENSAGEM_SEM_CONVERSA);
   if (!cfg?.instancia) return { instancia: "", chave, leadId: null, elegivel: false, motivo: MOTIVO_NAO_ELEGIVEL.desconectado, connId: conn.id };
   const config = await lerConfigAtendimento();
   // a MESMA identificação do webhook (por código, pelo número): só UM cliente do CRM é atendido pela Dolores
@@ -89,7 +97,7 @@ async function lerEstado(c: Contexto, numero: string): Promise<Extract<Atendimen
   if (s.estado === "assumida") {
     const [l] = await getDb().select({ em: whatsappAtendimentoModo.alteradoEm, nome: users.name }).from(whatsappAtendimentoModo)
       .leftJoin(users, eq(users.id, whatsappAtendimentoModo.alteradoPor))
-      .where(and(eq(whatsappAtendimentoModo.instancia, c.instancia), eq(whatsappAtendimentoModo.chaveNumero, c.chave))).limit(1).catch(() => []);
+      .where(and(eq(whatsappAtendimentoModo.chaveNumero, c.chave), eq(whatsappAtendimentoModo.modo, "humano"))).orderBy(whatsappAtendimentoModo.alteradoEm).limit(1).catch(() => []);
     alteradoEm = l?.em ?? null;
     alteradoPor = l?.nome ?? null;
   }
@@ -113,15 +121,24 @@ export async function mudarAtendimentoDaConversa(user: Usuario, numero: string, 
   if (!c.elegivel) throw new TRPCError({ code: "BAD_REQUEST", message: c.motivo ?? MOTIVO_NAO_ELEGIVEL.desconhecido });
   const antes = (await situacaoDoSilencio(comDdi(numero), agoraDoRoteamento(), c.instancia)).estado;
   const agora = agoraDoRoteamento();
+  const horas = (await lerConfigAtendimento()).silencioHoras;
   const modo = acao === "assumir" ? "humano" as const : "dolores" as const;
   const db = getDb();
   const id = await db.transaction(async tx => {
     const [linha] = await tx.insert(whatsappAtendimentoModo).values({ instancia: c.instancia, chaveNumero: c.chave, leadId: c.leadId, modo, alteradoEm: agora, alteradoPor: user.id })
       .onConflictDoUpdate({ target: [whatsappAtendimentoModo.instancia, whatsappAtendimentoModo.chaveNumero], set: { modo, leadId: c.leadId, alteradoEm: agora, alteradoPor: user.id } })
       .returning({ id: whatsappAtendimentoModo.id });
-    // devolver: o silêncio automático daquele momento acaba agora (nunca apaga a linha; uma resposta nova da equipe recala)
-    if (modo === "dolores") await tx.update(whatsappSilencio).set({ ate: agora, atualizadoEm: sql`now()` })
-      .where(and(eq(whatsappSilencio.chaveNumero, c.chave), gt(whatsappSilencio.ate, agora)));
+    if (modo === "dolores") {
+      // QA-SEG C6 B3: "humano" vale para qualquer instância — devolver devolve a conversa em todas
+      await tx.update(whatsappAtendimentoModo).set({ modo, alteradoEm: agora, alteradoPor: user.id })
+        .where(and(eq(whatsappAtendimentoModo.chaveNumero, c.chave), ne(whatsappAtendimentoModo.id, linha.id), eq(whatsappAtendimentoModo.modo, "humano")));
+      // devolver: o silêncio automático daquele momento acaba agora (nunca apaga a linha; uma resposta nova da equipe recala).
+      // QA-SEG C6 B1: só o silêncio gravado ATÉ agora (fim <= agora + prazo); o de uma resposta da equipe que entrou depois do
+      // "Devolver" (fim > agora + prazo) fica. Mesmo relógio do roteamento dos dois lados, nunca o now() do banco.
+      const limite = new Date(agora.getTime() + Math.max(1, horas) * 60 * 60_000);
+      await tx.update(whatsappSilencio).set({ ate: agora, atualizadoEm: sql`now()` })
+        .where(and(eq(whatsappSilencio.chaveNumero, c.chave), gt(whatsappSilencio.ate, agora), lte(whatsappSilencio.ate, limite)));
+    }
     return linha.id;
   });
   await registrarAcao({

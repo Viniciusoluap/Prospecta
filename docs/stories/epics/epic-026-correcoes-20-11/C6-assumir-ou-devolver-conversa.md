@@ -83,6 +83,7 @@ se `ate > agora`; `tratarAtendimento` confere antes de responder e de novo na ho
 - `client/src/components/whatsapp/ConversasWhatsApp.tsx`
 - `server/dolores/testes-banco.ts`
 - `server/dolores/c6-assumir-devolver.test.ts` (novo)
+- `server/dolores/c6-qa-seguranca.test.ts` (novo, do @qa; asserções de M1/B2 invertidas)
 - `docs/stories/epics/epic-026-correcoes-20-11/EPIC.md`
 
 ## Testes
@@ -101,5 +102,26 @@ se `ate > agora`; `tratarAtendimento` confere antes de responder e de novo na ho
 atendimento ligado, "Assumir (humano)", mandar uma mensagem do celular do cliente (a Dolores não responde; registro
 "a equipe assumiu esta conversa"), "Devolver para a Dolores" e mandar outra (ela responde).
 
+## Correções do portão de QA de segurança (QA-SEG C6, 20/11 — CONCERNS, sem achado importante)
+- [x] M1: resposta da equipe pelo celular no mesmo segundo do "Devolver" não recalava (eco em segundos × "Devolver" em ms).
+      Agora a comparação tem folga de 5 s a favor do silêncio (`FOLGA_DEVOLVER_MS`, `silencioValeDepoisDeDevolver`); pior
+      caso: um eco de até 5 s antes recala (seguro).
+- [x] M2: a conferência "a conversa existe na Central" lia todos os destinatários da conexão a cada 10 s. Agora filtra no banco
+      pelos 8 dígitos finais (`connection_id` usa `whatsapp_messages_conversa_idx`), com DISTINCT e LIMIT 20, e confere o número
+      exato em memória (LIMIT 20 em vez de 1 para não perder a conversa quando outro DDD tem os mesmos 8 finais). A tela consulta
+      a cada 30 s e refaz a consulta logo depois do clique.
+- [x] B1: corrida "Devolver" × resposta pela Central: o "Devolver" só encerra o silêncio gravado até aquele instante
+      (fim <= agora + prazo); o de uma resposta que entrou depois fica. Mesmo relógio do roteamento, nunca o now() do banco.
+- [x] B2: a mutação dá a MESMA recusa (BAD_REQUEST, `MENSAGEM_SEM_CONVERSA`) para a conversa do dono, a da empresa e a que não
+      existe (sem oráculo). A consulta já respondia `{ mostrar: false }` igual para todas.
+- [x] B3: "humano" vale para QUALQUER instância (na dúvida, calada); "Devolver" devolve a conversa em todas as instâncias.
+- [x] B4 (registrado, sem mudança de código): quem usa o botão entra na auditoria `dolores_acoes` (`autor_user_id`, FK RESTRICT da
+      0123, tabela só de inserção). Depois disso o usuário não pode mais ser EXCLUÍDO do banco, só desativado. É o mesmo efeito
+      que já existe para quem configura o atendimento ou as campanhas. Se o dono quiser apagar usuários, isso precisa de decisão
+      própria (não mexemos na guarda da auditoria).
+- Provas: `server/dolores/c6-qa-seguranca.test.ts` (asserções que confirmavam M1 e B2 invertidas) e os testes novos B1/B3 em
+  `server/dolores/c6-assumir-devolver.test.ts`.
+
 ## Change Log
 - 20/11/2026 — @dev (Dex): Ready → InProgress → InReview. Implementação completa; aguarda @qa (portão de segurança).
+- 20/11/2026 — @dev (Dex): correções do QA-SEG C6 (M1, M2, B1, B2, B3; B4 registrado). Volta para o @qa.

@@ -12,11 +12,16 @@ export function estadoDoAtendimento(p: { modo: ModoGravado | null | undefined; s
   return "dolores";
 }
 
+/** Folga a favor do silêncio: a hora do eco do celular vem em SEGUNDOS e a do "Devolver" em ms (QA-SEG C6 M1). */
+export const FOLGA_DEVOLVER_MS = 5_000;
+
 /**
  * Um silêncio automático novo (mensagem da equipe enviada em `desde`) vale depois de um "Devolver" em `devolvidaEm`? Só se a
- * mensagem for do mesmo instante ou POSTERIOR ao "Devolver" (o eco atrasado de uma mensagem anterior não cala de novo).
+ * mensagem for de até 5 s antes do "Devolver" ou posterior (o eco bem atrasado de uma mensagem anterior não cala de novo). Na
+ * dúvida dentro da folga, cala (pior caso: um eco antigo recala — seguro).
  */
-export const silencioValeDepoisDeDevolver = (desde: Date, devolvidaEm: Date | null | undefined) => !devolvidaEm || desde.getTime() >= devolvidaEm.getTime();
+export const silencioValeDepoisDeDevolver = (desde: Date, devolvidaEm: Date | null | undefined) =>
+  !devolvidaEm || desde.getTime() >= devolvidaEm.getTime() - FOLGA_DEVOLVER_MS;
 
 export const ACOES_DO_ATENDIMENTO = ["assumir", "devolver"] as const;
 export type AcaoDoAtendimento = (typeof ACOES_DO_ATENDIMENTO)[number];

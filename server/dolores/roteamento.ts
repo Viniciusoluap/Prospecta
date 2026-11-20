@@ -150,17 +150,18 @@ export async function silenciarConversa(numero: string, horas: number, desde: Da
 
 /**
  * EPIC-026 C6 — quem atende a conversa agora: "assumida" (a equipe assumiu pelo botão, sem prazo) > "silencio" (a equipe respondeu
- * há menos de N horas; `ate` = até quando) > "dolores". `instancia`: a da conexão da empresa; sem ela (só testes antigos), uma
- * assunção em QUALQUER instância conta (falha fechada). Falha ao ler → "silencio" sem prazo (calada).
+ * há menos de N horas; `ate` = até quando) > "dolores". A assunção conta em QUALQUER instância (QA-SEG C6 B3); `_instancia` fica
+ * na assinatura só por compatibilidade. Falha ao ler → "silencio" sem prazo (calada).
  */
-export async function situacaoDoSilencio(numero: string, agora: Date = deps.agora(), instancia?: string | null): Promise<{ estado: EstadoDoAtendimento; ate: Date | null }> {
+export async function situacaoDoSilencio(numero: string, agora: Date = deps.agora(), _instancia?: string | null): Promise<{ estado: EstadoDoAtendimento; ate: Date | null }> {
   const chave = chaveDoNumero(numero);
   if (!chave) return { estado: "silencio", ate: null };
   const db = getDb();
   let modo: "humano" | "dolores" | null = null;
   try {
-    const linhas = await db.select({ modo: whatsappAtendimentoModo.modo }).from(whatsappAtendimentoModo)
-      .where(and(eq(whatsappAtendimentoModo.chaveNumero, chave), instancia ? eq(whatsappAtendimentoModo.instancia, instancia) : undefined));
+    // QA-SEG C6 B3: "humano" vale em QUALQUER instância (na dúvida, Dolores calada); "dolores" só tira a assunção se não houver
+    // nenhuma linha "humano" para este número
+    const linhas = await db.select({ modo: whatsappAtendimentoModo.modo }).from(whatsappAtendimentoModo).where(eq(whatsappAtendimentoModo.chaveNumero, chave));
     modo = linhas.some(l => l.modo === "humano") ? "humano" : linhas.length ? "dolores" : null;
   } catch (e) {
     if (!semTabelaDoModo(e)) return { estado: "silencio", ate: null };

@@ -16,7 +16,7 @@ import { limparPausaDoAtendimento } from "./atendimento.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { definirDependenciasMarcacao, type PedidoGrupo, type RespostaGrupo } from "./marcacao.js";
-import { MOTIVO_NAO_ELEGIVEL } from "./modo-conversa.js";
+import { MENSAGEM_SEM_CONVERSA, MOTIVO_NAO_ELEGIVEL } from "./modo-conversa.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { conversaEmSilencio, definirDependenciasRoteamento, silenciarConversa, situacaoDoSilencio } from "./roteamento.js";
@@ -112,10 +112,11 @@ describe("regra pura — precedência", () => {
     expect(estadoDoAtendimento({ modo: "dolores", silencioAte: AGORA, agora: AGORA })).toBe("dolores");
     expect(estadoDoAtendimento({ modo: null, silencioAte: null, agora: AGORA })).toBe("dolores");
   });
-  it("só mensagem da equipe do mesmo instante ou depois do Devolver recala", () => {
+  it("só mensagem da equipe de até 5 s antes do Devolver (folga a favor do silêncio) ou depois recala", () => {
     expect(silencioValeDepoisDeDevolver(AGORA, null)).toBe(true);
     expect(silencioValeDepoisDeDevolver(AGORA, AGORA)).toBe(true);
-    expect(silencioValeDepoisDeDevolver(new Date(AGORA.getTime() - 1), AGORA)).toBe(false);
+    expect(silencioValeDepoisDeDevolver(new Date(AGORA.getTime() - 5_000), AGORA)).toBe(true);
+    expect(silencioValeDepoisDeDevolver(new Date(AGORA.getTime() - 5_001), AGORA)).toBe(false);
   });
   it("a migração 0138 é aditiva e idempotente (aplicada de novo sobre o banco de teste, que já a tem duas vezes)", async () => {
     const sql = MIGRACAO_0138();
@@ -183,11 +184,26 @@ describe("Devolver para a Dolores", () => {
     expect(await situacaoDoSilencio(JOAO, AGORA, "prospecta-dolores")).toEqual({ estado: "silencio", ate: new Date(AGORA.getTime() + 6 * HORA) });
     expect(await chamar(direta({ texto: "Mais uma" }))).toMatchObject({ "cliente-equipe-respondeu": 1 });
   });
-  it("a assunção vale só para a conexão (instância) atual; sem instância informada, qualquer uma cala (falha fechada)", async () => {
+  it("QA-SEG B3: a assunção vale em qualquer instância (na dúvida, calada); devolver devolve em todas", async () => {
     await conversaDoJoao();
     await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" });
-    expect(await conversaEmSilencio(JOAO, AGORA, "outra-instancia")).toBe(false);
+    expect(await conversaEmSilencio(JOAO, AGORA, "outra-instancia")).toBe(true);
     expect(await conversaEmSilencio(JOAO, AGORA)).toBe(true);
+    // assunção que ficou gravada numa instância antiga também cala a atual, e a tela mostra "assumida"
+    await banco.pg.exec(`UPDATE whatsapp_atendimento_modo SET instancia = 'instancia-antiga'`);
+    expect(await chamar(direta({ texto: "E a obra?" }))).toMatchObject({ "cliente-assumida": 1 });
+    expect(await admin().whatsapp.atendimentoDaConversa({ numero: JOAO })).toMatchObject({ estado: "assumida", alteradoPor: "Vinícius Admin" });
+    await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "devolver" });
+    expect((await modos()).map(m => m.modo)).toEqual(["dolores", "dolores"]);
+    expect(await chamar(direta({ texto: "E agora?" }))).toMatchObject({ "cliente-respondida": 1 });
+  });
+  it("QA-SEG B1: Devolver não apaga o silêncio de uma resposta da equipe gravada depois do clique (corrida com a Central)", async () => {
+    await conversaDoJoao();
+    await chamar(direta({ fromMe: true, texto: "Equipe antes", quando: new Date(AGORA.getTime() - 60_000) }));
+    // a resposta pela Central entra 1 s "depois" do Devolver, mas grava antes do UPDATE dele
+    await silenciarConversa(JOAO, 6, new Date(AGORA.getTime() + 1_000));
+    await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "devolver" });
+    expect(await situacaoDoSilencio(JOAO, AGORA, "prospecta-dolores")).toEqual({ estado: "silencio", ate: new Date(AGORA.getTime() + 1_000 + 6 * HORA) });
   });
   it("tetos e pausa geral continuam valendo depois de devolver", async () => {
     await conversaDoJoao();
@@ -216,13 +232,13 @@ describe("quando o botão não aparece / a rota recusa", () => {
   });
   it("conversa que não existe na Central da empresa: recusa", async () => {
     await ligarAtendimento();
-    await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" })).rejects.toThrow(/não encontrada/);
+    await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "assumir" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: MENSAGEM_SEM_CONVERSA });
   });
   it("conversa do dono, do próprio número da empresa, grupo e número não identificado: nunca", async () => {
     await conversaDoJoao();
     for (const numero of [DONO, "99991234567", EMPRESA]) {
       expect(await admin().whatsapp.atendimentoDaConversa({ numero })).toEqual({ mostrar: false });
-      await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero, acao: "assumir" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero, acao: "assumir" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: MENSAGEM_SEM_CONVERSA });
     }
     for (const numero of [GRUPO, LID, `${JOAO}@s.whatsapp.net`]) {
       expect(await admin().whatsapp.atendimentoDaConversa({ numero })).toEqual({ mostrar: false });

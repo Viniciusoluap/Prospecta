@@ -15,7 +15,7 @@ import { limparPausaDoAtendimento } from "./atendimento.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { definirDependenciasMarcacao, type PedidoGrupo, type RespostaGrupo } from "./marcacao.js";
-import { MOTIVO_NAO_ELEGIVEL } from "./modo-conversa.js";
+import { MENSAGEM_SEM_CONVERSA, MOTIVO_NAO_ELEGIVEL } from "./modo-conversa.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { conversaEmSilencio, definirDependenciasRoteamento, silenciarConversa, situacaoDoSilencio } from "./roteamento.js";
@@ -119,10 +119,11 @@ describe("QA-SEG C6 — permissão e vazamento", () => {
     await conversaDoJoao();
     for (const numero of ["5599911112222", DONO, EMPRESA]) expect(await admin().whatsapp.atendimentoDaConversa({ numero })).toEqual({ mostrar: false });
   });
-  it("[baixo] a MUTAÇÃO distingue o número do dono (FORBIDDEN) de um número sem conversa (BAD_REQUEST) — só para admin/colaborador", async () => {
+  it("[baixo, corrigido B2] a MUTAÇÃO dá a MESMA recusa para o número do dono, o da empresa e um número sem conversa (sem oráculo)", async () => {
     await conversaDoJoao();
-    await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero: DONO, acao: "assumir" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(admin().whatsapp.mudarAtendimentoDaConversa({ numero: "5599911112222", acao: "assumir" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const recusas = [];
+    for (const numero of [DONO, EMPRESA, "5599911112222"]) recusas.push(await admin().whatsapp.mudarAtendimentoDaConversa({ numero, acao: "assumir" }).catch(e => ({ code: e.code, message: e.message })));
+    expect(recusas).toEqual([0, 1, 2].map(() => ({ code: "BAD_REQUEST", message: MENSAGEM_SEM_CONVERSA })));
   });
 });
 
@@ -196,14 +197,14 @@ describe("QA-SEG C6 — Devolver não fura o silêncio", () => {
     expect(pedidos).toEqual([]);
     expect(vi.mocked(configuracaoAnthropicPainel)).not.toHaveBeenCalled();
   });
-  it("[médio] resposta da equipe pelo CELULAR no MESMO segundo, logo depois do Devolver, não recala (timestamp do WhatsApp em segundos) → Dolores responde enquanto o humano conversa", async () => {
+  it("[médio, corrigido M1] resposta da equipe pelo CELULAR no MESMO segundo, logo depois do Devolver, recala (timestamp do WhatsApp em segundos)", async () => {
     await conversaDoJoao();
     comRelogio(em(700));
     await admin().whatsapp.mudarAtendimentoDaConversa({ numero: JOAO, acao: "devolver" });
     // a equipe responde pelo celular 200 ms DEPOIS do Devolver; o WhatsApp informa o envio em segundos (12:00:00)
     comRelogio(em(1_500));
     await chamar(direta({ fromMe: true, texto: "Oi João, deixa comigo.", quando: em(900) }));
-    expect(await conversaEmSilencio(JOAO, em(1_500), "prospecta-dolores")).toBe(false); // ACHADO: deveria estar calada
+    expect(await conversaEmSilencio(JOAO, em(1_500), "prospecta-dolores")).toBe(true); // corrigido (M1): folga de 5 s a favor do silêncio
   });
   it("resposta da equipe pela Central depois do Devolver recala (relógio do servidor, ms)", async () => {
     await conversaDoJoao();

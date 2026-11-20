@@ -151,10 +151,12 @@ const mesmaConversa = (a: string, b: string) =>
  */
 function AtendimentoDaConversa({ numero }: { numero: string }) {
   const utils = trpc.useUtils();
-  const q = trpc.whatsapp.atendimentoDaConversa.useQuery({ numero }, { refetchInterval: 10_000 });
+  // QA-SEG C6 M2: a cada 30 s; depois de clicar, a resposta da mutação entra na hora e a consulta é refeita
+  const q = trpc.whatsapp.atendimentoDaConversa.useQuery({ numero }, { refetchInterval: 30_000 });
   const mudar = trpc.whatsapp.mudarAtendimentoDaConversa.useMutation({
     onSuccess: (r, v) => { utils.whatsapp.atendimentoDaConversa.setData({ numero }, r); toast.success(v.acao === "assumir" ? "Conversa assumida pela equipe." : "Conversa devolvida para a Dolores."); },
-    onError: e => { toast.error(e.message); utils.whatsapp.atendimentoDaConversa.invalidate({ numero }); },
+    onError: e => toast.error(e.message),
+    onSettled: () => utils.whatsapp.atendimentoDaConversa.invalidate({ numero }),
   });
   const a = q.data;
   if (!a || !a.mostrar) return null;
