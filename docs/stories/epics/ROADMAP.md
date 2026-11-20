@@ -277,6 +277,9 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
   - botão só-admin "Remover a conexão antiga da Central" (instância de antes da conexão única) e o aviso da Central ignorando a
     instância gravada em linha de admin/colaborador;
   - saudação de campanha (texto fixo em Templates, uma ativa, uma vez por número por campanha, só a desconhecido, teto diário);
+    EPIC-026 C3 (20/11): a saudação aceita também UMA imagem (JPG/PNG, até 5 MB, vai com o texto como legenda) e UM áudio
+    (OGG/MP3/M4A, até 2 minutos e 5 MB, vai depois como mensagem de voz); tipo e duração conferidos pelos bytes; imagem que
+    falha cai para texto puro; o que saiu fica registrado e nada é reenviado (`0137`);
   - avisos de ligação e de áudio por texto (interruptor próprio, 1 a cada N horas por número, teto global diário, textos em Templates);
   - bloqueio de disparo em massa no número principal (1 destinatário por envio) e teto de envios manuais (10 por minuto, 200 por dia);
   - mensagens automáticas marcadas como tais na conversa da Central (`whatsapp_messages.automatica`);

@@ -2,7 +2,7 @@
 // avisos de ligação/áudio e transcrição (migração 0135_whatsapp_conexao_unica.sql). Tabelas novas, em arquivo próprio; a única
 // mudança em tabela existente é a coluna nova `whatsapp_messages.automatica` (em schema.ts), com padrão false.
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, customType, index, integer, pgTable, primaryKey, real, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { leads, users } from "./schema.js";
 
 export const AVISO_LIGACAO_PADRAO = "Olá! Sou a Dolores, da Prospecta. Não atendo ligações por aqui, mas pode me escrever que a gente responde.";
@@ -51,7 +51,32 @@ export const whatsappSaudacoes = pgTable("whatsapp_saudacoes", {
   situacao: varchar("situacao", { length: 12 }).$type<"enviando" | "enviada" | "erro">().default("enviando").notNull(),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
   enviadaEm: timestamp("enviada_em", { withTimezone: true }),
+  // EPIC-026 C3 (migração 0137): o que de fato saiu (null = a campanha não tinha aquela parte)
+  textoSaiu: boolean("texto_saiu"),
+  imagemSaiu: boolean("imagem_saiu"),
+  audioSaiu: boolean("audio_saiu"),
+  // QA-SEG C3 achado 5: algum envio ficou sem confirmação (prazo estourado); nada foi repetido
+  semConfirmacao: boolean("sem_confirmacao"),
 }, t => [uniqueIndex("whatsapp_saudacoes_uma_por_numero").on(t.campanhaId, t.chaveNumero)]);
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+/**
+ * EPIC-026 C3 (migração 0137): UMA imagem e UM áudio por campanha, bytes no banco (teto de 5 MB, CHECK no SQL). A coluna
+ * "conteudo" só é lida no envio da saudação e na pré-visualização do administrador (server/dolores/saudacao-midia.ts).
+ */
+export const whatsappCampanhaMidias = pgTable("whatsapp_campanha_midias", {
+  campanhaId: integer("campanha_id").notNull().references(() => whatsappCampanhas.id, { onDelete: "cascade" }),
+  tipo: varchar("tipo", { length: 10 }).$type<"imagem" | "audio">().notNull(),
+  mime: varchar("mime", { length: 20 }).notNull(),
+  nome: varchar("nome", { length: 100 }).notNull(),
+  tamanho: integer("tamanho").notNull(),
+  duracaoS: real("duracao_s"),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  conteudo: bytea("conteudo").notNull(),
+  enviadoPor: integer("enviado_por").references(() => users.id, { onDelete: "set null" }),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
+}, t => [primaryKey({ columns: [t.campanhaId, t.tipo] })]);
 
 export const whatsappAvisosNumero = pgTable("whatsapp_avisos_numero", {
   chaveNumero: varchar("chave_numero", { length: 32 }).notNull(),
