@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { and, eq, inArray, sql, type AnyColumn } from "drizzle-orm";
 import { leads, userNotifications, users, whatsappConnections, whatsappConversationLinks, whatsappMessages } from "../drizzle/schema.js";
-import { chaveTelefone } from "../shared/whatsapp/conversas.js";
+import { chaveTelefone, idSemNumero } from "../shared/whatsapp/conversas.js";
 import { ENV } from "./_core/env.js";
 import { LIMITE_MIDIA, mesmoTelefone, midiaDaMensagem, textoDaMensagem } from "./_core/evolution.js";
 import { normalizarStatusWebhook } from "./_core/whatsapp-business.js";
@@ -53,23 +53,30 @@ export type ResultadoGravacao = { id: number | null; nova: boolean; deMim: boole
  * grupo) — e lá a Central de Vendas e o download da mídia na hora ficam de fora (`centralVendas`/`baixarMidia` falsos).
  */
 export async function gravarItemNaCentral(conn: { id: number; userId: number; instancia: string | null }, d: any,
-  o: { centralVendas?: boolean; baixarMidia?: boolean; mensagem?: string | null; notificar?: boolean; leadsCandidatos?: LeadCandidato[] } = {}): Promise<ResultadoGravacao> {
+  o: { centralVendas?: boolean; baixarMidia?: boolean; mensagem?: string | null; notificar?: boolean; leadsCandidatos?: LeadCandidato[]; numero?: string | null; semNumero?: string | null } = {}): Promise<ResultadoGravacao> {
   const db = getDb();
   const vazio: ResultadoGravacao = { id: null, nova: false, deMim: Boolean(d?.key?.fromMe), leadId: null, existente: null };
-  const jid: string = d?.key?.remoteJid ?? "";
-  if (!jid.endsWith("@s.whatsapp.net")) return vazio; // ignora grupos, status e listas
+  const jid: string = typeof d?.key?.remoteJid === "string" ? d.key.remoteJid.trim() : "";
+  // EPIC-026 C2: endereço "@lid" entra com o número conferido pelo roteamento (`numero`) ou, sem ele, como conversa de número não
+  // identificado (`semNumero` = o "@lid", que vira a chave da conversa — nunca um telefone inventado). Grupos, status e listas não.
+  let numero: string;
+  let semNumero = false;
+  if (jid.endsWith("@s.whatsapp.net")) numero = jid.split("@")[0].split(":")[0];
+  else if (jid.endsWith("@lid") && o.numero && /^\d{10,15}$/.test(o.numero)) numero = o.numero;
+  else if (jid.endsWith("@lid") && o.semNumero && idSemNumero(o.semNumero)) { numero = idSemNumero(o.semNumero)!; semNumero = true; }
+  else return vazio; // ignora grupos, status e listas
   const id: string | undefined = d?.key?.id;
   if (id) {
     const [ja] = await db.select({ id: whatsappMessages.id, automatica: whatsappMessages.automatica }).from(whatsappMessages)
       .where(and(eq(whatsappMessages.connectionId, conn.id), eq(whatsappMessages.externalId, id))).limit(1);
     if (ja) return { ...vazio, existente: ja }; // enviada pelo sistema (já gravada) ou repetida
   }
-  const numero = jid.split("@")[0];
   const deMim = Boolean(d?.key?.fromMe);
-  // QA-SEG E9 achado 4: só os leads com os mesmos 8 finais (do banco, ou os que o roteamento já trouxe), não a tabela inteira
-  const todos = o.leadsCandidatos ?? await leadsComOsMesmosFinais(numero);
+  // QA-SEG E9 achado 4: só os leads com os mesmos 8 finais (do banco, ou os que o roteamento já trouxe), não a tabela inteira.
+  // EPIC-026 C2: sem número, nenhum lead (nada casa com o "@lid") e nenhum vínculo.
+  const todos = semNumero ? [] : o.leadsCandidatos ?? await leadsComOsMesmosFinais(numero);
   // Lote 03, correção 02: o vínculo manual da conversa vale mais que o telefone.
-  const [vinculo] = await db.select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
+  const [vinculo] = semNumero ? [] : await db.select({ leadId: whatsappConversationLinks.leadId }).from(whatsappConversationLinks)
     .where(and(eq(whatsappConversationLinks.connectionId, conn.id), eq(whatsappConversationLinks.phoneKey, chaveTelefone(numero)))).limit(1);
   const manual = vinculo ? (todos.find(l => l.id === vinculo.leadId)
     ?? (await db.select({ id: leads.id, nome: leads.name, phone: leads.phone }).from(leads).where(inArray(leads.id, [vinculo.leadId])).limit(1))[0]) : undefined;
@@ -96,9 +103,9 @@ export async function gravarItemNaCentral(conn: { id: number; userId: number; in
   if (!deMim && gravada && o.notificar !== false) {
     await db.insert(userNotifications).values({
       userId: conn.userId, type: "system",
-      title: `WhatsApp: nova mensagem de ${lead?.nome ?? d?.pushName ?? numero}`,
+      title: `WhatsApp: nova mensagem de ${lead?.nome ?? d?.pushName ?? (semNumero ? "número não identificado" : numero)}`,
       message: texto.slice(0, 300),
-      actionUrl: `/admin/whatsapp?aba=conversas&numero=${numero}`,
+      actionUrl: `/admin/whatsapp?aba=conversas&numero=${encodeURIComponent(numero)}`,
     });
   }
   return { id: gravada?.id ?? null, nova: Boolean(gravada), deMim, leadId: lead?.id ?? null, existente: null };

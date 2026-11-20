@@ -18,8 +18,9 @@ import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
   FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
-  lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, partesDaResposta, type MotivoBloqueio,
+  formaDoEndereco, itensDoAviso, lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, normalizarEvento, partesDaResposta, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
+import { RegistroDoAviso, type DestinoDoItem } from "../whatsapp-recebimento.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
@@ -46,8 +47,8 @@ import { reconhecerRespostaDoEmpreiteiro, tratarDocumentoDoGrupo } from "./notas
 import { decidirRota, ehSoAudio, lerParaRoteamento, type ItemRoteado } from "../../shared/dolores/roteamento.js";
 import { conexaoDaEmpresa, type ConexaoDaEmpresa } from "../whatsapp-conexao-empresa.js";
 import {
-  enviarAviso, enviarSaudacao, gravarEntradaNaCentral, identificarRemetente, lerConfigAtendimento, lerLigacao, reivindicarRoteamento, textoDaEntrada, tratarPropria,
-  type Remetente,
+  consultarNumeroDoLid, enviarAviso, enviarSaudacao, gravarEntradaNaCentral, identificarRemetente, lembrarNumeroDoLid, lerConfigAtendimento, lerLigacao, numeroConhecidoDoLid,
+  reivindicarRoteamento, textoDaEntrada, tratarPropria, type Remetente,
 } from "./roteamento.js";
 import { tratarAtendimento } from "./atendimento.js";
 import { transcreverAudio } from "./transcricao.js";
@@ -539,7 +540,7 @@ type PendenteDoAviso = { tipo: "cliente" | "audio"; item: Direta; quem: Remetent
  * do aviso para a Dolores (cliente cadastrado) e para a transcrição (áudio de cliente ou desconhecido).
  */
 async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number; pendentes: PendenteDoAviso[] }): Promise<string[]> {
-  if (!d.numero) { await auditarRemetenteEstranho(null, ctx.autor, d.texto.length); return ["sem-numero"]; }
+  if (!d.numero) return tratarSemNumero(cfg, bruto, d, ctx);
   if (ehNumeroDoDono(d.numero, cfg.numeroDolores)) return ["propria-numero"];
   let nova = false;
   try { nova = await reivindicarRoteamento(cfg.instancia!, d.externalId); }
@@ -554,8 +555,11 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
   const conn = await conexaoDaEmpresa().catch(() => null);
   let centralId: number | null = null;
   const nome = typeof (bruto as { pushName?: unknown })?.pushName === "string" ? String((bruto as { pushName: string }).pushName).slice(0, 120) : null;
+  // EPIC-026 C2: o aviso trouxe o "@lid" E o número — guarda o par (e a conversa sem número desse "@lid", se houver, ganha o número)
+  if (d.lid) await lembrarNumeroDoLid({ instancia: cfg.instancia!, lid: d.lid, numero: d.numero, origem: "aviso", connectionId: conn?.id ?? null });
   if (conn) {
-    try { centralId = (await gravarEntradaNaCentral(conn, bruto, null, quem.candidatos)).id; }
+    // EPIC-026 C2: o número conferido vai junto — com endereço "@lid" a gravação sozinha descartava a mensagem sem registro
+    try { centralId = (await gravarEntradaNaCentral(conn, bruto, { leadsCandidatos: quem.candidatos, numero: d.numero })).id; }
     catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem na Central", erroCurto(e)); r.push("central-erro"); }
   } else r.push("central-sem-conexao");
   if (mensagemAntiga(d.enviadaEm, deps.agora())) { r.push("antiga"); return r; }
@@ -566,6 +570,54 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
   if (ehSoAudio(d) && (rota.categoria === "cliente" || rota.categoria === "desconhecido")) ctx.pendentes.push({ tipo: "audio", item: d, quem, centralId, nome });
   else if (rota.dolores && d.texto && quem.leadId) ctx.pendentes.push({ tipo: "cliente", item: d, quem, centralId, nome });
   return r;
+}
+
+/** Com menos que isto até o fim do prazo do aviso, o número de um "@lid" não é consultado na Evolution. */
+const MINIMO_PARA_CONSULTAR_LID_MS = 12_000;
+const PRAZO_CONSULTA_LID_MS = 3_000;
+
+/**
+ * EPIC-026 C2 (regra do dono de 20/11/2026: nenhuma mensagem é descartada sem registro visível) — conversa direta de terceiro cujo
+ * endereço é só "@lid", sem o número. Antes: auditoria e descarte (não aparecia na Central). Agora:
+ * - procura o número já conhecido desse "@lid" (aprendido de um aviso anterior) ou consulta a Evolution (só leitura, prazo curto);
+ * - se o número for o do DONO ou o da própria empresa: nada vai à Central (e nada é comando — comando exige o número no endereço);
+ * - senão, reivindicada uma vez (reentrega não duplica) e gravada na Central: com o número, se ele foi descoberto; sem ele, como
+ *   conversa de "número não identificado" (a chave é o "@lid").
+ * Nunca é comando, nunca recebe saudação (o controle "uma vez por número" exige número) nem resposta da Dolores, mesmo quando o
+ * número foi descoberto pela consulta (não veio no endereço da mensagem).
+ */
+async function tratarSemNumero(cfg: DoloresWhatsappConfig, bruto: unknown, d: Direta, ctx: { autor: number | null; prazoFinal: number }): Promise<string[]> {
+  const instancia = cfg.instancia!;
+  if (!d.lid) { await auditarRemetenteEstranho(null, ctx.autor, d.texto.length); return ["sem-numero"]; }
+  let numero = await numeroConhecidoDoLid(instancia, d.lid);
+  let consultado = false;
+  if (!numero && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_CONSULTAR_LID_MS) {
+    numero = await consultarNumeroDoLid(instancia, d.lid, PRAZO_CONSULTA_LID_MS);
+    consultado = !!numero;
+  }
+  if (numero && (ehNumeroDoDono(numero, cfg.numeroDono) || ehNumeroDoDono(numero, cfg.numeroDolores))) return ["lid-do-dono"];
+  let nova = false;
+  try { nova = await reivindicarRoteamento(instancia, d.externalId); }
+  catch (e) { console.error("[dolores/whatsapp] falha ao reivindicar a mensagem sem número", erroCurto(e)); return ["erro"]; }
+  if (!nova) return ["repetida"];
+  await auditarRemetenteEstranho(numero, ctx.autor, d.texto.length);
+  const conn = await conexaoDaEmpresa().catch(() => null);
+  if (!conn) return ["central-sem-conexao"];
+  if (numero && consultado) await lembrarNumeroDoLid({ instancia, lid: d.lid, numero, origem: "evolution", connectionId: conn.id });
+  try { await gravarEntradaNaCentral(conn, bruto, numero ? { numero } : { semNumero: d.lid }); }
+  catch (e) { console.error("[dolores/whatsapp] falha ao gravar a mensagem sem número na Central", erroCurto(e)); return ["central-erro"]; }
+  return [numero ? "central-lid-resolvido" : "central-sem-numero"];
+}
+
+/** EPIC-026 C2: o destino de um item de terceiro, para o registro do recebimento (sem conteúdo). */
+function destinoDoTerceiro(ks: string[]): [DestinoDoItem, string] {
+  const k = ks[0] ?? "";
+  if (k === "repetida") return ["repetida", ""];
+  if (k === "erro" || ks.includes("central-erro")) return ["erro", ks.includes("central-erro") ? "central-erro" : "reivindicar"];
+  if (k === "central-sem-conexao" || ks.includes("central-sem-conexao")) return ["erro", "central-sem-conexao"];
+  if (k === "central-sem-numero") return ["central_sem_numero", ""];
+  if (k.startsWith("central-")) return ["central", k.slice(8)];
+  return ["ignorado", k || "terceiro"];
 }
 
 /** Depois dos itens do dono e das marcações: áudio (transcrição ou aviso) e a resposta ao cliente cadastrado. */
@@ -621,16 +673,41 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     return contarFalha(ip, agora) ? { status: 429, body: { error: "Muitas tentativas" } } : { status: 401, body: { error: "Não autorizado" } };
   }
   const ev = (req.body ?? {}) as { event?: unknown; instance?: unknown; data?: any };
-  const evento = String(ev.event ?? "").toLowerCase().replace(/_/g, ".");
+  // EPIC-026 C2: "MESSAGES_UPSERT", "messages-upsert" e "messages.upsert" são o mesmo evento
+  const evento = normalizarEvento(ev.event);
+  // EPIC-026 C2 (nenhuma mensagem some sem registro): o que chegou (por item, com a FORMA do endereço) é gravado JÁ — se o
+  // processamento parar no meio, a tela de recebimento mostra a diferença; o destino de cada item é gravado no fim (finally).
+  const itens = evento === "messages.upsert" ? itensDoAviso(ev.data, MAX_ITENS) : [];
+  const chegada = new RegistroDoAviso(evento, agora);
+  if (evento === "messages.upsert") for (const item of itens) chegada.item("chegou", "", formaDoEndereco((item as { key?: { remoteJid?: unknown } }).key?.remoteJid));
+  else chegada.item("chegou");
+  const registro = new RegistroDoAviso(evento, agora);
   let cfg: DoloresWhatsappConfig | null;
   try { cfg = await lerConfigWhatsapp(); }
   catch (e) { console.error("[dolores/whatsapp] configuração indisponível", erroCurto(e)); return { status: 200, body: { ok: false, r: "configuracao-indisponivel" } }; }
-  if (!cfg?.instancia || ev.instance !== cfg.instancia) return { status: 200, body: { ok: true, r: "instancia-desconhecida" } };
+  await chegada.gravar();
+  if (!cfg?.instancia || ev.instance !== cfg.instancia) {
+    registro.item("ignorado", "instancia-desconhecida");
+    await registro.gravar();
+    return { status: 200, body: { ok: true, r: "instancia-desconhecida" } };
+  }
+  try {
+    return await tratarAvisoDaInstancia(cfg as DoloresWhatsappConfig & { instancia: string }, ev, evento, itens, registro, { inicio, agora });
+  } finally {
+    await registro.gravar();
+  }
+}
+
+/** O aviso já autenticado e da instância da empresa. `registro` recebe o destino de cada item (gravado por quem chama). */
+async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: string }, ev: { data?: any }, evento: string, itens: unknown[], registro: RegistroDoAviso,
+  t: { inicio: number; agora: Date }): Promise<RespostaWebhook> {
+  const { inicio, agora } = t;
 
   if (evento === "connection.update") {
     const st = ev.data?.state;
     const status = st === "open" ? "conectado" : st === "connecting" ? "aguardando_qr" : "desconectado";
     await getDb().update(doloresWhatsappConfig).set({ statusConexao: status }).where(eq(doloresWhatsappConfig.id, 1)).catch(() => undefined);
+    registro.item("evento", `conexao-${status}`);
     return { status: 200, body: { ok: true, r: "conexao" } };
   }
   // Etapa 7 — avisos de grupo (quem adicionou a Dolores; criação do grupo): só provam QUEM a colocou no grupo (regra do dono de
@@ -642,6 +719,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     const r = await tratarEventoDeGrupo(cfg, eventoDeGrupo === "groups.upsert" ? "criacao" : "participantes", ev.data, {
       agora, autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS, avisar: enviarAvisoAoDono, identidade: identidadeDaDolores(cfg, conf),
     }).catch(e => { console.error("[dolores/whatsapp] falha no aviso de grupo", erroCurto(e)); return "grupo-evento-erro"; });
+    registro.item("evento", String(r).slice(0, 60));
     return { status: 200, body: { ok: true, r } };
   }
   // Etapa 9 — ligação (evento CALL da Evolution, assinado por "Reativar recebimento")
@@ -649,11 +727,15 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     const autorDolores = await idDaDoloresSemCriar().catch(() => null);
     const r = await tratarLigacao(cfg, ev.data, { autor: autorDolores, prazoFinal: inicio + PRAZO_TOTAL_MS })
       .catch(e => { console.error("[dolores/whatsapp] falha na ligação", erroCurto(e)); return "ligacao-erro"; });
+    registro.item("evento", r);
     return { status: 200, body: { ok: true, r } };
   }
-  if (evento !== "messages.upsert") return { status: 200, body: { ok: true, r: "ignorado" } };
+  if (evento !== "messages.upsert") {
+    // a situação de envio/leitura (messages.update) é esperada; outro evento, não tratado
+    registro.item(evento === "messages.update" ? "evento" : "ignorado", evento === "messages.update" ? "situacao-de-envio" : "evento-nao-tratado");
+    return { status: 200, body: { ok: true, r: "ignorado" } };
+  }
 
-  const itens = (Array.isArray(ev.data) ? ev.data : [ev.data]).slice(0, MAX_ITENS);
   const prazoFinal = inicio + PRAZO_TOTAL_MS;
   const contagem: Record<string, number> = {};
   const contar = (k: string) => { contagem[k] = (contagem[k] ?? 0) + 1; };
@@ -682,6 +764,7 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       const g = await tratarMensagemDeGrupo(cfg, item, { agora: deps.agora(), autor,
         entrar: async jid => (await entrarNoGrupo({ instancia, grupoJid: jid, agora: deps.agora(), autor, prazoFinal, canal: "whatsapp", avisar: enviarAvisoAoDono, numeroDono: cfg.numeroDono })).grupo });
       contar(g.resultado);
+      registro.item("grupo", g.resultado, "grupo");
       // acima do teto diário de mensagens do grupo (spam), nem a marcação é tratada (o registro de marcações não cresce sem limite)
       if (g.resultado !== "grupo" && g.resultado !== "grupo-teto") marcacoesDoAviso.push(item);
       // Etapa 6 — evento (só registro; nunca ação): documento recebido em grupo cadastrado. Desligado por padrão.
@@ -706,32 +789,50 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     }
     // Etapa 9 — o que o número da EMPRESA enviou (fromMe): nunca é comando. Com o dono (ou sem número): nada, nunca vai à Central.
     // Com os demais: entra na conversa da Central (automática já gravada não duplica; a da equipe cala a Dolores ali por N horas).
+    const forma = formaDoEndereco((item as { key?: { remoteJid?: unknown } }).key?.remoteJid);
     const roteado = lerParaRoteamento(item);
     if (roteado.tipo === "propria") {
       contar("propria");
       const destino = decidirRota(roteado, cfg.numeroDono, null);
-      if (destino.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) continue;
+      if (destino.destino !== "central_saida" || ehNumeroDoDono(roteado.numero, cfg.numeroDolores)) {
+        registro.item("propria", !roteado.numero ? "sem-numero" : ehNumeroDoDono(roteado.numero, cfg.numeroDolores) ? "proprio-numero" : "conversa-do-dono", forma);
+        continue;
+      }
+      let k = "erro";
       try {
-        if (!(await reivindicarRoteamento(cfg.instancia, roteado.externalId))) { contarRota("repetida"); continue; }
+        if (!(await reivindicarRoteamento(cfg.instancia, roteado.externalId))) { contarRota("repetida"); registro.item("repetida", "propria", forma); continue; }
         const conn = await conexaoDaEmpresa();
-        if (!conn) { contarRota("central-sem-conexao"); continue; }
+        if (!conn) { contarRota("central-sem-conexao"); registro.item("erro", "central-sem-conexao", forma); continue; }
+        if (roteado.lid) await lembrarNumeroDoLid({ instancia: cfg.instancia, lid: roteado.lid, numero: destino.numero, origem: "aviso", connectionId: conn.id });
         const config = await lerConfigAtendimento();
-        contarRota(await tratarPropria(conn, item, { numero: destino.numero, texto: roteado.texto, externalId: roteado.externalId, enviadaEm: roteado.enviadaEm, silencioHoras: config.silencioHoras }));
+        k = await tratarPropria(conn, item, { numero: destino.numero, texto: roteado.texto, externalId: roteado.externalId, enviadaEm: roteado.enviadaEm, silencioHoras: config.silencioHoras });
+        contarRota(k);
       } catch (e) { console.error("[dolores/whatsapp] falha ao tratar mensagem enviada pelo número da empresa", erroCurto(e)); contarRota("erro"); }
+      registro.item(k === "erro" ? "erro" : "propria", k, forma);
       continue;
     }
     const m = lerMensagemEvolution(item);
-    if (m.tipo === "ignorar") { contar(m.motivo); continue; }
+    if (m.tipo === "ignorar") { contar(m.motivo); registro.item("ignorado", m.motivo, forma); continue; }
     const doDono = ehNumeroDoDono(m.numero, cfg.numeroDono);
     // Etapa 9 — direta de quem não é o dono: roteamento (Central, saudação, cliente cadastrado, áudio). Nunca comando.
     if (!doDono && roteado.tipo === "direta") {
-      const ks = await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes });
+      const ks = await tratarTerceiro(cfg, item, roteado, { autor, prazoFinal, pendentes })
+        .catch(e => { console.error("[dolores/whatsapp] falha ao tratar a mensagem de terceiro", erroCurto(e)); return ["erro"]; });
       // em `r`, como antes: não é comando ("nao-autorizado"), ou reentrega/erro
       contar(ks[0] === "repetida" || ks[0] === "erro" ? ks[0] : "nao-autorizado");
       for (const k of ks) if (k !== "repetida" && k !== "erro") contarRota(k);
+      const [destino, motivo] = destinoDoTerceiro(ks);
+      registro.item(destino, motivo, forma);
       continue;
     }
-    if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); continue; }
+    // daqui em diante, só a conversa direta do DONO (comando). EPIC-026 C2: o aviso trouxe o "@lid" do dono com o número — guarda o
+    // par, para que um aviso futuro só com esse "@lid" nunca apareça na Central (e nunca vire comando: comando exige o número).
+    const fimDoDono = (r: string) => registro.item("dolores", r, forma);
+    if (doDono && m.lid && m.numero) {
+      const conn = await conexaoDaEmpresa().catch(() => null);
+      await lembrarNumeroDoLid({ instancia: cfg.instancia, lid: m.lid, numero: m.numero, origem: "aviso", connectionId: conn?.id ?? null });
+    }
+    if (mensagemAntiga(m.enviadaEm, deps.agora())) { contar("antiga"); fimDoDono("antiga"); continue; }
     // QA achado 5: um prazo só para o aviso inteiro. QA r2 N4: sem tempo nem para a frase fixa, a mensagem é ao menos
     // REIVINDICADA ("processando" com motivo próprio) — a recuperação do próximo aviso avisa o dono para mandar de novo.
     const semTempoNenhum = doDono && prazoFinal - deps.ms() < MINIMO_PARA_RECUSAR_MS;
@@ -740,9 +841,9 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     // reentrega da mesma mensagem é descartada por uma memória curta (por instância do servidor; se escapar, só soma 1
     // na contagem — nada responde, nada chama a IA).
     if (!doDono) {
-      if (jaVistaDeEstranho(cfg.instancia, m.externalId)) { contar("repetida"); continue; }
+      if (jaVistaDeEstranho(cfg.instancia, m.externalId)) { contar("repetida"); registro.item("repetida", "", forma); continue; }
       await auditarRemetenteEstranho(m.numero, autor, m.texto.length);
-      contar("nao-autorizado"); continue;
+      contar("nao-autorizado"); registro.item("ignorado", "nao-autorizado", forma); continue;
     }
     // Reivindica a mensagem: só quem gravar primeiro trata (reentrega e avisos paralelos não duplicam resposta nem gasto).
     let id: number | null = null;
@@ -756,18 +857,20 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
       id = linha?.id ?? null;
     } catch (e) {
       console.error("[dolores/whatsapp] falha ao registrar a mensagem", erroCurto(e));
-      contar("erro"); continue; // sem o registro (idempotência) não há resposta: falha fechada
+      contar("erro"); registro.item("erro", "registrar-comando", forma); continue; // sem o registro (idempotência) não há resposta: falha fechada
     }
-    if (!id) { contar("repetida"); continue; }
-    if (semTempoNenhum) { contar("sem-tempo"); semTempoReivindicadas++; continue; }
+    if (!id) { contar("repetida"); registro.item("repetida", "dono", forma); continue; }
+    if (semTempoNenhum) { contar("sem-tempo"); fimDoDono("sem-tempo"); semTempoReivindicadas++; continue; }
     if (prazoFinal - deps.ms() < MINIMO_PARA_COMANDO_MS) {
       // vários comandos no mesmo aviso: este não cabe mais no prazo — frase fixa, sem IA
       const hora = horaFortaleza(m.enviadaEm ?? deps.agora());
       await responderAoDono(cfg, m.numero!, fraseSemTempo(hora), { mensagemId: id, autor, resumo: { bloqueio: "sem_tempo" }, prazoFinal });
       await atualizarMensagem(id, { situacao: "bloqueada", motivo: "sem tempo no prazo do aviso", respondidaEm: deps.agora() });
-      contar("sem-tempo"); continue;
+      contar("sem-tempo"); fimDoDono("sem-tempo"); continue;
     }
-    contar(await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor));
+    const rc = await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor);
+    contar(rc);
+    fimDoDono(rc);
   }
   // Etapa 4b — as marcações, depois do dono. Cada uma confere o próprio prazo (a IA só com tempo de sobra; a frase fixa, com o
   // mínimo do envio).

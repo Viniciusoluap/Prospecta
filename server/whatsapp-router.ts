@@ -5,7 +5,7 @@ import { financiamentos, imoveis, leadDocuments, leadServices, leads, users, wha
 import { documentosPendentes, listaPorExtenso, mesclarValores, preencherTemplate, primeiroNome, textoDocumentos } from "../shared/whatsapp/variaveis.js";
 import { rotulo } from "../shared/rotulos.js";
 import {
-  LOTE_ENVIO_WHATSAPP, PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, etapaParaFiltro, chaveTelefone, inicioPeriodo, resolverLeadConversa, taxaLeitura,
+  LOTE_ENVIO_WHATSAPP, PERIODOS_DASHBOARD, PERIODO_PADRAO, STATUS_ENVIO_SUCESSO, candidatosVinculo, etapaParaFiltro, chaveDaConversa, chaveTelefone, ehConversaSemNumero, idSemNumero, inicioPeriodo, resolverLeadConversa, taxaLeitura,
 } from "../shared/whatsapp/conversas.js";
 import { LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { VARIAVEIS_TEMPLATE_PERMITIDAS, WHATSAPP_TEMPLATES } from "../shared/whatsapp/templates.js";
@@ -151,6 +151,13 @@ async function exigirLeadDoCorretor(user: UsuarioConversa, leadId: number | null
   if (l && l.brokerId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
 }
 
+/** EPIC-026 C2: a mensagem da tela para a conversa de número não identificado. */
+export const MENSAGEM_SEM_NUMERO = "Não dá para responder por aqui: número não identificado. O WhatsApp não informou o número desta conversa; responda pelo celular da empresa.";
+/** Conversa de número não identificado ("@lid"): não se responde, não se vincula nem se cria lead por ela (os dígitos não são telefone). */
+function recusarSemNumero(numero: string) {
+  if (ehConversaSemNumero(numero) || /@/.test(numero)) throw new TRPCError({ code: "BAD_REQUEST", message: MENSAGEM_SEM_NUMERO });
+}
+
 /** Lote 03, correção 02: vínculos manuais (botão "Vincular lead") da conexão, por chave do telefone. */
 async function vinculosDaConexao(connectionId: number): Promise<Map<string, number>> {
   const rows = await getDb().select({ phoneKey: whatsappConversationLinks.phoneKey, leadId: whatsappConversationLinks.leadId })
@@ -177,12 +184,13 @@ function exigirAcessoConversas(ctx: { user: UsuarioConversa }) {
  */
 async function planoExclusaoConversas(user: UsuarioConversa, connectionId: number, numeros: string[], reservados: NumerosReservados | null = null) {
   const db = getDb();
-  const chaves = new Set(numeros.map(chaveTelefone).filter(c => c.length >= 10));
+  // EPIC-026 C2: a conversa de número não identificado tem como chave o próprio "@lid" (nunca casa com telefone)
+  const chaves = new Set(numeros.map(chaveDaConversa).filter(c => c.length >= 10 || ehConversaSemNumero(c)));
   const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
     .from(whatsappMessages).where(eq(whatsappMessages.connectionId, connectionId));
   const porChave = new Map<string, { ids: number[]; gravado: number | null }>();
   for (const m of todas) {
-    const k = chaveTelefone(m.destinatario);
+    const k = chaveDaConversa(m.destinatario);
     if (!chaves.has(k) || reservado(reservados, m.destinatario)) continue;
     const g = porChave.get(k) ?? { ids: [], gravado: null };
     g.ids.push(m.id);
@@ -571,10 +579,12 @@ export const whatsappRouter = router({
     if (r === undefined) return [];
     const msgs = (await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000))
       .filter(m => !reservado(r, m.destinatario));
-    const grupos: { numero: string; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
+    const grupos: { numero: string; semNumero: boolean; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
     for (const m of msgs) {
       let g = grupos.find(x => mesmoTelefone(x.numero, m.destinatario));
-      if (!g) { g = { numero: m.destinatario.replace(/\D/g, ""), nome: m.nomeDestinatario, leadId: m.leadId, vinculo: null, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
+      // EPIC-026 C2: conversa de número não identificado — a chave é o "@lid" (nunca um telefone tirado dos dígitos dele)
+      const lid = idSemNumero(m.destinatario);
+      if (!g) { g = { numero: lid ?? m.destinatario.replace(/\D/g, ""), semNumero: !!lid, nome: m.nomeDestinatario, leadId: m.leadId, vinculo: null, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
       if (!g.nome && m.nomeDestinatario) g.nome = m.nomeDestinatario;
       if (!g.leadId && m.leadId) g.leadId = m.leadId;
       if (m.direcao === "entrada" && !m.lida) g.naoLidas++;
@@ -605,7 +615,7 @@ export const whatsappRouter = router({
     return grupos;
   }),
 
-  mensagensConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).query(async ({ ctx, input }) => {
+  mensagensConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40) })).query(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return [];
@@ -635,7 +645,7 @@ export const whatsappRouter = router({
    * Pedido de 25/10 (noite): excluir conversa — apaga do sistema todas as mensagens daquele número
    * (DDD + 8 últimos dígitos) da conexão; não apaga no celular. Mesma regra de acesso da conversa.
    */
-  excluirConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
+  excluirConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40) })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
     await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
@@ -656,7 +666,7 @@ export const whatsappRouter = router({
   }),
 
   /** Lote 03, correção 01: prévia da exclusão em lote (quantas conversas e mensagens). */
-  previaExclusaoConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(20)).min(1).max(500) })).query(async ({ ctx, input }) => {
+  previaExclusaoConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(40)).min(1).max(500) })).query(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return { conversas: 0, mensagens: 0 };
@@ -671,7 +681,7 @@ export const whatsappRouter = router({
    * das conversas escolhidas, nesta conexão. Não apaga no celular (a integração não permite), não toca em
    * leads, documentos nem vínculos. Auditoria: log estruturado sem dados pessoais (quem, quantas, quando).
    */
-  excluirConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(20)).min(1).max(500) })).mutation(async ({ ctx, input }) => {
+  excluirConversas: protectedProcedure.input(z.object({ numeros: z.array(z.string().min(8).max(40)).min(1).max(500) })).mutation(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
@@ -699,16 +709,18 @@ export const whatsappRouter = router({
    * Lote 03, correção 02: candidatos para vincular a conversa — leads ativos (corretor: os próprios), por
    * nome, telefone normalizado ou CPF. Sem termo, traz os que têm o mesmo telefone da conversa.
    */
-  buscarLeadsParaVincular: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), termo: z.string().max(100).default("") })).query(async ({ ctx, input }) => {
+  buscarLeadsParaVincular: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), termo: z.string().max(100).default("") })).query(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
+    recusarSemNumero(input.numero);
     const lista = await getDb().select({ id: leads.id, nome: leads.name, telefone: leads.phone, cpf: leads.cpf }).from(leads)
       .where(and(isNull(leads.deletedAt), ctx.user.role === "corretor" ? eq(leads.brokerId, ctx.user.id) : undefined));
     return candidatosVinculo(lista, input.termo, input.numero);
   }),
 
   /** Lote 03, correção 02: vincula (ou troca) o lead da conversa. Não altera o cadastro do lead. */
-  vincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), leadId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  vincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), leadId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
+    recusarSemNumero(input.numero);
     await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
@@ -732,7 +744,7 @@ export const whatsappRouter = router({
   }),
 
   /** Lote 03, correção 02: desfaz o vínculo manual; a conversa volta a ser identificada pelo telefone. */
-  desvincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20) })).mutation(async ({ ctx, input }) => {
+  desvincularLead: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40) })).mutation(async ({ ctx, input }) => {
     exigirAcessoConversas(ctx);
     await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
@@ -765,8 +777,9 @@ export const whatsappRouter = router({
   /** Contato novo da conversa vira lead (nome do WhatsApp + telefone) e as mensagens passam a apontar para ele. */
   // Lote 03, correção 02: antes de criar, avisa se já há lead ativo com o mesmo telefone (evita duplicado);
   // a tela oferece "Vincular lead" e só cria com `forcar`. O lead criado já fica vinculado à conversa.
-  criarLeadDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), nome: z.string().trim().max(255).optional(), forcar: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+  criarLeadDaConversa: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), nome: z.string().trim().max(255).optional(), forcar: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    recusarSemNumero(input.numero);
     await recusarNumeroReservado(ctx.user.role, input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
@@ -792,8 +805,10 @@ export const whatsappRouter = router({
     return { leadId: lead.id };
   }),
 
-  responder: protectedProcedure.input(z.object({ numero: z.string().min(8).max(20), texto: z.string().trim().min(1).max(4096) })).mutation(async ({ ctx, input }) => {
+  responder: protectedProcedure.input(z.object({ numero: z.string().min(8).max(40), texto: z.string().trim().min(1).max(4096) })).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "corretor") requireModule(ctx, "whatsapp");
+    // EPIC-026 C2: conversa de número não identificado ("@lid") não tem para onde responder pela Evolution (o envio exige número)
+    recusarSemNumero(input.numero);
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn || conn.status !== "conectado") throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     // QA-SEG E9 achado 1: pela conexão da empresa ninguém escreve ao dono (seria se passar pela Dolores) nem ao próprio número
