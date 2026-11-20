@@ -202,8 +202,11 @@ describe("Item 4 — mídia nas conversas", () => {
   function eventoImagem(fileLength: number) {
     return { event: "messages.upsert", instance: "prospecta-u1", data: { key: { remoteJid: "5599981392210@s.whatsapp.net", id: "MID1", fromMe: false }, pushName: "Ana", message: { imageMessage: { mimetype: "image/jpeg", fileLength, caption: "planta" } } } };
   }
+  // QA-SEG E9 achado 2: o aviso só grava na Central para a instância de quem conecta pela própria aba (aqui, um corretor); a de
+  // admin/colaborador (Central de antes da conexão única) é ignorada — server/dolores/e9-qa-seg-correcoes.test.ts
   const bancoWebhook = () => fakeDb(new Map<Tabela, unknown[][]>([
     [whatsappConnections, [[conn]]],
+    [users, [[{ role: "corretor" }]]],
     [whatsappMessages, [[]]],
     [leads, [[]]],
     [whatsappEvolutionSettings, [[]]],

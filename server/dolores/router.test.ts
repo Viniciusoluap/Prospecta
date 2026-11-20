@@ -124,10 +124,16 @@ describe("conexão própria (QR code)", () => {
     // não vira conexão da Central (a Central de Vendas nunca envia pelo número dela)
     expect((await banco.pg.query("SELECT * FROM whatsapp_connections")).rows).toEqual([]);
   });
-  it("número já usado por CORRETOR ou igual ao do dono: desconecta e recusa (etapa 9: a linha do admin não conta — é a mesma conexão)", async () => {
+  it("número já usado por CORRETOR ou igual ao do dono: desconecta e recusa; o da instância ANTIGA do admin: recusa sem derrubar a da empresa", async () => {
     await admin().dolores.conectar();
-    // etapa 9 (conexão única): a linha antiga do ADMIN com o mesmo número não bloqueia
+    // QA-SEG E9 achado 2 (c): a linha antiga do ADMIN com instância e o mesmo número bloqueia (o mesmo número em duas instâncias),
+    // mas a instância da EMPRESA não é removida — o admin remove a antiga pelo botão de Integrações
     await banco.pg.exec(`INSERT INTO whatsapp_connections (user_id, provider, numero, status, instancia) VALUES (1, 'evolution', '559900001111', 'desconectado', 'prospecta-u1')`);
+    await expect(admin().dolores.confirmarConexao()).rejects.toThrow(/conexão antiga da Central/);
+    expect(vi.mocked(removerInstancia)).not.toHaveBeenCalled();
+    expect((await cfg()).status_conexao).not.toBe("conectado");
+    // sem instância (só o connectionId da Central da empresa), a linha do admin não conta
+    await banco.pg.exec(`UPDATE whatsapp_connections SET instancia = NULL WHERE user_id = 1`);
     expect(await admin().dolores.confirmarConexao()).toMatchObject({ status: "conectado" });
     expect(vi.mocked(removerInstancia)).not.toHaveBeenCalled();
     await banco.pg.exec(`DELETE FROM whatsapp_connections; UPDATE dolores_whatsapp_config SET status_conexao = 'aguardando_qr', numero_dolores = NULL;

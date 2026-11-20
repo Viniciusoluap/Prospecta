@@ -9,6 +9,7 @@ const lixeira = vi.hoisted(() => vi.fn(async (_id: string | null | undefined) =>
 vi.mock("./drive-organizacao.js", async orig => ({ ...(await orig<typeof import("./drive-organizacao.js")>()), lixeiraDoArquivo: lixeira }));
 import * as banco from "./db.js";
 import { financiamentos, leadDocuments, leadServices, leads, users, whatsappConnections, whatsappMessages, whatsappMidias } from "../drizzle/schema.js";
+import { doloresWhatsappConfig } from "../drizzle/schema-dolores-whatsapp.js";
 import { router } from "./_core/trpc.js";
 import { whatsappRouter } from "./whatsapp-router.js";
 import {
@@ -38,6 +39,10 @@ function ddl(t: PgTable) {
 beforeAll(async () => {
   for (const t of [users, leads, leadServices, financiamentos, leadDocuments, whatsappConnections, whatsappMessages]) await pg.exec(ddl(t));
   await pg.exec(`CREATE TABLE whatsapp_midias (id serial PRIMARY KEY, message_id integer NOT NULL UNIQUE REFERENCES whatsapp_messages(id) ON DELETE CASCADE, drive_file_id varchar(255), created_at timestamp DEFAULT now());`);
+  // QA-SEG E9 achado 1: a Central do admin confere (falha fechada) o número do dono e o da empresa na configuração da Dolores
+  // (migração 0124, em produção); aqui ela existe, sem números cadastrados.
+  await pg.exec(ddl(doloresWhatsappConfig));
+  await pg.exec(`INSERT INTO dolores_whatsapp_config (id) VALUES (1);`);
   const m = readFileSync(new URL("../drizzle/0094_whatsapp_vinculo.sql", import.meta.url), "utf8");
   await pg.exec(m); await pg.exec(m); // idempotente
   vi.spyOn(banco, "getDb").mockReturnValue(drizzle(pg) as never);
