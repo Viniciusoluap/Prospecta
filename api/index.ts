@@ -22,6 +22,8 @@ import whatsappMidiaRouter from "../server/whatsapp-midia.js";
 import obraMedicaoCaixaRouter from "../server/routes/obra-medicao-caixa.js";
 import projetoDocumentosRouter from "../server/routes/projeto-documentos.js";
 import { handleWhatsappWebhook } from "../server/whatsapp-webhook.js";
+// EPIC-027 C7: aviso de situação de entrega da YCloud (API oficial) — corpo BRUTO para a assinatura.
+import { tratarWebhookYcloud } from "../server/ycloud/webhook.js";
 import imovelFotosRouter from "../server/routes/imovel-fotos.js";
 // Lote 2, correção 04: documentos do usuário (perfil Engenheiro) guardados no banco.
 import usuarioDocumentosRouter from "../server/usuario-documentos.js";
@@ -48,6 +50,7 @@ const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
 // por isso ficam antes do express.json() — igual ao servidor local (server/_core/index.ts).
 app.post("/api/whatsapp/webhook", express.raw({ type: "application/json" }), handleWhatsappWebhook);
+app.post("/api/ycloud/webhook", express.raw({ type: "application/json", limit: "1mb" }), tratarWebhookYcloud);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use("/api", async (_req, res, next) => {
