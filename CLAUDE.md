@@ -265,3 +265,14 @@ dentro dos limites do item 4). Story: `docs/stories/epics/epic-025-dolores/E9-co
    confirmar Brasil, grupos e requisitos; até lá, sem disparo em massa pelo número principal.
 8. Continua valendo: só o número do dono comanda; mensagem de cliente ou de grupo nunca é comando; conversa do dono com
    a Dolores, avisos e relatórios dela nunca ficam visíveis a corretor/colaborador; chaves nunca saem.
+
+## Tarefa manual do dono — sempre em passo a passo e com links (REGRA — estabelecida pelo dono em 20/11/2026)
+
+Palavras do dono: "Se eu tiver que fazer algo manual me mande sempre em passo-a-passo e com links".
+
+Vale para qualquer agente: tudo o que depender de ação dele (painéis da Vercel, Meta, YCloud, Cloudflare, WhatsApp,
+telas do próprio Prospecta) é entregue em passos numerados, um clique por passo, com o link direto da página e o nome
+exato do botão ou campo — e dizendo o que ele deve ver ao final. Nunca "configure X" sem o caminho.
+
+Do mesmo dia: quando ele pedir para "estruturar para eu autorizar", apresentar a estrutura e ESPERAR o "autorizo"
+antes de construir.

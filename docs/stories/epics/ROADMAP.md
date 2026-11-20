@@ -282,3 +282,11 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
   - mensagens automáticas marcadas como tais na conversa da Central (`whatsapp_messages.automatica`);
   - Enviar mensagem/Templates/responder pela empresa calam o atendimento automático na conversa por algumas horas.
 - [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-026 — registrada em 20/11/2026)
+
+Grupo Santa Fé em espera por ordem do dono; portar quando ele retomar a paridade. O que é da Dolores (C4, C5) é exceção.
+- [ ] C2 — recebimento do WhatsApp: leitura tolerante do aviso da Evolution, nenhuma mensagem descartada sem registro,
+  remetente não identificado visível na Central (só admin até confirmar o número) e quadro "Recebimento nas últimas 24 h" (`0136`).
+- [ ] C3 — saudação da campanha com imagem e áudio (quando publicada aqui).
+- [ ] C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).

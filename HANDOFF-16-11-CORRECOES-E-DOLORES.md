@@ -415,3 +415,43 @@ Receber a etapa 9 do @dev → QA de segurança → corrigir → aplicar 0135 →
 
 ## Próximo passo exato (20/11, 10:50 UTC)
 Nada pendente de código no EPIC-025. Acompanhar a validação do dono em produção e corrigir o que ele apontar.
+
+## Atualização — 20/11, ~19:15 UTC — EPIC-026 (correções de 20/11)
+
+Epic novo: `docs/stories/epics/epic-026-correcoes-20-11/EPIC.md`. Ordem: C2 → C4/C5 → C3 → C1A → C1B.
+
+### Concluído e publicado (produção READY conferida na Vercel)
+- **C4 + C5 — PR #263** (squash `89efee7`): hora do relatório diário de 07:00 a 14:00 (10 crons diários no
+  `vercel.json`, uma rotina só, um reenvio por dia se o envio falhar), preços sugeridos por modelo e limite mensal
+  mostrado em reais. Sem migração. Arquivos: `shared/dolores/{operacao,precos-padrao}.ts`, `server/dolores/rondas.ts`,
+  `DoloresCard.tsx`, `DoloresOperacaoCard.tsx`.
+- **C2 — PR #264** (squash `356afeb`): leitura tolerante do aviso da Evolution (nome do evento, `{messages}`, sufixo de
+  aparelho, `@lid`), contagem de tudo o que chega e quadro "Recebimento nas últimas 24 h" no cartão "WhatsApp da
+  empresa". Migração **0136** (`whatsapp_recebimento_contagem`, `whatsapp_lid_numeros`) aplicada no Neon antes do
+  deploy. Arquivos: `server/whatsapp-recebimento.ts`, `server/dolores/{whatsapp,roteamento}.ts`,
+  `server/whatsapp-evolution-webhook.ts`, `server/whatsapp-conexao-empresa.ts`, `ConversasWhatsApp.tsx`.
+
+### Em andamento
+- **C3** (saudação da campanha com imagem e áudio): @dev no worktree `epic026-c3` (wip em `claude/wip-epic026-c3`,
+  migração prevista `0137_saudacao_midia.sql`, ainda NÃO aplicada). Depois: portão de QA de segurança → aplicar 0137 →
+  publicar.
+
+### Pendente do dono
+1. Repetir o teste: mandar mensagem de outro número e enviar o print do quadro "Recebimento nas últimas 24 h"
+   (Integrações › WhatsApp da empresa). "Central/não identificado: 1" = resolvido; "Ignoradas" = o motivo diz o ajuste;
+   "Chegaram: 0" = a Evolution não entregou (olhar a Evolution na Railway).
+2. YCloud (C1B): conta criada no plano gratuito. Ele é administrador dos portfólios "Grupo Eficaz" (o da campanha —
+   usar este) e "Vinicius VFX". Falta o print de Contas › Contas do WhatsApp do Grupo Eficaz. **Só vincular a
+   coexistência depois do teste do item 1** (passo a passo já enviado).
+
+### Testes
+- (a) Automáticos: #263 — tsc limpo, 47 arquivos / 832 testes, build ok. #264 (já com a #263 junto) — tsc limpo,
+  51 arquivos / 890 testes (`server/dolores`, `server/whatsapp`, guarda da Anthropic), build ok.
+- (b) Manuais: nenhum nesta etapa.
+- (c) Pendentes em produção: teste do outro número (C2); conferir amanhã que o relatório sai uma vez na hora escolhida.
+
+## Próximo passo exato (20/11, 19:15 UTC)
+Receber o agente da C3 → QA de segurança → aplicar 0137 no Neon → publicar pela receita de sempre. Depois C1A (campos
+da API oficial no cartão, com aviso sobre grupos) e C1B (integração YCloud: chave digitada pelo dono em Integrações;
+disparo de campanha pela YCloud; recebimento continua pela Evolution). Ler o resultado do teste do dono antes de
+liberar a vinculação.
