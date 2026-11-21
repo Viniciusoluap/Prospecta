@@ -5,6 +5,21 @@
 // - 5 mensagens/s fixas em coexistência: https://docs.ycloud.com/en/documentation/channels/whatsapp-accounts-management/coexistence/onboard-whatsapp-business-app
 // - situação convergente (não só "a mais alta vale"): https://docs.ycloud.com/en/api-reference/guides/whatsapp-platform/whatsapp-messages-api-best-practices.md
 
+/**
+ * EPIC-027 C7.1 (21/11/2026) — quem OPERA campanha pela API oficial (decisão do dono: "eu ou colaborador se estiver marcado WhatsApp
+ * pra ele"): admin ativo OU colaborador ativo com o módulo WhatsApp. Corretor, cliente, empreiteiro e contas inativas, nunca.
+ * ADMINISTRAR a integração (chave, interruptor, tetos, preço, avisos de entrega, auditoria) continua só do admin por papel.
+ * Mesma regra no servidor (router `whatsappOficial`) e na tela (só esconde; quem decide é o servidor).
+ */
+export function podeOperarCampanhaOficial(u: { perfil: string | null | undefined; ativo: boolean; permissoes: readonly string[] }): boolean {
+  if (!u.ativo) return false;
+  if (u.perfil === "admin") return true;
+  return u.perfil === "colaborador" && u.permissoes.includes("whatsapp");
+}
+export function podeAdministrarIntegracaoOficial(u: { perfil: string | null | undefined; ativo: boolean }): boolean {
+  return u.ativo && u.perfil === "admin";
+}
+
 /** Coexistência (app + API no mesmo número): a YCloud documenta vazão fixa de 5 mensagens por segundo. */
 export const MENSAGENS_POR_SEGUNDO_COEXISTENCIA = 5;
 /** Intervalo mínimo entre dois envios (ms), para não passar de 5/s. */

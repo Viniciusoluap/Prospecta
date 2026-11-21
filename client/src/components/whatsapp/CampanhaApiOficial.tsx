@@ -1,4 +1,6 @@
-// EPIC-027 C7 (20/11/2026) — Central WhatsApp › Enviar mensagem › "Campanha pela API oficial" (só administrador).
+// EPIC-027 C7 (20/11/2026) — Central WhatsApp › Enviar mensagem › "Campanha pela API oficial".
+// C7.1 (21/11/2026): quem OPERA é o admin ou o colaborador com o módulo WhatsApp (decisão do dono); a configuração (chave, interruptor,
+// tetos, preço, avisos de entrega) continua só do admin, em Integrações. O colaborador vê só se a API está pronta para uso.
 // Escolher modelo APROVADO, preencher as variáveis, ver a prévia (contagens, vagas do dia e custo estimado), confirmar com a contagem
 // e acompanhar o envio em lotes (retomável: "Continuar" segue de onde parou). Também: lista dos modelos e painel das campanhas.
 import { useEffect, useRef, useState } from "react";
@@ -69,6 +71,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
     return v && (v.fonte !== "fixo" || v.texto.trim());
   });
   const p = previa.data;
+  const pronta = trpc.whatsappOficial.prontidao.useQuery(undefined, { retry: false, refetchOnWindowFocus: true });
 
   async function confirmar() {
     if (!entrada || !p) return;
@@ -87,6 +90,9 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
       <CardHeader><CardTitle className="text-sm text-gray-300">Campanha pela API oficial (modelo aprovado)</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm text-gray-200">
         <p className="text-xs text-gray-300">Sai pela API oficial da Meta (YCloud), com fila, limite diário da conta e opt-out respeitados. Conversas e grupos continuam pelo WhatsApp Web.</p>
+        {pronta.data && (pronta.data.pronta
+          ? <p role="status" className="text-xs text-green-300">Pronta para uso{pronta.data.restanteHoje !== null ? ` · ainda cabem ${pronta.data.restanteHoje} envio(s) hoje` : ""} · até {pronta.data.tetoCampanha} por campanha.</p>
+          : <p role="alert" className="flex items-start gap-2 rounded border border-orange-500/30 bg-orange-500/10 p-2 text-xs text-orange-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{pronta.data.motivo}</p>)}
         <div><Label className="text-gray-300">Nome da campanha</Label><Input className={inputCls} maxLength={120} value={nome} onChange={e => setNome(e.target.value)} placeholder="ex.: Lançamento Jardim — novembro" /></div>
         <div>
           <Label className="text-gray-300">Modelo aprovado</Label>
@@ -138,7 +144,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
             </ul>
             <p className="text-gray-300">Limite em 24 h: {p.vagas.limiteDiario === null ? "sem limite da Meta" : p.vagas.limiteDiario} (teto do painel {p.vagas.tetoDia}) · já usados {p.vagas.usados24h} · ainda cabem {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>
             <p className="text-gray-300">Custo estimado: <b className="text-white">{dinheiro(p.custo.estimado, p.custo.moeda)}</b>
-              {p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : " — informe o preço estimado em Integrações › API oficial do WhatsApp"}</p>
+              {p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : " — sem preço estimado (o administrador informa em Integrações › API oficial do WhatsApp)"}</p>
             <p className="text-gray-300">Prévia:</p>
             {p.exemplos.map((x, i) => <div key={i} className="whitespace-pre-wrap rounded bg-[#1A2332] p-2 text-gray-100"><b className="text-[#C9A961]">{x.nome}: </b>{x.texto}</div>)}
             <Button disabled={criar.isPending || p.contagem.aEnviar === 0} onClick={() => void confirmar()} className="bg-green-600 font-bold text-white hover:bg-green-700">
@@ -202,7 +208,7 @@ export function PainelCampanhasApiOficial({ iniciar }: { iniciar: number }) {
         {cs.map(c => (
           <div key={c.id} className="rounded border border-[#C9A961]/20 bg-[#1A2332] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-bold text-white">{c.nome} <span className="font-normal text-gray-400">— {c.modelo}</span> <span className="ml-1 rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{ROTULO_CAMPANHA[c.status] ?? c.status}</span></p>
+              <p className="font-bold text-white">{c.nome} <span className="font-normal text-gray-400">— {c.modelo}{c.disparadaPor ? ` · disparada por ${c.disparadaPor.nome}${c.disparadaPor.papel === "colaborador" ? " (colaborador)" : c.disparadaPor.papel === "admin" ? " (administrador)" : ""}` : ""}</span> <span className="ml-1 rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{ROTULO_CAMPANHA[c.status] ?? c.status}</span></p>
               <div className="flex flex-wrap gap-2">
                 {(c.status === "enviando" || c.status === "pausada") && (
                   <Button size="sm" disabled={enviando !== null} className="bg-green-600 text-white hover:bg-green-700" onClick={async () => {

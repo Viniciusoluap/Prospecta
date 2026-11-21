@@ -1,28 +1,49 @@
 // EPIC-027 C7 (20/11/2026) — router tRPC "whatsappOficial": cartão de Integrações (chave, teste, avisos de entrega, interruptor e
 // tetos), modelos, prévia, criação e envio das campanhas pela API oficial (YCloud) e painel.
-// SÓ ADMINISTRADOR POR PAPEL: `adminProcedure` confere o módulo (o colaborador com o módulo WhatsApp passaria); aqui vale o papel.
-// Nenhuma resposta leva a chave, o segredo ou telefones de destinatários (só mascarados).
+// C7.1 (21/11/2026) — DOIS níveis, conferidos aqui por PAPEL + MÓDULO (decisão do dono: "eu ou colaborador se estiver marcado
+// WhatsApp pra ele"):
+// - OPERAR campanha (`operar`): admin ativo OU colaborador ativo com o módulo WhatsApp — prontidão, modelos, prévia, confirmar,
+//   lotes, pausar/continuar/cancelar, painel, falhas (telefone mascarado) e "não enviar mais".
+// - ADMINISTRAR a integração (`soAdmin`): só admin por papel — chave, testar, avisos de entrega (segredo), interruptor, tetos,
+//   janela, preço, estado completo (`status`) e auditoria.
+// `whatsappOficial` NÃO está no mapa de módulos de `adminProcedure` (o corretor passa em `whatsapp.*`, aqui nunca).
+// Nenhuma resposta leva a chave, o segredo ou telefones de destinatários (só mascarados); a do colaborador nem "terminando em…".
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { adminProcedure, router } from "../_core/trpc.js";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc.js";
+import { parsePermissions } from "../../shared/admin-permissions.js";
 import { ErroYcloud, criarEndpointYcloud, listarNumerosYcloud, semSegredo } from "../_core/ycloud.js";
-import { MAX_DESTINATARIOS_CAMPANHA, ROTULO_QUALIDADE, ROTULO_STATUS_NUMERO } from "../../shared/whatsapp/ycloud.js";
+import {
+  MAX_DESTINATARIOS_CAMPANHA, ROTULO_QUALIDADE, ROTULO_STATUS_NUMERO, podeAdministrarIntegracaoOficial, podeOperarCampanhaOficial,
+} from "../../shared/whatsapp/ycloud.js";
 import {
   RecusaYcloud, criarCampanha, detalheCampanha, enviarLote, mudarCampanha, painelCampanhas, prepararCampanha, previaParaTela,
   registrarOptoutPeloPainel, situacaoParaDisparo, totalOptout, usadosNas24h, vagasDoDia,
 } from "./campanhas.js";
 import {
   CHAVE_SEGREDO_YCLOUD, EVENTOS_YCLOUD, atualizarConfigYcloud, auditarYcloud, chaveYcloud, depsYcloud, finalDoSegredo, gravarChaveYcloud, gravarSegredoWebhookYcloud,
-  lerConfigYcloud, normalizarChaveYcloud, normalizarSegredoWebhook, segredoWebhookYcloud, urlWebhookYcloud,
+  lerConfigYcloud, listarAuditoriaYcloud, normalizarChaveYcloud, type AutorYcloud, normalizarSegredoWebhook, segredoWebhookYcloud, urlWebhookYcloud,
 } from "./config.js";
 import { conferirNumeroYcloud, escolherNumeroDaEmpresa, modelosDaConta } from "./conta.js";
 import * as db from "../db.js";
 
+/** Administrar a integração: só admin ativo, por papel (o módulo não basta). */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador usa a API oficial do WhatsApp." });
+  if (!podeAdministrarIntegracaoOficial({ perfil: ctx.user.role, ativo: ctx.user.active ?? true })) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador configura a API oficial do WhatsApp." });
+  }
   return next();
 });
+/** Operar campanha: admin ativo ou colaborador ativo com o módulo WhatsApp. Corretor, cliente, empreiteiro e inativo, nunca. */
+const operar = protectedProcedure.use(({ ctx, next }) => {
+  const u = ctx.user;
+  if (!podeOperarCampanhaOficial({ perfil: u.role, ativo: u.active ?? true, permissoes: parsePermissions(u.permissions) })) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Campanha pela API oficial: só o administrador ou colaborador com o módulo WhatsApp." });
+  }
+  return next();
+});
+const autorDe = (u: { id: number; role: string }): AutorYcloud => ({ id: u.id, papel: u.role });
 
 /** Erro para a tela: nunca com a chave/segredo; sem detalhe interno. */
 async function erroParaTela(e: unknown, padrao: string): Promise<TRPCError> {
@@ -70,7 +91,25 @@ async function status() {
   };
 }
 
+/**
+ * C7.1 — o que quem OPERA vê: só se dá para disparar, em linguagem simples (sem chave, segredo, "terminando em…", número ou tier).
+ * Lê o estado guardado (rápido); a conferência na YCloud acontece de novo na prévia, na confirmação e em cada lote.
+ */
+async function prontidao() {
+  const [cfg, chave, segredo] = await Promise.all([lerConfigYcloud(), chaveYcloud(), segredoWebhookYcloud()]);
+  const usados = await usadosNas24h(depsYcloud().agora());
+  const vagas = vagasDoDia(cfg, cfg.limiteDiario ?? Number.POSITIVE_INFINITY, usados);
+  const restanteHoje = Number.isFinite(vagas.restante) ? vagas.restante : null;
+  const motivo = !chave || !segredo ? "A API oficial ainda não foi configurada pelo administrador."
+    : !cfg.ligado ? "Os disparos pela API oficial estão desligados pelo administrador."
+    : !cfg.numeroConfere ? "O número da API oficial não confere com o número da empresa: os disparos ficam bloqueados até o administrador resolver."
+    : restanteHoje === 0 ? "O limite de envios de hoje já foi usado. Amanhã o limite volta."
+    : null;
+  return { pronta: motivo === null, motivo, ligado: cfg.ligado, numeroConfere: cfg.numeroConfere, restanteHoje, tetoCampanha: cfg.tetoCampanha, janelaRepeticaoDias: cfg.janelaRepeticaoDias };
+}
+
 export const whatsappOficialRouter = router({
+  // ── ADMINISTRAR (só admin por papel) ──
   status: soAdmin.query(() => tentar(status, "Não consegui ler a configuração da API oficial.")),
 
   /** Testar: GET /whatsapp/phoneNumbers com a chave salva. O número da conta é o da própria empresa (não é dado de cliente). */
@@ -91,14 +130,14 @@ export const whatsappOficialRouter = router({
       limiteTier: c.tier, limiteDiario: Number.isFinite(c.limiteDiario) ? c.limiteDiario : null, numeroConfere: c.numeroConfere,
       conferidoEm: depsYcloud().agora(), ...(c.numeroConfere ? {} : { ligado: false }),
     }, ctx.user.id);
-    await auditarYcloud({ acao: "chave_salva", usuarioId: ctx.user.id });
+    await auditarYcloud({ acao: "chave_salva", usuarioId: ctx.user.id, papel: ctx.user.role });
     return { success: true as const, final: finalDoSegredo(chave), numeroConfere: c.numeroConfere, aviso: c.aviso };
   }, "Chave da YCloud não aceita.")),
 
   removerChave: soAdmin.mutation(({ ctx }) => tentar(async () => {
     await db.saveDashboardSetting(CHAVE_SEGREDO_YCLOUD, "");
     await atualizarConfigYcloud({ ligado: false, numeroConfere: false }, ctx.user.id);
-    await auditarYcloud({ acao: "chave_removida", usuarioId: ctx.user.id });
+    await auditarYcloud({ acao: "chave_removida", usuarioId: ctx.user.id, papel: ctx.user.role });
     return { success: true as const };
   }, "Não foi possível remover a chave.")),
 
@@ -112,14 +151,14 @@ export const whatsappOficialRouter = router({
     const segredo = typeof ep?.secret === "string" && ep.secret.trim() ? ep.secret.trim() : null;
     if (segredo) await gravarSegredoWebhookYcloud(segredo);
     await atualizarConfigYcloud({ webhookEndpointId: typeof ep?.id === "string" ? ep.id.slice(0, 80) : null, webhookStatus: typeof ep?.status === "string" ? ep.status.slice(0, 20) : null }, ctx.user.id);
-    await auditarYcloud({ acao: "avisos_ativados", usuarioId: ctx.user.id, detalhe: segredo ? "segredo recebido" : "sem segredo na resposta" });
+    await auditarYcloud({ acao: "avisos_ativados", usuarioId: ctx.user.id, papel: ctx.user.role, detalhe: segredo ? "segredo recebido" : "sem segredo na resposta" });
     return { success: true as const, jaAtivo: false, precisaSegredo: !segredo };
   }, "Não consegui ativar os avisos de entrega.")),
 
   /** Segredo digitado pelo dono (quando o endpoint foi criado no painel da YCloud). */
   salvarSegredoAvisos: soAdmin.input(z.object({ segredo: z.string().max(300) }).strict()).mutation(({ ctx, input }) => tentar(async () => {
     await gravarSegredoWebhookYcloud(normalizarSegredoWebhook(input.segredo));
-    await auditarYcloud({ acao: "segredo_avisos_salvo", usuarioId: ctx.user.id });
+    await auditarYcloud({ acao: "segredo_avisos_salvo", usuarioId: ctx.user.id, papel: ctx.user.role });
     return { success: true as const };
   }, "Não foi possível salvar o segredo.")),
 
@@ -145,42 +184,50 @@ export const whatsappOficialRouter = router({
       ...(input.precoEstimado !== undefined ? { precoEstimado: input.precoEstimado === null ? null : input.precoEstimado.toFixed(4) } : {}),
       ...(input.moeda !== undefined ? { moeda: input.moeda } : {}),
     }, ctx.user.id);
-    await auditarYcloud({ acao: input.ligado === true ? "disparos_ligados" : input.ligado === false ? "disparos_desligados" : "config_salva", usuarioId: ctx.user.id });
+    await auditarYcloud({ acao: input.ligado === true ? "disparos_ligados" : input.ligado === false ? "disparos_desligados" : "config_salva", usuarioId: ctx.user.id, papel: ctx.user.role });
     return { success: true as const };
   }, "Não foi possível salvar.")),
 
+  /** Auditoria completa: quem fez o quê (nome e papel), sem telefone nem segredo. */
+  auditoria: soAdmin.query(() => tentar(() => listarAuditoriaYcloud(), "Não consegui ler a auditoria.")),
+
+  // ── OPERAR (admin ou colaborador com o módulo WhatsApp) ──
+
+  /** Se dá para disparar agora, em linguagem simples (nunca a chave, o segredo nem o número). */
+  prontidao: operar.query(() => tentar(prontidao, "Não consegui ler a situação da API oficial.")),
+
   /** Modelos da conta (sob demanda: consulta a YCloud). */
-  modelos: soAdmin.mutation(() => tentar(modelosDaConta, "Não consegui listar os modelos.")),
+  modelos: operar.mutation(() => tentar(modelosDaConta, "Não consegui listar os modelos.")),
 
   /** Prévia: contagens, vagas do dia, custo estimado e exemplos. Não cria nada. */
-  previa: soAdmin.input(entradaSchema).mutation(({ input }) => tentar(async () => {
+  previa: operar.input(entradaSchema).mutation(({ input }) => tentar(async () => {
     const s = await situacaoParaDisparo();
     if (!s.ok) throw new RecusaYcloud(s.motivo ?? "Disparo indisponível.");
     return previaParaTela(await prepararCampanha(input, s), randomUUID());
   }, "Não consegui montar a prévia.")),
 
   /** Confirma com a CONTAGEM vista na prévia (se mudou, recusa). Cria a campanha; o envio começa com `enviarLote`. */
-  criarCampanha: soAdmin.input(entradaSchema.extend({
+  criarCampanha: operar.input(entradaSchema.extend({
     confirmarQuantidade: z.number().int().positive(),
     /** devolvida pela prévia; a mesma chave duas vezes = a MESMA campanha (duas abas, clique duplo, reenvio do pedido) */
     chaveConfirmacao: z.string().regex(/^[A-Za-z0-9-]{16,64}$/, "Veja a prévia de novo antes de confirmar."),
   }).strict())
     .mutation(({ ctx, input }) => tentar(async () => {
       const { confirmarQuantidade, chaveConfirmacao, ...entrada } = input;
-      return criarCampanha(entrada, confirmarQuantidade, chaveConfirmacao, ctx.user.id);
+      return criarCampanha(entrada, confirmarQuantidade, chaveConfirmacao, autorDe(ctx.user));
     }, "Não consegui criar a campanha.")),
 
   /** Um lote (cabe em 60 s). A tela chama de novo enquanto houver fila; se a função encerrar, "Continuar" retoma de onde parou. */
-  enviarLote: soAdmin.input(campanhaIdSchema).mutation(({ ctx, input }) => tentar(() => enviarLote(input.campanhaId, ctx.user.id), "Falha no envio do lote.")),
+  enviarLote: operar.input(campanhaIdSchema).mutation(({ ctx, input }) => tentar(() => enviarLote(input.campanhaId, autorDe(ctx.user)), "Falha no envio do lote.")),
 
-  mudarCampanha: soAdmin.input(campanhaIdSchema.extend({ acao: z.enum(["pausar", "continuar", "cancelar"]) }).strict())
-    .mutation(({ ctx, input }) => tentar(async () => { await mudarCampanha(input.campanhaId, input.acao, ctx.user.id); return { success: true as const }; }, "Não foi possível alterar a campanha.")),
+  mudarCampanha: operar.input(campanhaIdSchema.extend({ acao: z.enum(["pausar", "continuar", "cancelar"]) }).strict())
+    .mutation(({ ctx, input }) => tentar(async () => { await mudarCampanha(input.campanhaId, input.acao, autorDe(ctx.user)); return { success: true as const }; }, "Não foi possível alterar a campanha.")),
 
-  campanhas: soAdmin.query(() => tentar(painelCampanhas, "Não consegui ler as campanhas.")),
-  detalheCampanha: soAdmin.input(campanhaIdSchema).query(({ input }) => tentar(() => detalheCampanha(input.campanhaId), "Não consegui ler a campanha.")),
+  campanhas: operar.query(() => tentar(painelCampanhas, "Não consegui ler as campanhas.")),
+  detalheCampanha: operar.input(campanhaIdSchema).query(({ input }) => tentar(() => detalheCampanha(input.campanhaId), "Não consegui ler a campanha.")),
 
-  registrarOptout: soAdmin.input(z.union([
+  registrarOptout: operar.input(z.union([
     z.object({ leadId: z.number().int().positive() }).strict(),
     z.object({ envioId: z.number().int().positive() }).strict(),
-  ])).mutation(({ ctx, input }) => tentar(() => registrarOptoutPeloPainel(input, ctx.user.id), "Não foi possível registrar o pedido de não receber.")),
+  ])).mutation(({ ctx, input }) => tentar(() => registrarOptoutPeloPainel(input, autorDe(ctx.user)), "Não foi possível registrar o pedido de não receber.")),
 });

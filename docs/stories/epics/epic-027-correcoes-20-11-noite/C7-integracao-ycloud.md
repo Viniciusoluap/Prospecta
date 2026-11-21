@@ -5,6 +5,37 @@ Epic: EPIC-027 — Correções de 20/11/2026 (noite) (o `EPIC.md` vive em outro 
 Paridade: a Central WhatsApp existe nos dois sistemas → pendência de porte registrada no `ROADMAP.md` (EPIC-027 C7).
 Migração: `drizzle/0141_ycloud.sql` (aditiva e idempotente; NÃO aplicada — aplicar no Neon na publicação).
 
+## C7.1 — quem pode disparar (decisão do dono em 21/11/2026)
+
+Pergunta: "só você (admin) dispara campanha?". Resposta do dono: **"eu ou colaborador se estiver marcado WhatsApp pra ele"**.
+Isto substitui o "só admin por papel" do AC3/AC6 para a OPERAÇÃO; a CONFIGURAÇÃO continua só do admin. Dois níveis, conferidos no
+servidor por papel + módulo (`shared/whatsapp/ycloud.ts`: `podeOperarCampanhaOficial`, `podeAdministrarIntegracaoOficial`):
+
+- **Operar campanha** — admin ativo OU colaborador ativo com o módulo WhatsApp. Rotas: `prontidao` (nova), `modelos`, `previa`,
+  `criarCampanha`, `enviarLote`, `mudarCampanha` (pausar/continuar/cancelar), `campanhas`, `detalheCampanha`, `registrarOptout`.
+- **Administrar a integração** — só admin ativo por papel. Rotas: `status`, `testar`, `salvarChave`, `removerChave`, `ativarAvisos`,
+  `salvarSegredoAvisos`, `salvarConfig` (interruptor geral, tetos, janela, preço, moeda), `auditoria` (nova).
+- Corretor (que passa em `whatsapp.*`), cliente, empreiteiro, colaborador sem o módulo, contas inativas e anônimo: nada.
+  `whatsappOficial` continua FORA do mapa de módulos de `adminProcedure` (`server/_core/trpc.ts` não mudou).
+
+Critérios:
+- [x] C7.1-AC1: as rotas de operação passam para admin e colaborador com WhatsApp; as de administração seguem só do admin
+      (matriz admin / colaborador com WhatsApp / com WhatsApp + configurações / sem WhatsApp / corretor / cliente / empreiteiro /
+      colaborador inativo / admin inativo / anônimo em TODAS as rotas, pelo `appRouter`; teste que falha se surgir rota fora dos dois níveis).
+- [x] C7.1-AC2: o colaborador nunca recebe a chave, o segredo nem "terminando em…" (o `status` completo é só do admin); ele vê
+      `prontidao`: pronta ou não, o motivo em linguagem simples (não configurada / desligados pelo administrador / número não
+      confere / limite do dia usado), o que ainda cabe hoje e o teto por campanha — sem número, tier nem segredo.
+- [x] C7.1-AC3: interruptor desligado ou número divergente: a mesma recusa do admin ("Os disparos pela API oficial estão
+      DESLIGADOS pelo administrador…" / "NÃO é o número da empresa"). Todos os limites continuam no servidor e valem para ele:
+      limite da conta e teto do dia, teto por campanha, um lote por vez, idempotência pela chave de confirmação, janela de
+      repetição, opt-out, forma canônica do telefone, filtro do nome; ele não muda nenhum teto.
+- [x] C7.1-AC4: auditoria registra QUEM fez (id em `usuario_id`; papel no começo de `detalhe`, "papel=colaborador" — sem coluna
+      nova, sem migração); o painel mostra "disparada por Fulano (colaborador)"; o admin vê a auditoria completa no cartão de
+      Integrações ("Ver auditoria"). Pausa feita pelo colaborador fica "Pausada pela equipe (colaborador).". Nenhum aviso ao dono
+      foi criado (não há canal definido para isso).
+- [x] C7.1-AC5: tela: a opção "Campanha pela API oficial" aparece na Central (Enviar mensagem) para quem pode operar, com a
+      linha de prontidão; o cartão de Integrações continua só do admin.
+
 ## Pedido do dono (20/11/2026)
 O WhatsApp da empresa é ligado pela Evolution (WhatsApp Web): por ela entra TUDO (conversas, grupos, Dolores) e saem as mensagens
 comuns. O dono criou conta gratuita na YCloud (provedor oficial da Meta) e vinculou o MESMO número em coexistência (WhatsApp Business
@@ -150,8 +181,12 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - `client/src/components/admin/YcloudCard.tsx`, `client/src/components/whatsapp/CampanhaApiOficial.tsx` (novos)
 - `client/src/pages/admin/AdminIntegracoes.tsx`, `client/src/pages/admin/AdminWhatsApp.tsx`
 - `docs/stories/epics/ROADMAP.md` (pendência de porte), esta story
+- C7.1: `shared/whatsapp/ycloud.ts`, `server/ycloud/{router,config,campanhas}.ts`, `server/ycloud/ycloud.test.ts`,
+  `server/ycloud/ycloud-qa.test.ts`, `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `client/src/components/admin/YcloudCard.tsx`,
+  `client/src/pages/admin/AdminWhatsApp.tsx`
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): C7.1 — dois níveis (operar × administrar) pela decisão do dono; colaborador com WhatsApp opera campanhas.
 - 21/11/2026 — @dev (Dex): correções R2-1 e R2-2 da rodada 2 do portão.
 - 21/11/2026 — @dev (Dex): correções 1–11 do portão de QA (CONCERNS/NEEDS_WORK); segue InReview para nova revisão.
 - 20/11/2026 — @dev (Dex): story criada a partir do pedido do coordenador; InProgress → InReview (implementação, testes e tsc ok; aguarda @qa).

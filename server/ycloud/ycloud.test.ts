@@ -183,14 +183,21 @@ describe("regras puras", () => {
 });
 
 describe("permissão por PAPEL (appRouter)", () => {
-  it("colaborador com o módulo WhatsApp, corretor e cliente são recusados; admin passa", async () => {
-    for (const [role, id] of [["colaborador", 2], ["corretor", 3], ["cliente", 4]] as const) {
+  it("C7.1: colaborador com o módulo WhatsApp OPERA; corretor e cliente são recusados; configurar segue só do admin", async () => {
+    for (const [role, id] of [["corretor", 3], ["cliente", 4]] as const) {
       await expect(caller(role, id).whatsappOficial.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role, id).whatsappOficial.criarCampanha({ ...entrada([1]), confirmarQuantidade: 1, chaveConfirmacao: "chave-de-teste-0123456789" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role, id).whatsappOficial.enviarLote({ campanhaId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role, id).whatsappOficial.salvarChave({ apiKey: CHAVE })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    const colab = caller("colaborador", 2);
+    await expect(colab.whatsappOficial.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(colab.whatsappOficial.salvarChave({ apiKey: CHAVE })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(colab.whatsappOficial.salvarConfig({ ligado: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(chamadas).toHaveLength(0);
+    // operar: passa da permissão; sem integração configurada, recusa clara (não FORBIDDEN)
+    await expect(colab.whatsappOficial.prontidao()).resolves.toMatchObject({ pronta: false });
+    await expect(colab.whatsappOficial.previa(entrada([1]))).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(admin().whatsappOficial.status()).resolves.toMatchObject({ configurado: false, ligado: false });
   });
   it("interruptor geral desligado por padrão: sem ligar, nada é disparado", async () => {
@@ -467,5 +474,158 @@ describe("um lote por vez", () => {
     relogio = new Date(AGORA.getTime() + 71_000); // trava vencida (função morta) não prende
     expect((await admin().whatsappOficial.enviarLote({ campanhaId })).enviadas).toBe(2);
     expect((await q<{ lote_ate: string | null }>("SELECT lote_ate FROM ycloud_config"))[0].lote_ate).toBeNull();
+  });
+});
+
+// ── C7.1 (21/11/2026): quem pode disparar — "eu ou colaborador se estiver marcado WhatsApp pra ele" (decisão do dono) ──
+
+type Quem = { role: string; id: number; permissoes?: string[]; ativo?: boolean } | null;
+const chamador = (u: Quem) => appRouter.createCaller({
+  user: u ? { id: u.id, role: u.role, active: u.ativo ?? true, permissions: JSON.stringify(u.permissoes ?? []), name: "Fulano" } : null, req: {}, res: {},
+} as never);
+type C = ReturnType<typeof chamador>;
+const ROTAS_ADMINISTRAR: Record<string, (c: C) => Promise<unknown>> = {
+  status: c => c.whatsappOficial.status(),
+  testar: c => c.whatsappOficial.testar(),
+  salvarChave: c => c.whatsappOficial.salvarChave({ apiKey: CHAVE }),
+  removerChave: c => c.whatsappOficial.removerChave(),
+  ativarAvisos: c => c.whatsappOficial.ativarAvisos(),
+  salvarSegredoAvisos: c => c.whatsappOficial.salvarSegredoAvisos({ segredo: "y".repeat(24) }),
+  salvarConfig: c => c.whatsappOficial.salvarConfig({ tetoDia: 50 }),
+  auditoria: c => c.whatsappOficial.auditoria(),
+};
+const ROTAS_OPERAR: Record<string, (c: C) => Promise<unknown>> = {
+  prontidao: c => c.whatsappOficial.prontidao(),
+  modelos: c => c.whatsappOficial.modelos(),
+  previa: c => c.whatsappOficial.previa(entrada([1])),
+  criarCampanha: c => c.whatsappOficial.criarCampanha({ ...entrada([1]), confirmarQuantidade: 1, chaveConfirmacao: "chave-de-teste-0123456789" }),
+  enviarLote: c => c.whatsappOficial.enviarLote({ campanhaId: 1 }),
+  mudarCampanha: c => c.whatsappOficial.mudarCampanha({ campanhaId: 1, acao: "pausar" }),
+  campanhas: c => c.whatsappOficial.campanhas(),
+  detalheCampanha: c => c.whatsappOficial.detalheCampanha({ campanhaId: 1 }),
+  registrarOptout: c => c.whatsappOficial.registrarOptout({ leadId: 1 }),
+};
+const barrado = async (f: () => Promise<unknown>) => {
+  const e = await f().then(() => null, (x: { code?: string }) => x);
+  return Boolean(e && (e.code === "FORBIDDEN" || e.code === "UNAUTHORIZED"));
+};
+
+describe("C7.1 — dois níveis: operar campanha × administrar a integração (appRouter)", () => {
+  it("toda rota do router está em exatamente um dos dois níveis (rota nova precisa entrar na matriz)", async () => {
+    const { whatsappOficialRouter } = await import("./router.js");
+    const rotas = Object.keys((whatsappOficialRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures).sort();
+    expect(rotas).toEqual([...Object.keys(ROTAS_ADMINISTRAR), ...Object.keys(ROTAS_OPERAR)].sort());
+  });
+
+  const perfis: Array<[string, Quem, { operar: boolean; administrar: boolean }]> = [
+    ["admin", { role: "admin", id: 1 }, { operar: true, administrar: true }],
+    ["colaborador com WhatsApp", { role: "colaborador", id: 2, permissoes: ["whatsapp"] }, { operar: true, administrar: false }],
+    ["colaborador com WhatsApp + configurações/integrações", { role: "colaborador", id: 2, permissoes: ["whatsapp", "configuracoes", "integracoes"] }, { operar: true, administrar: false }],
+    ["colaborador sem WhatsApp", { role: "colaborador", id: 2, permissoes: ["crm", "agenda"] }, { operar: false, administrar: false }],
+    ["corretor (passa em whatsapp.*)", { role: "corretor", id: 3, permissoes: ["whatsapp"] }, { operar: false, administrar: false }],
+    ["cliente", { role: "cliente", id: 4, permissoes: ["whatsapp"] }, { operar: false, administrar: false }],
+    ["empreiteiro", { role: "empreiteiro", id: 5, permissoes: ["whatsapp"] }, { operar: false, administrar: false }],
+    ["colaborador inativo com WhatsApp", { role: "colaborador", id: 2, permissoes: ["whatsapp"], ativo: false }, { operar: false, administrar: false }],
+    ["admin inativo", { role: "admin", id: 1, ativo: false }, { operar: false, administrar: false }],
+    ["anônimo", null, { operar: false, administrar: false }],
+  ];
+  for (const [nome, u, espera] of perfis) {
+    it(`${nome}: operar ${espera.operar ? "SIM" : "NÃO"}, administrar ${espera.administrar ? "SIM" : "NÃO"}`, async () => {
+      await pg.exec(`INSERT INTO users ("openId", name, role, active) VALUES ('col', 'Colab', 'colaborador', true);`);
+      const c = chamador(u);
+      for (const [rota, f] of Object.entries(ROTAS_OPERAR)) expect({ rota, barrado: await barrado(() => f(c)) }).toEqual({ rota, barrado: !espera.operar });
+      for (const [rota, f] of Object.entries(ROTAS_ADMINISTRAR)) expect({ rota, barrado: await barrado(() => f(c)) }).toEqual({ rota, barrado: !espera.administrar });
+      if (!espera.operar && !espera.administrar) {
+        expect(chamadas).toHaveLength(0); // nada chegou à YCloud
+        expect(await q("SELECT id FROM ycloud_auditoria")).toHaveLength(0);
+        expect(await q("SELECT id FROM ycloud_campanhas")).toHaveLength(0);
+      }
+    });
+  }
+});
+
+describe("C7.1 — colaborador com WhatsApp disparando", () => {
+  const colab = () => chamador({ role: "colaborador", id: 2, permissoes: ["whatsapp"] });
+  beforeEach(async () => { await pg.exec(`INSERT INTO users ("openId", name, role, active) VALUES ('col', 'Colab', 'colaborador', true);`); });
+
+  it("dispara de ponta a ponta; auditoria registra quem (id e papel); o painel mostra 'disparada por'; nada de chave/segredo", async () => {
+    await configurarTudo();
+    const respostas: unknown[] = [];
+    const pr = await colab().whatsappOficial.prontidao();
+    expect(pr).toMatchObject({ pronta: true, motivo: null, ligado: true, numeroConfere: true, restanteHoje: 200 }); // menor entre o tier (250) e o teto do dia (200)
+    expect(Object.keys(pr).sort()).toEqual(["janelaRepeticaoDias", "ligado", "motivo", "numeroConfere", "pronta", "restanteHoje", "tetoCampanha"]);
+    respostas.push(pr, await colab().whatsappOficial.modelos());
+    const p = await colab().whatsappOficial.previa(entrada([1, 2]));
+    respostas.push(p);
+    const c = await colab().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao });
+    respostas.push(c);
+    // idempotência vale para ele: a mesma confirmação não cria outra campanha
+    expect(await colab().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao })).toMatchObject({ campanhaId: c.campanhaId, repetida: true });
+    respostas.push(await colab().whatsappOficial.enviarLote({ campanhaId: c.campanhaId }));
+    expect(envioCalls()).toHaveLength(2);
+    const painel = await colab().whatsappOficial.campanhas();
+    respostas.push(painel, await colab().whatsappOficial.detalheCampanha({ campanhaId: c.campanhaId }));
+    expect(painel[0]).toMatchObject({ status: "concluida", disparadaPor: { nome: "Colab", papel: "colaborador" } });
+    const aud = await q<{ acao: string; usuario_id: number; detalhe: string | null }>("SELECT acao, usuario_id, detalhe FROM ycloud_auditoria WHERE acao IN ('campanha_criada', 'campanha_concluida') ORDER BY id");
+    expect(aud).toEqual([
+      { acao: "campanha_criada", usuario_id: 2, detalhe: "papel=colaborador" },
+      { acao: "campanha_concluida", usuario_id: 2, detalhe: "papel=colaborador" },
+    ]);
+    // auditoria completa (só admin) mostra nome e papel
+    const lista = await admin().whatsappOficial.auditoria();
+    expect(lista.find(a => a.acao === "campanha_criada")).toMatchObject({ usuarioId: 2, usuarioNome: "Colab", papel: "colaborador", detalhe: null });
+    expect(lista.find(a => a.acao === "chave_salva")).toMatchObject({ usuarioId: 1, papel: "admin" });
+    const saida = JSON.stringify(respostas);
+    for (const proibido of [CHAVE, SEGREDO, CHAVE.slice(-4), SEGREDO.slice(-4), `+${EMPRESA}`, EMPRESA, "98888-1111", "5599988881111"]) expect(saida).not.toContain(proibido);
+    expect(saida).not.toMatch(/"final"|terminando em/);
+  });
+
+  it("interruptor desligado e número divergente: a mesma recusa clara do admin; nada sai", async () => {
+    await configurarTudo({ ligar: false });
+    await expect(colab().whatsappOficial.prontidao()).resolves.toMatchObject({ pronta: false, motivo: "Os disparos pela API oficial estão desligados pelo administrador." });
+    await expect(colab().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/DESLIGADOS pelo administrador/);
+    await expect(admin().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/DESLIGADOS pelo administrador/);
+    await admin().whatsappOficial.salvarConfig({ ligado: true });
+    numeroDaApi = "+5599900002222";
+    await expect(colab().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/NÃO é o número da empresa/);
+    await expect(colab().whatsappOficial.prontidao()).resolves.toMatchObject({ pronta: false, numeroConfere: false });
+    expect(envioCalls()).toHaveLength(0);
+  });
+
+  it("tetos, janela de repetição, opt-out e contagem valem para ele (e ele não muda os tetos)", async () => {
+    await configurarTudo();
+    await admin().whatsappOficial.salvarConfig({ tetoDia: 2 });
+    await expect(colab().whatsappOficial.salvarConfig({ tetoDia: 1000 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const p = await colab().whatsappOficial.previa(entrada([1, 2, 3]));
+    expect(p.contagem).toMatchObject({ aEnviar: 2, acimaDoLimite: 1 });
+    await expect(colab().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 3, chaveConfirmacao: p.chaveConfirmacao })).rejects.toThrow(/contagem mudou/);
+    const { campanhaId } = await colab().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 2, chaveConfirmacao: p.chaveConfirmacao });
+    await colab().whatsappOficial.enviarLote({ campanhaId });
+    expect((await colab().whatsappOficial.prontidao())).toMatchObject({ pronta: false, restanteHoje: 0 });
+    await admin().whatsappOficial.salvarConfig({ tetoDia: 1000 });
+    // janela de repetição: quem já recebeu este modelo não recebe de novo
+    expect((await colab().whatsappOficial.previa(entrada([1]))).contagem).toMatchObject({ aEnviar: 0, jaRecebeu: 1 });
+    // "não enviar mais" registrado por ele vale para todos
+    await colab().whatsappOficial.registrarOptout({ leadId: 3 });
+    expect((await admin().whatsappOficial.previa(entrada([3]))).contagem).toMatchObject({ aEnviar: 0, optout: 1 });
+    const [o] = await q<{ registrado_por: number }>("SELECT registrado_por FROM ycloud_optout");
+    expect(o.registrado_por).toBe(2);
+    expect(await q("SELECT detalhe FROM ycloud_auditoria WHERE acao = 'optout_registrado'")).toEqual([{ detalhe: "papel=colaborador" }]);
+  });
+
+  it("pausar, continuar e cancelar: ele pode; o motivo e a auditoria dizem quem", async () => {
+    await configurarTudo();
+    const p = await colab().whatsappOficial.previa(entrada([1, 2]));
+    const { campanhaId } = await colab().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: 2, chaveConfirmacao: p.chaveConfirmacao });
+    await colab().whatsappOficial.mudarCampanha({ campanhaId, acao: "pausar" });
+    expect((await colab().whatsappOficial.campanhas())[0]).toMatchObject({ status: "pausada", motivoPausa: "Pausada pela equipe (colaborador)." });
+    await colab().whatsappOficial.mudarCampanha({ campanhaId, acao: "continuar" });
+    await colab().whatsappOficial.mudarCampanha({ campanhaId, acao: "cancelar" });
+    expect((await colab().whatsappOficial.campanhas())[0].status).toBe("cancelada");
+    expect(envioCalls()).toHaveLength(0);
+    const aud = await q<{ acao: string; detalhe: string }>("SELECT acao, detalhe FROM ycloud_auditoria WHERE acao LIKE 'campanha_%' ORDER BY id");
+    expect(aud.map(a => `${a.acao}:${a.detalhe}`)).toEqual([
+      "campanha_criada:papel=colaborador", "campanha_pausar:papel=colaborador", "campanha_continuar:papel=colaborador", "campanha_cancelar:papel=colaborador",
+    ]);
   });
 });
