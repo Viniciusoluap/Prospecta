@@ -3,7 +3,7 @@
 // os colaboradores que tiverem esse campo selecionado lá na hora do cadastro dele"; quais grupos: "Todos"; intervir: "Pode
 // escrever, exatamente igual faz na conversa".
 // Regras fixas deste arquivo:
-// - Quem: admin ativo; colaborador ativo com o módulo WhatsApp E a permissão "Grupos do WhatsApp" (`podeVerGruposNaCentral`),
+// - Quem: admin ativo; colaborador ativo com o módulo WhatsApp (`podeVerGruposNaCentral`; decisão do dono de 21/11: sem permissão separada),
 //   conferido no SERVIDOR em TODA rota (procedimento próprio, fora do `adminProcedure`, que só confere módulo e deixa o corretor
 //   entrar no router "whatsapp"). Corretor, cliente, empreiteiro, inativo e anônimo: nada.
 // - Quais: os grupos da instância da EMPRESA em dolores_grupos, ativos. Recusado nunca aparece (nem por id). "Aguardando o dono"
@@ -39,11 +39,11 @@ import { sanitizarTexto } from "../shared/dolores/sanitizar.js";
 import { reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
 import { conexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
 
-export const SEM_PERMISSAO_GRUPOS = "Sem permissão para ver os grupos do WhatsApp (peça ao administrador a permissão \"Grupos do WhatsApp\").";
+export const SEM_PERMISSAO_GRUPOS = "Sem permissão para ver os grupos do WhatsApp (peça ao administrador o módulo WhatsApp).";
 export const MENSAGEM_SAIU_SEM_REGISTRO = "A mensagem saiu para o grupo, mas o registro no sistema falhou: ela pode não aparecer aqui. Quem enviou ficou anotado na auditoria.";
 export const GRUPO_NAO_ENCONTRADO = "Grupo não encontrado na Central.";
 
-/** Toda rota daqui: usuário logado E `podeVerGruposNaCentral` (papel + módulo WhatsApp + permissão "Grupos do WhatsApp"). */
+/** Toda rota daqui: usuário logado E `podeVerGruposNaCentral` (papel + módulo WhatsApp). */
 const gruposProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!podeVerGruposNaCentral(ctx.user)) throw new TRPCError({ code: "FORBIDDEN", message: SEM_PERMISSAO_GRUPOS });
   return next();

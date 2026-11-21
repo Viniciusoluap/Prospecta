@@ -184,7 +184,7 @@ function AtendimentoDaConversa({ numero }: { numero: string }) {
 }
 
 /**
- * EPIC-027 C2: "Conversas | Grupos". A aba Grupos só aparece para o admin e o colaborador com a permissão "Grupos do WhatsApp" (o
+ * EPIC-027 C2: "Conversas | Grupos". A aba Grupos só aparece para o admin e o colaborador com o módulo WhatsApp (o
  * servidor confere de novo em toda rota de grupo). As conversas diretas continuam como antes (grupo nunca entra nelas).
  */
 export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | null }) {

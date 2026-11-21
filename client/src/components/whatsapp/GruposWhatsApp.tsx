@@ -1,5 +1,5 @@
 // EPIC-027 C2 — grupos do WhatsApp na Central (aba Conversas › Grupos). Decisão do dono de 20/11/2026 (noite): veem o admin e o
-// colaborador com a permissão "Grupos do WhatsApp"; aparecem todos os grupos; dá para escrever "exatamente igual faz na conversa".
+// colaborador com o módulo WhatsApp (21/11: sem permissão separada); aparecem todos os grupos; dá para escrever "exatamente igual faz na conversa".
 // O servidor confere tudo de novo (rotas whatsappGrupos.*); classificar usa a rota da Dolores (dolores.grupos.definirTipo, EPIC-027 C3).
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ type TipoDaTela = (typeof CATEGORIAS_GRUPO)[number]["tipo"];
 type GrupoDaLista = { id: number; nome: string; tipo: TipoGrupo; leadId: number | null; obraId: number | null; semProvaDoDono: boolean };
 
 /**
- * "Definir tipo" dentro da Central — SÓ para o administrador (regra do dono de 21/11/2026: o colaborador com "Grupos do WhatsApp"
+ * "Definir tipo" dentro da Central — SÓ para o administrador (regra do dono de 21/11/2026: o colaborador com o módulo WhatsApp
  * vê e escreve, mas não classifica). A mesma lista de categorias e a mesma rota do cartão da Dolores em Integrações; o servidor
  * confere de novo (só admin) e o dono recebe aviso no WhatsApp.
  */

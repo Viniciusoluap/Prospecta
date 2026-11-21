@@ -1,4 +1,4 @@
-// EPIC-027 C2 — grupos do WhatsApp na Central: permissão própria por colaborador ("Grupos do WhatsApp", desmarcada por padrão),
+// EPIC-027 C2 — grupos do WhatsApp na Central: vê quem tem o módulo WhatsApp (admin e colaborador; decisão do dono de 21/11, sem permissão separada),
 // conferida no SERVIDOR em todas as rotas (appRouter); recusado nunca aparece; "aguardando o dono" só para o admin; a conversa do
 // dono nunca aparece; escrever no grupo registra quem enviou e respeita os tetos; o envio pela Central não é comando, não marca a
 // Dolores e o eco não duplica; "Assumir (humano)" cala a Dolores no grupo; classificar pela Central segue as travas do C3.
@@ -10,7 +10,7 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => null) }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
-import { ADMIN_MODULES, ADMIN_MODULE_LABELS, AVISO_PERMISSAO_GRUPOS_WHATSAPP, parsePermissions } from "../../shared/admin-permissions.js";
+import { ADMIN_MODULES, ADMIN_MODULE_LABELS, NOTA_DO_MODULO, parsePermissions } from "../../shared/admin-permissions.js";
 import { podeVerGruposNaCentral, textoDaMensagemDeGrupo } from "../../shared/whatsapp/grupos-central.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
@@ -43,8 +43,8 @@ const caller = (p: Papel | null) => appRouter.createCaller({
   user: p ? { id: p.id ?? 1, role: p.role, active: p.ativo ?? true, permissions: JSON.stringify(p.permissoes ?? []) } : null, req: {}, res: {},
 } as never);
 const ADMIN: Papel = { role: "admin", id: 1 };
-const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp", "whatsappGrupos"] };
-const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["crm", "obras", "agenda"] }; // sem o módulo WhatsApp
 
 let seq = 0;
 const quando = (s = 20) => Math.floor((AGORA.getTime() - s * 1000) / 1000);
@@ -112,30 +112,32 @@ const ROTAS = {
   mudarAtendimento: (c: ReturnType<typeof caller>) => c.whatsappGrupos.mudarAtendimento({ grupoId: 1, acao: "assumir" }),
 };
 
-describe("C2 — permissão 'Grupos do WhatsApp' (cadastro e servidor)", () => {
-  it("é um campo do cadastro (mesmo mecanismo dos módulos), desmarcado por padrão, com o aviso de que vê TODOS os grupos", () => {
-    expect(ADMIN_MODULES).toContain("whatsappGrupos");
-    expect(ADMIN_MODULE_LABELS.whatsappGrupos).toBe("Grupos do WhatsApp");
-    expect(parsePermissions(JSON.stringify(["whatsapp"]))).not.toContain("whatsappGrupos");
-    expect(AVISO_PERMISSAO_GRUPOS_WHATSAPP).toMatch(/TODOS os grupos.*sócios.*jurídico/);
+describe("C2 — quem vê os grupos: o módulo WhatsApp (decisão do dono de 21/11: sem permissão separada)", () => {
+  it("não há permissão 'Grupos do WhatsApp'; o cadastro mostra, ao lado do módulo WhatsApp, que ele inclui TODOS os grupos", () => {
+    expect(ADMIN_MODULES as readonly string[]).not.toContain("whatsappGrupos");
+    expect(parsePermissions(JSON.stringify(["whatsapp", "whatsappGrupos"]))).toEqual(["whatsapp"]);
+    expect(NOTA_DO_MODULO.whatsapp).toBe("inclui os grupos do WhatsApp da empresa (todos, inclusive o dos sócios e o jurídico)");
+    expect(ADMIN_MODULE_LABELS.whatsapp).toBe("WhatsApp");
     const tela = readFileSync(new URL("../../client/src/pages/admin/AdminConfiguracoes.tsx", import.meta.url), "utf8");
-    expect(tela.match(/AVISO_PERMISSAO_GRUPOS_WHATSAPP/g)?.length).toBe(3); // import + novo usuário + gerenciar acesso
+    expect(tela.match(/NOTA_DO_MODULO\[/g)?.length).toBe(4); // novo usuário + gerenciar acesso (condição e texto em cada)
+    expect(tela).not.toMatch(/AVISO_PERMISSAO_GRUPOS_WHATSAPP|whatsappGrupos/);
   });
 
-  it("regra pura: admin ativo sempre; colaborador só com WhatsApp E a permissão; corretor, cliente, inativo e anônimo nunca", () => {
+  it("regra pura: admin ativo sempre; colaborador ativo com o módulo WhatsApp; sem o módulo, corretor, cliente, inativo e anônimo nunca", () => {
     expect(podeVerGruposNaCentral({ role: "admin", permissions: "[]" })).toBe(true);
     expect(podeVerGruposNaCentral({ role: "admin", active: false })).toBe(false);
-    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(["whatsapp", "whatsappGrupos"]) })).toBe(true);
-    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(["whatsapp"]) })).toBe(false);
-    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(["whatsappGrupos"]) })).toBe(false);
+    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(["whatsapp"]) })).toBe(true);
+    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(["whatsapp"]), active: false })).toBe(false);
+    expect(podeVerGruposNaCentral({ role: "colaborador", permissions: JSON.stringify(ADMIN_MODULES.filter(m => m !== "whatsapp")) })).toBe(false);
     expect(podeVerGruposNaCentral({ role: "corretor", permissions: JSON.stringify([...ADMIN_MODULES]) })).toBe(false);
+    expect(podeVerGruposNaCentral({ role: "cliente", permissions: JSON.stringify([...ADMIN_MODULES]) })).toBe(false);
     expect(podeVerGruposNaCentral(null)).toBe(false);
   });
 
-  it("appRouter: TODAS as rotas novas — admin e colaborador com a permissão passam; os demais são barrados", async () => {
+  it("appRouter: TODAS as rotas novas — admin e colaborador com o módulo WhatsApp passam; os demais são barrados", async () => {
     const barrados: Array<[Papel | null, string]> = [
-      [COLAB_SEM, "FORBIDDEN"], [{ role: "colaborador", id: 2, permissoes: ["whatsappGrupos"] }, "FORBIDDEN"],
-      [{ role: "colaborador", id: 2, permissoes: ADMIN_MODULES.filter(m => m !== "whatsappGrupos") }, "FORBIDDEN"],
+      [COLAB_SEM, "FORBIDDEN"], [{ role: "colaborador", id: 2, permissoes: [] }, "FORBIDDEN"],
+      [{ role: "colaborador", id: 2, permissoes: ADMIN_MODULES.filter(m => m !== "whatsapp") }, "FORBIDDEN"],
       [{ role: "colaborador", id: 2, permissoes: [...ADMIN_MODULES], ativo: false }, "FORBIDDEN"],
       [{ role: "corretor", id: 3, permissoes: [...ADMIN_MODULES] }, "FORBIDDEN"], [{ role: "cliente", permissoes: [...ADMIN_MODULES] }, "FORBIDDEN"],
       [{ role: "empreiteiro", permissoes: [...ADMIN_MODULES] }, "FORBIDDEN"], [{ role: "user" }, "FORBIDDEN"], [{ role: "admin", ativo: false }, "FORBIDDEN"],
@@ -223,7 +225,7 @@ describe("C2 — lista e leitura", () => {
       const grupo = JSON.stringify(await caller(p).whatsappGrupos.mensagens({ grupoId: 1 }));
       for (const s of [lista, grupo]) { expect(s).not.toMatch(/relatório|Relatório/); expect(s).not.toContain(DONO); }
     }
-    for (const p of [ADMIN, COLAB_COM, COLAB_SEM]) {
+    for (const p of [ADMIN, COLAB_COM]) {
       const conversas = JSON.stringify(await caller(p).whatsapp.conversas());
       expect(conversas).not.toContain("mensagem no grupo da Maria");
       expect(conversas).not.toContain("@g.us");

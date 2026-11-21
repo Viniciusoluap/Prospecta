@@ -40,8 +40,8 @@ const caller = (p: Papel | null) => appRouter.createCaller({
   user: p ? { id: p.id ?? 1, role: p.role, active: p.ativo ?? true, permissions: JSON.stringify(p.permissoes ?? []) } : null, req: {}, res: {},
 } as never);
 const ADMIN: Papel = { role: "admin", id: 1 };
-const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp", "whatsappGrupos"] };
-const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["crm", "obras", "agenda"] }; // sem o módulo WhatsApp
 
 let seq = 0;
 const quando = (s = 20) => Math.floor((AGORA.getTime() - s * 1000) / 1000);
@@ -104,7 +104,7 @@ const msgDe = async (p: Promise<unknown>) => { try { await p; return "ok"; } cat
 describe("QA-SEG C2 — achado 1 (IMPORTANTE, regra do dono de 21/11: colaborador NUNCA classifica) — CORRIGIDO", () => {
   it("CORRIGIDO: colaborador (com ou sem a permissão) recebe a MESMA recusa genérica em definirTipo, em qualquer grupo; sem nome, sem código", async () => {
     const respostas = new Set<string>();
-    for (const p of [COLAB_SEM, COLAB_COM, { role: "colaborador", id: 2, permissoes: ["whatsapp", "whatsappGrupos", "crm", "obras"] }]) {
+    for (const p of [COLAB_SEM, COLAB_COM, { role: "colaborador", id: 2, permissoes: ["whatsapp", "crm", "obras"] }]) {
       for (const id of [1, 6, 8, 9, 10, 11, 9999]) {
         for (const tipo of ["cliente", "engenharia", "juridico", "ignorar", "aceitar"] as const) {
           respostas.add(await msgDe(caller(p).dolores.grupos.definirTipo({ grupoId: id, tipo, numero: tipo === "cliente" ? 1 : null })));
@@ -136,11 +136,11 @@ describe("QA-SEG C2 — permissões e oráculo das rotas novas", () => {
     c.whatsappGrupos.listar(), c.whatsappGrupos.mensagens({ grupoId: 1 }), c.whatsappGrupos.enviar({ grupoId: 1, texto: "x" }),
     c.whatsappGrupos.atendimento({ grupoId: 1 }), c.whatsappGrupos.mudarAtendimento({ grupoId: 1, acao: "assumir" }),
   ];
-  it("engenheiro, empreiteiro, corretor (mesmo com as permissões no JSON), cliente, inativo e só 'whatsappGrupos' sem 'whatsapp': barrados", async () => {
-    const todas = ["whatsapp", "whatsappGrupos"];
+  it("engenheiro, empreiteiro, corretor (mesmo com o módulo no JSON), cliente, inativo e colaborador sem o módulo WhatsApp: barrados", async () => {
+    const todas = ["whatsapp"];
     const papeis: (Papel | null)[] = [
       { role: "corretor", permissoes: todas, id: 3 }, { role: "cliente", permissoes: todas, id: 3 }, { role: "empreiteiro", permissoes: todas, id: 3 },
-      { role: "engenheiro", permissoes: todas, id: 3 }, { role: "colaborador", permissoes: ["whatsappGrupos"], id: 2 },
+      { role: "engenheiro", permissoes: todas, id: 3 }, { role: "colaborador", permissoes: ["crm", "obras"], id: 2 },
       { role: "colaborador", permissoes: todas, id: 2, ativo: false }, { role: "admin", id: 1, ativo: false }, null,
     ];
     for (const p of papeis) for (const r of await Promise.allSettled(rotas(caller(p)))) {

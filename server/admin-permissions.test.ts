@@ -11,10 +11,10 @@ describe("Permissões administrativas", () => {
     expect(parsePermissions("não-json")).toEqual([]);
   });
 
-  it("são os módulos do pedido de 17/10/2026, na ordem do painel, mais a Maquete 3D (EPIC-022), sem Corretores (EPIC-023, 15/11/2026) e com Grupos do WhatsApp (EPIC-027 C2)", () => {
+  it("são os módulos do pedido de 17/10/2026, na ordem do painel, mais a Maquete 3D (EPIC-022) e sem Corretores (EPIC-023, 15/11/2026); os grupos do WhatsApp vêm com o módulo WhatsApp (EPIC-027 C2)", () => {
     expect([...ADMIN_MODULES]).toEqual([
       "crm", "obras", "agenda", "regularizacao", "comissoes", "projetos", "mapa",
-      "avaliacoes", "imoveis", "incorporacao", "whatsapp", "whatsappGrupos", "bpo", "financiamentos", "juridico", "maquete3d", "sorteios",
+      "avaliacoes", "imoveis", "incorporacao", "whatsapp", "bpo", "financiamentos", "juridico", "maquete3d", "sorteios",
     ]);
     expect(ADMIN_MODULE_LABELS.sorteios).toBe("Ecossistema de Sorteio");
   });

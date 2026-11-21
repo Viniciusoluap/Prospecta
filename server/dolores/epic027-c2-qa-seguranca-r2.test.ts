@@ -39,8 +39,8 @@ const caller = (p: Papel | null) => appRouter.createCaller({
   user: p ? { id: p.id ?? 1, role: p.role, active: p.ativo ?? true, permissions: JSON.stringify(p.permissoes ?? []) } : null, req: {}, res: {},
 } as never);
 const ADMIN: Papel = { role: "admin", id: 1 };
-const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp", "whatsappGrupos"] };
-const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_COM: Papel = { role: "colaborador", id: 2, permissoes: ["whatsapp"] };
+const COLAB_SEM: Papel = { role: "colaborador", id: 2, permissoes: ["crm", "obras", "agenda"] }; // sem o módulo WhatsApp
 
 let seq = 0;
 const quando = (s = 20) => Math.floor((AGORA.getTime() - s * 1000) / 1000);
@@ -100,7 +100,7 @@ afterEach(() => {
 
 const msgDe = async (p: Promise<unknown>) => { try { await p; return "ok"; } catch (e: any) { return `${e.code}|${e.message}`; } };
 
-import { autorDoParticipante, nomeImitaQuemNaoE } from "../../shared/whatsapp/grupos-central.js";
+import { NOMES_DA_EMPRESA, autorDoParticipante, nomeImitaQuemNaoE } from "../../shared/whatsapp/grupos-central.js";
 import { nomeDoRemetenteParaGravar } from "./grupos.js";
 import { MIGRACAO_0142, MIGRACAO_0144 } from "./testes-banco.js";
 import { grupoAssumidoPelaEquipe } from "./grupo-assumido.js";
@@ -114,7 +114,7 @@ describe("QA-SEG C2 r2 — nome que imita (contornos)", () => {
   it("CORRIGIDO (B1): homógrafo cirílico/grego, letras espaçadas ou com pontos, largura zero, nomes da empresa e nome de usuário da equipe são marcados", () => {
     const EQUIPE = ["Vinícius Admin", "Bianca Souza"];
     for (const n of ["Dоlores", "Dοlores", "D o l o r e s", "D.o.l.o.r.e.s", "D-o_l*o r e s", "Do​lores", "Ｄｏｌｏｒｅｓ", "Fulano, da equipe",
-      "Central Efficaz", "Eficaz Atendimento", "VFX Capital", "P r o s p e c t a"]) {
+      "Central Efficaz", "Eficaz Atendimento", "VFX Capital", "P r o s p e c t a", "Exclusive", "Exclusive Imóveis", "E.x.c.l.u.s.i.v.e"]) {
       expect(nomeImitaQuemNaoE(nomeDoRemetenteParaGravar(n), EQUIPE), n).toBe(true);
     }
     expect(autorDoParticipante({ nome: nomeDoRemetenteParaGravar("Bianca Souza"), remetente: null, doDono: false }, EQUIPE)).toBe("Bianca Souza (participante)");
@@ -122,6 +122,12 @@ describe("QA-SEG C2 r2 — nome que imita (contornos)", () => {
     // nomes comuns continuam como estão (igualdade com o usuário, não "contém": "Ana" não marca "Ana Paula")
     for (const n of ["Maria Silva", "Bianca", "Dolorosa Lima", "Ana"]) expect(exibido(n), n).toBe(n);
     expect(autorDoParticipante({ nome: "Ana Paula", remetente: null, doDono: false }, ["Ana"])).toBe("Ana Paula");
+  });
+
+  it("lista confirmada pelo dono em 21/11: os 6 nomes da empresa, sem 'a confirmar'", () => {
+    expect([...NOMES_DA_EMPRESA]).toEqual(["Prospecta", "Central Efficaz", "Efficaz", "Eficaz", "VFX Capital", "Exclusive"]);
+    expect(readFileSync(new URL("../../shared/whatsapp/grupos-central.ts", import.meta.url), "utf8")).not.toMatch(/a confirmar/);
+    expect(exibido("Exclusive")).toBe("Exclusive (participante)");
   });
 
   it("B1: tempo linear — 10 mil nomes patológicos de 400 caracteres em menos de 2 s", () => {

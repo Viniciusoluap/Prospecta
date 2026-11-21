@@ -2,12 +2,10 @@
 // do Painel Administrativo, na mesma ordem, + o Ecossistema de Sorteio. "API
 // Contas" (integração bancária) e "Usuários e Acessos" ficam só com o admin.
 // "Corretores" deixou de ser módulo em 15/11/2026 (EPIC-023): o cadastro foi para "Usuários e Acessos" (só admin).
-// EPIC-027 C2 (decisão do dono de 20/11/2026, noite): "Grupos do WhatsApp" é uma FUNÇÃO dentro da Central WhatsApp — o colaborador
-// só vê os grupos na Central com ela marcada (e com o módulo WhatsApp); nasce desmarcada; admin sempre vê; corretor nunca.
 // Mesma lista (sem o sorteio e sem a Maquete 3D, exclusivos do Prospecta) em Grupo-Santa-Fe/web/src/lib/modulos.ts.
 export const ADMIN_MODULES = [
   "crm", "obras", "agenda", "regularizacao", "comissoes", "projetos",
-  "mapa", "avaliacoes", "imoveis", "incorporacao", "whatsapp", "whatsappGrupos", "bpo",
+  "mapa", "avaliacoes", "imoveis", "incorporacao", "whatsapp", "bpo",
   "financiamentos", "juridico", "maquete3d", "sorteios",
 ] as const;
 
@@ -25,7 +23,6 @@ export const ADMIN_MODULE_LABELS: Record<AdminModule, string> = {
   imoveis: "Imóveis",
   incorporacao: "Incorporação",
   whatsapp: "WhatsApp",
-  whatsappGrupos: "Grupos do WhatsApp",
   bpo: "BPO Financeiro",
   financiamentos: "Financiamentos",
   juridico: "Jurídico",
@@ -62,8 +59,9 @@ export function parsePermissions(value: string | null | undefined): AdminModule[
 }
 
 /**
- * EPIC-027 C2 — o aviso que aparece no cadastro do usuário junto da permissão "Grupos do WhatsApp" (decisão do dono: "Todos" os
- * grupos para quem tem o campo marcado).
+ * EPIC-027 C2 (decisão do dono de 21/11/2026: "quem já tem 'WhatsApp' marcado deve ver os grupos direto") — nota curta que o cadastro
+ * do usuário mostra ao lado do módulo. Não há permissão separada para os grupos.
  */
-export const AVISO_PERMISSAO_GRUPOS_WHATSAPP =
-  "Grupos do WhatsApp: quem tiver esta permissão vê TODOS os grupos da empresa na Central WhatsApp, inclusive o dos sócios (administrativo) e o jurídico, e pode escrever neles. Precisa também do módulo WhatsApp.";
+export const NOTA_DO_MODULO: Partial<Record<AdminModule, string>> = {
+  whatsapp: "inclui os grupos do WhatsApp da empresa (todos, inclusive o dos sócios e o jurídico)",
+};

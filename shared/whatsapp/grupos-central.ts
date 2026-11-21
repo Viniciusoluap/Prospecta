@@ -7,15 +7,16 @@ import { parsePermissions } from "../admin-permissions.js";
 export type UsuarioDosGrupos = { role: string; permissions?: string | null; active?: boolean | null };
 
 /**
- * Quem vê os grupos na Central: admin ativo, sempre; colaborador ativo com o módulo WhatsApp E a permissão "Grupos do WhatsApp"
- * marcada no cadastro; mais ninguém (corretor, cliente, empreiteiro, inativo, anônimo).
+ * Quem vê os grupos na Central: admin ativo, sempre; colaborador ativo com o módulo WhatsApp (decisão do dono de 21/11/2026: "quem já
+ * tem 'WhatsApp' marcado deve ver os grupos direto" — sem permissão separada); mais ninguém (corretor, que entra em whatsapp.* só pela
+ * conexão própria, cliente, empreiteiro, inativo, anônimo).
  */
 export function podeVerGruposNaCentral(u: UsuarioDosGrupos | null | undefined): boolean {
   if (!u || u.active === false) return false;
   if (u.role === "admin") return true;
   if (u.role !== "colaborador") return false;
   const p = parsePermissions(u.permissions);
-  return p.includes("whatsapp") && p.includes("whatsappGrupos");
+  return p.includes("whatsapp");
 }
 
 /** Situações de grupo que a Central mostra. Recusado nunca; "aguardando o dono" só ao admin (marcado). */
@@ -43,15 +44,9 @@ export function textoDaMensagemDeGrupo(m: { tipo: string; texto: string | null; 
 
 /**
  * Nomes "da empresa": participante cujo nome contenha um destes é marcado "(participante)". Lista única, fácil de editar.
- * Provisória: o dono ainda vai confirmar quais nomes a empresa usa (portão de QA da C2, rodada 2).
+ * Confirmada pelo dono em 21/11/2026 (com "Exclusive" acrescentado por ele).
  */
-export const NOMES_DA_EMPRESA: readonly string[] = [
-  "Prospecta",
-  "Central Efficaz", // a confirmar pelo dono
-  "Efficaz",         // a confirmar pelo dono
-  "Eficaz",          // a confirmar pelo dono
-  "VFX Capital",     // a confirmar pelo dono (conta da YCloud)
-];
+export const NOMES_DA_EMPRESA: readonly string[] = ["Prospecta", "Central Efficaz", "Efficaz", "Eficaz", "VFX Capital", "Exclusive"];
 /** Nomes que só a própria Dolores e a equipe usam na conversa do grupo. */
 const NOMES_RESERVADOS = ["dolores", "equipe"] as const;
 

@@ -191,7 +191,7 @@ export const appRouter = router({
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
   whatsapp: whatsappRouter,
-  // EPIC-027 C2: grupos do WhatsApp na Central — admin e colaborador com "Grupos do WhatsApp" (papel e permissão conferidos no router)
+  // EPIC-027 C2: grupos do WhatsApp na Central — admin e colaborador com o módulo WhatsApp (papel e módulo conferidos no router; o corretor nunca)
   whatsappGrupos: whatsappGruposRouter,
   centralVendas: centralVendasRouter,
   maquete3d: maquete3dRouter,

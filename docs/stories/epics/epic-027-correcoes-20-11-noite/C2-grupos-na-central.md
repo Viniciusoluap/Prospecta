@@ -155,4 +155,13 @@ exatamente igual faz na conversa".
 - B3 — documentado, sem mudança de código (decisão do portão): ressalva baixa mantida como risco aceito. `grupoAssumidoPelaEquipe`
   só libera com "tabela inexistente" (42P01); coluna faltando, permissão negada ou qualquer outro erro continuam calando a Dolores no
   grupo (falha fechada, provada em `epic027-c2-qa-seguranca-r2.test.ts`).
-- Ajuste dos nomes da empresa: pendência do dono (confirmar a lista em `shared/whatsapp/grupos-central.ts`).
+- Nomes da empresa confirmados pelo dono em 21/11: "Prospecta", "Central Efficaz", "Efficaz", "Eficaz", "VFX Capital" e "Exclusive" (acrescentado por ele).
+
+## Decisão do dono de 21/11 — sem permissão separada para os grupos
+"quem já tem 'WhatsApp' marcado deve ver os grupos direto": a permissão `whatsappGrupos` ("Grupos do WhatsApp") foi REMOVIDA. Veem,
+escrevem e usam Assumir/Devolver nos grupos: admin ativo e colaborador ativo com o módulo **WhatsApp** (o mesmo das conversas); vê TODOS
+os grupos. Classificar continua só do admin. Corretor, cliente, empreiteiro, inativo e anônimo continuam barrados no router próprio
+`whatsappGrupos.*` (o corretor entra em `whatsapp.*` só pela conexão própria). O cadastro mostra, ao lado do módulo WhatsApp: "inclui os
+grupos do WhatsApp da empresa (todos, inclusive o dos sócios e o jurídico)" (`NOTA_DO_MODULO`). Isto substitui o AC1/AC2 e as
+decisões sobre a permissão acima. Observação: o "engenheiro" do sistema é um colaborador com perfil de engenheiro; com o módulo
+WhatsApp marcado, ele vê os grupos como qualquer colaborador (só um papel "engenheiro" que não é colaborador fica barrado).
