@@ -122,7 +122,7 @@ Provas `QA-R2-1` e `QA-R2-2` em `server/maquete-3d-lote-qa.test.ts` (commit do Q
 ## Testes
 (a) Automáticos — `npx vitest run server/maquete-3d*.test.ts server/integracoes-anthropic.test.ts --maxWorkers=2 --minWorkers=1`
 e `npx tsc --noEmit` (20/11/2026): **tsc sem erros; 11 arquivos, 286 testes, todos passando** (16 novos). Depois das correções do portão de QA (21/11): **tsc sem erros; 12
-arquivos, 299 testes, todos passando** (com `server/maquete-3d-lote-qa.test.ts`). Rodada 2: ver o commit da correção. Novos em `server/maquete-3d-lote.test.ts`:
+arquivos, 299 testes, todos passando** (com `server/maquete-3d-lote-qa.test.ts`). Rodada 2: **tsc sem erros; 12 arquivos, 301 testes, todos passando**. Novos em `server/maquete-3d-lote.test.ts`:
 envio → consultas → sucesso com tokens reais; parâmetros no lote (modelo, esforço, esquema, `maxRetries: 0`);
 expired/errored/canceled devolvem; cortada conta e guarda tokens; cancelar; duas abas (1 lote, 1 gravação); retomada depois
 de "recarregar" 3 h depois; falha de consulta e chave revogada (sem vazar a chave); importação com cancelamento; página
