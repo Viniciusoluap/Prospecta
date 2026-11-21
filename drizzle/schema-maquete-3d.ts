@@ -1,6 +1,6 @@
 // 14/11/2026 — Maquete 3D (migração 0111_maquete_3d.sql, EPIC-022). Arquivo separado de schema.ts para não
 // colidir com outras frentes; as chaves estrangeiras e os CHECKs existem no SQL da migração.
-import { customType, decimal, integer, pgTable, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, customType, decimal, integer, pgTable, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
@@ -46,6 +46,12 @@ export const maquetes3d = pgTable("maquetes_3d", {
   publicadoEm: timestamp("publicado_em"),
   recusaMotivo: varchar("recusa_motivo", { length: 400 }),
   solicitadoPor: integer("solicitado_por"),
+  /** Arquivo 3D pronto (0146, EPIC-028); vazio por enquanto. */
+  glbUrl: text("glb_url"),
+  /** Versão dos itens que o cliente vê (maquete_3d_itens.versao); null = ainda não publicada (0146). */
+  itensVersaoPublicada: integer("itens_versao_publicada"),
+  /** Maquete nascida do JSON-fonte do repositório data/plantas/<fonte_slug>.json (origem 'fonte', 0146). */
+  fonteSlug: varchar("fonte_slug", { length: 80 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"),
@@ -75,4 +81,37 @@ export const maquete3dRevisoes = pgTable("maquete_3d_revisoes", {
   documento: text("documento"),
   autorId: integer("autor_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Itens editáveis da maquete, versionados (0146_maquete_3d_itens_e_lotes.sql, EPIC-028): imutáveis depois de gravados
+ *  (gatilho); só a situação anda (rascunho → publicada/arquivada, publicada → arquivada). */
+export const maquete3dItens = pgTable("maquete_3d_itens", {
+  id: serial("id").primaryKey(),
+  maqueteId: integer("maquete_id").notNull(),
+  versao: integer("versao").notNull(),
+  itens: text("itens").notNull(),
+  quantidade: integer("quantidade").notNull(),
+  modeloVersao: integer("modelo_versao").notNull(),
+  estruturaHash: varchar("estrutura_hash", { length: 64 }).notNull(),
+  situacao: varchar("situacao", { length: 20 }).notNull(),
+  origem: varchar("origem", { length: 20 }).default("rascunho").notNull(),
+  motivo: varchar("motivo", { length: 400 }),
+  autorId: integer("autor_id"),
+  publicadaEm: timestamp("publicada_em"),
+  publicadaPor: integer("publicada_por"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Lote → maquete (0146, EPIC-028): a página pública por lote (Etapa 4) lê a versão publicada. */
+export const maquete3dLotes = pgTable("maquete_3d_lotes", {
+  id: serial("id").primaryKey(),
+  empreendimentoSlug: varchar("empreendimento_slug", { length: 80 }).notNull(),
+  loteSlug: varchar("lote_slug", { length: 80 }).notNull(),
+  maqueteId: integer("maquete_id").notNull(),
+  itensVersao: integer("itens_versao"),
+  unitId: integer("unit_id"),
+  ativo: boolean("ativo").default(true).notNull(),
+  criadoPor: integer("criado_por"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

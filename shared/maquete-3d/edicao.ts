@@ -212,7 +212,8 @@ export function centroDoAmbiente(f: FontePlanta, nome: string) {
 /** Novo id único a partir do tipo (`geladeira-2`). */
 export function novoId(tipo: TipoMovel, existentes: { id: string }[]): string {
   const base = tipo.replace(/_/g, "-"), usados = new Set(existentes.map(i => i.id));
-  for (let n = 1; ; n++) { const id = n === 1 && !usados.has(base) ? base : `${base}-${n}`; if (!usados.has(id)) return id; }
+  if (!usados.has(base)) return base;
+  for (let n = 2; ; n++) if (!usados.has(`${base}-${n}`)) return `${base}-${n}`;
 }
 
 /** Item novo do catálogo no centro do ambiente, com as medidas padrão. */

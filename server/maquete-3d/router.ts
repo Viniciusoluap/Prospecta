@@ -3,7 +3,7 @@
 // pagamento fora do sistema, autoriza maquete de Incorporação, recusa e exclui.
 import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { incorporationStudies, leads, operationalProjects, projectDocuments, users } from "../../drizzle/schema.js";
 import { maquete3dArquivos, maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
@@ -27,6 +27,7 @@ import {
 } from "./importacao.js";
 import { MENSAGEM_EM_CURSO, MENSAGEM_LOTE, passoEmCurso, pendentesIA } from "./execucao-ia.js";
 import { ConflitoDeVersao, HistoricoIndisponivel, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
+import { carregarParaEdicao, listarVersoes, publicarVersao, restaurarPadrao, salvarRascunho } from "./itens.js";
 
 type Ctx = { user: { id: number; role: string } };
 function exigirAdmin(ctx: Ctx, acao: string) {
@@ -216,7 +217,39 @@ async function lerImplantacaoDoEstudo(studyId: number) {
 }
 
 
+// ── EPIC-028 (Etapa 3): editor de itens das maquetes do JSON-fonte — só o administrador, por papel ──
+const plantaSchema = z.string().regex(/^[a-z0-9-]{1,80}$/);
+const itensRouter = router({
+  /** Abre o editor: estrutura do servidor + rascunho mais recente (ou publicado, ou padrão). Cria a maquete na 1ª vez. */
+  abrir: adminProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "editar os itens da maquete");
+    return carregarParaEdicao(input.planta, ctx.user.id);
+  }),
+  /** Salva os itens como rascunho (versão nova). `versaoBase`: a última versão que a tela conhecia. */
+  salvar: adminProcedure.input(z.object({
+    planta: plantaSchema, versaoBase: z.number().int().min(0).max(1_000_000), itens: z.array(z.unknown()).max(150), motivo: z.string().trim().max(400).optional(),
+  })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "salvar os itens da maquete");
+    return salvarRascunho({ slug: input.planta, versaoBase: input.versaoBase, itens: input.itens, motivo: input.motivo, autorId: ctx.user.id });
+  }),
+  /** Publica a versão salva (troca o que o cliente vê). */
+  publicar: adminProcedure.input(z.object({ planta: plantaSchema, versao: z.number().int().positive().max(1_000_000) })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "publicar os itens da maquete");
+    return publicarVersao({ slug: input.planta, versao: input.versao, autorId: ctx.user.id });
+  }),
+  /** Grava como rascunho os itens padrão da planta. */
+  restaurarPadrao: adminProcedure.input(z.object({ planta: plantaSchema, versaoBase: z.number().int().min(0).max(1_000_000) })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "restaurar os itens da maquete");
+    return restaurarPadrao({ slug: input.planta, versaoBase: input.versaoBase, autorId: ctx.user.id });
+  }),
+  versoes: adminProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "ver as versões dos itens da maquete");
+    return listarVersoes(input.planta);
+  }),
+});
+
 export const maquete3dRouter = router({
+  itens: itensRouter,
   config: adminProcedure.query(async () => {
     const config = await carregarConfig();
     const credencial = await dependencias().credencialIA().catch(() => null);
@@ -277,7 +310,8 @@ export const maquete3dRouter = router({
   }).default({})).query(async ({ input }) => {
     const linhas = await db().select().from(maquetes3d).where(and(
       isNull(maquetes3d.deletedAt),
-      input.origem ? eq(maquetes3d.origem, input.origem) : undefined,
+      // EPIC-028: maquetes do JSON-fonte (origem 'fonte') são cuidadas pelo editor de itens, fora desta lista.
+      input.origem ? eq(maquetes3d.origem, input.origem) : ne(maquetes3d.origem, "fonte"),
       input.projectId ? eq(maquetes3d.projectId, input.projectId) : undefined,
       input.studyId ? eq(maquetes3d.studyId, input.studyId) : undefined,
     )).orderBy(desc(maquetes3d.id)).limit(300);
