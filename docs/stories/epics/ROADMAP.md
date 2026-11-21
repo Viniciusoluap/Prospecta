@@ -316,3 +316,12 @@ Dolores) é exceção.
   quem escreveu, mídia como rótulo, paginação), escrita no grupo pelo número da empresa com quem enviou registrado ("equipe —
   Fulano") e os tetos do envio manual (10/min, 200/dia). No Santa Fé, sem Dolores, a lista de grupos precisa de um registro de
   grupos próprio (lá não existe `dolores_grupos`).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C8 — registrada em 21/11/2026)
+
+A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar ao Santa Fé (na stack de lá).
+- [ ] C8 — "Gerar logotipo com IA" pela chave da Anthropic do painel (Integrações › Anthropic): proposta em SVG desenhada pelo
+  modelo, com linha própria em "Modelo por função" ("Logotipo da incorporação", padrão `claude-sonnet-5`), dados do empreendimento
+  enviados como dado delimitado, prazo de 40 s, teto de 5 propostas/dia por empreendimento e por pessoa, limpeza do SVG (lista de
+  permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
+  Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.
