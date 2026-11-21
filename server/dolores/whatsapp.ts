@@ -361,7 +361,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   const decisaoDeGrupo = msg.temMidia ? null : lerDecisaoDeGrupo(msg.texto);
   if (decisaoDeGrupo) {
     const { codigo, ...d } = decisaoDeGrupo;
-    const r = await decidirGrupo({ codigo }, d, { via: "whatsapp", autor, mensagemId: msg.id })
+    const r = await decidirGrupo({ codigo }, d, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
     await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo: ${d.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
@@ -371,7 +371,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   // espera o tipo (nenhum → segue o caminho normal). Mesmas travas do comando acima (só o dono, conversa direta, sem mídia, sem IA).
   const opcao = msg.temMidia ? null : lerRespostaNumerada(msg.texto);
   if (opcao) {
-    const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id })
+    const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pela opção", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
     if (r) {
       await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal });

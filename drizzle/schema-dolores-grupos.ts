@@ -32,6 +32,10 @@ export const doloresGrupos = pgTable("dolores_grupos", {
   /** Quem colocou a Dolores no grupo ('dono' | 'outra_pessoa' | 'desconhecido'; vazio = cadastrado à mão) e como foi provado por código. */
   adicionadoPor: varchar("adicionado_por", { length: 14 }).$type<AdicionadoPor>(),
   provaAdicao: varchar("prova_adicao", { length: 20 }).$type<ProvaAdicao>(),
+  /** EPIC-027 C3 (migração 0139): quando a Dolores perguntou ao dono o tipo deste grupo (a resposta só com o número vale por 30 min). */
+  perguntaTipoEm: timestamp("pergunta_tipo_em", { withTimezone: true }),
+  /** EPIC-027 C3 (0139): classificação pela tela cujo aviso ao dono não saiu (teto do dia ou falha) — entra no relatório diário. */
+  avisoClassificacaoPendenteEm: timestamp("aviso_classificacao_pendente_em", { withTimezone: true }),
 }, t => [
   uniqueIndex("dolores_grupos_jid_unico").on(t.instancia, t.grupoJid),
   index("dolores_grupos_lead_idx").on(t.leadId),

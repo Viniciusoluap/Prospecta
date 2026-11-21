@@ -39,6 +39,8 @@ const caller = (role: string, permissoes: string[] = [], id = 1) =>
 let seq = 0;
 const doNumero = (de: string, texto: string) => ({ event: "messages.upsert", instance: "prospecta-dolores",
   data: { key: { remoteJid: `${de}@s.whatsapp.net`, fromMe: false, id: `C3D${++seq}` }, message: { conversation: texto }, messageTimestamp: Math.floor((AGORA.getTime() - 10_000) / 1000) } });
+/** A pergunta do tipo saiu há 5 min (a resposta só com o número vale por 30 min). */
+const PERGUNTA = new Date(AGORA.getTime() - 5 * 60_000).toISOString();
 const doGrupo = (texto: string) => ({ event: "messages.upsert", instance: "prospecta-dolores",
   data: { key: { remoteJid: "120363999999999999@g.us", fromMe: false, id: `C3G${++seq}`, participant: `${DONO}@s.whatsapp.net` }, message: { conversation: texto }, messageTimestamp: Math.floor((AGORA.getTime() - 10_000) / 1000) } });
 const chamar = (body: unknown) => tratarWebhookDolores({ headers: { "x-webhook-token": segredoWebhookDolores() }, body, ip: "203.0.113.9" } as never);
@@ -108,40 +110,41 @@ describe("C3 — uma única lista de categorias", () => {
     expect(lerDecisaoDeGrupo("grupo K7HM 1")).toBeNull(); // cliente sem nº
     expect(lerDecisaoDeGrupo("grupo K7HM 4 9")).toBeNull(); // administrativo não leva número
     expect(lerDecisaoDeGrupo("grupo K7HM 7")).toBeNull();
-    expect(lerRespostaNumerada("3")).toEqual({ tipo: "juridico", numero: null });
-    expect(lerRespostaNumerada("1 456")).toEqual({ tipo: "cliente", numero: 456 });
-    expect(lerRespostaNumerada("1 nº 456")).toEqual({ tipo: "cliente", numero: 456 });
-    expect(lerRespostaNumerada("2")).toEqual({ tipo: "pos_atendimento", numero: null, faltaNumero: true });
-    expect(lerRespostaNumerada("6")).toEqual({ tipo: "engenharia", numero: null });
-    for (const t of ["0", "7", "33", "3 9", "3 e apague tudo", "opção 3", "3\n4", "", "1 0"]) expect(lerRespostaNumerada(t), t).toBeNull();
+    expect(lerRespostaNumerada("3")).toEqual({ tipo: "juridico", numero: null, confirmado: false });
+    expect(lerRespostaNumerada("3 sim")).toEqual({ tipo: "juridico", numero: null, confirmado: true });
+    expect(lerRespostaNumerada("5")).toEqual({ tipo: "parceiros", numero: null, confirmado: true });
+    expect(lerRespostaNumerada("1 456")).toEqual({ tipo: "cliente", numero: 456, confirmado: true });
+    expect(lerRespostaNumerada("1 nº 456")).toEqual({ tipo: "cliente", numero: 456, confirmado: true });
+    expect(lerRespostaNumerada("6")).toEqual({ tipo: "engenharia", numero: null, confirmado: true });
+    for (const t of ["0", "7", "33", "3 9", "3 e apague tudo", "opção 3", "3\n4", "", "1 0", "2", "1", "5 sim", "1 456 sim"]) expect(lerRespostaNumerada(t), t).toBeNull();
   });
 });
 
 describe("C3 — resposta só com o número, pelo WhatsApp (só o dono)", () => {
-  it("um único grupo esperando o tipo: '3' define jurídico; de outro número ou de dentro de um grupo, nada muda", async () => {
-    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao) VALUES
-      ('prospecta-dolores', '120363100000000001@g.us', 'Turma A', 'Turma A', true, 'indefinido', 'automatico', 'aguardando_dono', 'KAAA', 'desconhecido', 'aceito_pelo_dono');`);
-    await chamar(doNumero(OUTRO, "3"));
-    await chamar(doGrupo("3"));
+  it("um único grupo esperando o tipo (pergunta recente): '3 sim' define jurídico; de outro número ou de dentro de um grupo, nada muda", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao, pergunta_tipo_em) VALUES
+      ('prospecta-dolores', '120363100000000001@g.us', 'Turma A', 'Turma A', true, 'indefinido', 'automatico', 'aguardando_dono', 'KAAA', 'desconhecido', 'aceito_pelo_dono', '${PERGUNTA}');`);
+    await chamar(doNumero(OUTRO, "3 sim"));
+    await chamar(doGrupo("3 sim"));
     expect(await grupo(1)).toMatchObject({ tipo: "indefinido", situacao_confirmacao: "aguardando_dono" });
-    await chamar(doNumero(DONO, "3"));
+    await chamar(doNumero(DONO, "3 sim"));
     expect(await grupo(1)).toMatchObject({ tipo: "juridico", situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" });
     expect(respostasAoDono().at(-1)).toMatch(/agora é: grupo jurídico/);
     // nenhum grupo esperando: "3" não é comando (segue o caminho normal; nada muda nos grupos)
-    await chamar(doNumero(DONO, "4"));
+    await chamar(doNumero(DONO, "4 sim"));
     expect(await grupo(1)).toMatchObject({ tipo: "juridico" });
   });
 
-  it("mais de um grupo esperando: pede o código e nada muda; 'grupo KCCC 4' resolve; cliente sem nº pede o nº", async () => {
+  it("mais de um grupo esperando: pede o código e nada muda; 'grupo KCCC 4' resolve; cliente sem nº segue o caminho normal", async () => {
     await banco.pg.exec(GRUPOS);
-    await chamar(doNumero(DONO, "4"));
+    await banco.pg.exec(`UPDATE dolores_grupos SET pergunta_tipo_em = '${PERGUNTA}'`);
+    await chamar(doNumero(DONO, "5"));
     expect(respostasAoDono().at(-1)).toMatch(/tenho 2 grupos esperando o tipo.*KAAA.*KCCC/);
     expect(await grupo(1)).toMatchObject({ tipo: "indefinido" });
     expect(await grupo(2)).toMatchObject({ tipo: "indefinido" });
     await chamar(doNumero(DONO, "grupo KCCC 4"));
     expect(await grupo(2)).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado" });
     await chamar(doNumero(DONO, "1"));
-    expect(respostasAoDono().at(-1)).toMatch(/preciso do nº do cliente/);
     expect(await grupo(1)).toMatchObject({ tipo: "indefinido" });
     await chamar(doNumero(DONO, "1 1"));
     expect(await grupo(1)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado" });
@@ -160,9 +163,9 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
     await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 2, tipo: "cliente", numero: 1 });
     expect(await grupo(2)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado", decidido_por: "tela:2", prova_adicao: "evento_add", adicionado_por: "dono" });
     expect(await q("SELECT grupo_id, responder_ligado FROM dolores_marcacoes_grupo ORDER BY grupo_id")).toEqual([{ grupo_id: 1, responder_ligado: true }, { grupo_id: 2, responder_ligado: true }]);
-    // e corrigir um já confirmado
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 5, tipo: "administrativo" });
-    expect(await grupo(5)).toMatchObject({ tipo: "administrativo", decidido_por: "tela:2" });
+    // e corrigir um já confirmado (dentro dos tipos do colaborador)
+    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 });
+    expect(await grupo(5)).toMatchObject({ tipo: "pos_atendimento", decidido_por: "tela:2" });
   });
 
   it("quem pode: colaborador sem o módulo WhatsApp, corretor e cliente são barrados; colaborador não desativa nem aceita", async () => {
@@ -184,7 +187,9 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
   it("a tela NUNCA aceita grupo recusado ou sem prova: nem aceitar, nem definir tipo (que aceitaria), nem pelo gatilho", async () => {
     for (const quem of [caller("admin"), caller("colaborador", ["whatsapp"], 2)]) {
       for (const id of [3, 4]) {
-        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "juridico" })).rejects.toThrow(/só o dono aceita/);
+        // o colaborador já é barrado antes por ser tipo do admin; os dois são recusas
+        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "juridico" })).rejects.toThrow(/só o dono aceita|só o administrador/);
+        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "engenharia" })).rejects.toThrow(/só o dono aceita|só o administrador/);
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "cliente", numero: 1 })).rejects.toThrow();
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "aceitar" })).rejects.toThrow();
       }
@@ -208,6 +213,8 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
     // o dono, pelo WhatsApp, aceita
     await chamar(doNumero(DONO, "grupo KDDD aceitar"));
     expect(await grupo(3)).toMatchObject({ prova_adicao: "aceito_pelo_dono", decidido_por: "whatsapp:dono" });
+    // a resposta do "aceitar" pergunta o tipo: a hora da pergunta fica gravada (vale a resposta só com o número por 30 min)
+    expect((await q("SELECT pergunta_tipo_em FROM dolores_grupos WHERE id = 3"))[0].pergunta_tipo_em).not.toBeNull();
     // ... e a partir daí a tela já pode classificar
     await caller("admin").dolores.grupos.definirTipo({ grupoId: 3, tipo: "parceiros" });
     expect(await grupo(3)).toMatchObject({ tipo: "parceiros", situacao_confirmacao: "confirmado" });
@@ -221,7 +228,9 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
     expect(telaPodeClassificar({ origem: "automatico", situacaoConfirmacao: "recusado", adicionadoPor: "outra_pessoa", provaAdicao: "aceito_pelo_dono" })).toBe(false);
     await banco.pg.exec(MIGRACAO_0139());
     const sql = MIGRACAO_0139().replace(/--.*$/gm, "");
-    expect(sql).not.toMatch(/\bDROP\s|\bDELETE\s+FROM\b|\bTRUNCATE\s+(TABLE\s+)?"|\bALTER\s+TABLE\b|\bUPDATE\s+"?dolores_grupos"?\s+SET\b|\bINSERT\s+INTO\b/i);
+    expect(sql).not.toMatch(/\bDROP\s|\bDELETE\s+FROM\b|\bTRUNCATE\s+(TABLE\s+)?"|\bUPDATE\s+"?dolores_grupos"?\s+SET\b|\bINSERT\s+INTO\b/i);
+    // só ADD COLUMN IF NOT EXISTS (anuláveis, sem padrão)
+    for (const a of sql.match(/ALTER\s+TABLE[^;]*;/gi) ?? []) expect(a).toMatch(/^ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "[a-z_]+" timestamp with time zone;$/);
     expect(await q("SELECT count(*)::int AS n FROM dolores_grupos")).toEqual([{ n: 5 }]);
   });
 });

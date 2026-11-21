@@ -187,28 +187,48 @@ describe("QA C4 — 'ligado por padrão' sem linha no interruptor do grupo", () 
     expect((await desfechos())["marcacao-desligada"]).toBe(2);
   });
 
-  it("ACHADO (baixo): grupo MANUAL cadastrado pela tela depois da E7 (tipo gravado, sem linha) passa a responder sem ninguém ligar", async () => {
+  it("CORRIGIDO (achado baixo): grupo MANUAL cadastrado pela tela depois da E7 (tipo gravado, sem linha) continua calado até alguém ligar", async () => {
     await banco.pg.exec(`UPDATE dolores_marcacoes_config SET lid_dolores = '${LID_DOLORES}', lid_do_numero = '${DOLORES}';
       INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo, lead_id, tipo, situacao_confirmacao, decidido_em, decidido_por) VALUES
         ('prospecta-dolores', '${MANUAL}', 'Cadastro manual', true, 1, 'cliente', 'confirmado', now(), 'tela:1');`);
     expect(await q(`SELECT * FROM dolores_marcacoes_grupo`)).toEqual([]);
     await chamar(aviso(item({ jid: MANUAL })));
-    expect(Object.keys(await desfechos())).not.toContain("marcacao-desligada");
+    expect(Object.keys(await desfechos())).toContain("marcacao-desligada");
+    expect(enviarAoGrupo).not.toHaveBeenCalled();
   });
 });
 
 describe("QA C3 — classificar pela tela", () => {
-  it("ACHADO (importante): colaborador com o módulo WhatsApp transforma um grupo aceito (com terceiros) em 'administrativo' — o escopo mais amplo — sem aviso ao dono", async () => {
-    // o escopo interno libera valores, contrato e outro cliente (o que um grupo de cliente/engenharia nunca libera)
+  it("CORRIGIDO (achado importante): colaborador com WhatsApp não põe nem tira administrativo/jurídico/parceiros; o admin pode, e o dono é avisado", async () => {
     expect(PERMITIDOS_POR_TIPO.interno).toEqual(expect.arrayContaining(["valores", "outro_cliente"]));
+    const colab = caller("colaborador", ["whatsapp"], 2);
+    for (const t of ["administrativo", "juridico", "parceiros"] as const) {
+      await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: t })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "engenharia" });
+    // o gatilho (0139) também barra o UPDATE direto com 'tela:<colaborador>'
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 1`)).rejects.toThrow(/só o administrador/);
+    // colaborador pode trocar engenharia → cliente; o dono recebe o aviso (tipo antes → depois, quem, quando)
     enviarAoDono.mockClear();
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 1, tipo: "administrativo" });
-    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado", decidido_por: "tela:2" });
-    expect(enviarAoDono).not.toHaveBeenCalled(); // o dono não fica sabendo
-    // o interruptor do grupo continua ligado: a próxima marcação já responde com o escopo interno
-    await banco.pg.exec(`UPDATE dolores_marcacoes_config SET lid_dolores = '${LID_DOLORES}', lid_do_numero = '${DOLORES}'`);
-    await chamar(aviso(item({ texto: "@987654321012345 quanto entrou no caixa este mês?" })));
-    expect(Object.keys(await desfechos()).some(k => /^marcacao-(respondida|fora|apresentacao)/.test(k))).toBe(true);
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 1 });
+    expect(enviarAoDono).toHaveBeenCalledTimes(1);
+    expect((enviarAoDono.mock.calls[0][0] as { texto: string }).texto).toMatch(/«Engenharia» \(código KEGH\) foi classificado pela tela: de «engenharia» para «cliente», por Bianca Souza, em /);
+    // e não tira o grupo de um tipo do admin
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 1, tipo: "administrativo" });
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "administrativo", decidido_por: "tela:1" });
+    expect((enviarAoDono.mock.calls.at(-1)![0] as { texto: string }).texto).toMatch(/de «cliente» para «administrativo \(sócios\)», por Vinícius Admin/);
+    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "administrativo" });
+  });
+
+  it("CORRIGIDO (achado importante, teto): sem vaga de aviso, a classificação vale e fica 'aviso pendente' (relatório diário)", async () => {
+    await banco.pg.exec("UPDATE dolores_grupos_config SET teto_avisos_grupos_dia = 0");
+    enviarAoDono.mockClear();
+    const r = await caller("admin").dolores.grupos.definirTipo({ grupoId: 1, tipo: "juridico" });
+    expect(r.aviso).toBe("pendente");
+    expect(enviarAoDono).not.toHaveBeenCalled();
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "juridico" });
+    expect((await q("SELECT aviso_classificacao_pendente_em FROM dolores_grupos WHERE id = 1"))[0].aviso_classificacao_pendente_em).not.toBeNull();
   });
 
   it("gatilho 0139 (UPDATE direto): recusado → aguardando pela tela; tela sem decidido_em novo; tela em sem-prova trocando a prova — todos barrados", async () => {
@@ -241,10 +261,23 @@ describe("QA C3 — resposta só com o número", () => {
       ('prospecta-dolores', '${ESPERA}', 'Turma nova', 'Turma nova', true, 'indefinido', 'automatico', 'aguardando_dono', 'KESP', 'dono', 'evento_add')`);
   });
 
-  it("ACHADO (médio): um '4' solto do dono (sobre outro assunto, sem pergunta recente) classifica o único grupo esperando como ADMINISTRATIVO", async () => {
+  it("CORRIGIDO (achado médio): sem pergunta recente, '4' segue o caminho normal; com pergunta, '4' pede confirmação e '4 sim' define", async () => {
     await chamar(doDono("4"));
+    expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "indefinido", situacao_confirmacao: "aguardando_dono" });
+    // pergunta há 31 min: ainda caminho normal
+    await banco.pg.exec(`UPDATE dolores_grupos SET pergunta_tipo_em = '${new Date(AGORA.getTime() - 31 * 60_000).toISOString()}' WHERE grupo_jid = '${ESPERA}'`);
+    await chamar(doDono("4 sim"));
+    expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "indefinido" });
+    // pergunta há 5 min: "4" só pede a confirmação; "1" sem nº não engole a mensagem (segue o caminho normal)
+    await banco.pg.exec(`UPDATE dolores_grupos SET pergunta_tipo_em = '${new Date(AGORA.getTime() - 5 * 60_000).toISOString()}' WHERE grupo_jid = '${ESPERA}'`);
+    enviarAoDono.mockClear();
+    await chamar(doDono("4"));
+    expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "indefinido" });
+    expect(JSON.stringify(enviarAoDono.mock.calls)).toMatch(/confirma\?.*libera.*4 sim/);
+    await chamar(doDono("1"));
+    expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "indefinido" });
+    await chamar(doDono("4 sim"));
     expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" });
-    expect(await q(`SELECT g.responder_ligado FROM dolores_marcacoes_grupo g JOIN dolores_grupos d ON d.id = g.grupo_id WHERE d.grupo_jid = '${ESPERA}'`)).toEqual([{ responder_ligado: true }]);
   });
 
   it("'3' encaminhado, de terceiro que cita o número do dono, ou de grupo com o dono como participante: nada muda", async () => {

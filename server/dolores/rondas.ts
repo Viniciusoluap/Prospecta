@@ -129,7 +129,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
       .where(and(eq(whatsappMessages.direcao, "entrada"), eq(whatsappMessages.lida, false)));
     return { totais: { conversas: { semLeitura: contar(r?.n) } } };
   })],
-  ["grupos", lerSecao(async () => {
+  ["grupos", lerSecao(async ({ agora }) => {
     const [r] = await bancoDaLeitura().select({
       aClassificar: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} in ('a_classificar', 'classificando'))`.mapWith(Number),
       aConferir: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'confira')`.mapWith(Number),
@@ -141,7 +141,11 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     // Etapa 7: grupos novos esperando a resposta do dono (nome que não bateu com nada: só observam)
     const [a] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
       .where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono")));
-    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n) } } };
+    // QA-SEG EPIC-027 (achado 1b): classificações pela tela cujo aviso ao dono não saiu (teto do dia) nas últimas 24 h
+    const [p] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
+      .where(gte(doloresGrupos.avisoClassificacaoPendenteEm, new Date(agora.getTime() - 24 * 3_600_000)));
+    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n),
+      classificadosSemAviso: contar(p?.n) } } };
   })],
   ["notas", lerSecao(async () => {
     const [r] = await bancoDaLeitura().select({

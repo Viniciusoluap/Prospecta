@@ -11,13 +11,25 @@
 --     pelo WhatsApp OU pela tela ("decidido_por" começando por 'tela:'), e pela tela sem mexer em quem adicionou nem na prova.
 --     Qualquer outra origem ('fila:', vazio) continua barrada.
 --   - Ir PARA 'recusado' continua sempre permitido.
--- Somente aditiva e idempotente: só a função é trocada (CREATE OR REPLACE); nenhuma tabela, coluna ou linha é alterada.
--- Reversão: reexecutar a função da 0133_dolores_grupos_tipo.sql.
+--   - NOVO (QA-SEG EPIC-027, achado 1): quem decide pela tela ("tela:<id>") e NÃO é administrador ativo só põe ou tira os tipos
+--     cliente, pós-atendimento e engenharia (e só tira de um desses ou de "não identificado"); administrativo, jurídico e
+--     parceiros comerciais só o administrador define ou tira.
+-- Colunas novas em "dolores_grupos" (ADD COLUMN IF NOT EXISTS, sem padrão: não dispara o gatilho nem altera linha):
+--   - "pergunta_tipo_em": quando a Dolores perguntou ao dono o tipo do grupo (a resposta só com o número vale por 30 min);
+--   - "aviso_classificacao_pendente_em": classificação feita pela tela cujo aviso ao dono não saiu (teto do dia) — relatório diário.
+-- Somente aditiva e idempotente: função trocada (CREATE OR REPLACE) e duas colunas novas anuláveis; nenhuma linha é alterada.
+-- Reversão: reexecutar a função da 0133_dolores_grupos_tipo.sql (as colunas novas não atrapalham o código anterior).
+
+ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "pergunta_tipo_em" timestamp with time zone;
+ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "aviso_classificacao_pendente_em" timestamp with time zone;
 
 CREATE OR REPLACE FUNCTION dolores_grupos_guarda() RETURNS trigger AS $$
 DECLARE
   decidiu boolean;
   aceito_pelo_dono boolean;
+  tela_user integer;
+  tipo_antes text;
+  tipo_depois text;
 BEGIN
   IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_SEM_EXCLUSAO: grupo cadastrado não é apagado (desative)';
@@ -57,6 +69,18 @@ BEGIN
       AND NEW."adicionado_por" IS NOT DISTINCT FROM OLD."adicionado_por"
       AND NEW."prova_adicao" IS NOT DISTINCT FROM OLD."prova_adicao") THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado ou sem prova de quem colocou a Dolores só é aceito pelo dono, no WhatsApp';
+  END IF;
+  -- QA-SEG EPIC-027 (achado 1): pela tela, quem não é administrador ativo só mexe em cliente, pós-atendimento e engenharia
+  IF decidiu AND coalesce(NEW."decidido_por", '') ~ '^tela:[0-9]{1,10}$' THEN
+    tipo_antes := coalesce(OLD."tipo", CASE WHEN OLD."obra_id" IS NOT NULL THEN 'engenharia' ELSE 'cliente' END);
+    tipo_depois := coalesce(NEW."tipo", CASE WHEN NEW."obra_id" IS NOT NULL THEN 'engenharia' ELSE 'cliente' END);
+    IF tipo_depois IS DISTINCT FROM tipo_antes
+       AND (tipo_antes IN ('administrativo', 'juridico', 'parceiros') OR tipo_depois IN ('administrativo', 'juridico', 'parceiros')) THEN
+      tela_user := substring(NEW."decidido_por" from 6)::integer;
+      IF NOT EXISTS (SELECT 1 FROM "users" WHERE "id" = tela_user AND "role" = 'admin' AND "active" IS TRUE) THEN
+        RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: administrativo, jurídico e parceiros só o administrador define ou tira';
+      END IF;
+    END IF;
   END IF;
   RETURN NEW;
 END;

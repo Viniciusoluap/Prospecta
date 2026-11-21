@@ -3,7 +3,7 @@
 Status: InReview (ramo `epic027-d`; implementada, aguarda o portão de QA de segurança).
 Epic: EPIC-027 — Correções de 20/11/2026 (noite) (`EPIC.md`).
 Paridade: a Dolores é exceção (exclusiva do Prospecta); nada a portar para o Grupo Santa Fé.
-Migração: `drizzle/0139_dolores_grupos_classificar_pela_tela.sql` (só troca a função do gatilho; NÃO aplicada — aplicar no Neon
+Migração: `drizzle/0139_dolores_grupos_classificar_pela_tela.sql` (troca a função do gatilho e acrescenta 2 colunas anuláveis; NÃO aplicada — aplicar no Neon
 na publicação).
 
 ## Pedido do dono (prints de 20/11, noite) e decisões do EPIC
@@ -36,12 +36,27 @@ na publicação).
       gatilho (0139) só deixa a TELA (`decidido_por` 'tela:%') tirar de "aguardando o dono" o grupo que o dono adicionou ou aceitou,
       sem mexer em quem adicionou nem na prova; recusado e sem prova continuam só com 'whatsapp:%'; 'fila:' segue barrada.
 
+## Portão de QA de segurança (21/11) — CONCERNS, corrigido
+- [x] Achado 1 (IMPORTANTE, escalada de escopo): (a) colaborador só põe/tira cliente, pós-atendimento e engenharia, e só mexe em
+      grupo desses tipos ou "não identificado"; administrativo (sócios), jurídico e parceiros comerciais só o admin define ou tira
+      — na rota `definirTipo` (`colaboradorPodeClassificar`) e no gatilho da 0139 (`tela:<id>` que não é admin ativo é barrado);
+      na tela o colaborador vê só as opções dele, com a frase `FRASE_TIPOS_DO_ADMIN`. (b) toda classificação pela tela (tipo ou
+      vínculo mudou) gera aviso ao dono no WhatsApp (texto fixo: grupo, tipo antes → depois, quem, quando), com contador diário
+      próprio no teto de avisos de grupo; sem vaga, a classificação vale e o grupo fica com `aviso_classificacao_pendente_em`,
+      que entra no relatório diário ("grupo(s) com o tipo mudado pela tela sem o aviso a você").
+- [x] Achado 2 (MÉDIO): a resposta só com o número vale só até 30 min depois da última pergunta sobre o grupo
+      (`pergunta_tipo_em`, gravada quando o aviso de entrada pergunta o tipo e quando o "aceitar" pergunta); fora disso, segue o
+      caminho normal. Jurídico e administrativo exigem "3 sim"/"4 sim" (ou "grupo CÓDIGO 4"); sem o "sim", ela pede a confirmação
+      dizendo o que o tipo libera. "1"/"2" sem o nº do cliente não engolem a mensagem (seguem o caminho normal).
+- [x] Achado 3 (BAIXO, C4): `ligadoPorPadrao` só para grupo que entrou sozinho (`origem = automatico`).
+- [x] Achado 4 (BAIXO, C4): a consulta do @lid usa um prazo só para as duas chamadas à Evolution (a segunda usa o que sobrou).
+- Achado 5: registrado aqui, sem mudança de código nesta rodada (conforme o portão).
+- Provas: `server/dolores/epic027-d-qa.test.ts` (os 3 testes "ACHADO" invertidos para "CORRIGIDO", mais o do teto de aviso).
+
 ## Decisões
 - [AUTO-DECISION] "Ignorar" fica fora das opções numeradas (continua "grupo <código> ignorar") (reason: um dígito errado não
   deve desativar um grupo).
-- [AUTO-DECISION] A resposta só com número não tem prazo desde a pergunta (reason: só vale com exatamente um grupo esperando o
-  tipo e a resposta sempre confirma o que foi feito; corrigir é um comando). Risco registrado: com um grupo esperando, um "3" solto
-  do dono numa conversa sobre outro assunto classifica o grupo (ele vê a confirmação e corrige).
+- (Revisto pelo portão de QA: a resposta só com o número agora tem janela de 30 min e confirmação para jurídico/administrativo.)
 - [AUTO-DECISION] Colaborador com WhatsApp: a rota está pronta e testada; a tela dele para classificar entra com a C2 (grupos na
   Central), que é onde o colaborador vê os grupos — o cartão da Dolores fica em Integrações (só admin).
 

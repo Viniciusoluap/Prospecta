@@ -48,6 +48,19 @@ export const CATEGORIAS_GRUPO = [
 export type CategoriaGrupo = (typeof CATEGORIAS_GRUPO)[number];
 export const categoriaDoTipo = (tipo: string) => CATEGORIAS_GRUPO.find(c => c.tipo === tipo) ?? null;
 
+/**
+ * QA-SEG EPIC-027 (achado 1, importante): o colaborador (módulo WhatsApp) só classifica grupo como cliente, pós-atendimento ou
+ * engenharia, e só mexe em grupo que hoje é um desses ou "não identificado". Administrativo (sócios), jurídico e parceiros
+ * comerciais liberam mais (valores, outros clientes): só o ADMIN define e só o admin tira um grupo desses tipos.
+ */
+export const TIPOS_DO_COLABORADOR = ["cliente", "pos_atendimento", "engenharia"] as const;
+export const TIPOS_SO_DO_ADMIN = ["administrativo", "juridico", "parceiros"] as const;
+export function colaboradorPodeClassificar(tipoAtual: TipoGrupo, novo: string): boolean {
+  const pode = (t: string) => (TIPOS_DO_COLABORADOR as readonly string[]).includes(t);
+  return pode(novo) && (pode(tipoAtual) || tipoAtual === "indefinido");
+}
+export const FRASE_TIPOS_DO_ADMIN = "Administrativo (sócios), jurídico e parceiros comerciais só o administrador define ou tira, porque liberam mais informação no grupo.";
+
 /** Quem colocou a Dolores no grupo: provado o dono, provado outra pessoa, ou não provado (QA-SEG E7). Vazio = cadastro à mão. */
 export const ADICIONADO_POR = ["dono", "outra_pessoa", "desconhecido"] as const;
 export type AdicionadoPor = (typeof ADICIONADO_POR)[number];
@@ -77,13 +90,14 @@ export const semProvaDoDono = (g: Parameters<typeof autoriaPendente>[0]) => g.si
 
 /**
  * EPIC-027 C4 — o interruptor "responder quando marcada" de um grupo SEM linha própria em dolores_marcacoes_grupo (ninguém mexeu
- * nele). Etapa 7 (AC9): nasce LIGADO para grupo aceito e de tipo conhecido. Desligado: desativado, recusado, aguardando o dono,
- * tipo indefinido e grupo manual antigo da etapa 4b (origem "manual" e tipo vazio: lá o interruptor do grupo nascia desligado).
+ * nele). Etapa 7 (AC9): nasce LIGADO para grupo que entrou sozinho (origem "automatico"), aceito e de tipo conhecido. Desligado:
+ * desativado, recusado, aguardando o dono, tipo indefinido e QUALQUER grupo cadastrado à mão (origem "manual", com ou sem tipo).
  * O interruptor GERAL continua valendo por cima.
  */
 export function ligadoPorPadrao(g: { ativo: boolean; origem?: string | null; tipo?: string | null; leadId: number | null; obraId: number | null; situacaoConfirmacao?: string | null; adicionadoPor?: string | null; provaAdicao?: string | null }): boolean {
   if (!g.ativo || precisaDoAceiteDoDono(g) || g.situacaoConfirmacao === "aguardando_dono") return false;
-  if (g.origem !== "automatico" && !g.tipo) return false;
+  // QA-SEG EPIC-027 (achado 3): só grupo que ENTROU SOZINHO (etapa 7); cadastrado à mão continua calado até alguém ligar
+  if (g.origem !== "automatico") return false;
   return tipoEfetivo(g) !== "indefinido";
 }
 
@@ -219,12 +233,17 @@ export function lerDecisaoDeGrupo(texto: string | null | undefined): DecisaoDeGr
 }
 
 /**
- * EPIC-027 C3 — a resposta do dono SÓ com o número da opção ("3", "1 456", "6 12"), sem o código do grupo: vale para o ÚNICO grupo
- * que espera o tipo (quem resolve é o servidor). A mensagem inteira; cliente e pós exigem o nº do cliente; 3, 4 e 5 não aceitam
- * número. Qualquer outra coisa → null (a mensagem segue o caminho normal).
+ * EPIC-027 C3 — a resposta do dono SÓ com o número da opção ("3 sim", "1 456", "6 12"), sem o código do grupo: vale para o ÚNICO
+ * grupo que espera o tipo e cuja PERGUNTA foi enviada há no máximo 30 min (quem resolve é o servidor). A mensagem inteira; cliente e
+ * pós exigem o nº do cliente (sem ele → null: a mensagem segue o caminho normal); jurídico e administrativo exigem a confirmação
+ * curta ("3 sim", "4 sim") — sem ela, `confirmado` = false e a Dolores pede a confirmação dizendo o que o tipo libera.
+ * Qualquer outra coisa → null.
  */
-export type RespostaNumerada = { tipo: Exclude<TipoGrupo, "indefinido">; numero: number | null } | { tipo: Exclude<TipoGrupo, "indefinido">; numero: null; faltaNumero: true };
-const SO_OPCAO = /^([1-6])(?: (?:n|no|numero)? ?(\d{1,9}))?$/;
+export const JANELA_RESPOSTA_NUMERADA_MS = 30 * 60_000;
+export const TIPOS_QUE_PEDEM_CONFIRMACAO = ["juridico", "administrativo"] as const;
+export const pedeConfirmacao = (tipo: string) => (TIPOS_QUE_PEDEM_CONFIRMACAO as readonly string[]).includes(tipo);
+export type RespostaNumerada = { tipo: Exclude<TipoGrupo, "indefinido">; numero: number | null; confirmado: boolean };
+const SO_OPCAO = /^([1-6])(?: (?:n|no|numero)? ?(\d{1,9}))?( sim)?$/;
 export function lerRespostaNumerada(texto: string | null | undefined): RespostaNumerada | null {
   const bruto = String(texto ?? "");
   if (bruto.length > 30 || /[\r\n]/.test(bruto)) return null;
@@ -232,18 +251,36 @@ export function lerRespostaNumerada(texto: string | null | undefined): RespostaN
   if (!m) return null;
   const tipo = TIPO_DA_OPCAO[m[1]];
   const numero = m[2] ? Number(m[2]) : null;
+  const sim = !!m[3];
   if (numero !== null && (!Number.isSafeInteger(numero) || numero <= 0 || numero > 2_147_483_647)) return null;
   const c = categoriaDoTipo(tipo)!;
-  if (c.vinculo === "cliente") return numero ? { tipo, numero } : { tipo, numero: null, faltaNumero: true };
-  if (c.vinculo === "obra") return { tipo, numero };
-  return numero === null ? { tipo, numero: null } : null;
+  if (sim && !pedeConfirmacao(tipo)) return null;
+  if (c.vinculo === "cliente") return numero ? { tipo, numero, confirmado: true } : null;
+  if (c.vinculo === "obra") return { tipo, numero, confirmado: true };
+  if (numero !== null) return null;
+  return { tipo, numero: null, confirmado: pedeConfirmacao(tipo) ? sim : true };
+}
+
+/** O pedido de confirmação de jurídico/administrativo pela resposta só com o número (texto do sistema). */
+export const textoDaConfirmacaoDoTipo = (nomeDoGrupo: string | null, codigo: string, tipo: Exclude<TipoGrupo, "indefinido">) => {
+  const c = categoriaDoTipo(tipo)!;
+  return `Dolores: confirma? No grupo ${entreAspas(nomeDoGrupo, "(sem nome)")} (código ${codigo}), «${c.rotulo}» libera: ${c.explica} — para todos que estão lá. Para confirmar, responda «${c.opcao} sim» (ou «grupo ${codigo} ${c.opcao}»). Nada mudou ainda.`;
+};
+
+/**
+ * QA-SEG EPIC-027 (achado 1b): aviso ao dono de classificação feita pela TELA (texto fixo, sem IA): grupo, tipo antes → depois,
+ * quem mudou e quando. `quem` é nome de usuário do sistema (limpo); `quando` já formatado por quem chama.
+ */
+export function textoDoAvisoDeClassificacaoPelaTela(p: { nomeDoGrupo: string | null; codigo: string | null; antes: TipoGrupo; depois: TipoGrupo; quem: string | null; quando: string }): string {
+  const quem = limparNomeDeTerceiro(p.quem) || "um usuário do sistema";
+  return `Dolores: o grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}${p.codigo ? ` (código ${p.codigo})` : ""} foi classificado pela tela: de «${ROTULO_TIPO_GRUPO[p.antes]}» para «${ROTULO_TIPO_GRUPO[p.depois]}», por ${quem}, em ${p.quando}.${p.codigo ? ` Se não foi combinado, responda «grupo ${p.codigo} <número da opção>» ou «grupo ${p.codigo} ignorar».` : ""}`;
 }
 
 /** As opções numeradas, uma por linha, com a explicação (o texto do sistema; nada de terceiro). */
 export function textoDasOpcoes(codigo: string, o: { soComNumero?: boolean } = {}): string {
-  const linhas = CATEGORIAS_GRUPO.map(c => `${c.opcao}. ${c.rotulo} — ${c.explica}${c.vinculo === "cliente" ? ` (responda «${c.opcao} <nº do cliente no CRM>»)` : c.vinculo === "obra" ? ` (nº da obra opcional: «${c.opcao} <nº da obra>»)` : ""}`);
+  const linhas = CATEGORIAS_GRUPO.map(c => `${c.opcao}. ${c.rotulo} — ${c.explica}${c.vinculo === "cliente" ? ` (responda «${c.opcao} <nº do cliente no CRM>»)` : c.vinculo === "obra" ? ` (nº da obra opcional: «${c.opcao} <nº da obra>»)` : o.soComNumero && pedeConfirmacao(c.tipo) ? ` (responda «${c.opcao} sim»)` : ""}`);
   const como = o.soComNumero
-    ? `Responda só com o número da opção. Se houver mais de um grupo esperando, use «grupo ${codigo} <número>».`
+    ? `Responda só com o número da opção, em até 30 minutos. Se houver mais de um grupo esperando, use «grupo ${codigo} <número>».`
     : `Responda «grupo ${codigo} <número da opção>».`;
   return `${linhas.join("\n")}\n${como} Para eu não participar: «grupo ${codigo} ignorar».`;
 }

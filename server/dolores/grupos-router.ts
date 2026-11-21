@@ -12,11 +12,11 @@ import { TRPCError } from "@trpc/server";
 import { randomInt } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { constructionProjects, leads } from "../../drizzle/schema.js";
+import { constructionProjects, leads, users } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
-import { LIMITES_ENTRADA, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
-import { entrarNoGrupo } from "./grupos-entrada.js";
+import { FRASE_TIPOS_DO_ADMIN, LIMITES_ENTRADA, colaboradorPodeClassificar, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { avisarClassificacaoPelaTela, entrarNoGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
 import { INSTANCIA_DOLORES } from "../../shared/dolores/whatsapp.js";
@@ -213,9 +213,28 @@ export const gruposRouter = router({
     if (ctx.user.role !== "admin" && (tipo === "ignorar" || tipo === "aceitar")) throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador desativa grupo da Dolores." });
     if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
     if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
+    const db = getDb();
+    const [antes] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
+    if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
+    // QA-SEG EPIC-027 (achado 1, importante): o colaborador só põe/tira cliente, pós-atendimento e engenharia (o gatilho da 0139 confere de novo)
+    if (ctx.user.role !== "admin" && tipo !== "ignorar" && tipo !== "aceitar" && !colaboradorPodeClassificar(tipoEfetivo(antes), tipo)) {
+      await registrarAcao({ funcao: "grupo_decisao", resultado: "recusada", motivo: "colaborador tentou definir/tirar tipo que só o administrador define", autorUserId: null, canal: "tela",
+        pedidoId: `tela:grupos:${antes.id}`, resumo: { grupoId: antes.id, pedido: tipo, atual: tipoEfetivo(antes), porUserId: ctx.user.id } });
+      throw new TRPCError({ code: "FORBIDDEN", message: FRASE_TIPOS_DO_ADMIN });
+    }
     const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
-    return { ok: true, texto: r.texto.replace(/^Dolores: /, "") };
+    // QA-SEG EPIC-027 (achado 1b): toda classificação pela tela vira aviso ao dono (tipo ou vínculo mudou)
+    let aviso: "avisado" | "pendente" | null = null;
+    if (tipo !== "ignorar" && tipo !== "aceitar") {
+      const [depois] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, antes.id)).limit(1);
+      if (depois && (depois.tipo !== antes.tipo || depois.leadId !== antes.leadId || depois.obraId !== antes.obraId)) {
+        // o nome de quem mudou vem do cadastro (servidor), não da sessão
+        const [u] = await db.select({ nome: users.name }).from(users).where(eq(users.id, ctx.user.id)).limit(1).catch(() => []);
+        aviso = await avisarClassificacaoPelaTela({ grupo: depois, antes: tipoEfetivo(antes), depois: tipoEfetivo(depois), quem: u?.nome ?? null, userId: ctx.user.id, agora: new Date(), avisar: enviarAvisoAoDono });
+      }
+    }
+    return { ok: true, texto: r.texto.replace(/^Dolores: /, ""), aviso };
   }),
 
   /**

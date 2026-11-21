@@ -14,13 +14,17 @@ import { and, eq, isNull } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
-import { ROTULO_TIPO_GRUPO, perguntaDoTipo, precisaDoAceiteDoDono, semProvaDoDono, tipoEfetivo, type DecisaoDeGrupo, type RespostaNumerada } from "../../shared/dolores/grupos-tipo.js";
+import {
+  JANELA_RESPOSTA_NUMERADA_MS, ROTULO_TIPO_GRUPO, perguntaDoTipo, precisaDoAceiteDoDono, semProvaDoDono, textoDaConfirmacaoDoTipo, tipoEfetivo,
+  type DecisaoDeGrupo, type RespostaNumerada,
+} from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
 
-export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number } | { via: "tela"; userId: number };
+/** `agora` (WhatsApp): o relógio do aviso, para a hora da PERGUNTA do tipo (a resposta só com o número vale por 30 min). */
+export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date } | { via: "tela"; userId: number };
 
 export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null };
 
@@ -69,6 +73,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
     if (d.tipo === "aceitar") {
       if (!semProva) {
         await auditar("recusada", "aceitar: o grupo não estava recusado; nada mudou", { grupoId: g.id });
+        if (tipoEfetivo(g) === "indefinido") await marcarPerguntaDoTipo(g.id, origem);
         return { ok: true, texto: tipoEfetivo(g) === "indefinido"
           ? `Dolores: o grupo ${nomeDoGrupo} já estava aceito; falta só o tipo. ${perguntaDoTipo(g.nomeWhatsapp ?? g.nome, g.codigo ?? "CÓDIGO")}`
           : `Dolores: o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) já estava aceito; nada mudou.`, grupoId: g.id };
@@ -80,6 +85,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
         if (tipoAtual !== "indefinido") await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();
       });
       await auditar("ok", g.situacaoConfirmacao === "recusado" ? "grupo recusado aceito pelo dono" : "grupo sem prova de quem colocou a Dolores aceito pelo dono", { grupoId: g.id, tipo: tipoAtual });
+      if (tipoAtual === "indefinido") await marcarPerguntaDoTipo(g.id, origem);
       return { ok: true, texto: tipoAtual === "indefinido"
         ? `Dolores: aceito o grupo ${nomeDoGrupo}. Ainda não sei de que tipo ele é. ${perguntaDoTipo(g.nomeWhatsapp ?? g.nome, g.codigo ?? "CÓDIGO")}`
         : `Dolores: aceito o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${ROTULO_TIPO_GRUPO[tipoAtual]}.`, grupoId: g.id };
@@ -134,27 +140,43 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
   }
 }
 
-/** Grupos que esperam o dono dizer o TIPO (aceitos, de tipo indefinido, ativos): os únicos que a resposta só com o número resolve. */
-export async function gruposEsperandoTipo(): Promise<DoloresGrupo[]> {
-  const linhas = await getDb().select().from(doloresGrupos).where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono"))).limit(50);
-  return linhas.filter(g => tipoEfetivo(g) === "indefinido" && !semProvaDoDono(g));
+/** A Dolores perguntou ao dono o tipo do grupo agora (a resposta só com o número vale por 30 min). Nunca lança. */
+export async function marcarPerguntaDoTipo(grupoId: number, origem: OrigemDecisao | { agora: Date }): Promise<void> {
+  const quando = "agora" in origem && origem.agora ? origem.agora : new Date();
+  await getDb().update(doloresGrupos).set({ perguntaTipoEm: quando }).where(eq(doloresGrupos.id, grupoId))
+    .catch(e => console.error("[dolores/grupos-decisao] não gravei a hora da pergunta do tipo", erroParaLog(e)));
 }
 
 /**
- * EPIC-027 C3 — o dono respondeu SÓ com o número da opção ("3", "1 456"). Vale para o ÚNICO grupo esperando o tipo; nenhum → null
- * (a mensagem segue o caminho normal); mais de um → pede o código (nada muda). Só chega aqui mensagem do número do dono, na conversa
- * direta, não encaminhada e sem mídia (whatsapp.ts).
+ * Grupos que esperam o dono dizer o TIPO (aceitos, de tipo indefinido, ativos) e cuja PERGUNTA saiu há no máximo 30 min (QA-SEG
+ * EPIC-027, achado 2): os únicos que a resposta só com o número resolve.
  */
-export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<OrigemDecisao, { via: "whatsapp" }>): Promise<ResultadoDecisao | null> {
-  const esperando = await gruposEsperandoTipo();
+export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> {
+  const linhas = await getDb().select().from(doloresGrupos).where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono"))).limit(50);
+  return linhas.filter(g => tipoEfetivo(g) === "indefinido" && !semProvaDoDono(g) && !!g.perguntaTipoEm
+    && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000);
+}
+
+/**
+ * EPIC-027 C3 — o dono respondeu SÓ com o número da opção ("3 sim", "1 456"). Vale para o ÚNICO grupo esperando o tipo com pergunta
+ * dos últimos 30 min; nenhum → null (a mensagem segue o caminho normal); mais de um → pede o código (nada muda). Jurídico e
+ * administrativo sem o "sim" → pede a confirmação dizendo o que o tipo libera (nada muda). Só chega aqui mensagem do número do
+ * dono, na conversa direta, não encaminhada e sem mídia (whatsapp.ts).
+ */
+export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
+  const esperando = await gruposEsperandoTipo(origem.agora);
   if (!esperando.length) return null;
   if (esperando.length > 1) {
     const lista = esperando.slice(0, 6).map(g => `${aspas(g.nomeWhatsapp ?? g.nome)} (código ${g.codigo ?? g.id})`).join("; ");
     return { ok: false, grupoId: null, texto: `Dolores: tenho ${esperando.length} grupos esperando o tipo: ${lista}${esperando.length > 6 ? "; …" : ""}. Responda com o código: «grupo <código> <número da opção>». Nada mudou.` };
   }
   const [g] = esperando;
-  if ("faltaNumero" in r) {
-    return { ok: false, grupoId: g.id, texto: `Dolores: para o grupo ${aspas(g.nomeWhatsapp ?? g.nome)} ser de ${ROTULO_TIPO_GRUPO[r.tipo]}, preciso do nº do cliente no CRM: responda «${r.tipo === "cliente" ? 1 : 2} <nº do cliente>». Nada mudou.` };
+  if (!r.confirmado) {
+    await auditar0(origem, "recusada", "resposta só com o número para tipo que libera mais: pedida a confirmação", { grupoId: g.id, tipo: r.tipo });
+    return { ok: false, grupoId: g.id, texto: textoDaConfirmacaoDoTipo(g.nomeWhatsapp ?? g.nome, g.codigo ?? String(g.id), r.tipo) };
   }
   return decidirGrupo({ grupoId: g.id }, { tipo: r.tipo, numero: r.numero }, origem);
 }
+
+const auditar0 = (origem: Extract<OrigemDecisao, { via: "whatsapp" }>, resultado: "ok" | "recusada", motivo: string, resumo: Record<string, unknown>) =>
+  registrarAcao({ funcao: "grupo_decisao", resultado, motivo, canal: "whatsapp", pedidoId: `wa:${origem.mensagemId}`, autorUserId: origem.autor, resumo });

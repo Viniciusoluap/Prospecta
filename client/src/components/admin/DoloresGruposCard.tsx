@@ -10,9 +10,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { jidDeGrupoParaExibir } from "@shared/dolores/grupos";
 import { desfechoRespondido, rotuloDoDesfechoDaMarcacao } from "@shared/dolores/marcacao";
-import { CATEGORIAS_GRUPO, ROTULO_AUTORIA_PENDENTE, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, categoriaDoTipo, telaPodeClassificar, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
+import { CATEGORIAS_GRUPO, FRASE_TIPOS_DO_ADMIN, ROTULO_AUTORIA_PENDENTE, colaboradorPodeClassificar, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, categoriaDoTipo, telaPodeClassificar, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -314,10 +315,18 @@ function GruposSecao(p: {
   onConfig: (c: { entradaAutomaticaLigada?: boolean; tetoGruposNovosDia?: number; tetoAvisosGruposDia?: number }) => void; salvando: boolean;
 }) {
   const utils = trpc.useUtils();
+  // QA-SEG EPIC-027 (achado 1): o colaborador vê só as categorias que pode usar (o servidor confere de novo)
+  const { user } = useAuth();
+  const ehAdmin = user?.role === "admin";
+  const opcoesDaTela = (tipoAtual: TipoGrupo) => CATEGORIAS_GRUPO.filter(c => ehAdmin || colaboradorPodeClassificar(tipoAtual, c.tipo));
   const [editando, setEditando] = useState<{ id: number; tipo: string; numero: string } | null>(null);
   const [tetos, setTetos] = useState<Record<string, string>>({});
   const definir = trpc.dolores.grupos.definirTipo.useMutation({
-    onSuccess: async r => { toast.success(r.texto); setEditando(null); await utils.dolores.grupos.listar.invalidate(); },
+    onSuccess: async r => {
+      toast.success(r.texto);
+      if (r.aviso === "pendente") toast.message("O aviso ao dono ficou pendente (teto de avisos do dia); a mudança entra no relatório diário.");
+      setEditando(null); await utils.dolores.grupos.listar.invalidate();
+    },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const aguardando = p.grupos.filter(g => g.ativo && g.situacaoConfirmacao === "aguardando_dono" && !autoriaPendente(g)).length;
@@ -390,9 +399,11 @@ function GruposSecao(p: {
                   <div><Label htmlFor={`tipo-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
                     <select id={`tipo-${g.id}`} value={editando.tipo} onChange={e => setEditando({ ...editando, tipo: e.target.value })}
                       className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
-                      {CATEGORIAS_GRUPO.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
+                      {opcoesDaTela(g.tipo).map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
                     </select>
-                    <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(editando.tipo)?.explica ?? ""}</p></div>
+                    <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(editando.tipo)?.explica ?? ""}</p>
+                    {!ehAdmin && <p className="mt-1 max-w-xs text-[11px] text-yellow-200">{FRASE_TIPOS_DO_ADMIN}</p>}
+                    <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
                   {(precisaNumero(editando.tipo) || editando.tipo === "engenharia") && (
                     <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
                       <Input id={`numero-${g.id}`} inputMode="numeric" value={editando.numero} onChange={e => setEditando({ ...editando, numero: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
@@ -409,7 +420,9 @@ function GruposSecao(p: {
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
+                  {ehAdmin || opcoesDaTela(g.tipo).length
+                    ? <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" || !opcoesDaTela(g.tipo).some(c => c.tipo === g.tipo) ? opcoesDaTela(g.tipo)[0]?.tipo ?? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
+                    : <p className="text-xs text-gray-300">{FRASE_TIPOS_DO_ADMIN}</p>}
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}

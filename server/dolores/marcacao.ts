@@ -121,6 +121,8 @@ export async function conferirLidDaDolores(grupoId: number, o: { userId: number 
   const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
   if (!evo) return { conferido: false, motivo: "servidor do WhatsApp (Evolution) não configurado" };
   const prazo = Math.max(1_000, o.prazoMs ?? 15_000);
+  // QA-SEG EPIC-027 (achado 4): um prazo só para as duas consultas; a segunda usa o que sobrou
+  const fim = Date.now() + prazo;
   const numero = cfg.numeroDolores;
   const lids = new Set<string>();
   let viuONumero = false;
@@ -130,10 +132,10 @@ export async function conferirLidDaDolores(grupoId: number, o: { userId: number 
       if (p.numero && ehNumeroDoDono(p.numero, numero)) { viuONumero = true; if (lidValido(p.lid)) lids.add(p.lid); }
     }
   } catch { falhou++; }
-  if (!lids.size) {
+  if (!lids.size && fim - Date.now() >= 1_000) {
     // reserva: os dados do grupo (outra rota da Evolution, que em algumas versões traz o par @lid ↔ número quando a primeira não traz)
     try {
-      const meta = await metadadoDoGrupoEvolution(evo, cfg.instancia, g.grupoJid, fetch, prazo);
+      const meta = await metadadoDoGrupoEvolution(evo, cfg.instancia, g.grupoJid, fetch, Math.max(1_000, fim - Date.now()));
       for (const p of (meta?.participantes ?? []).map(lerParticipante)) {
         if (p.numero && ehNumeroDoDono(p.numero, numero)) { viuONumero = true; if (lidValido(p.lid)) lids.add(p.lid); }
       }
@@ -141,7 +143,7 @@ export async function conferirLidDaDolores(grupoId: number, o: { userId: number 
   }
   if (lids.size > 1) return { conferido: false, motivo: "mais de um @lid para o número da Dolores (não gravado)" };
   if (!lids.size) {
-    return { conferido: false, motivo: falhou >= 2 ? "a Evolution não listou os participantes agora"
+    return { conferido: false, motivo: falhou > 0 && !viuONumero ? "a Evolution não listou os participantes agora"
       : viuONumero ? "este grupo não usa @lid para a Dolores (as menções vêm pelo número)" : "o número da Dolores não apareceu na lista de participantes" };
   }
   const [lid] = Array.from(lids);
