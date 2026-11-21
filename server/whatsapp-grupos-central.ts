@@ -24,7 +24,7 @@ import { doloresGrupoMensagens, doloresGrupos, type DoloresGrupo } from "../driz
 import { doloresMarcacoes } from "../drizzle/schema-dolores-marcacoes.js";
 import { whatsappGrupoAtendimento, whatsappGrupoEnvios } from "../drizzle/schema-whatsapp-grupos.js";
 import { textoDeDado } from "../shared/dolores/fila.js";
-import { ROTULO_TIPO_GRUPO, precisaDoAceiteDoDono, tipoEfetivo } from "../shared/dolores/grupos-tipo.js";
+import { ROTULO_TIPO_GRUPO, semProvaDoDono, tipoEfetivo } from "../shared/dolores/grupos-tipo.js";
 import {
   AUTOR_DOLORES, LIMITE_MENSAGENS_GRUPO, TEXTO_GRUPOS, autorDaEquipe, grupoVisivelNaCentral, podeVerGruposNaCentral, textoDaMensagemDeGrupo,
 } from "../shared/whatsapp/grupos-central.js";
@@ -120,7 +120,8 @@ export const whatsappGruposRouter = router({
       ].sort((a, b) => b.ordem.getTime() - a.ordem.getTime());
       const ultima = candidatas[0] ?? null;
       const tipo = tipoEfetivo(g);
-      const semProva = precisaDoAceiteDoDono(g);
+      // recusado (nunca chega aqui) ou sem prova de quem colocou a empresa no grupo: só o dono aceita; por aqui só se lê
+      const semProva = semProvaDoDono(g);
       return {
         id: g.id, nome: nomeDoGrupo(g), tipo, rotuloTipo: ROTULO_TIPO_GRUPO[tipo] ?? tipo,
         leadId: g.leadId, cliente: g.cliente ? textoDeDado(g.cliente, 120) : null, obraId: g.obraId, obra: g.obra ? textoDeDado(g.obra, 120) : null,
@@ -183,7 +184,7 @@ export const whatsappGruposRouter = router({
    */
   enviar: gruposProcedure.input(z.object({ grupoId: id32, texto: z.string().trim().min(1).max(4096) }).strict()).mutation(async ({ ctx, input }) => {
     const { g, conn } = await grupoDaCentral(ctx.user.role, input.grupoId);
-    if (precisaDoAceiteDoDono(g)) throw new TRPCError({ code: "FORBIDDEN", message: TEXTO_GRUPOS.semEscrita });
+    if (semProvaDoDono(g)) throw new TRPCError({ code: "FORBIDDEN", message: TEXTO_GRUPOS.semEscrita });
     if (!conn?.instancia || conn.status !== "conectado") throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp da empresa não está conectado (Configurações › Integrações)." });
     const { configEvolution } = await import("./whatsapp-router.js");
     const configurada = await configEvolution();
