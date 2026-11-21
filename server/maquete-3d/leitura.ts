@@ -5,7 +5,7 @@
 //              → implantação (quando houver prancha) → montagem (sem IA: junta, valida e grava o modelo).
 // Regra do dono: a geometria do projeto não é inventada. O que a prancha não traz vira "estimada" ou pendência,
 // e a pessoa confirma na revisão antes de publicar.
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { maquetes3d, type Maquete3d } from "../../drizzle/schema-maquete-3d.js";
 import {
   FUNCOES_COMODO, TIPOS_ABERTURA, areaPoligono, TIPOS_COBERTURA, TIPOS_ESCADA, lerModelo, modeloSchema, type Edificacao, type Implantacao,
@@ -16,15 +16,18 @@ import {
   type EstadoLeitura, type MotorLeitura, type PassoLeitura, type StatusMaquete,
 } from "../../shared/maquete-3d/regras.js";
 import { MAX_PAGINAS } from "./pdf-vetorial.js";
-import { jpegDaPagina, pdfDeUmJpeg } from "./pdf-pagina.js";
+import { jpegDaPagina, pdfDaPagina, pdfDeUmJpeg } from "./pdf-pagina.js";
 import { lerPagina, nomeDoPavimento, type Diagnostico, type PlantaLida } from "./geometrico.js";
 import { guardarAnterior, registrarRevisao } from "./revisoes.js";
 import { lerRespostaPrancha } from "./resposta-ia.js";
 import {
-  ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, novaConfirmacao, modeloDaConfirmacao, UNIDADE_MOTOR_IA,
+  ExecucaoConcorrente, LIMITE_RESERVA_MS, MENSAGEM_INTERROMPIDA, PASSOS_IA_ANTIGOS, bloqueioDaIA, devolverReserva, execucaoDe, gravarSeIgual, naoCobrado, naoCobradoNoEnvio, novaConfirmacao, modeloDaConfirmacao, UNIDADE_MOTOR_IA,
   exigirSemPassoEmCurso, gravarSobreOAtual, prazoDaIA, pularPassosIA, semTempoParaIA, reservaVencida, reservarChamada, type Execucao,
 } from "./execucao-ia.js";
-import { LeituraIndisponivel, agora, carregarConfig, db, dependencias, erroSeguro, modeloDaLeitura, type AnexoIA, type PdfLido, alvoDoDocumento } from "./base.js";
+import {
+  LeituraIndisponivel, LoteDeOutroPedido, agora, carregarConfig, db, dependencias, erroSeguro, idDoPedidoNoLote, interpretarMensagem, modeloDaLeitura, tipoDoErroIA,
+  type AnexoIA, type PdfLido, alvoDoDocumento,
+} from "./base.js";
 
 // ── Esquemas da resposta da IA (JSON Schema, saída estruturada) ──
 
@@ -378,20 +381,30 @@ export type EnvioIA = "imagem" | "pdf_pagina" | "pdf_original";
 /**
  * O mínimo da página para a IA. Quando a maior imagem da página cobre a maior parte dela (`cobertura`, fração da
  * página medida pelo leitor próprio; >= 0,6), vai o JPEG dela (ou, grande demais, um PDF de uma página só com ele).
- * Imagem pequena (logotipo, foto no carimbo de uma prancha vetorial), cobertura desconhecida ou sem JPEG extraível:
- * vai o PDF original com a instrução da página — nunca só um pedaço da prancha no lugar dela.
+ * Prancha vetorial (ou imagem pequena, como um logotipo no carimbo) de um PDF com várias páginas: vai um PDF novo só
+ * com AQUELA página (EPIC-027 C1: antes ia o arquivo inteiro a cada prancha). Se não der para separar a página (PDF
+ * protegido, estrutura que o leitor mínimo não entende) ou com `extrair` falso, vai o PDF original com a instrução da
+ * página, e `motivo` diz por quê — nunca só um pedaço da prancha no lugar dela.
+ * `deImagem`: o que vai à IA é uma imagem da prancha (não há linhas nem texto selecionável).
  */
-export function anexoDaPagina(dados: Buffer, nome: string, pagina: number, totalPaginas: number, cobertura = 0): { anexo: AnexoIA; envio: EnvioIA } {
+export function anexoDaPagina(dados: Buffer, nome: string, pagina: number, totalPaginas: number, cobertura = 0, extrair = true):
+  { anexo: AnexoIA; envio: EnvioIA; deImagem: boolean; motivo?: string } {
   const img = cobertura >= COBERTURA_MIN_IMAGEM ? jpegDaPagina(dados, pagina) : null;
   if (img && img.jpeg.length <= MAX_BYTES_IMAGEM_IA && Math.max(img.largura, img.altura) <= MAX_LADO_IMAGEM_IA) {
-    return { anexo: { tipo: "imagem", base64: img.jpeg.toString("base64") }, envio: "imagem" };
+    return { anexo: { tipo: "imagem", base64: img.jpeg.toString("base64") }, envio: "imagem", deImagem: true };
   }
   if (img) {
     const pdf = pdfDeUmJpeg(img);
-    if (pdf.length <= MAX_BYTES_DOCUMENTOS) return { anexo: { tipo: "pdf", nome: `${nome} — página ${pagina}`, base64: pdf.toString("base64") }, envio: "pdf_pagina" };
+    if (pdf.length <= MAX_BYTES_DOCUMENTOS) return { anexo: { tipo: "pdf", nome: `${nome} — página ${pagina}`, base64: pdf.toString("base64") }, envio: "pdf_pagina", deImagem: true };
+  }
+  let motivo: string | undefined;
+  if (totalPaginas > 1 && extrair) {
+    const so = pdfDaPagina(dados, pagina);
+    if ("pdf" in so && so.pdf.length <= MAX_BYTES_DOCUMENTOS) return { anexo: { tipo: "pdf", nome: `${nome} — página ${pagina}`, base64: so.pdf.toString("base64") }, envio: "pdf_pagina", deImagem: false };
+    motivo = "motivo" in so ? so.motivo : "a página separada ficou grande demais";
   }
   if (totalPaginas > MAX_PAGINAS_PDF_IA) throw new LeituraIndisponivel(`"${nome}" tem ${totalPaginas} páginas, mais que as ${MAX_PAGINAS_PDF_IA} que a IA aceita de uma vez. Envie só as pranchas das plantas baixas.`);
-  return { anexo: { tipo: "pdf", nome, base64: dados.toString("base64") }, envio: "pdf_original" };
+  return { anexo: { tipo: "pdf", nome, base64: dados.toString("base64") }, envio: "pdf_original", deImagem: false, ...(motivo ? { motivo } : {}) };
 }
 
 /** Resposta da IA no formato do leitor próprio (conferida e filtrada em resposta-ia.ts). Nunca lança. */
@@ -423,39 +436,271 @@ export const mensagemSemChave = (motivo: string | null | undefined) => motivo ==
   ? "Esta prancha é uma imagem e precisa da leitura por IA; cadastre a chave em Integrações → Anthropic (ou envie o PDF exportado do programa de desenho)."
   : `O leitor próprio não leu bem esta prancha (${motivo ?? "leitura insuficiente"}) e ela precisa da leitura por IA; cadastre a chave em Integrações → Anthropic (ou envie o PDF exportado do programa de desenho).`;
 
+/** Consultas seguidas que falharam (rede, API fora do ar) antes de o passo virar erro claro. */
+export const MAX_FALHAS_CONSULTA = 30;
+
+/** Mensagens de quando o lote termina sem resultado (pela documentação da Anthropic, nada é cobrado nesses casos). */
+export const MENSAGENS_LOTE_SEM_RESULTADO = {
+  canceled: "A leitura desta prancha pela IA foi cancelada antes de a IA começar a ler: nada foi cobrado e a confirmação foi devolvida. Tente de novo este passo ou siga sem a IA.",
+  expired: "A IA não chegou a ler esta prancha em 24 horas (o lote expirou na Anthropic): nada foi cobrado e a confirmação foi devolvida. Tente de novo este passo.",
+  errored: "A IA não aceitou o pedido desta prancha: nada foi cobrado e a confirmação foi devolvida. Tente de novo este passo; se repetir, envie só as pranchas das plantas baixas.",
+} as const;
+
+const tokensDe = (e: number, s: number) => `${e.toLocaleString("pt-BR")} + ${s.toLocaleString("pt-BR")} tokens`;
+
 /**
- * Passo "prancha_ia". Sem chave, além do teto ou sem a confirmação desta execução, o passo fica "aguardando" (não é
- * erro): o pedido, o pagamento e os passos feitos ficam como estão e a leitura retoma deste passo. Com tudo certo,
- * a chamada é RESERVADA (UPDATE condicional) antes de a IA ser chamada: outra aba não chama de novo.
- * Tempo esgotado ou IA sobrecarregada: erro do passo, que pode ser repetido (com confirmação, se a dela acabou).
+ * Passo "prancha_ia" — leitura em segundo plano (EPIC-027 C1, Message Batches API).
+ *   1. Sem chave, além do teto ou sem a confirmação desta execução: o passo fica "aguardando" (não é erro).
+ *   2. Com tudo certo: a chamada é RESERVADA (UPDATE condicional; outra aba não envia de novo) e a prancha vai num
+ *      lote de uma requisição. O pedido volta em poucos segundos ("enviado"), com o passo "executando" e o lote gravado.
+ *   3. Cada "avançar" seguinte só CONSULTA o lote ("mudou"/"sem_mudanca") até terminar. Terminou com a resposta: grava
+ *      a planta e os tokens REAIS da Anthropic. Terminou sem resultado (erro, expirado, cancelado — não cobrado):
+ *      devolve a confirmação e o contador. Resposta cortada, recusada ou ilegível: foi cobrada; conta e guarda os tokens.
  * A IA voltou sem planta (ou fora do formato): fica o que o leitor próprio leu, com pendência dizendo isso.
  */
-export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "aguardando" | "adiado"> {
+export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao):
+  Promise<"feito" | "aguardando" | "adiado" | "enviado" | "mudou" | "sem_mudanca"> {
+  if (passo.estado === "executando" && passo.lote?.id) return consultarPranchaIA(estado, passo, config, x);
+  if (passo.estado === "executando" && passo.loteAProcurar) return procurarLoteDoPasso(estado, passo, x);
   const credencial = await dependencias().credencialIA().catch(() => null);
   const bloqueio = bloqueioDaIA(estado, config, x, credencial, mensagemSemChave(passo.motivoIA));
   if (bloqueio) { Object.assign(passo, { estado: "aguardando", ...bloqueio }); return "aguardando"; }
-  const chaveGeo = `prancha:${passo.doc}:${passo.pagina}`;
-  const geo = estado.parciais[chaveGeo] as PranchaLida | undefined;
+  const geo = estado.parciais[`prancha:${passo.doc}:${passo.pagina}`] as PranchaLida | undefined;
   const { d } = documentoDoPasso(m, passo);
   const dados = await bytesDoDocumento(m, d);
   let total = 1;
   const pdf = await dependencias().abrirPdf(dados).catch(() => null);
   if (pdf) { total = pdf.paginas; await pdf.fechar(); }
-  const { anexo, envio } = anexoDaPagina(dados, d.nome, passo.pagina!, total, geo?.diagnostico.coberturaImagem ?? 0);
-  const imagem = (!!geo && geo.diagnostico.segmentos < 40 && geo.diagnostico.imagens > 0) || envio !== "pdf_original";
+  const cobertura = geo?.diagnostico.coberturaImagem ?? 0;
+  let preparo = anexoDaPagina(dados, d.nome, passo.pagina!, total, cobertura);
+  if (preparo.envio === "pdf_pagina" && !preparo.deImagem) {
+    // A página separada precisa abrir no leitor de PDF com uma página só; senão, vai o arquivo inteiro (e isso fica dito).
+    const copia = await dependencias().abrirPdf(Buffer.from((preparo.anexo as { base64: string }).base64, "base64")).catch(() => null);
+    const ok = copia?.paginas === 1;
+    if (copia) await copia.fechar();
+    if (!ok) preparo = { ...anexoDaPagina(dados, d.nome, passo.pagina!, total, cobertura, false), motivo: "a cópia da página não abriu no leitor de PDF" };
+  }
+  const { anexo, envio, motivo } = preparo;
+  const envioMotivo = motivo ? `Não foi possível separar só a página ${passo.pagina} (${motivo}): o arquivo foi inteiro à IA, com a instrução de ler só essa página.` : null;
+  if (envioMotivo) console.warn(`[maquete-3d] maquete ${m.id}, ${passo.chave}: página não separada — ${motivo}`);
+  const imagem = (!!geo && geo.diagnostico.segmentos < 40 && geo.diagnostico.imagens > 0) || preparo.deImagem;
   if (semTempoParaIA(x, passo)) return "adiado";
   await reservarChamada(x, estado, passo, config);
-  let r: Awaited<ReturnType<ReturnType<typeof dependencias>["ia"]>>;
+  const idPedido = pedidoDaTentativa(x, passo);
+  let lote: { id: string };
   try {
-    r = await dependencias().ia({
+    lote = await dependencias().lote.enviar({
       sistema: SISTEMA, pedido: PEDIDO_PRANCHA(d.nome, passo.pagina!, envio, imagem), pdfs: [], anexos: [anexo],
-      esquema: ESQUEMA_PRANCHA, config, credencial: credencial!, prazoMs: prazoDaIA(x),
+      esquema: ESQUEMA_PRANCHA, config, credencial: credencial!, prazoMs: prazoDaIA(x), idPedido,
     });
   } catch (e) {
-    if (naoCobrado(e)) devolverReserva(x, estado);
+    if (naoCobradoNoEnvio(e)) { devolverReserva(x, estado); throw e; }
+    const tipo = tipoDoErroIA(e);
+    if (tipo === "tempo" || tipo === "conexao") {
+      // QA C1, achado 1: o lote pode ter sido criado. O passo continua "executando" e o procura (daqui a alguns segundos)
+      // antes de dar a tentativa como usada: achou, segue consultando — nada de segundo lote pago.
+      Object.assign(passo, {
+        estado: "executando", aguardando: null, erro: null, envio, envioMotivo, modelo: modeloDaLeitura(credencial, config),
+        loteAProcurar: { pedido: idPedido, desde: passo.reservadoEm!, tentativas: 0, imagem },
+      });
+      return "enviado";
+    }
     throw e;
   }
-  const lida = lerRespostaPrancha(r.json, imagem);
+  Object.assign(passo, {
+    estado: "executando", aguardando: null, erro: null, envio, envioMotivo, modelo: modeloDaLeitura(credencial, config), loteAProcurar: null,
+    lote: { id: lote.id, pedido: idPedido, situacao: "em_andamento", enviadoEm: agora().toISOString(), imagem },
+  });
+  return "enviado";
+}
+
+/** Consulta o lote do passo; ao terminar, grava a leitura (ou devolve a reserva, se nada foi entregue). */
+async function consultarPranchaIA(estado: EstadoLeitura, passo: PassoLeitura, config: ConfigMaquete, x: Execucao): Promise<"feito" | "mudou" | "sem_mudanca"> {
+  const lote = passo.lote!;
+  // Base da segunda barreira do N1: esta é a reserva feita quando o lote foi enviado.
+  x.reserva = { chave: passo.chave, em: passo.reservadoEm ?? "", tokensEntrada: estado.tokensEntrada, tokensSaida: estado.tokensSaida };
+  // QA C1 R2-1: lote adotado que não termina em 2 h é solto (a maquete não fica presa a um lote que pode ser alheio).
+  if (lote.adotado && agora().getTime() - Date.parse(lote.adotadoEm ?? lote.enviadoEm) > PRAZO_LOTE_ADOTADO_MS) soltarLoteAdotado(passo, "não terminou em 2 horas");
+  const credencial = await dependencias().credencialIA().catch(() => null);
+  let situacao: Awaited<ReturnType<ReturnType<typeof dependencias>["lote"]["consultar"]>>;
+  try {
+    if (!credencial) throw new LeituraIndisponivel("Chave da IA não configurada: cadastre-a em Integrações → Anthropic.");
+    // QA C1, achado 5: a consulta usa o que sobra do passo; estourou, conta como falha e a tela consulta no ciclo seguinte.
+    situacao = await dependencias().lote.consultar(lote.id, lote.pedido, credencial, prazoDaIA(x));
+  } catch (e) {
+    if (e instanceof LoteDeOutroPedido) {
+      // O lote adotado (achados 1 e 2) terminou com o resultado de outro pedido: não era desta prancha; nada é usado dele.
+      // QA C1 R2-2: se o dono for outro passo que ainda o procura, o lote é entregue a ele (o resultado pago não se perde).
+      passo.lote = null;
+      const entregue = await entregarLoteAoDono(lote.id, e.pedidos, lote.enviadoEm).catch(() => false);
+      throw new LeituraIndisponivel(`O lote achado na Anthropic não era o desta prancha (conferido pelo pedido quando terminou): o resultado não foi usado aqui${entregue ? " e foi entregue à leitura que o tinha enviado" : ""}. A tentativa de envio conta como usada; tente de novo este passo.`);
+    }
+    const tipo = tipoDoErroIA(e);
+    lote.falhasDeConsulta = (lote.falhasDeConsulta ?? 0) + 1;
+    if (lote.adotado && (tipo === "chave" || tipo === "permissao" || tipo === "recusado" || lote.falhasDeConsulta >= MAX_FALHAS_CONSULTA)) {
+      soltarLoteAdotado(passo, `a consulta falhou: ${erroSeguro(e).replace(/\.$/, "")}`);
+    }
+    if (tipo === "chave" || tipo === "permissao" || tipo === "recusado" || lote.falhasDeConsulta >= MAX_FALHAS_CONSULTA) {
+      // QA C1, achado 3: antes de deixar o lote de lado, pede o cancelamento (melhor esforço, prazo curto) e registra.
+      const aceito = credencial ? await dependencias().lote.cancelar(lote.id, credencial, Math.min(8_000, prazoDaIA(x))).then(() => true, () => false) : false;
+      passo.loteAbandonado = { id: lote.id, cancelamento: aceito ? "aceito" : "recusado" };
+      passo.lote = null;
+      const cancelamento = aceito
+        ? " O cancelamento do lote foi pedido à Anthropic e aceito (se a IA ainda não tinha lido, não é cobrado)."
+        : " O cancelamento do lote foi pedido à Anthropic, mas não foi aceito agora.";
+      throw new LeituraIndisponivel(`Não foi possível consultar na IA a leitura desta prancha (${erroSeguro(e).replace(/\.$/, "")}). Ela pode ter sido feita e cobrada: esta tentativa conta como usada.${cancelamento} Tente de novo este passo.`);
+    }
+    return "mudou";
+  }
+  if (situacao.andamento !== "terminado") {
+    if (lote.situacao === situacao.andamento && !lote.falhasDeConsulta) return "sem_mudanca";
+    Object.assign(lote, { situacao: situacao.andamento, falhasDeConsulta: 0 });
+    return "mudou";
+  }
+  const imagem = lote.imagem === true;
+  passo.lote = null;
+  const r = situacao.resultado;
+  if (r.tipo === "nao_entregue") {
+    devolverReserva(x, estado);
+    const base = MENSAGENS_LOTE_SEM_RESULTADO[r.motivo];
+    throw new LeituraIndisponivel(r.erro ? base.replace("desta prancha:", `desta prancha (motivo: ${r.erro}):`) : base);
+  }
+  const msg = r.mensagem;
+  estado.tokensEntrada += msg.entrada;
+  estado.tokensSaida += msg.saida;
+  Object.assign(passo, { motor: "ia", modelo: msg.modelo || passo.modelo || modeloDaLeitura(credencial, config), tokens: { entrada: msg.entrada, saida: msg.saida } });
+  const lido = interpretarMensagem(msg);
+  if (!lido.ok) {
+    const gasto = tokensDe(msg.entrada, msg.saida);
+    throw new LeituraIndisponivel(
+      lido.motivo === "cortada" ? `A resposta da IA foi cortada antes do fim (a prancha tem elementos demais para uma resposta). Esta leitura foi cobrada e conta como usada (${gasto}). Tente de novo este passo ou siga sem a IA.`
+        : lido.motivo === "recusada" ? `A IA recusou a leitura desta prancha. Esta leitura foi cobrada e conta como usada (${gasto}). Siga sem a IA ou envie outro arquivo.`
+          : `A IA devolveu uma resposta que não pôde ser lida. Esta leitura foi cobrada e conta como usada (${gasto}). Tente de novo este passo.`,
+    );
+  }
+  aplicarLeituraDaIA(estado, passo, lido.json, imagem);
+  passo.aguardando = null;
+  return "feito";
+}
+
+// ── Lote órfão (QA C1, achados 1 e 2): o lote pode ter sido criado sem que o id chegasse a ser gravado ──
+
+/** custom_id ÚNICO por tentativa: execução, maquete, passo e a hora da reserva (nunca o de outra prancha ou maquete). */
+export const pedidoDaTentativa = (x: Pick<Execucao, "coluna" | "id">, passo: Pick<PassoLeitura, "chave" | "reservadoEm">) =>
+  idDoPedidoNoLote(`${x.coluna}-${x.id}-${passo.chave}-${Number.isFinite(Date.parse(passo.reservadoEm ?? "")) ? Date.parse(passo.reservadoEm!).toString(36) : "0"}`);
+/** Espera depois da reserva antes de procurar: quem criou um lote nesse meio tempo já gravou o id dele. */
+export const ESPERA_PARA_PROCURAR_MS = 20_000;
+/** Procuras sem achar (a listagem pode atrasar alguns segundos) antes de dar a tentativa como usada. */
+export const MAX_PROCURAS = 3;
+
+/** Lote adotado sem terminar por este tempo é solto do passo (QA C1 R2-1). */
+export const PRAZO_LOTE_ADOTADO_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * QA C1 R2-1: lote ADOTADO (achado pela listagem, sem o custom_id conferido) pode ser de outra maquete ou de outra
+ * ferramenta com a mesma chave: NUNCA é cancelado na Anthropic. "Cancelar", o abandono e o prazo de 2 h só o soltam do
+ * passo; a tentativa conta como usada. Lança o erro do passo (o chamador grava).
+ */
+function soltarLoteAdotado(passo: PassoLeitura, motivo: string): never {
+  const id = passo.lote!.id;
+  Object.assign(passo, { lote: null, loteAbandonado: { id, cancelamento: "nao_pedido" } });
+  throw new LeituraIndisponivel(`O lote que foi achado na Anthropic para esta prancha foi solto (${motivo}). Ele NÃO foi cancelado na Anthropic, porque não foi possível confirmar que era desta maquete. Esta tentativa conta como usada; tente de novo este passo ou siga sem a IA.`);
+}
+
+/**
+ * QA C1 R2-2: o lote adotado terminou e era de outro pedido. Se esse pedido é o de um passo (de outra maquete ou
+ * prancha) que ainda procura o seu lote, o id é gravado nele — gravação condicional ao texto lido, então nada é
+ * sobrescrito se ele mudou no meio. O custom_id diz a coluna e a maquete; o passo é conferido pelo pedido exato.
+ */
+async function entregarLoteAoDono(loteId: string, pedidos: string[], criadoEm: string): Promise<boolean> {
+  for (const pedido of pedidos.slice(0, 3)) {
+    const m = /^(leitura|importacao)-(\d+)-/.exec(pedido);
+    if (!m) continue;
+    const coluna = m[1] as "leitura" | "importacao";
+    const [linha] = await db().select().from(maquetes3d).where(and(eq(maquetes3d.id, Number(m[2])), isNull(maquetes3d.deletedAt))).limit(1);
+    const texto = linha?.[coluna];
+    if (!linha || !texto) continue;
+    const bruto = JSON.parse(texto) as Record<string, unknown>;
+    const estado = lerEstadoLeitura(JSON.stringify(coluna === "leitura" ? bruto : bruto.estado));
+    const dono = estado.passos.find(p => p.estado === "executando" && !p.lote?.id && p.loteAProcurar?.pedido === pedido);
+    if (!dono) continue;
+    dono.lote = { id: loteId, pedido, situacao: "em_andamento", enviadoEm: criadoEm, imagem: dono.loteAProcurar!.imagem };
+    dono.loteAProcurar = null;
+    const novo = JSON.stringify(coluna === "leitura" ? estado : { ...bruto, estado });
+    const x = execucaoDe(linha, coluna, () => novo, coluna === "leitura" ? ["em_leitura"] : ["liberada", "em_revisao", "validada", "publicada"]);
+    if (await gravarSeIgual(x, novo)) return true;
+  }
+  return false;
+}
+
+/** O lote já está gravado em alguma maquete (leitura ou importação)? Então é de outra execução e não pode ser adotado. */
+async function loteJaUsado(id: string): Promise<boolean> {
+  const marca = JSON.stringify(id);
+  const r = await db().select({ id: maquetes3d.id }).from(maquetes3d)
+    .where(sql`strpos(coalesce(${maquetes3d.leitura}, ''), ${marca}) > 0 OR strpos(coalesce(${maquetes3d.importacao}, ''), ${marca}) > 0`).limit(1);
+  return r.length > 0;
+}
+
+/**
+ * Procura, na Anthropic, o lote criado por esta tentativa: de UMA requisição, criado entre a reserva e o limite da
+ * reserva, e ainda não gravado em nenhuma maquete. Um só candidato: adotado (o custom_id é conferido quando ele
+ * terminar). Nenhum depois de algumas procuras, ou mais de um (não dá para saber qual): "nao_achado".
+ * Cada procura é uma chamada curta, com o prazo do passo; a espera entre elas é o ciclo de consulta da tela.
+ */
+async function resolverOrfao(passo: PassoLeitura, x: Execucao): Promise<"adotado" | "aguardar" | "nao_achado" | "ambiguo"> {
+  const alvo = passo.loteAProcurar!;
+  const desde = Date.parse(alvo.desde);
+  if (!Number.isFinite(desde)) return "nao_achado";
+  if (agora().getTime() - desde < ESPERA_PARA_PROCURAR_MS) return "aguardar";
+  const credencial = await dependencias().credencialIA().catch(() => null);
+  const candidatos = credencial
+    ? await dependencias().lote.procurar(new Date(desde - 10_000).toISOString(), new Date(desde + LIMITE_RESERVA_MS).toISOString(), credencial, prazoDaIA(x)).catch(() => null)
+    : null;
+  const livres: { id: string; criadoEm: string }[] = [];
+  for (const c of candidatos ?? []) if (!(await loteJaUsado(c.id))) livres.push(c);
+  if (livres.length > 1) return "ambiguo";
+  if (livres.length === 1) {
+    passo.lote = { id: livres[0].id, pedido: alvo.pedido, situacao: "em_andamento", enviadoEm: livres[0].criadoEm, imagem: alvo.imagem, adotado: true, adotadoEm: agora().toISOString() };
+    passo.loteAProcurar = null;
+    return "adotado";
+  }
+  alvo.tentativas++;
+  return alvo.tentativas >= MAX_PROCURAS ? "nao_achado" : "aguardar";
+}
+
+async function procurarLoteDoPasso(estado: EstadoLeitura, passo: PassoLeitura, x: Execucao): Promise<"mudou" | "sem_mudanca"> {
+  x.reserva = { chave: passo.chave, em: passo.reservadoEm ?? "", tokensEntrada: estado.tokensEntrada, tokensSaida: estado.tokensSaida };
+  const r = await resolverOrfao(passo, x);
+  if (r === "adotado") return "mudou";
+  if (r === "aguardar") return passo.loteAProcurar!.tentativas ? "mudou" : "sem_mudanca";
+  passo.loteAProcurar = null;
+  throw new LeituraIndisponivel(r === "ambiguo"
+    ? "O envio da prancha à IA não teve resposta a tempo, e há mais de um lote recente na Anthropic que poderia ser o dela: para não usar o de outra prancha, nenhum foi adotado. Esta tentativa conta como usada; tente de novo este passo."
+    : "O envio da prancha à IA não teve resposta a tempo, e o lote não foi encontrado na Anthropic. Por segurança, esta tentativa conta como usada. Tente de novo este passo.");
+}
+
+/**
+ * QA C1, achado 2: passo "executando" sem lote gravado, com a reserva vencida (a função caiu entre criar o lote e
+ * gravar o id). Antes de dar como interrompido, procura o lote uma vez; achou, o passo segue consultando.
+ * Devolve true quando adotou (o chamador grava o estado).
+ */
+export async function adotarAntesDeInterromper(estado: EstadoLeitura, passo: PassoLeitura, x: Execucao): Promise<boolean> {
+  if (passo.tipo !== "prancha_ia" || !passo.reservadoEm) return false;
+  // O que foi enviado não ficou gravado: a resposta é conferida pelo que o leitor próprio viu da prancha.
+  const geo = estado.parciais[`prancha:${passo.doc}:${passo.pagina}`] as PranchaLida | undefined;
+  const imagem = !!geo && geo.diagnostico.segmentos < 40 && geo.diagnostico.imagens > 0;
+  passo.loteAProcurar = { pedido: pedidoDaTentativa(x, passo), desde: passo.reservadoEm, tentativas: MAX_PROCURAS - 1, imagem };
+  const r = await resolverOrfao(passo, x).catch(() => "nao_achado" as const);
+  if (r === "adotado") return true;
+  passo.loteAProcurar = null;
+  return false;
+}
+
+/** Grava a planta lida pela IA no lugar da leitura própria (ou, sem planta, mantém a própria com a pendência). */
+function aplicarLeituraDaIA(estado: EstadoLeitura, passo: PassoLeitura, json: unknown, imagem: boolean): void {
+  const chaveGeo = `prancha:${passo.doc}:${passo.pagina}`;
+  const geo = estado.parciais[chaveGeo] as PranchaLida | undefined;
+  const lida = lerRespostaPrancha(json, imagem);
   const recusa = lida.gerais.slice(0, 2).map(t => ` ${t}`).join("");
   const base = geo?.diagnostico ?? { segmentos: 0, arcos: 0, textos: 0, imagens: 0, escalas: [], plantas: 0, motivo: null };
   if (!lida.plantas.length && geo?.plantas.length) {
@@ -472,10 +717,32 @@ export async function passoPranchaIA(m: Maquete3d, estado: EstadoLeitura, passo:
       },
     } satisfies PranchaLida;
   }
-  estado.tokensEntrada += r.entrada;
-  estado.tokensSaida += r.saida;
-  Object.assign(passo, { motor: "ia", modelo: r.modelo ?? modeloDaLeitura(credencial, config), tokens: { entrada: r.entrada, saida: r.saida }, aguardando: null, envio });
-  return "feito";
+}
+
+/**
+ * Botão "Cancelar leitura pela IA": pede à Anthropic o cancelamento do lote do passo em curso. O resultado chega na
+ * consulta seguinte: cancelado antes de a IA começar, nada é cobrado (a confirmação volta); se a IA já tinha lido,
+ * a leitura é aproveitada (foi paga). Devolve true quando o estado mudou e precisa ser gravado.
+ */
+export async function cancelarLoteIA(estado: EstadoLeitura | null | undefined, chave: string): Promise<boolean> {
+  const passo = estado?.passos.find(p => p.estado === "executando");
+  if (!passo) throw new LeituraIndisponivel("Não há leitura pela IA em andamento para cancelar.");
+  // QA C1, achado 4: só cancela a prancha que a tela mostrou; com a tela atrasada, pede para atualizar.
+  if (passo.chave !== chave) throw new LeituraIndisponivel("A prancha que está na IA agora não é a que esta tela mostra (a leitura andou). Atualize a página e confira antes de cancelar. Nada foi cancelado.");
+  if (!passo.lote?.id) throw new LeituraIndisponivel("A prancha ainda está sendo enviada à IA; aguarde alguns segundos e cancele de novo.");
+  if (passo.lote.adotado) {
+    // QA C1 R2-1: lote adotado nunca é cancelado na Anthropic (pode ser alheio): só é solto, e o passo vira erro.
+    try { soltarLoteAdotado(passo, "cancelado nesta tela"); }
+    catch (e) { Object.assign(passo, { estado: "erro", erro: (e as Error).message, reservadoEm: null }); }
+    return true;
+  }
+  if (passo.lote.situacao === "cancelando") return false;
+  const credencial = await dependencias().credencialIA().catch(() => null);
+  if (!credencial) throw new LeituraIndisponivel("Sem a chave da IA não dá para pedir o cancelamento à Anthropic: confira em Integrações → Anthropic.");
+  try { await dependencias().lote.cancelar(passo.lote.id, credencial, 15_000); }
+  catch (e) { throw new LeituraIndisponivel(`A Anthropic não aceitou o cancelamento agora: ${erroSeguro(e)}`); }
+  passo.lote.situacao = "cancelando";
+  return true;
 }
 
 /** Motor em uso: só consulta a chave quando o administrador não escolheu (aí o padrão depende dela). */
@@ -695,9 +962,11 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
   if (!passo) return { estado, status: m.status as StatusMaquete };
   const x = execucaoDaLeitura(m, inicio);
 
-  if (passo.estado === "executando") {
-    // Outra aba está lendo este passo pela IA: não chama de novo. Reserva velha: o passo foi interrompido.
+  if (passo.estado === "executando" && !passo.lote?.id && !passo.loteAProcurar) {
+    // Outra aba está enviando este passo à IA: não envia de novo. Reserva velha: o passo foi interrompido — antes,
+    // procura o lote que ele pode ter criado (QA C1, achado 2); achou, segue consultando.
     if (!reservaVencida(passo)) return { estado, status: "em_leitura" };
+    if (await adotarAntesDeInterromper(estado, passo, x)) return (await gravarSeIgual(x, x.serializar(estado))) ? { estado, status: "em_leitura" } : estadoGravado(id);
     Object.assign(passo, { estado: "erro", erro: MENSAGEM_INTERROMPIDA, reservadoEm: null });
     return (await gravarSeIgual(x, x.serializar(estado))) ? { estado, status: "em_leitura" } : estadoGravado(id);
   }
@@ -715,7 +984,10 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
       await passoPrancha(m, estado, passo, motor);
     } else if (passo.tipo === "prancha_ia") {
       // "adiado" (N7): sem tempo para a IA neste pedido; o passo segue pendente e a tela chama de novo.
-      aguardando = (await passoPranchaIA(m, estado, passo, config, x)) !== "feito";
+      // "enviado"/"mudou": o lote está na Anthropic; o passo segue "executando" e a tela consulta de novo.
+      const r = await passoPranchaIA(m, estado, passo, config, x);
+      if (r === "sem_mudanca") return { estado, status: "em_leitura" };
+      aguardando = r !== "feito";
     } else if (passo.tipo === "montagem" && estado.passos.some(p => p.tipo === "prancha")) {
       const pranchas = pranchasParaMontagem(m, estado);
       const r = parciaisDasPranchas(pranchas, lerDocumentos(m.documentos).map(d => d.nome));
@@ -742,7 +1014,7 @@ export async function avancarLeitura(id: number, autorId: number | null = null):
     // Outra aba reservou a chamada (ou a leitura mudou): este pedido não chamou a IA e não grava nada.
     if (e instanceof ExecucaoConcorrente) return estadoGravado(id);
     const atual = estado.passos.find(p => p.chave === passo.chave)!;
-    Object.assign(atual, { estado: "erro", erro: erroSeguro(e), reservadoEm: null });
+    Object.assign(atual, { estado: "erro", erro: erroSeguro(e), reservadoEm: null, lote: null, loteAProcurar: null });
     status = "em_leitura";
     modelo = undefined;
   }
@@ -795,5 +1067,15 @@ export async function pularIA(id: number): Promise<EstadoLeitura> {
   pularPassosIA(estado, await carregarConfig());
   const x = execucaoDaLeitura(m);
   if (!(await gravarSeIgual(x, x.serializar(estado)))) throw new LeituraIndisponivel("A leitura mudou enquanto você escolhia. Confira e tente de novo.");
+  return estado;
+}
+
+/** Cancela, na Anthropic, a leitura pela IA em andamento nesta leitura (o resultado chega na próxima consulta). */
+export async function cancelarLeituraIA(id: number, chave: string): Promise<EstadoLeitura> {
+  const m = await buscar(id);
+  if (!m || m.status !== "em_leitura") throw new LeituraIndisponivel("Não há leitura em andamento para esta maquete.");
+  const estado = lerEstadoLeitura(m.leitura);
+  // Se outra aba gravou no meio, o pedido de cancelamento já foi feito: a próxima consulta vê o lote "cancelando".
+  if (await cancelarLoteIA(estado, chave)) await gravarSeIgual(execucaoDaLeitura(m), JSON.stringify(estado));
   return estado;
 }
