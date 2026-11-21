@@ -131,3 +131,13 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
   testes): 1.016 passaram e 7 falharam por frase antiga/ordem das mensagens (corrigidos); os 6 arquivos afetados reexecutados:
   todos verdes (c5-e1-memoria, c5-e1-voz, e8-respostas-e-custo, ponte, whatsapp-qa: 168 testes). `npx tsc --noEmit` limpo.
   Não há script `lint` no projeto. `server/integracoes-anthropic.test.ts` não foi alterado e passa.
+- 21/11/2026 — @dev (Dex): correções do portão de QA (FAIL, 1 importante + 4): (1) ReDoS — `COLCHETE_DE_FERRAMENTA` com
+  separador obrigatório, todas as regex de `voz.ts` revistas (sem `[ \t]*` inicial, sem `\s*` encostado em outro quantificador,
+  tetos fixos), `costurar` e `normalizar` sem regex sobre espaço (lineares), entrada cortada em 20.000 caracteres; teste de tempo
+  com 16 entradas degeneradas (melhor de 3, teto 50 ms). (2) Referências também contaminam o pedido; nomes das referências vão
+  marcados como DADO. (3) "aprovar CÓDIGO"/"grupo CÓDIGO …" entram na memória só como linha neutra, a resposta do sistema a eles
+  sem os códigos (`semOsCodigos`), e `semCodigos` vale em qualquer caixa e sem aspas. (4) `lerJanela` também apaga o que passou
+  de 24 h. (5) Prompt devolve as proibições (lançamento confirmado, assinatura de documento, alertas da nota, nome do card, PCI
+  sem assinatura). Instabilidade de `whatsapp-qa` "QA r8 achados 1, 2 e 5": prova de tempo de parede (1 s para 200 kB) sob
+  carga; agora vale o melhor de 3 execuções com o mesmo teto. tsc limpo; o conjunto pedido (8 arquivos, 204 testes) passou
+  duas vezes seguidas.
