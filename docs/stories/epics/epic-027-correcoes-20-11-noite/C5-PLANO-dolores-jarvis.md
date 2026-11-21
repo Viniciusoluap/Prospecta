@@ -525,3 +525,16 @@ acontece hoje; (5) mudar o prompt/ferramentas invalida o cache uma vez por publi
 - Regra de handoff a cada etapa: `HANDOFF-16-11-CORRECOES-E-DOLORES.md` (indicado no EPIC-027) — este plano não o alterou.
 - Story sugerida: `docs/stories/epics/epic-027-correcoes-20-11-noite/C5-dolores-jarvis.md` (com sub-stories C5-E1…E5),
   a criar por @sm/@po; cada etapa passa pelo portão de QA de segurança antes do merge (regra "Dolores — segurança é prioridade").
+
+---
+
+## Decisões do dono sobre as 4 perguntas (21/11/2026) — não perguntar de novo
+
+1. **Pedido dele dentro de um grupo:** o grupo vê uma **frase curta** (ex.: "Anotado."); o detalhe/confirmação vai no privado dele.
+2. **Pedido de registro dele vale mesmo em grupo com a resposta desligada:** **sim**.
+3. **Avisos proativos:** das **07h às 20h**, de **segunda a sábado**, no máximo **6 mensagens por dia**.
+4. **Divisão do limite mensal por função:** conversa com o dono **55%**, documentos **20%**, grupos **10%**, clientes **10%**, avisos **5%**.
+
+Correção de regra do mesmo dia: **classificar grupo (tipo e vínculo) é SÓ do dono/admin** — o colaborador com a permissão de
+grupos apenas vê as mensagens e escreve. As ferramentas da E2 (`classificar_grupo`, `vincular_cliente_grupo`, `aceitar_grupo`…)
+só existem na conversa direta do dono.
