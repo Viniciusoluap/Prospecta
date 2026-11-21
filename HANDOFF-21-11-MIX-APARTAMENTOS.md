@@ -47,3 +47,12 @@
 - Regressões adicionadas: 24 vagas declaradas em apenas 10 m² não validam a capacidade; 24 aptos/1.000 m² + 12 aptos/500 m² em 1.499 m² retornam 24, jamais 35; PDF exibe R$ 210.000/unidade e 9 blocos, preservando VGV.
 - Validação final: 106 testes em 7 suítes e DOM de alternância/salvamento/reabertura aprovados novamente. Repetir preview após este commit antes de integrar.
 - Cuidado reforçado pelo dono: preservar o trabalho do Fabel. Somente os 7 arquivos deste pedido entram no PR; PR #280 e sua branch permanecem intocados. Conferir novamente a main e conflitos imediatamente antes do merge.
+
+## Produção concluída — 21/11/2026
+- PR #282 integrado por squash: `db3559ea097b8e69513ff5465d5e7788376c2ed2`. Confirmado diff de exatamente 7 arquivos em relação à main anterior; nenhuma sobreposição com os 15 arquivos do PR #280, que continua aberto com head `1fb46c040b86ecf348798c502625668eb185c656`.
+- Os três threads da revisão foram resolvidos após as correções e suas regressões.
+- Preview final `dpl_HpLqFmseHoCDven2wzqt47rSE4an` READY; produção `dpl_HCLLKcUGkrmDZXSXBaTK2zyM6wKh` READY, target `production`, SHA conferido igual ao merge.
+- Domínios de produção confirmados pela Vercel: `prospectaconstrucoes.com`, `www.prospectaconstrucoes.com`, `site-prospecta.vercel.app`.
+- Smoke HTTP da produção: status 200, título Prospecta Construções e bundle `/assets/index--lncWXWy.js`, igual ao preview validado. Sem alteração de estudos/dados de clientes.
+- Migração dispensada (JSON existente); 106 testes e DOM aprovados. Falta somente a validação autenticada do estudo real/no iPad: marcar Apartamento no produto existente e conferir suas premissas. O nome do produto não muda seu tipo automaticamente.
+- Este registro final fica salvo na branch de trabalho para não disparar outro deploy de produção apenas por documentação. Código da entrega já publicado integralmente. Paridade Santa Fé continua como pendência explicitada acima.
