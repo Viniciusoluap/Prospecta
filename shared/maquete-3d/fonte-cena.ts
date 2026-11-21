@@ -181,7 +181,7 @@ export function trechosDaParede(w: ParedeFonte, aberturas: AberturaFonte[], cort
     cursor = Math.max(cursor, s1);
   }
   if (comp - cursor > 1e-4) brutos.push({ s0: cursor, s1: comp, y0: 0, y1: topo, tipo: "cheio" });
-  return brutos.flatMap(t => subtrair(t.s0, t.s1, cortes).map(([s0, s1]) => ({ ...t, s0, s1 })));
+  return brutos.flatMap(t => subtrair(t.s0, t.s1, cortes).map(([s0, s1]) => ({ ...t, s0: r4(s0), s1: r4(s1), y0: r4(t.y0), y1: r4(t.y1) })));
 }
 
 /** Caixa orientada: centro em planta, comprimento ao longo do eixo local X (girado de `ang` em torno de y). */
@@ -602,7 +602,7 @@ export function fonteParaModelo(f: FontePlanta): ModeloMaquete {
     edificacoes: [{
       id: "casa", nome: "Casa",
       pavimentos: [{
-        id: "terreo", nome: "Térreo", nivel: piso, peDireito: Math.max(1.8, cob.topo_paredes - piso), origemPeDireito: "confirmada",
+        id: "terreo", nome: "Térreo", nivel: piso, peDireito: Math.max(1.8, r4(cob.topo_paredes - piso)), origemPeDireito: "confirmada",
         paredes: paredes.map(w => ({ id: w.id, a: { x: w.x1, y: w.z1 }, b: { x: w.x2, y: w.z2 }, espessura: w.esp, externa: externas.has(w.id), origem: origemDe(w) })),
         aberturas: aberturas.map(a => {
           const t = modeloDaEsquadria(a);
