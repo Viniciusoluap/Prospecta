@@ -303,7 +303,9 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   empresa, modelos com situação de aprovação, campanha por modelo APROVADO com prévia, custo estimado e confirmação pela contagem,
   envio em lotes retomáveis pela fila da YCloud (`externalId` único, 5 mensagens/s, limite diário lido da conta, tetos do painel,
   opt-out permanente), aviso de entrega assinado (`/api/ycloud/webhook`, HMAC-SHA256 `t.corpo`, janela de 5 min, dedupe por id),
-  painel da campanha e auditoria; só administrador por papel. Migração aqui: `0141_ycloud.sql`. Story:
+  painel da campanha e auditoria. Quem dispara (C7.1, decisão do dono em 21/11: "eu ou colaborador se estiver marcado WhatsApp
+  pra ele"): OPERAR campanha = admin ou colaborador ativo com o módulo WhatsApp; ADMINISTRAR a integração (chave, interruptor,
+  tetos, preço, avisos de entrega, auditoria) = só admin por papel; a auditoria guarda id e papel de quem disparou. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
 

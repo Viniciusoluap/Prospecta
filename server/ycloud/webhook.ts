@@ -93,7 +93,8 @@ export async function processarEventoYcloud(ev: any): Promise<void> {
     case "whatsapp.template.reviewed": {
       const t = ev.whatsappTemplate;
       const nome = typeof t?.name === "string" ? t.name.slice(0, 200) : "?";
-      await auditarYcloud({ acao: "modelo_revisado", usuarioId: null, modelo: `${nome} (${typeof t?.language === "string" ? t.language.slice(0, 20) : "?"})`, detalhe: typeof t?.status === "string" ? t.status.slice(0, 30) : null });
+      await auditarYcloud({ acao: "modelo_revisado", usuarioId: null, modelo: `${nome} (${typeof t?.language === "string" ? t.language.slice(0, 20) : "?"})`, detalhe: typeof t?.status === "string" ? `status_ycloud=${t.status.replace(/[^A-Za-z0-9_]/g, "").slice(0, 30)}` : null });
+      // C7.1: o status vem da YCloud (fora do nosso controle). Prefixado e limpo, nunca é lido como "papel=…" por separarPapel.
       return;
     }
     // não assinados por padrão; tratados se o dono os ligar no painel da YCloud (opt-out de marketing)
