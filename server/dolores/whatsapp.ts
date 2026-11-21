@@ -58,6 +58,8 @@ import { FRASE_ESQUECI, ehPedidoDeEsquecer, vozDaDolores } from "../../shared/do
 import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
+import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, tratarConfirmacao } from "./pendencia.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -148,7 +150,14 @@ async function atualizarMensagem(id: number, dados: Partial<{ situacao: Situacao
  */
 async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown>; prazoFinal: number; quadros?: string | null;
   /** EPIC-027 C5 (E1): `false` = não entra na memória da conversa; senão, entra com estas referências. */
-  memoria?: false | { referencias?: ReferenciaConversa[]; codigos?: readonly string[] } }) {
+  memoria?: false | { referencias?: ReferenciaConversa[]; codigos?: readonly string[]; nota?: string };
+  /**
+   * EPIC-027 C5 (E2): esta resposta É a pergunta (ou a repetição da pergunta) desta proposta. Qualquer outra resposta ao dono tira
+   * a proposta aberta da "ordem" — um "pode" solto depois dela não confirma (server/dolores/pendencia.ts).
+   */
+  pendenciaId?: number | null;
+  /** Preenchido na volta: quantas mensagens saíram (a pergunta da proposta vai na primeira). */
+  envio?: { enviadas: number } }) {
   if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) {
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
@@ -161,6 +170,9 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   // QA E8 A1: os quadros do sistema vão na PRIMEIRA mensagem; o número de partes é o que cabe no tempo que resta
   // (TEMPO_POR_PARTE_MS cada) — o que não cabe é texto livre do modelo, cortado; os quadros nunca.
   const filtrar = (t: string) => sanitizarTexto(tratarLinksDaResposta(t, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp"));
+  // EPIC-027 C5 (E2): antes de qualquer envio, a proposta aberta que não é a desta resposta sai da "ordem" (lado seguro: se o
+  // envio falhar, o "pode" seguinte só faz o sistema mostrar a proposta de novo)
+  await marcarForaDeOrdem(ctx.pendenciaId ?? null);
   const cabem = Math.max(1, Math.min(MAX_PARTES_RESPOSTA, Math.floor((ctx.prazoFinal - deps.ms()) / TEMPO_POR_PARTE_MS)));
   const partes = partesDaResposta(filtrar(texto), ctx.quadros ? filtrar(ctx.quadros) : null, MAX_CARACTERES_WHATSAPP, cabem).map(t => cortarResposta(filtrar(t)));
   const destino = numero.replace(/\D/g, "");
@@ -206,6 +218,7 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
     enviadas.push(i + 1);
     if (ultimaPossivel) { completa = false; break; }
   }
+  if (ctx.envio) ctx.envio.enviadas = enviadas.length;
   // QA E8 A1: quais partes saíram fica na auditoria (sem texto nem número)
   if (!completa && partes.length > 1) {
     await auditar("erro", "resposta incompleta: faltou parte", { partesPrevistas: partes.length, partesEnviadas: enviadas, avisoDeFalta: avisou, ...ctx.resumo });
@@ -213,7 +226,7 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   // EPIC-027 C5 (E1): o que saiu para o dono entra na memória da conversa (destino conferido acima). Os quadros do sistema não
   // entram (têm os códigos de aprovação, que o modelo nunca vê): só uma linha dizendo que foram mostrados.
   if (ctx.memoria !== false && enviadas.length) {
-    const nota = ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
+    const nota = ctx.memoria?.nota ? `\n${ctx.memoria.nota}` : ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
     // QA C5-E1 (achado 3): resposta a um comando de confirmação (texto do SISTEMA) perde também os códigos citados
     const gravado = ctx.memoria?.codigos ? semOsCodigos(filtrar(texto), ctx.memoria.codigos) : filtrar(texto);
     await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
@@ -250,6 +263,8 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
   const restante = ctx.prazoFinal - deps.ms();
   if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar" }; }
+  // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma)
+  await marcarForaDeOrdem(null);
   const inicio = deps.ms();
   let ok = false;
   let motivo: string | null = null;
@@ -430,6 +445,19 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
     }
   }
+  // EPIC-027 C5 (E2) — a resposta curta do dono a uma proposta ("pode", "sim", "confirmo", "não"), reconhecida por CÓDIGO (a
+  // mensagem inteira, de uma lista fechada) e só aqui: número do dono, conversa direta, não encaminhada (tratada acima), sem mídia.
+  // Sem proposta a que ela responda, segue o caminho comum (a IA, com a memória, no máximo propõe de novo). Não chama a IA.
+  const confirmacao = msg.temMidia ? null : lerConfirmacao(msg.texto);
+  if (confirmacao) {
+    const r = await tratarConfirmacao(confirmacao, { mensagemId: msg.id, agora: deps.agora(), autor, prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms })
+      .catch(e => { console.error("[dolores/whatsapp] falha na confirmação da proposta", erroCurto(e)); return { texto: FRASE_ERRO_CONFIRMACAO, pendenciaId: null, situacao: "erro" as const, codigos: [] as string[] }; });
+    if (r) {
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { confirmacao: confirmacao.tipo, situacao: r.situacao }, prazoFinal, pendenciaId: r.pendenciaId, memoria: { codigos: r.codigos } });
+      await atualizarMensagem(msg.id, { situacao: r.situacao === "erro" ? "erro" : "respondida", motivo: `resposta à proposta: ${r.situacao}`, respondidaEm: deps.agora() });
+      return `confirmacao:${r.situacao}`;
+    }
+  }
   // Etapa 6 — "relatório" (a mensagem inteira), reconhecido por CÓDIGO: ronda + relatório de modelo fixo, sem IA (nem gasto).
   // Mesma porta da pausa geral e do interruptor do relatório; o texto vai ao número do dono pelo envio do sistema.
   if (!msg.temMidia && ehComandoRelatorio(msg.texto)) {
@@ -474,8 +502,16 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
-    const quadros = await montarQuadros(msg.id, r.codigosNaFila);
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}) }, prazoFinal, quadros, memoria: { referencias: r.referencias } });
+    // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
+    // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.
+    const pendencia = r.podeConfirmar
+      ? await abrirPendencia({ mensagemId: msg.id, codigos: r.codigosNaFila, agora: deps.agora(), autor }).catch(e => { console.error("[dolores/whatsapp] falha ao abrir a proposta", erroCurto(e)); return null; })
+      : null;
+    const quadros = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
+    const envio = { enviadas: 0 };
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
+    // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
+    if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {

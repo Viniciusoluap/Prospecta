@@ -153,7 +153,8 @@ describe("QA item 1 — envio em várias mensagens", () => {
     const r = await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
     expect(enviar).toHaveBeenCalledTimes(1);
     const primeira = enviar.mock.calls[0][0].texto as string;
-    expect(primeira).toMatch(/^\(1\/\d\)\n\*Registrado no sistema por mim\* \(em nome da usuária Dolores\):\n- Tarefa #\d+ "Cobrar certidão no cartório"/);
+    // EPIC-027 C5 (E2): o quadro do sistema agora é a pergunta "pode" (a tarefa espera o dono) — e ela continua indo na 1ª mensagem
+    expect(primeira).toMatch(/^\(1\/\d\)\n\*Posso fazer isto\?\*\n- criar a tarefa "Cobrar certidão no cartório"/);
     expect(r.body.r).toEqual({ "erro-envio": 1 });
     const rs = await respostas();
     expect(rs.find(x => x.resultado === "erro" && /sem tempo/.test(x.motivo))).toBeTruthy();
@@ -169,7 +170,7 @@ describe("QA item 1 — envio em várias mensagens", () => {
     await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
     const enviados = enviar.mock.calls.map(c => c[0].texto as string);
     expect(enviados).toHaveLength(2);
-    expect(enviados[0]).toMatch(/\*Registrado no sistema por mim\*/);
+    expect(enviados[0]).toMatch(/\*Posso fazer isto\?\*/);
     expect(enviados[1]).toMatch(/^\(2\/3\)\n/);
     expect(enviados[1].endsWith(AVISO_FALTOU_PARTE)).toBe(true);
     expect(enviados.every(t => t.length <= 3800)).toBe(true);
@@ -223,10 +224,12 @@ describe("QA item 2 — parcial em max_tokens", () => {
       () => ({ stop_reason: "max_tokens", usage: uso, content: [{ type: "text", text: "Pronto, criei duas tarefas.\nE agora a segunda" }, { type: "tool_use", id: "tu_2", name: "criar_tarefa", input: {} }] }),
     ];
     await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11."));
+    // EPIC-027 C5 (E2): a tarefa foi PROPOSTA antes do corte (item esperando o "pode")
     expect(await q("SELECT id FROM dolores_acoes WHERE funcao = 'criar_tarefa' AND resultado = 'ok'")).toHaveLength(1);
+    expect(await q("SELECT id FROM dolores_aprovacoes WHERE situacao = 'aguardando'")).toHaveLength(1);
     const texto = enviar.mock.calls[0][0].texto as string;
     expect(enviar).toHaveBeenCalledTimes(1); // mensagem única: é a primeira, e o quadro do sistema vai nela
-    expect(texto).toMatch(/\*Registrado no sistema por mim\* \(em nome da usuária Dolores\):\n- Tarefa #\d+ "Cobrar certidão no cartório"/);
+    expect(texto).toMatch(/\*Posso fazer isto\?\*\n- criar a tarefa "Cobrar certidão no cartório"/);
     expect(texto).toContain(AVISO_FERRAMENTA_CORTADA);
     expect(texto).toMatch(/Confira no quadro do sistema/);
     expect(texto).not.toMatch(/Nada foi alterado/);

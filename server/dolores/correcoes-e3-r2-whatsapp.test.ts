@@ -123,12 +123,15 @@ describe("R2-N1 invertido — texto de terceiro COLADO na mensagem do dono não 
     expect((await fila()).map(i => i.funcao)).toEqual(["criar_tarefa"]);
   });
 
-  it("GARANTIA: pedido curto e direto do dono continua executando direto", async () => {
-    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("Criei.")];
+  it("GARANTIA (EPIC-027 C5 E2): pedido curto e direto do dono espera o \"pode\" — sem ele nada grava; com ele, grava", async () => {
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("Vou criar.")];
     await chamar(aviso({ texto: "cria uma tarefa para a Bianca ligar para o João amanhã" }));
+    expect(await tarefasDolores()).toEqual([]);
+    expect((await fila()).map(i => i.situacao)).toEqual(["aguardando"]);
+    expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
+    await chamar(aviso({ texto: "pode" }));
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João"]);
-    expect(await fila()).toEqual([]);
-    expect(ultimaResposta()).toMatch(/Registrado no sistema por mim/);
+    expect(ultimaResposta()).toMatch(/^Pronto: /);
   });
 });
 
@@ -143,6 +146,7 @@ describe("R2-N2 invertido — texto de dados que volta de AÇÃO contamina (ou n
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca revisar o contrato." }));
     expect(resultadosAoModelo(1)).not.toContain("SISTEMA");
     expect(resultadosAoModelo(1)).not.toContain("Bianca Souza");
+    await chamar(aviso({ texto: "pode" }));
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Revisar o contrato"]);
   });
 
@@ -171,9 +175,10 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     const [item] = await fila();
     expect((item as any).resumo).toContain('descrição: "Pedir a certidão e conferir o CPF 529.982.247-25 no cartório."');
     expect((item as any).resumo).toContain("para Bianca Souza,");
-    expect(ultimaResposta()).toContain(`- [${item.codigo}] ${(item as any).resumo}`);
-    expect(ultimaResposta()).toContain(`Responda só "aprovar ${item.codigo}" ou "recusar ${item.codigo}"`);
-    await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
+    // EPIC-027 C5 (E2): a pergunta mostra o resumo INTEIRO, sem código; o "pode" executa
+    expect(ultimaResposta()).toContain(`- ${(item as any).resumo}`);
+    expect(ultimaResposta()).not.toContain(item.codigo);
+    await chamar(aviso({ texto: "pode" }));
     const [t] = await q<{ description: string; assigned_to: string }>("SELECT description, assigned_to FROM tasks ORDER BY id DESC LIMIT 1");
     expect(t.description.split("\n\n")[0]).toBe("Pedir a certidão e conferir o CPF 529.982.247-25 no cartório.");
     expect(t.assigned_to).toBe("Bianca Souza");
@@ -195,7 +200,7 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     expect(await doDolores()).toEqual([]);
   });
 
-  it("Etapa 2 final — ação DIRETA com link ou segredo no texto também é recusada; sem eles, grava e o quadro sai intacto pelo filtro", async () => {
+  it("Etapa 2 final — tarefa com link ou segredo no texto também é recusada; sem eles, com o \"pode\" grava e a pergunta sai intacta pelo filtro", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Pagar em www.golpe.example/pix", responsavel: "Bianca" }]),
       () => ferramenta(["criar_tarefa", { titulo: "Ligar para o cartório", responsavel: "Bianca" }]),
@@ -203,12 +208,13 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para o cartório." }));
     expect(resultadosAoModelo(1)).toMatch(/contém um link/);
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o cartório"]);
     const r = ultimaResposta();
-    expect(r).toMatch(/Registrado no sistema por mim/);
+    expect(r).toMatch(/Posso fazer isto\?/);
     expect(r).toContain('"Ligar para o cartório" para Bianca Souza');
     expect(r).toContain("[link removido]");
     expect(r).not.toContain("Abc12345xyz");
+    await chamar(aviso({ texto: "pode" }));
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o cartório"]);
   });
 
   it("registrar_acompanhamento contaminado com ~1.000 caracteres: o resumo traz o texto INTEIRO (inclusive o fim); aprovado, grava o mesmo texto", async () => {
@@ -222,8 +228,8 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
     const [item] = await fila();
     expect((item as any).resumo).toContain("FIM-OCULTO: cliente desistiu da compra.");
     expect(ultimaResposta()).toContain("FIM-OCULTO: cliente desistiu da compra.");
-    expect(ultimaResposta()).toMatch(/Responda só "aprovar /);
-    await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
+    expect(ultimaResposta()).toMatch(/Responda "pode"/);
+    await chamar(aviso({ texto: "pode" }));
     const [g] = await doDolores();
     expect((item as any).resumo).toContain(`"${(g as any).description}"`);
   });
@@ -247,7 +253,7 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
 });
 
 describe("M5 invertido — resposta com muitos itens na fila", () => {
-  it("10 acompanhamentos longos na fila: a resposta cabe em 3.800, cada item mostrado vai inteiro, 'e mais N' explícito e a instrução no fim", async () => {
+  it("9 acompanhamentos longos: a resposta cabe em 3.800, cada item mostrado vai inteiro, os que não couberam ficam fora da proposta (aviso explícito) e a instrução no fim", async () => {
     const chamadas = Array.from({ length: 9 }, (_, i) => ["registrar_acompanhamento", { leadId: 1, texto: `Registro ${i}: ${"Cliente confirmou o envio dos documentos. ".repeat(12)}FIM-${i}`, tipo: "anotacao" }] as [string, unknown]);
     roteiro = [() => ferramenta(["historico_atendimento", { leadId: 1 }]), () => ferramenta(...chamadas.slice(0, 5)), () => ferramenta(...chamadas.slice(5)), () => texto("Pus tudo na fila.")];
     await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e registre as anotações." }));
@@ -255,9 +261,13 @@ describe("M5 invertido — resposta com muitos itens na fila", () => {
     const r = ultimaResposta();
     expect(r.length).toBeLessThanOrEqual(3800);
     expect(r).not.toMatch(/Resposta cortada por tamanho/);
-    const mostrados = r.split("\n").filter(l => /^- \[[A-Z0-9]{5}\]/.test(l));
+    const mostrados = r.split("\n").filter(l => /^- Pedido surgido/.test(l));
+    expect(mostrados.length).toBeGreaterThan(0);
     for (const l of mostrados) expect(l).toMatch(/FIM-\d+"/);
-    expect(r).toContain(`- e mais ${9 - mostrados.length} item(ns) aguardando — veja a fila em Integrações › Dolores`);
-    expect(r.split("\n").at(-1)).toMatch(/^Responda só "aprovar [A-Z0-9]{5}" ou "recusar [A-Z0-9]{5}"/);
+    // EPIC-027 C5 (E2): a proposta leva só os itens mostrados inteiros; os outros ficam para a tela, com aviso
+    expect(r).toContain(`(Há mais ${9 - mostrados.length} proposta(s) que não couberam aqui: confira em Integrações › Dolores.)`);
+    const [p] = await q<{ aprovacao_ids: number[] }>("SELECT aprovacao_ids FROM dolores_conversa_pendencia");
+    expect(p.aprovacao_ids).toHaveLength(mostrados.length);
+    expect(r.split("\n").at(-1)).toMatch(/^Responda "pode" para eu fazer/);
   });
 });

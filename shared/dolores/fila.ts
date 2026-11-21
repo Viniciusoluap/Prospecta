@@ -58,6 +58,9 @@ const VERBOS_DE_ACAO = new RegExp([
   "cri(?:e|ar|a|em)", "registr\\w*", "anot\\w*", "agend\\w*", "prepar\\w*", "ger(?:e|ar|a|em)", "lembr\\w*", "cobr\\w*",
   "marqu\\w*", "marc(?:ar|a)", "coloqu\\w*", "coloc(?:ar|a)", "lanc(?:e|ar|a)", "cadastr\\w*", "adicion\\w*",
   "inclu(?:a|ir)", "program\\w*",
+  // EPIC-027 C5 (E2): os pedidos de grupo e de registro que ela agora resolve pela conversa ("vincular ela ao grupo dela")
+  "vincul\\w*", "lig(?:ar|a|ue|uem)", "deslig\\w*", "aceit(?:ar|a|e)", "classifi\\w*", "defin(?:ir|a|e)", "ignor(?:ar|a|e)",
+  "salv(?:ar|a|e)", "concili\\w*",
 ].map(v => `\\b${v}\\b`).join("|"), "i");
 export function intencaoDeAcao(texto: string | null | undefined): boolean {
   // QA R2 N1: o verbo de ação só vale no trecho do DONO (antes de qualquer marca de colagem/citação) — um e-mail colado
@@ -115,6 +118,11 @@ export const AVISO_PEDIDO_CONTAMINADO = "Pedido surgido durante a leitura de dad
 export const AVISO_PEDIDO_COLADO = "Pedido feito em mensagem com texto colado ou citado; confira antes de aprovar:";
 export type MotivoContaminacao = "leitura" | "colagem";
 export const avisoDaFila = (motivo: MotivoContaminacao | null | undefined) => (motivo === "colagem" ? AVISO_PEDIDO_COLADO : AVISO_PEDIDO_CONTAMINADO);
+/**
+ * EPIC-027 C5 (E2): início do resumo de um item — o aviso de contaminação SÓ quando o pedido está contaminado (com a confirmação
+ * natural, a ação proposta num pedido limpo também vira item, e aí o resumo começa direto pelo que será feito).
+ */
+export const prefixoDaFila = (motivo: MotivoContaminacao | null | undefined) => (motivo ? `${avisoDaFila(motivo)} ` : "");
 
 /**
  * Texto vindo de DADOS (nome de cliente, título, documento, resumo) antes de entrar num resumo, quadro ou frase que vai ao

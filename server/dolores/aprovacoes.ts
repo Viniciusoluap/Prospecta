@@ -54,8 +54,8 @@ export const conferenciaDoItem = (funcao: string, resumo: string, argumentos: un
  * nenhum fica — a resposta "nada foi gravado" da porta é verdadeira.
  */
 export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoAcao): Promise<ItemCriado[]> {
-  const horas = await lerValidadeHoras();
-  const venceEm = new Date(ctx.agora.getTime() + horas * 3_600_000);
+  // EPIC-027 C5 (E2): na conversa com confirmação natural, o item vence junto com a proposta (curta); senão, a validade da fila
+  const venceEm = ctx.validadeFilaMs ? new Date(ctx.agora.getTime() + ctx.validadeFilaMs) : new Date(ctx.agora.getTime() + (await lerValidadeHoras()) * 3_600_000);
   // QA R2 N3: o resumo vai como o dono vai lê-lo, inteiro — não cabe, recusa (nunca corta em silêncio)
   const prontos = preparo.itens.map(item => {
     const resumo = resumoDaFila(item.resumo);
@@ -98,7 +98,12 @@ export async function vencerItens(agora: Date): Promise<number> {
   return vencidos.length + interrompidos.length;
 }
 
-export type ResultadoDecisao = { codigo: string; ok: boolean; situacao: SituacaoItem | "inexistente" | "bloqueada"; texto: string };
+export type ResultadoDecisao = { codigo: string; ok: boolean; situacao: SituacaoItem | "inexistente" | "bloqueada"; texto: string;
+  /**
+   * EPIC-027 C5 (E2): a mesma resposta sem o código do item, em voz natural (o que foi feito ou por que não foi), para a resposta
+   * ao "pode"/"confirmo". Ausente = use `texto` sem o "[CÓDIGO]" do começo.
+   */
+  natural?: string };
 
 export type Decisor = { via: Via; userId: number | null; agora: Date; motivo?: string | null;
   /** Prazo (ms do `relogio`) até quando ainda dá para executar mais um item (WhatsApp: 60 s da Vercel). */
@@ -183,6 +188,7 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
   }
   const relogio = d.relogio ?? Date.now;
   const ctx: ContextoAcao = { agora: d.agora, autorId: autor, mensagemId: item.mensagemId, pedidoId: `fila:${codigo}`, aprovacaoId: item.id, textoMostrado: item.resumo,
+    via: d.via, decisaoMensagemId: d.via === "whatsapp" ? (d.mensagemId ?? null) : null,
     ...(d.prazoFinal !== undefined ? { tempoRestanteMs: () => d.prazoFinal! - relogio() } : {}) };
   let r: ResultadoAcao;
   try {
@@ -192,7 +198,7 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     if (!(e instanceof RecusaAcao)) console.error("[dolores/fila] falha ao executar item aprovado", item.funcao, erroParaLog(e));
     await finalizar(item.id, "erro", d.agora, { motivo });
     await auditar(e instanceof RecusaAcao ? "recusada" : "erro", motivo, {});
-    return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não foi executado: ${motivo}` };
+    return { codigo, ok: false, situacao: "erro", texto: `[${codigo}] não foi executado: ${motivo}`, natural: `Não deu para fazer: ${motivo}` };
   }
   // Daqui em diante a ação JÁ ACONTECEU: nenhuma falha de registro pode virar "não foi executado" (achado 3 do QA).
   const feitos = (r.feitos ?? ["executado"]).map(f => textoDeDado(f, 300));
@@ -204,10 +210,11 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
     console.error("[dolores/fila] item executado, mas o resultado não foi gravado na fila", item.funcao, erroParaLog(e));
     await auditar("ok", "executado; falhou gravar o resultado na fila", r.resumo).catch(() => false);
     return { codigo, ok: true, situacao: "executada",
-      texto: `[${codigo}] aprovado e FEITO: ${feitos.join("; ")}. Mas não consegui registrar o resultado na fila; confira no sistema antes de pedir de novo.${extra}` };
+      texto: `[${codigo}] aprovado e FEITO: ${feitos.join("; ")}. Mas não consegui registrar o resultado na fila; confira no sistema antes de pedir de novo.${extra}`,
+      natural: `Feito: ${feitos.join("; ")}. Mas não consegui guardar o resultado; confira no sistema antes de pedir de novo.${extra}` };
   }
   await auditar("ok", null, r.resumo).catch(() => false);
-  return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${feitos.join("; ")}.${extra}` };
+  return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${feitos.join("; ")}.${extra}`, natural: `${feitos.join("; ")}.${extra}` };
 }
 
 /** Função de um item ainda aguardando (null se não existe ou já saiu de "aguardando": aprovarUm explica). */

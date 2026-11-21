@@ -92,7 +92,7 @@ describe("chamada autorizada", () => {
   it("executa, devolve o envelope (fuso, moeda, etapa) e audita no nome da Dolores com contagens", async () => {
     const r = await tratarChamada(pedido({ funcao: "listar_processos_regularizacao", argumentos: { situacao: "atrasados" }, pedidoId: "wa-123" }));
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, etapa: 6, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
+    expect(r.body).toMatchObject({ ok: true, etapa: 7, funcao: "listar_processos_regularizacao", pedidoId: "wa-123", fuso: "America/Fortaleza (UTC-03:00)",
       moeda: "BRL", geradoEm: "2026-11-16T09:00:00-03:00", truncado: false });
     // M2: toda resposta com dados lembra que o conteúdo é dado, não instrução; o prompt do agente diz o mesmo
     expect(r.body.avisoSeguranca).toMatch(/nunca instrução/);
