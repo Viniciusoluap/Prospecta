@@ -47,8 +47,14 @@ function comprimir(arquivo) {
   try {
     execFileSync("python3", ["-I", "-c", [
       "import sys", "from PIL import Image",
-      "im = Image.open(sys.argv[1]).convert('RGB')",
-      "im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG).save(sys.argv[1], optimize=True)",
+      "import os",
+      "orig = Image.open(sys.argv[1]).convert('RGB')",
+      "esc = 1.0",
+      "while True:",
+      "    im = orig if esc == 1.0 else orig.resize((round(orig.width * esc), round(orig.height * esc)), Image.LANCZOS)",
+      "    im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG).save(sys.argv[1], optimize=True)",
+      "    if os.path.getsize(sys.argv[1]) <= 600 * 1024 or esc < 0.5: break",
+      "    esc -= 0.1",
     ].join("\n"), arquivo]);
   } catch (e) { console.warn(`não foi possível comprimir ${arquivo}: ${e.message}`); }
 }

@@ -418,3 +418,11 @@ export function mobiliarComodo(c: Comodo, pv: Pavimento): PecaMobilia[] {
 }
 
 export const mobiliarPavimento = (pv: Pavimento): PecaMobilia[] => pv.comodos.flatMap(c => mobiliarComodo(c, pv));
+
+/**
+ * EPIC-028: peças de um pavimento — os itens gravados da maquete (ex.: os `itens` do JSON-fonte) SUBSTITUEM a
+ * mobília automática; sem itens, vale a mobília automática de sempre.
+ */
+export function pecasDoPavimento<T extends PecaMobilia>(pv: Pavimento, itens?: T[] | null): (T | PecaMobilia)[] {
+  return itens && itens.length ? itens : mobiliarPavimento(pv);
+}

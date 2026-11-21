@@ -84,7 +84,7 @@ function ponto(w: ParedeFonte, s: number, t: number): [number, number] {
 const linha = (a: [number, number], b: [number, number]) => `M${a[0]} ${a[1]}L${b[0]} ${b[1]}`;
 const quadro = (pts: [number, number][]) => `M${pts.map(p => `${p[0]} ${p[1]}`).join("L")}Z`;
 
-function simbolo(w: ParedeFonte, ab: AberturaFonte, giro: 1 | -1 | null): SimboloAbertura {
+function simbolo(w: ParedeFonte, ab: AberturaFonte, giro: 1 | -1 | null, ladoDeFora: 1 | -1 = 1): SimboloAbertura {
   const { modelo, folhas } = modeloDaEsquadria(ab);
   const s0 = ab.offset, s1 = ab.offset + ab.larg, e = w.esp / 2;
   const vao = retanguloNaParede(w, s0, s1, -e, e).map(xy);
@@ -115,7 +115,7 @@ function simbolo(w: ParedeFonte, ab: AberturaFonte, giro: 1 | -1 | null): Simbol
     const sentido = vL[0] * vO[1] - vL[1] * vO[0] > 0 ? 1 : 0;
     arco = `M${fim[0]} ${fim[1]}A${r3(ab.larg)} ${r3(ab.larg)} 0 0 ${sentido} ${o[0]} ${o[1]}`;
   }
-  const lado = giro ? -giro : 1;
+  const lado = giro ? -giro : ladoDeFora;
   const [rx, rz] = ponto(w, (s0 + s1) / 2, lado * (e + 0.22));
   return { id: ab.id, codigo: ab.codigo, modelo, vao, tracos, arco, rotulo: { x: rx, z: rz, texto: ab.codigo }, estimado: !!ab.estimado };
 }
@@ -161,7 +161,14 @@ export function planta2d(f: FontePlanta): Planta2D {
         if (dentroPol(q, poligonoDoAmbiente(destino))) { giro = lado; break; }
       }
     }
-    const sb = simbolo(w, ab, giro);
+    // Rótulo de janela e de porta de correr do lado de fora da casa (onde não há ambiente interno).
+    const internos = ambientes.filter(a => a.interno).map(poligonoDoAmbiente);
+    const { ux: ex, uz: ez, nx: fx, nz: fz } = eixoDaParede(w), sm = ab.offset + ab.larg / 2;
+    const fora = ([1, -1] as const).find(l => {
+      const t = l * (w.esp / 2 + 0.2), q = { x: w.x1 + ex * sm + fx * t, y: w.z1 + ez * sm + fz * t };
+      return !internos.some(pol => dentroPol(q, pol));
+    }) ?? 1;
+    const sb = simbolo(w, ab, giro, fora);
     if (dentroDaCaixa(sb.vao, caixa)) simbolos.push(sb);
   }
 
@@ -182,6 +189,8 @@ export function planta2d(f: FontePlanta): Planta2D {
       estimado: !!a.estimado, interno: a.interno,
     };
   }).filter(a => a.poligono.length >= 3);
+  // Rótulo de item que cairia em cima do nome do ambiente fica de fora (o contorno continua).
+  for (const i of itens) if (ambs.some(a => Math.abs(a.x - i.x) < 0.75 && Math.abs(a.z + 0.1 - i.z) < 0.4)) i.mostrarRotulo = false;
 
   // Cotas: largura acima do desenho, profundidade à direita; a total um nível mais afastada.
   const cadeias = cadeiasDaCasa(f);

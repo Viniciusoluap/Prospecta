@@ -505,14 +505,15 @@
         "fonte": "planta",
         "nota": "2,56 × 3,50 pelas cotas. O quadro (9,07 m²; 12,20 m) corresponde a ≈ 2,57 × 3,53.",
         "camera": {
-          "x": 2.55,
-          "z": 3.5,
+          "x": 2.75,
+          "z": 3.3,
           "alvo": [
             4.1,
             1.0,
             0.9
           ],
-          "fonte": "protótipo"
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 2,55 z 3,50; afastada 20 cm da folha da P4 aberta (Etapa 2)."
         }
       },
       {
@@ -542,14 +543,15 @@
         "fonte": "planta",
         "nota": "2,56 × 3,50 pelas cotas.",
         "camera": {
-          "x": 2.6,
-          "z": 6.05,
+          "x": 2.75,
+          "z": 6.25,
           "alvo": [
             4.2,
             1.0,
             8.6
           ],
-          "fonte": "protótipo"
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 2,60 z 6,05; afastada 20 cm da folha da P4 aberta (Etapa 2)."
         }
       },
       {
@@ -715,15 +717,15 @@
         "fonte": "planta",
         "nota": "1,50 × 1,85. Piso +0,39; box +0,38.",
         "camera": {
-          "x": 3.42,
-          "z": 5.5,
+          "x": 3.62,
+          "z": 5.42,
           "alvo": [
             4.5,
             0.9,
             4.1
           ],
           "fonte": "protótipo",
-          "nota": "Protótipo: x 3,30 (dentro da parede do hall); movido para 3,42, logo após a porta."
+          "nota": "Protótipo: x 3,30 (dentro da parede do hall); movida para dentro do banheiro, fora do batente (Etapa 2)."
         }
       },
       {

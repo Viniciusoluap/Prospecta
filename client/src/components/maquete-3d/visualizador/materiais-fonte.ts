@@ -46,7 +46,8 @@ function texturaCimentado(cor: string, semente: number, junta: number) {
     c.fillStyle = cor; c.fillRect(0, 0, l, l);
     // Manchas largas de desempeno e grão fino.
     for (let i = 0; i < 60; i++) {
-      const g = c.createRadialGradient(r() * l, r() * l, 0, r() * l, r() * l, 40 + r() * 120);
+      const cx = r() * l, cy = r() * l;
+      const g = c.createRadialGradient(cx, cy, 0, cx, cy, 40 + r() * 120);
       g.addColorStop(0, `rgba(${r() > 0.5 ? "255,255,255" : "0,0,0"},0.05)`); g.addColorStop(1, "rgba(0,0,0,0)");
       c.fillStyle = g; c.fillRect(0, 0, l, l);
     }

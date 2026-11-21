@@ -77,7 +77,7 @@ function Pagina({ fonte }: { fonte: FontePlanta }) {
       <div className={`relative mx-[max(4vw,16px)] overflow-hidden rounded-md ${planta ? "bg-white" : "h-[min(64vh,640px)] min-h-[340px] bg-[#D8D8D4]"}`}
         data-teste="figura" data-modo={modo} data-pronto={planta || pronto === modo ? "1" : "0"} style={{ touchAction: planta ? "auto" : "none" }}>
         {planta ? (
-          <div className="mx-auto max-h-[86vh] w-full" style={{ aspectRatio: `${p2d.viewBox[2]} / ${p2d.viewBox[3]}`, maxWidth: `min(100%, ${Math.round(86 * proporcao)}vh)` }}>
+          <div className="mx-auto w-full" style={{ aspectRatio: `${p2d.viewBox[2]} / ${p2d.viewBox[3]}`, maxWidth: `min(100%, ${Math.round(125 * proporcao)}vh)` }}>
             <Planta2D fonte={fonte} />
           </div>
         ) : (
