@@ -38,6 +38,7 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
+import { whatsappGruposRouter } from "./whatsapp-grupos-central.js";
 // Central de Vendas (12/11/2026).
 import { centralVendasRouter } from "./central-vendas/router.js";
 // Maquete 3D (EPIC-022, 14/11/2026) — exclusivo do Prospecta.
@@ -66,6 +67,8 @@ import {
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
 import { consentimentoRouter } from "./consentimento.js";
 import { integracoesRouter } from "./integracoes-router.js";
+// EPIC-027 C7: API oficial do WhatsApp (YCloud) — campanhas por modelo aprovado. Só admin por papel.
+import { whatsappOficialRouter } from "./ycloud/router.js";
 import { doloresRouter } from "./dolores/router.js";
 import { googleDriveRouter } from "./google-drive-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
@@ -190,6 +193,8 @@ export const appRouter = router({
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
   whatsapp: whatsappRouter,
+  // EPIC-027 C2: grupos do WhatsApp na Central — admin e colaborador com o módulo WhatsApp (papel e módulo conferidos no router; o corretor nunca)
+  whatsappGrupos: whatsappGruposRouter,
   centralVendas: centralVendasRouter,
   maquete3d: maquete3dRouter,
   maquetePublica: maquetePublicaRouter,
@@ -203,6 +208,7 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   integracoes: integracoesRouter,
+  whatsappOficial: whatsappOficialRouter,
   // EPIC-025 E2: WhatsApp da Dolores — só admin (fora do mapa de módulos e com checagem de papel)
   dolores: doloresRouter,
   googleDrive: googleDriveRouter,

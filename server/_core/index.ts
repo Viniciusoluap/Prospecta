@@ -25,6 +25,7 @@ import doloresPonteRotas from "../dolores/ponte.js";
 import doloresWhatsappRotas from "../dolores/whatsapp.js";
 import { handleEvolutionWebhook } from "../whatsapp-evolution-webhook.js";
 import { handleWhatsappWebhook } from "../whatsapp-webhook.js";
+import { tratarWebhookYcloud } from "../ycloud/webhook.js";
 import { startMcmvRulesReminder } from "../mcmv-rules-reminder.js";
 import { getUserByEmail } from "../db.js";
 import {
@@ -62,6 +63,8 @@ async function startServer() {
     express.raw({ type: "application/json" }),
     handleWhatsappWebhook
   );
+  // EPIC-027 C7: aviso de entrega da YCloud — corpo bruto para a assinatura, antes do express.json()
+  app.post("/api/ycloud/webhook", express.raw({ type: "application/json", limit: "1mb" }), tratarWebhookYcloud);
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

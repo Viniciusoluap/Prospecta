@@ -15,6 +15,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import type { WhatsappTemplate } from "@shared/whatsapp/templates";
 import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
 import { CampanhasEAvisos } from "@/components/whatsapp/CampanhasEAvisos";
+import { CampanhaApiOficial, ModelosApiOficial, PainelCampanhasApiOficial } from "@/components/whatsapp/CampanhaApiOficial";
 import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
@@ -43,6 +44,10 @@ export default function AdminWhatsApp() {
   const [mensagem, setMensagem] = useState("");
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
   const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
+  // EPIC-027 C7: só o admin escolhe "Campanha pela API oficial" (YCloud); a mensagem comum continua pelo WhatsApp Web
+  const [formaEnvio, setFormaEnvio] = useState<"comum" | "api_oficial">("comum");
+  const [campanhaIniciada, setCampanhaIniciada] = useState(0);
+  const porApiOficial = role === "admin" && formaEnvio === "api_oficial";
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
   // E9 (item 7): canal do disparo e o aviso de disparo em massa bloqueado pelo número principal
@@ -218,13 +223,22 @@ export default function AdminWhatsApp() {
                 </p>
               </div>
             )}
-            {canal.data?.aviso && (
+            {role === "admin" && (
+              <div className="flex flex-wrap items-center gap-2 text-xs" role="radiogroup" aria-label="Forma de envio">
+                <span className="text-gray-300">Forma de envio:</span>
+                {([["comum", "Mensagem comum (WhatsApp Web)"], ["api_oficial", "Campanha pela API oficial"]] as const).map(([v, r]) => (
+                  <button key={v} type="button" role="radio" aria-checked={formaEnvio === v} onClick={() => setFormaEnvio(v)}
+                    className={`rounded border px-3 py-1.5 font-bold ${formaEnvio === v ? "border-[#C9A961] bg-[#C9A961]/15 text-[#C9A961]" : "border-[#C9A961]/20 text-gray-400 hover:text-white"}`}>{r}</button>
+                ))}
+              </div>
+            )}
+            {!porApiOficial && canal.data?.aviso && (
               <div className="flex items-center gap-3 border border-orange-500/30 bg-orange-500/10 p-3 rounded">
                 <AlertCircle size={16} className="text-orange-300 shrink-0" />
                 <p className="text-xs text-orange-100">{canal.data.aviso}</p>
               </div>
             )}
-            <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva ? "opacity-50 pointer-events-none" : ""}`}>
+            <div className={`grid grid-cols-1 lg:grid-cols-2 gap-5 ${!conexaoAtiva && !porApiOficial ? "opacity-50 pointer-events-none" : ""}`}>
               <Card className={cardCls}>
                 <CardHeader>
                   <CardTitle className="text-sm text-gray-300 flex flex-wrap items-center justify-between gap-2">
@@ -267,7 +281,7 @@ export default function AdminWhatsApp() {
                 </CardContent>
               </Card>
 
-              <Card className={cardCls}>
+              {porApiOficial ? <CampanhaApiOficial leadIds={selectedLeads} aoCriar={(id) => { setCampanhaIniciada(id); setSelectedLeads([]); }} /> : <Card className={cardCls}>
                 <CardHeader><CardTitle className="text-sm text-gray-300">Mensagem</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                   <div>
@@ -325,8 +339,9 @@ export default function AdminWhatsApp() {
                     <Send className="h-4 w-4 mr-2" /> {enviandoLotes ? "Enviando..." : `Enviar para ${selectedLeads.length} contato${selectedLeads.length !== 1 ? "s" : ""}`}
                   </Button>
                 </CardContent>
-              </Card>
+              </Card>}
             </div>
+            {porApiOficial && <PainelCampanhasApiOficial iniciar={campanhaIniciada} />}
           </div>
         )}
 
@@ -334,6 +349,7 @@ export default function AdminWhatsApp() {
         {activeTab === "templates" && (
           <div className="space-y-4">
             {role === "admin" && <CampanhasEAvisos />}
+            {role === "admin" && <ModelosApiOficial />}
             {canal.data?.aviso && <p className="text-xs text-orange-200">{canal.data.aviso}</p>}
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-gray-300">Gerencie os modelos usados na aba Enviar Mensagem.</p>

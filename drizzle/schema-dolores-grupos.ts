@@ -36,6 +36,8 @@ export const doloresGrupos = pgTable("dolores_grupos", {
   perguntaTipoEm: timestamp("pergunta_tipo_em", { withTimezone: true }),
   /** EPIC-027 C3 (0139): classificação pela tela cujo aviso ao dono não saiu (teto do dia ou falha) — entra no relatório diário. */
   avisoClassificacaoPendenteEm: timestamp("aviso_classificacao_pendente_em", { withTimezone: true }),
+  /** EPIC-027 (0139, QA R3-1): a obra deste grupo de engenharia foi excluída no CRM — calado até reclassificar. */
+  obraExcluidaEm: timestamp("obra_excluida_em", { withTimezone: true }),
 }, t => [
   uniqueIndex("dolores_grupos_jid_unico").on(t.instancia, t.grupoJid),
   index("dolores_grupos_lead_idx").on(t.leadId),
@@ -70,6 +72,9 @@ export const doloresGrupoMensagens = pgTable("dolores_grupo_mensagens", {
   reservaAte: timestamp("reserva_ate", { withTimezone: true }),
   leadDocumentId: integer("lead_document_id").references(() => leadDocuments.id, { onDelete: "set null" }),
   salvoEm: timestamp("salvo_em", { withTimezone: true }),
+  // EPIC-027 C2 (migração 0142): a coluna "nome_remetente" (nome do participante no WhatsApp) fica FORA desta definição de propósito
+  // (portão de QA, achado 2): os select() completos desta tabela continuam funcionando com o banco ainda sem a 0142. Ela é lida e
+  // gravada só por server/dolores/grupo-mensagens-nome.ts, tolerando a coluna ausente.
 }, t => [
   uniqueIndex("dolores_grupo_mensagens_externa_uidx").on(t.instancia, t.externalId),
   index("dolores_grupo_mensagens_grupo_idx").on(t.grupoId, t.criadoEm),

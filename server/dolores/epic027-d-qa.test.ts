@@ -8,7 +8,7 @@ vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
 import { PERMITIDOS_POR_TIPO } from "../../shared/dolores/marcacao.js";
-import { colaboradorPodeClassificar, ligadoPorPadrao, perguntaDoTipo, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
+import { ligadoPorPadrao, perguntaDoTipo, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
@@ -203,28 +203,17 @@ describe("QA C4 — 'ligado por padrão' sem linha no interruptor do grupo", () 
 });
 
 describe("QA C3 — classificar pela tela", () => {
-  it("CORRIGIDO (achado importante): colaborador com WhatsApp não põe nem tira administrativo/jurídico/parceiros; o admin pode, e o dono é avisado", async () => {
+  it("REGRA DO DONO (21/11): classificar é só do admin — colaborador com o módulo WhatsApp recebe FORBIDDEN genérico; o admin classifica e o dono é avisado", async () => {
     expect(PERMITIDOS_POR_TIPO.interno).toEqual(expect.arrayContaining(["valores", "outro_cliente"]));
     await banco.pg.exec(NOVO_INDEFINIDO);
-    const colab = caller("colaborador", ["whatsapp"], 2);
-    for (const t of ["administrativo", "juridico", "parceiros"] as const) {
-      await expect(colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: t })).rejects.toThrow(/^Administrativo \(sócios\), jurídico, parceiros comerciais e engenharia geral/);
-    }
-    expect(await grupo3()).toMatchObject({ tipo: "indefinido" });
-    // o gatilho (0139) também barra o UPDATE direto com 'tela:<colaborador>'
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 1`))
-      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO: administrativo, jurídico, parceiros e engenharia geral \(sem obra\) só o administrador define ou tira/);
-    // colaborador classifica o grupo não identificado como cliente; o dono recebe o aviso (tipo antes → depois, quem, quando)
     enviarAoDono.mockClear();
-    await colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 1 });
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 1 });
     expect(enviarAoDono).toHaveBeenCalledTimes(1);
-    expect((enviarAoDono.mock.calls[0][0] as { texto: string }).texto).toMatch(/«Turma nova» \(código KNOV\) foi classificado pela tela: de «não identificado» para «cliente», por Bianca Souza, em /);
-    // o admin muda para um tipo de admin; o colaborador não tira de lá
+    expect((enviarAoDono.mock.calls[0][0] as { texto: string }).texto).toMatch(/«Turma nova» \(código KNOV\) foi classificado pela tela: de «não identificado» para «cliente», ligado ao cliente «Maria Trello» \(nº 1\), por Vinícius Admin, em /);
     await caller("admin").dolores.grupos.definirTipo({ grupoId: 3, tipo: "administrativo" });
     expect(await grupo3()).toMatchObject({ tipo: "administrativo", decidido_por: "tela:1" });
     expect((enviarAoDono.mock.calls.at(-1)![0] as { texto: string }).texto).toMatch(/de «cliente» para «administrativo \(sócios\)», por Vinícius Admin/);
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "engenharia", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(await grupo3()).toMatchObject({ tipo: "administrativo" });
+    expect((enviarAoDono.mock.calls.at(-1)![0] as { texto: string }).texto).not.toMatch(/ligado a/); // interno: sem vínculo
   });
 
   it("CORRIGIDO (achado importante, teto): sem vaga de aviso, a classificação vale e fica 'aviso pendente' (relatório diário)", async () => {
@@ -308,112 +297,172 @@ describe("QA C3 — resposta só com o número", () => {
   });
 });
 
-describe("QA rodada 2 — trava de escopo do colaborador", () => {
+describe("Regra do dono (21/11): só o administrador classifica — rota e gatilho (0144)", () => {
   beforeEach(async () => { await banco.pg.exec(NOVO_INDEFINIDO); });
 
-  it("CORRIGIDO R2-1 (importante): engenharia sem obra é tipo de admin — o colaborador precisa da obra e não mexe em engenharia geral (rota e gatilho)", async () => {
-    const colab = caller("colaborador", ["whatsapp"], 2);
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "engenharia" })).rejects.toThrow(/^Para você, engenharia é sempre de uma obra/);
-    expect(await grupo3()).toMatchObject({ tipo: "indefinido", obra_id: null });
-    // o grupo ENG (engenharia geral) não é mexido pelo colaborador, nem para virar de obra ou cliente
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "engenharia" });
-    // engenharia DE UMA OBRA o colaborador pode (grupo sem vínculo)
-    await colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "engenharia", numero: 1 });
-    expect(await q("SELECT tipo, obra_id FROM dolores_grupos WHERE id = 3")).toEqual([{ tipo: "engenharia", obra_id: 1 }]);
-    // gatilho: tirar a obra (vira engenharia geral) com 'tela:<colaborador>' é barrado; o admin pode
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET obra_id = NULL, decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 3`))
-      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO: administrativo, jurídico, parceiros e engenharia geral \(sem obra\) só o administrador define ou tira/);
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET obra_id = 1, decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 1`))
-      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO: administrativo, jurídico, parceiros e engenharia geral \(sem obra\) só o administrador define ou tira/);
-    await banco.pg.exec(`UPDATE dolores_grupos SET obra_id = NULL, decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 3`);
-    expect(await q("SELECT obra_id FROM dolores_grupos WHERE id = 3")).toEqual([{ obra_id: null }]);
-  });
-
-  it("CORRIGIDO R2-2 (médio): colaborador não troca nem tira vínculo existente (rota e gatilho); o admin pode", async () => {
-    const colab = caller("colaborador", ["whatsapp"], 2);
-    await colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 1 });
-    enviarAoDono.mockClear();
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 2 })).rejects.toThrow(/^Administrativo \(sócios\).*Corrigir um grupo que já tem cliente ou obra também é do administrador\.$/);
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 3, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(await q("SELECT tipo, lead_id FROM dolores_grupos WHERE id = 3")).toEqual([{ tipo: "cliente", lead_id: 1 }]);
-    expect(enviarAoDono).not.toHaveBeenCalled();
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET lead_id = 2, decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 3`))
-      .rejects.toThrow(/DOLORES_GRUPOS_DECISAO: trocar ou tirar o vínculo do grupo só o administrador/);
-    await caller("admin").dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 2 });
-    expect(await q("SELECT lead_id FROM dolores_grupos WHERE id = 3")).toEqual([{ lead_id: 2 }]);
-  });
-
-  it("matriz completa de colaboradorPodeClassificar", () => {
-    const TIPOS = ["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "indefinido"] as const;
-    const NOVOS = ["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia"] as const;
-    for (const tipo of TIPOS) for (const vinc of [{ leadId: null, obraId: null }, { leadId: 1, obraId: null }, { leadId: null, obraId: 1 }])
-      for (const novo of NOVOS) for (const numero of [null, 5]) {
-        const atualLivre = !vinc.leadId && !vinc.obraId && (tipo === "indefinido" || tipo === "cliente" || tipo === "pos_atendimento");
-        const esperado = atualLivre && ["cliente", "pos_atendimento", "engenharia"].includes(novo) && numero !== null;
-        expect(colaboradorPodeClassificar({ tipo, ...vinc }, novo, numero), JSON.stringify({ tipo, vinc, novo, numero })).toBe(esperado);
+  it("colaborador (com ou sem o módulo WhatsApp) recebe o MESMO FORBIDDEN genérico em qualquer grupo e tipo, inclusive id inexistente — sem nome, código nem 'existe'", async () => {
+    await banco.pg.exec(`UPDATE dolores_grupos SET ativo = false WHERE id = 3`);
+    const tipos = ["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar", "aceitar"] as const;
+    for (const colab of [caller("colaborador", ["whatsapp"], 2), caller("colaborador", [], 2)]) {
+      for (const grupoId of [1, 2, 3, 999]) for (const tipo of tipos) {
+        const numero = tipo === "cliente" || tipo === "pos_atendimento" || tipo === "engenharia" ? 1 : null;
+        const e = await colab.dolores.grupos.definirTipo({ grupoId, tipo, numero }).then(() => null, (x: { code?: string; message?: string }) => x);
+        expect(e, `${grupoId} ${tipo}`).toMatchObject({ code: "FORBIDDEN", message: "Sem permissão para este módulo" });
       }
-  });
-
-  it("gatilho: 'tela:<admin INATIVO>' e 'tela:<colaborador>' barrados; id enorme falha fechado", async () => {
-    await banco.pg.exec(`UPDATE users SET active = false WHERE id = 1`);
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 1`)).rejects.toThrow(/só o administrador/);
-    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:9999999999' WHERE id = 1`)).rejects.toThrow();
-    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "engenharia" });
-  });
-
-  it("CORRIGIDO R2-3 (baixo): fora de 'whatsapp:', tipo de admin exige 'tela:<id de admin ativo>' — 'tela:x', 'fila:1' e nulo barrados", async () => {
-    for (const por of ["'tela:x'", "'fila:1'", "NULL", "'tela:'", "'tela:1 '"]) {
-      await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = ${por} WHERE id = 1`), por)
-        .rejects.toThrow(/DOLORES_GRUPOS_DECISAO: administrativo, jurídico, parceiros e engenharia geral \(sem obra\) só o administrador define ou tira/);
     }
-    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "engenharia" });
-    // o dono pelo WhatsApp e o admin ativo pela tela passam
-    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'juridico', decidido_em = now() + interval '10 s', decidido_por = 'whatsapp:dono' WHERE id = 1`);
-    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '15 s', decidido_por = 'tela:1' WHERE id = 1`);
-    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "administrativo" });
+    expect(await q("SELECT id, tipo, ativo, decidido_por FROM dolores_grupos ORDER BY id")).toEqual([
+      { id: 1, tipo: "engenharia", ativo: true, decidido_por: "whatsapp:dono" }, { id: 2, tipo: "juridico", ativo: true, decidido_por: null },
+      { id: 3, tipo: "indefinido", ativo: false, decidido_por: null }]);
   });
 
-  it("aviso ao dono pela tela: texto fixo, sem telefone/CPF/valores e intacto nos filtros", async () => {
-    enviarAoDono.mockClear();
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 3, tipo: "cliente", numero: 1 });
-    const t = (enviarAoDono.mock.calls[0][0] as { texto: string }).texto;
-    expect(t).not.toMatch(/\d{3}\.\d{3}|99123|R\$|Maria Trello/);
-    expect(sanitizarTexto(t, filtroDaSaida("whatsapp"))).toBe(t);
+  it("gatilho (0144): fora de 'whatsapp:', mudar tipo/vínculo ou tirar de 'aguardando_dono' exige 'tela:<admin ativo>' — colaborador, 'tela:x', 'fila:…', nulo, admin inativo e id grande barrados", async () => {
+    const MSG = /DOLORES_GRUPOS_DECISAO: só o administrador classifica o grupo pela tela/;
+    const mudancas = [
+      "tipo = 'cliente', lead_id = 1", "tipo = 'engenharia', obra_id = 1", "tipo = 'administrativo'", "tipo = 'juridico'",
+    ];
+    for (const por of ["'tela:2'", "'tela:x'", "'fila:1'", "'fila:aprovada'", "NULL", "'tela:'", "'tela:1 '", "'tela:9999999999'", "'TELA:1'"]) {
+      for (const m of mudancas) {
+        await expect(banco.pg.exec(`UPDATE dolores_grupos SET ${m}, situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = ${por} WHERE id = 3`), `${por} ${m}`).rejects.toThrow(MSG);
+      }
+      // tirar de 'aguardando_dono' sem mudar o tipo também
+      await expect(banco.pg.exec(`UPDATE dolores_grupos SET situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = ${por} WHERE id = 3`), por).rejects.toThrow(MSG);
+      // pôr uma obra no grupo de engenharia geral (vínculo novo)
+      await expect(banco.pg.exec(`UPDATE dolores_grupos SET obra_id = 1, decidido_em = now() + interval '5 s', decidido_por = ${por} WHERE id = 1`), por).rejects.toThrow(MSG);
+    }
+    await banco.pg.exec(`UPDATE users SET active = false WHERE id = 1`);
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'cliente', lead_id = 1, situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 3`)).rejects.toThrow(MSG);
+    await banco.pg.exec(`UPDATE users SET active = true WHERE id = 1`);
+    expect(await grupo3()).toMatchObject({ tipo: "indefinido", lead_id: null, obra_id: null });
+    // o dono (WhatsApp) e o admin ativo (tela) passam
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'cliente', lead_id = 1, situacao_confirmacao = 'confirmado', decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 3`);
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'juridico', lead_id = NULL, decidido_em = now() + interval '10 s', decidido_por = 'whatsapp:dono' WHERE id = 3`);
+    expect(await grupo3()).toMatchObject({ tipo: "juridico", lead_id: null });
+    // exclusão do cliente no CRM (ON DELETE SET NULL, sem decisão) continua passando
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'cliente', lead_id = 2, decidido_em = now() + interval '15 s', decidido_por = 'tela:1' WHERE id = 3`);
+    await banco.pg.exec(`UPDATE dolores_grupos SET lead_id = NULL WHERE id = 3`);
+    expect(await grupo3()).toMatchObject({ tipo: "cliente", lead_id: null });
+  });
+
+  it("a rota: grupo de OUTRA instância não é classificado (como inexistente) e classificar não reativa grupo desativado", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao) VALUES
+      ('outra-instancia', '120363999000000009@g.us', 'De fora', 'De fora', true, 'indefinido', 'automatico', 'aguardando_dono', 'KFOR', 'dono', 'evento_add');
+      UPDATE dolores_grupos SET ativo = false WHERE id = 3;`);
+    const admin = caller("admin");
+    await expect(admin.dolores.grupos.definirTipo({ grupoId: 4, tipo: "juridico" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Grupo 4 não cadastrado." });
+    await expect(admin.dolores.grupos.definirTipo({ grupoId: 999, tipo: "juridico" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Grupo 999 não cadastrado." });
+    expect(await q("SELECT tipo FROM dolores_grupos WHERE id = 4")).toEqual([{ tipo: "indefinido" }]);
+    await admin.dolores.grupos.definirTipo({ grupoId: 3, tipo: "juridico" });
+    expect(await grupo3()).toMatchObject({ tipo: "juridico" });
+    expect((await q("SELECT ativo FROM dolores_grupos WHERE id = 3"))[0].ativo).toBe(false);
+  });
+
+  it("fila: ligar o grupo ao card grava quem aprovou ('whatsapp:fila:<id>' ou 'tela:<id>'), nunca 'fila:…'; sem aprovação conferida, nada muda", async () => {
+    const { ligarGrupoAoCliente } = await import("./grupos.js");
+    const db = banco.db as never;
+    // grupo 3: aceito pelo dono e confirmado, sem vínculo (o que a fila liga)
+    await banco.pg.exec(`UPDATE dolores_grupos SET situacao_confirmacao = 'confirmado', decidido_em = now(), decidido_por = 'whatsapp:dono' WHERE id = 3`);
+    expect(await ligarGrupoAoCliente(db, 3, 1, null, null)).toBe(false); // sem aprovação: nada
+    const ap = async (codigo: string, via: string, por: number | null) => (await q(`INSERT INTO dolores_aprovacoes (codigo, vence_em, funcao, alvo, argumentos, resumo, situacao, decidido_via, decidido_por_user_id)
+      VALUES ('${codigo}', now() + interval '1 day', 'ligar_grupo_cliente', 'grupo', '{}'::jsonb, 'r', 'executando', '${via}', ${por ?? "NULL"}) RETURNING id`))[0].id as number;
+    // aprovado pela tela por um COLABORADOR (não deveria acontecer: a rota é só do admin) → o gatilho barra
+    const apColab = await ap("APC1", "tela", 2);
+    const erro = await ligarGrupoAoCliente(db, 3, 1, null, apColab).then(() => null, (e: { message?: string; cause?: { message?: string } }) => `${e.message} ${e.cause?.message ?? ""}`);
+    expect(erro).toMatch(/DOLORES_GRUPOS_DECISAO: só o administrador classifica o grupo pela tela/);
+    // pela tela pelo admin
+    const apAdmin = await ap("APA1", "tela", 1);
+    expect(await ligarGrupoAoCliente(db, 3, 1, null, apAdmin)).toBe(true);
+    expect((await q("SELECT decidido_por, lead_id FROM dolores_grupos WHERE id = 3"))[0]).toEqual({ decidido_por: "tela:1", lead_id: 1 });
+    // pelo dono no WhatsApp (outro grupo sem vínculo)
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo, tipo, origem, situacao_confirmacao, adicionado_por, prova_adicao, decidido_em, decidido_por) VALUES
+      ('prospecta-dolores', '120363999000000008@g.us', 'Sem card', true, 'cliente', 'automatico', 'confirmado', 'dono', 'evento_add', now(), 'whatsapp:dono')`);
+    const apDono = await ap("APD1", "whatsapp", null);
+    expect(await ligarGrupoAoCliente(db, 4, 2, null, apDono)).toBe(true);
+    expect((await q("SELECT decidido_por FROM dolores_grupos WHERE id = 4"))[0]).toEqual({ decidido_por: `whatsapp:fila:${apDono}` });
   });
 });
 
 describe("QA rodada 3", () => {
-  it("ACHADO R3-1 (importante): excluir a obra no CRM (ON DELETE SET NULL) vira o grupo 'engenharia da obra' em 'engenharia geral' (escopo interno) sem decisão de ninguém", async () => {
+  it("CORRIGIDO R3-1 (importante): excluir a obra no CRM deixa o grupo 'não identificado' e calado (não vira engenharia geral); a exclusão passa; reclassificar limpa a marca", async () => {
+    const tabela = (await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos;
+    const { eq } = await import("drizzle-orm");
+    const ler = async () => (await (banco.db as any).select().from(tabela).where(eq(tabela.id, 1)))[0];
     await banco.pg.exec(`UPDATE dolores_grupos SET obra_id = 1, decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 1`);
-    const [antes] = await (banco.db as any).select().from((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos).where((await import("drizzle-orm")).eq((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos.id, 1));
-    const eAntes = await escopoDoGrupo(antes, { participante: null }, AGORA);
-    expect("escopo" in eAntes && eAntes.escopo.foraDeEscopo("e o contrato do outro cliente?")).toBeTruthy(); // restrito: fora de escopo
-    await banco.pg.exec(`DELETE FROM construction_projects WHERE id = 1`); // exclusão definitiva da obra (server/db.ts:577)
-    const [depois] = await (banco.db as any).select().from((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos).where((await import("drizzle-orm")).eq((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos.id, 1));
-    expect(depois).toMatchObject({ tipo: "engenharia", obraId: null, situacaoConfirmacao: "confirmado", ativo: true });
-    const e = await escopoDoGrupo(depois, { participante: null }, AGORA);
-    // agora é o escopo interno (engenharia geral): "outro cliente" e "contrato" deixam de ser fora de escopo
-    expect("escopo" in e).toBe(true);
-    expect("escopo" in e && e.escopo.foraDeEscopo("e o contrato do outro cliente?")).toBeFalsy();
+    const eAntes = await escopoDoGrupo(await ler(), { participante: null }, AGORA);
+    expect("escopo" in eAntes && eAntes.escopo.foraDeEscopo("e o contrato do outro cliente?")).toBeTruthy();
+    await banco.pg.exec(`DELETE FROM construction_projects WHERE id = 1`); // a exclusão da obra não é barrada
+    expect(await q("SELECT count(*)::int AS n FROM construction_projects WHERE id = 1")).toEqual([{ n: 0 }]);
+    const depois = await ler();
+    expect(depois).toMatchObject({ tipo: "indefinido", obraId: null, situacaoConfirmacao: "aguardando_dono", ativo: true });
+    expect(depois.obraExcluidaEm).not.toBeNull();
+    expect(await escopoDoGrupo(depois, { participante: null }, AGORA)).toEqual({ silencio: expect.any(String) });
+    // pela marcação: calado
+    await banco.pg.exec(`UPDATE dolores_marcacoes_config SET lid_dolores = '${LID_DOLORES}', lid_do_numero = '${DOLORES}'`);
+    await chamar(aviso(item({ texto: "@987654321012345 e o contrato do outro cliente?" })));
+    expect(enviarAoGrupo).not.toHaveBeenCalled();
+    expect((await desfechos())["marcacao-aguardando-dono"]).toBe(1);
+    // a tela mostra a marca; o admin reclassifica e ela some
+    const tela = await caller("admin").dolores.grupos.listar();
+    expect(tela.grupos.find(g => g.id === 1)?.obraExcluidaEm).toBeTruthy();
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 1, tipo: "juridico" });
+    expect((await ler()).obraExcluidaEm).toBeNull();
   });
 
-  it("ACHADO R3-2 (médio): o aviso ao dono de classificação pela tela não diz QUAL cliente/obra foi ligado — apontar para o cliente errado passa despercebido", async () => {
+  it("CORRIGIDO R3-1 (defesa em profundidade): engenharia sem obra só é 'geral' se o dono, um admin ou a entrada pelo nome a definiu — fila, colaborador ou origem desconhecida → silêncio", async () => {
+    const tabela = (await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos;
+    const { eq } = await import("drizzle-orm");
+    const [g] = await (banco.db as any).select().from(tabela).where(eq(tabela.id, 1));
+    const escopo = (x: Record<string, unknown>) => escopoDoGrupo({ ...g, ...x }, { participante: null }, AGORA);
+    expect("escopo" in (await escopo({ decididoPor: "whatsapp:dono" }))).toBe(true);
+    expect("escopo" in (await escopo({ decididoPor: "tela:1" }))).toBe(true);
+    expect("escopo" in (await escopo({ decididoPor: null, origem: "automatico" }))).toBe(true);
+    for (const x of [{ decididoPor: "tela:2" }, { decididoPor: "fila:1" }, { decididoPor: "tela:x" }, { decididoPor: null, origem: "manual" }, { decididoPor: "whatsapp:dono", obraExcluidaEm: new Date() }]) {
+      expect(await escopo(x), JSON.stringify(x)).toEqual({ silencio: expect.any(String) });
+    }
+  });
+
+  it("CORRIGIDO R3-2 (médio): o aviso diz QUAL cliente/obra foi ligado (texto fixo, sem telefone/CPF/valores, intacto nos filtros)", async () => {
     await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'indefinido', situacao_confirmacao = 'aguardando_dono', decidido_em = now() + interval '5 s', decidido_por = 'whatsapp:dono' WHERE id = 1`);
     enviarAoDono.mockClear();
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 2 });
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 2 });
     const t = (enviarAoDono.mock.calls[0][0] as { texto: string }).texto;
-    expect(t).not.toMatch(/nº 2|João Atrasado/);
+    expect(t).toMatch(/ligado ao cliente «João Atrasado» \(nº 2\)/);
+    expect(t).not.toMatch(/\d{3}\.\d{3}|99988|R\$/);
+    expect(sanitizarTexto(t, filtroDaSaida("whatsapp"))).toBe(t);
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao) VALUES
+      ('prospecta-dolores', '120363999000000004@g.us', 'Obra nova', 'Obra nova', true, 'indefinido', 'automatico', 'aguardando_dono', 'KOBR', 'dono', 'evento_add')`);
+    const [obra] = await q("SELECT id, title FROM construction_projects ORDER BY id LIMIT 1");
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 3, tipo: "engenharia", numero: obra.id });
+    expect((enviarAoDono.mock.calls.at(-1)![0] as { texto: string }).texto).toContain(`ligado a obra «${obra.title}» (nº ${obra.id})`);
   });
 
-  it("colaborador: lead inexistente/excluído e obra inexistente não gravam nada", async () => {
+  it("lead inexistente/excluído e obra inexistente não gravam nada (admin)", async () => {
     await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'indefinido', situacao_confirmacao = 'aguardando_dono', decidido_em = now() + interval '5 s', decidido_por = 'whatsapp:dono' WHERE id = 1;
       UPDATE leads SET deleted_at = now() WHERE id = 4;`);
-    const colab = caller("colaborador", ["whatsapp"], 2);
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 999 })).rejects.toThrow();
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 4 })).rejects.toThrow();
-    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia", numero: 999 })).rejects.toThrow();
+    const adm = caller("admin");
+    await expect(adm.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 999 })).rejects.toThrow();
+    await expect(adm.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 4 })).rejects.toThrow();
+    await expect(adm.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia", numero: 999 })).rejects.toThrow();
     expect(await q("SELECT tipo, lead_id, obra_id FROM dolores_grupos WHERE id = 1")).toEqual([{ tipo: "indefinido", lead_id: null, obra_id: null }]);
+  });
+});
+
+describe("QA rodada 4 — obra excluída em todos os estados", () => {
+  it("recusado continua recusado, aguardando sem prova continua sem prova, manual antigo fica calado; a exclusão nunca é barrada; zerar obra_id direto só deixa mais calado", async () => {
+    await banco.pg.exec(`
+      INSERT INTO construction_projects (title, status, progress) VALUES ('Obra A', 'in_progress', 10), ('Obra B', 'in_progress', 10), ('Obra C', 'in_progress', 10);
+      INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao, obra_id) VALUES
+        ('prospecta-dolores', '120363999000000101@g.us', 'R', 'R', true, 'engenharia', 'automatico', 'recusado', 'KR01', 'outra_pessoa', 'evento_add', (SELECT id FROM construction_projects WHERE title = 'Obra A')),
+        ('prospecta-dolores', '120363999000000102@g.us', 'S', 'S', true, 'engenharia', 'automatico', 'aguardando_dono', 'KS01', 'desconhecido', 'sem_prova', (SELECT id FROM construction_projects WHERE title = 'Obra B'));
+      INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo, obra_id) VALUES ('prospecta-dolores', '120363999000000103@g.us', 'Manual', true, (SELECT id FROM construction_projects WHERE title = 'Obra C'));`);
+    await banco.pg.exec(`DELETE FROM construction_projects WHERE title IN ('Obra A', 'Obra B', 'Obra C')`);
+    const l = await q(`SELECT codigo, nome, tipo, situacao_confirmacao, adicionado_por, prova_adicao, obra_id, obra_excluida_em IS NOT NULL AS marcada FROM dolores_grupos WHERE grupo_jid LIKE '1203639990000001%' ORDER BY grupo_jid`);
+    expect(l).toEqual([
+      { codigo: "KR01", nome: "R", tipo: "indefinido", situacao_confirmacao: "recusado", adicionado_por: "outra_pessoa", prova_adicao: "evento_add", obra_id: null, marcada: true },
+      { codigo: "KS01", nome: "S", tipo: "indefinido", situacao_confirmacao: "aguardando_dono", adicionado_por: "desconhecido", prova_adicao: "sem_prova", obra_id: null, marcada: true },
+      { codigo: null, nome: "Manual", tipo: "indefinido", situacao_confirmacao: "aguardando_dono", adicionado_por: null, prova_adicao: null, obra_id: null, marcada: true },
+    ]);
+    // o sem prova continua só do dono pela tela
+    const s = (await q(`SELECT id FROM dolores_grupos WHERE codigo = 'KS01'`))[0].id;
+    await expect(caller("admin").dolores.grupos.definirTipo({ grupoId: s, tipo: "juridico" })).rejects.toThrow(/só o dono aceita/);
   });
 });

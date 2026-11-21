@@ -17,6 +17,7 @@ import {
   doloresGrupoMensagens, doloresGrupos, doloresGruposConfig, doloresGruposContagem, type DoloresGrupo, type DoloresGruposConfig,
 } from "../../drizzle/schema-dolores-grupos.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
+import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { tipoEfetivo } from "../../shared/dolores/grupos-tipo.js";
 import {
   diaDeImperatriz, ehDocumento, jidDeGrupoValido, legendaSegura, lerMensagemDeGrupo, mensagemDeGrupoAntiga, nomeSeguroDeArquivo, type TipoMensagemGrupo,
@@ -27,6 +28,7 @@ import { getDb, type DrizzleDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { gravarNomeDoRemetente } from "./grupo-mensagens-nome.js";
 
 /** Padrões da configuração (os mesmos da migração), usados se a linha ainda não existir. */
 export const CONFIG_GRUPOS_PADRAO: Omit<DoloresGruposConfig, "atualizadoEm" | "atualizadoPor"> = {
@@ -69,6 +71,10 @@ export async function grupoAtivo(instancia: string, jid: string) {
 /** Texto de grupo para gravar: uma linha por trecho, sem controle/invisíveis, e o filtro do registro (sempre mascarado). */
 export const textoDeGrupoParaGravar = (s: string | null | undefined, max = 2000) =>
   sanitizarTexto(legendaSegura(s, 4000), FILTRO_DO_REGISTRO).slice(0, max) || null;
+
+/** EPIC-027 C2 — nome do participante (pushName) para gravar: uma linha, sem colchetes, filtro do registro, até 80 caracteres. */
+export const nomeDoRemetenteParaGravar = (s: string | null | undefined) =>
+  sanitizarTexto(legendaSegura(s, 200), FILTRO_DO_REGISTRO).slice(0, 80).trim() || null;
 
 export type ResultadoGrupo = {
   /** Chave da contagem do aviso (o "grupo" de antes continua sendo "grupo não cadastrado: ignorada"). */
@@ -153,6 +159,9 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
       situacao: !documento ? "sem_documento" : grande ? "grande_demais" : "a_classificar",
     }).onConflictDoNothing().returning({ id: doloresGrupoMensagens.id });
     if (!linha) return { resultado: "grupo-repetida" };
+    // EPIC-027 C2: o nome do participante, para a Central mostrar quem escreveu (texto de terceiro: uma linha, filtro do registro).
+    // Em separado e tolerante (achado 2 do portão): sem a coluna da 0142, a mensagem fica registrada sem o nome.
+    await gravarNomeDoRemetente(linha.id, nomeDoRemetenteParaGravar(m.nomeRemetente));
     return { resultado: "grupo-registrada", mensagemId: linha.id, aClassificar: documento && !grande && le };
   } catch (e) {
     console.error("[dolores/grupos] falha ao registrar a mensagem do grupo", erroParaLog(e));
@@ -165,10 +174,16 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
  * escrita da ação aprovada. Devolve false se o grupo já tinha vínculo ou não está ativo (aí nada muda).
  */
 export async function ligarGrupoAoCliente(tx: DrizzleDb, grupoId: number, leadId: number, userId: number | null, aprovacaoId: number | null = null): Promise<boolean> {
-  // Etapa 7: é decisão do dono (aprovou o item da fila) — grava a decisão junto (o gatilho só deixa o vínculo mudar assim)
+  // Etapa 7: é decisão de quem aprovou o item da fila — grava a decisão junto (o gatilho só deixa o vínculo mudar assim).
+  // EPIC-027 (0144, regra do dono de 21/11): o gatilho só aceita o dono no WhatsApp ('whatsapp:…') ou um admin ativo pela tela
+  // ('tela:<id>'); quem aprovou vem da própria aprovação. Sem aprovação conferida, nada muda (falha fechada).
+  if (!aprovacaoId) return false;
+  const [ap] = await tx.select({ via: doloresAprovacoes.decididoVia, por: doloresAprovacoes.decididoPorUserId }).from(doloresAprovacoes).where(eq(doloresAprovacoes.id, aprovacaoId)).limit(1);
+  const decididoPor = ap?.via === "whatsapp" ? `whatsapp:fila:${aprovacaoId}` : ap?.via === "tela" && ap.por ? `tela:${ap.por}` : null;
+  if (!decididoPor) return false;
   const agora = new Date();
   const r = await tx.update(doloresGrupos).set({ leadId, tipo: sql`CASE WHEN ${doloresGrupos.tipo} = 'pos_atendimento' THEN 'pos_atendimento' ELSE 'cliente' END`, situacaoConfirmacao: "confirmado", decididoEm: agora,
-    decididoPor: `fila:${aprovacaoId ?? "aprovada"}`.slice(0, 40), atualizadoEm: agora, atualizadoPorUserId: userId })
+    decididoPor: decididoPor.slice(0, 40), atualizadoEm: agora, atualizadoPorUserId: userId })
     .where(and(eq(doloresGrupos.id, grupoId), eq(doloresGrupos.ativo, true), isNull(doloresGrupos.leadId), isNull(doloresGrupos.obraId),
       // grupo interno (jurídico, administrativo, parceiros, engenharia) nunca vira grupo de cliente pela fila
       or(isNull(doloresGrupos.tipo), inArray(doloresGrupos.tipo, ["indefinido", "cliente", "pos_atendimento"])),
@@ -194,7 +209,7 @@ export async function listarGruposParaTela() {
     id: doloresGrupos.id, grupoJid: doloresGrupos.grupoJid, nome: doloresGrupos.nome, ativo: doloresGrupos.ativo, leadId: doloresGrupos.leadId,
     obraId: doloresGrupos.obraId, criadoEm: doloresGrupos.criadoEm, cliente: leads.name, obra: constructionProjects.title,
     tipo: doloresGrupos.tipo, origem: doloresGrupos.origem, situacaoConfirmacao: doloresGrupos.situacaoConfirmacao, nomeWhatsapp: doloresGrupos.nomeWhatsapp,
-    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao,
+    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao, obraExcluidaEm: doloresGrupos.obraExcluidaEm,
   }).from(doloresGrupos).leftJoin(leads, eq(leads.id, doloresGrupos.leadId)).leftJoin(constructionProjects, eq(constructionProjects.id, doloresGrupos.obraId))
     .orderBy(desc(doloresGrupos.ativo), asc(doloresGrupos.nome)).limit(200);
   const ids = grupos.map(g => g.id);

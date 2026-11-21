@@ -10,7 +10,9 @@ confirmação do dono. Handoff: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
   ("Grupos do WhatsApp") marcada no cadastro, "conforme qualquer outra função que ele só pode visualizar se for liberado";
   o humano pode ESCREVER no grupo pela Central, "exatamente igual faz na conversa". Isto substitui a regra de 20/11 (manhã)
   de que grupos nunca aparecem na Central. A conversa direta do dono com a Dolores continua fora da Central.
-- **Classificar grupo** (tipo e vínculo): pelo WhatsApp e pela tela, por admin e por colaborador com a permissão de WhatsApp.
+- **Classificar grupo** (tipo e vínculo) — CORRIGIDO pelo dono em 21/11: "eu disse que o colaborador pode ter acesso às mensagens
+  do grupo assim como as mensagens dos clientes, mas em nenhum momento eu falei que ele iria classificar". Classificar é SÓ do
+  admin (pela tela) e do dono (pelo WhatsApp); o colaborador nunca classifica (migração 0144).
   **Aceitar grupo em que outra pessoa colocou a Dolores (recusado / sem prova) continua SÓ do dono** (regra de 19/11).
 - **Agir a partir de grupo:** liberado SÓ quando o NÚMERO DO DONO pede, e SÓ para registrar (salvar nota, orçamento,
   documento). Nunca dinheiro, nunca mensagem a terceiro. Isto ajusta o item 5 da regra de 19/11.
@@ -30,7 +32,7 @@ confirmação do dono. Handoff: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
   comerciais, engenharia) na tela, na pergunta da Dolores e no comando, com uma linha explicando o que cada uma permite;
   botão "Corrigir tipo ou vínculo" em todo grupo ACEITO, inclusive "não identificado · aguardando o dono"; pergunta da
   Dolores no WhatsApp com opções numeradas.
-- [ ] C2. Central WhatsApp mostra os grupos (permissão por colaborador) e permite escrever.
+- [x] C2 (implementada, aguarda QA — `C2-grupos-na-central.md`; migração 0142). Central WhatsApp mostra os grupos (permissão por colaborador) e permite escrever.
 - [ ] C5 (C5-E1 implementada, aguarda QA — `C5-E1-voz-e-memoria.md`; migração 0143). Dolores "Jarvis": fala natural e curta, sem nome de ferramenta nem código; contexto da conversa ("ela", "esse grupo");
   resolve pelo WhatsApp (vincular cliente a grupo, classificar grupo, ligar resposta no grupo, salvar nota/documento, criar
   tarefa); confirmação proporcional (consultar → direto; registrar → "pode"; sério → confirmação explícita); ação a partir de

@@ -276,3 +276,74 @@ exato do botão ou campo — e dizendo o que ele deve ver ao final. Nunca "confi
 
 Do mesmo dia: quando ele pedir para "estruturar para eu autorizar", apresentar a estrutura e ESPERAR o "autorizo"
 antes de construir.
+
+## Dolores "Jarvis", grupos na Central e YCloud — decisões do dono em 20/11/2026 (noite) (REGRA)
+
+Estrutura apresentada e autorizada por ele ("Autorizo"). Epic: `docs/stories/epics/epic-027-correcoes-20-11-noite/EPIC.md`.
+
+1. **Referência de conversa** — palavras do dono: "eu quero algo igual ao Jarvis" e "como se eu tivesse conversando com o
+   ChatGPT do meu próprio negócio […] resolver problemas dentro do meu negócio e não simplesmente ter programações". Na
+   conversa com o dono a Dolores fala natural e curto, nunca mostra nome de ferramenta nem código interno, lembra do
+   contexto ("ela", "esse grupo") e RESOLVE pelo WhatsApp em vez de mandar ir à tela. Confirmação proporcional:
+   consultar → direto; registrar (nota, tarefa, vínculo) → um "pode"; sério (dinheiro, apagar, mensagem a cliente) →
+   confirmação explícita.
+2. **Grupos na Central WhatsApp** — aparecem TODOS os grupos; veem o admin e o colaborador que tiver a permissão própria
+   marcada no cadastro; o humano pode escrever no grupo pela Central, "exatamente igual faz na conversa". Isto substitui o
+   trecho da regra de 20/11 (manhã) de que grupos nunca aparecem na Central. A conversa direta do dono com a Dolores
+   continua fora da Central. O que um humano escreve no grupo não é comando para ela.
+3. **Classificar grupo é SÓ do dono/admin** — correção do dono em 21/11/2026, palavras dele: "eu disse que o colaborador
+   pode ter acesso às mensagens do grupo assim como as mensagens dos clientes, mas em nenhum momento eu falei que ele iria
+   classificar". O colaborador com a permissão de grupos só VÊ as mensagens e ESCREVE no grupo. Classificar (tipo e
+   vínculo) é do admin pela tela e do dono pelo WhatsApp; aceitar grupo em que outra pessoa a colocou (recusado / sem
+   prova) continua SÓ do dono, pelo WhatsApp (regra de 19/11). Nunca dar a colaborador poder de classificar, vincular
+   ou aceitar grupo. (Uma leitura errada da resposta dele em 20/11 chegou a ser implementada e foi desfeita antes de
+   publicar — não repetir: na dúvida sobre o alcance de uma permissão, perguntar.)
+4. **Agir a partir de grupo** — liberado SÓ quando o NÚMERO DO DONO pede, e SÓ para registrar (salvar nota, orçamento,
+   documento). Nunca dinheiro, nunca mensagem a terceiro. Ajusta o item 5 da regra de 19/11; para todos os demais,
+   mensagem de grupo continua nunca sendo comando.
+5. **Proatividade** — "tudo o que achar relevante". Cuidados aceitos por ele: a relevância é decidida por REGRAS do
+   sistema (a IA só escreve o aviso); avisos parecidos agrupados; ele pode silenciar um tipo; função com limite próprio.
+6. **Gasto separado por função** — "cada função com seu gasto": conversa com o dono, resposta em grupo, atendimento a
+   cliente, classificação de documentos e proatividade, cada uma com limite e modelo próprios, e a tela mostra o consumo
+   de cada. Uma função não consome o crédito da outra.
+7. **Maquete 3D — leitura pela IA** — roda em lote na Anthropic (segundo plano); tentativa sem resultado não é cobrada
+   nem conta no teto; manter o modelo escolhido pelo dono, sem reduzir qualidade por conta própria. Queixa dele que
+   originou a mudança: "acabei consumindo meus créditos à toa".
+8. **YCloud (API oficial, coexistência)** — número vinculado pelo dono em 20/11 (conta "VFX Capital"). Disparos de
+   campanha saem pela API oficial, por modelo aprovado; conversas, grupos e a Dolores continuam pela Evolution (não
+   assinar mensagem recebida na YCloud). Cada vinculação/desvinculação na YCloud DERRUBA a Evolution: religar pelo QR em
+   Integrações e tocar em "Reativar recebimento". A vinculação só fecha em COMPUTADOR (no iPad a janela da Meta conclui e
+   a YCloud não recebe o retorno; a tradução automática do navegador quebra o formulário).
+
+## EPIC-027 — respostas e autorização do dono em 21/11/2026 (REGRA)
+
+**Autorização** (palavras do dono, 21/11/2026, depois da revisão geral que ele pediu): "Tudo autorizado pode fazer a migração
+e na sequência fazer a produção de todos e todas as correções definidas até aqui que não pare até concluir tudo". Vale para as
+frentes do EPIC-027 definidas até essa data (grupos e Dolores C3/C4/C6, grupos na Central C2, Dolores natural C5 com todas as
+etapas e a memória de longo prazo, YCloud C7/C7.1, logotipo por IA C8): migrações aditivas no Neon, merge na `main` e
+conferência da Vercel, sem pedir de novo. O portão de QA continua obrigatório antes de cada publicação; apagar/alterar dados,
+remover tabela/coluna, credenciais e serviço pago novo continuam exigindo confirmação.
+
+**Respostas dele às dúvidas (não perguntar de novo):**
+1. **O nome é Dolores.** "Jarvis" foi só referência de comportamento; não usar esse nome em tela, texto, story nem conversa.
+2. **Grupos na Central**: quem já tem o módulo "WhatsApp" marcado (admin ou colaborador) vê os grupos direto — sem campo novo
+   de permissão; vê TODOS (inclusive sócios e jurídico), escreve e usa Assumir/Devolver. Corretor não vê. Classificar grupo
+   continua só do admin (tela) e do dono (WhatsApp).
+3. Grupo aceito e com tipo definido já nasce respondendo quando marcado. Resposta só com número vale ("4 sim" para sócios e
+   jurídico). Obra excluída → grupo calado até reclassificar.
+4. **Memória da conversa do dono**: últimas 100 mensagens, por 6 horas. **Memória de longo prazo dentro do sistema**: sim —
+   fatos e preferências permanentes, com tela para ver, corrigir e apagar (etapa da C5; não usar ferramenta externa).
+5. Criar tarefa/anotação: a Dolores pede "pode". Ação séria: pede "confirmo". A partir de grupo: só quando o número do dono
+   pede, e só para REGISTRAR; o grupo vê uma frase curta ("Anotado.").
+6. Proatividade: tudo o que for relevante, decidido por REGRAS do sistema (a IA só escreve), agrupado, de segunda a sábado,
+   das 07h às 20h, no máximo 6 por dia; ele pode silenciar um tipo.
+7. Gasto da Dolores separado por função: conversa 55%, documentos 20%, grupos 10%, clientes 10%, avisos 5%.
+8. **Campanha pela API oficial (YCloud)**: dispara o admin ou o colaborador com o módulo WhatsApp; chave, liga/desliga e
+   limites são só do admin. Não repetir o mesmo modelo ao mesmo contato em 7 dias; 200 por dia.
+9. Leitura de planta da maquete pode levar minutos (em segundo plano); cancelar: admin e colaborador com o módulo.
+10. Nomes "da empresa" (ninguém de fora pode se passar por eles nos grupos): Prospecta, Central Efficaz, Efficaz, VFX Capital
+    e Exclusive.
+11. **Logotipo por IA** (pedido de 21/11): o botão da Incorporação usa a chave da Anthropic do painel (desenho em SVG), com
+    linha própria em Integrações › Anthropic. Serviço pago de imagem só com autorização dele.
+12. OpenClaw: não substitui nem é substituído; a Dolores é o cérebro do negócio dentro do Prospecta, com as travas. Avaliar
+    OpenClaw só se ele pedir, e apenas como assistente pessoal pela ponte de leitura.

@@ -204,6 +204,8 @@ export type MensagemDeGrupo =
   | {
     tipo: "grupo"; grupoJid: string; externalId: string; participante: string | null; enviadaEm: Date | null;
     texto: string; midia: MidiaDeGrupo | null; encaminhada: boolean;
+    /** EPIC-027 C2: o nome que o participante usa no WhatsApp (pushName), bruto — texto de TERCEIRO (quem grava filtra). Nunca é comando. */
+    nomeRemetente: string | null;
   };
 
 function tamanhoDeclarado(v: unknown): number | null {
@@ -239,7 +241,7 @@ function textoDe(m: Record<string, any>): string {
  * Dolores enviou (fromMe), reação, edição/apagamento e interação (enquete, botão, fixar) não são registrados.
  */
 export function lerMensagemDeGrupo(item: unknown): MensagemDeGrupo | null {
-  const d = (item ?? {}) as { key?: Record<string, unknown>; message?: Record<string, any> | null; messageTimestamp?: unknown };
+  const d = (item ?? {}) as { key?: Record<string, unknown>; message?: Record<string, any> | null; messageTimestamp?: unknown; pushName?: unknown };
   const key = d.key ?? {};
   const jid = typeof key.remoteJid === "string" ? key.remoteJid : "";
   if (!jid.endsWith("@g.us")) return null;
@@ -260,6 +262,7 @@ export function lerMensagemDeGrupo(item: unknown): MensagemDeGrupo | null {
   return {
     tipo: "grupo", grupoJid: jid, externalId: id, participante, enviadaEm: s === null ? null : new Date(s * 1000),
     texto, midia, encaminhada: foiEncaminhada(m),
+    nomeRemetente: typeof d.pushName === "string" && d.pushName.trim() ? d.pushName.slice(0, 200) : null,
   };
 }
 

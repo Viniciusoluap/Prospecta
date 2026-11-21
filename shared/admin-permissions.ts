@@ -57,3 +57,11 @@ export function parsePermissions(value: string | null | undefined): AdminModule[
     return [];
   }
 }
+
+/**
+ * EPIC-027 C2 (decisão do dono de 21/11/2026: "quem já tem 'WhatsApp' marcado deve ver os grupos direto") — nota curta que o cadastro
+ * do usuário mostra ao lado do módulo. Não há permissão separada para os grupos.
+ */
+export const NOTA_DO_MODULO: Partial<Record<AdminModule, string>> = {
+  whatsapp: "inclui os grupos do WhatsApp da empresa (todos, inclusive o dos sócios e o jurídico)",
+};
