@@ -163,9 +163,11 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
     await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 2, tipo: "cliente", numero: 1 });
     expect(await grupo(2)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado", decidido_por: "tela:2", prova_adicao: "evento_add", adicionado_por: "dono" });
     expect(await q("SELECT grupo_id, responder_ligado FROM dolores_marcacoes_grupo ORDER BY grupo_id")).toEqual([{ grupo_id: 1, responder_ligado: true }, { grupo_id: 2, responder_ligado: true }]);
-    // e corrigir um já confirmado (dentro dos tipos do colaborador)
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 });
-    expect(await grupo(5)).toMatchObject({ tipo: "pos_atendimento", decidido_por: "tela:2" });
+    // corrigir depois é do admin (rodada 2 do QA): o colaborador não mexe em grupo já vinculado nem em engenharia geral
+    await expect(caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 2, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 });
+    expect(await grupo(5)).toMatchObject({ tipo: "pos_atendimento", decidido_por: "tela:1" });
   });
 
   it("quem pode: colaborador sem o módulo WhatsApp, corretor e cliente são barrados; colaborador não desativa nem aceita", async () => {
@@ -189,7 +191,7 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
       for (const id of [3, 4]) {
         // o colaborador já é barrado antes por ser tipo do admin; os dois são recusas
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "juridico" })).rejects.toThrow(/só o dono aceita|só o administrador/);
-        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "engenharia" })).rejects.toThrow(/só o dono aceita|só o administrador/);
+        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "engenharia", numero: 1 })).rejects.toThrow(/só o dono aceita|só o administrador/);
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "cliente", numero: 1 })).rejects.toThrow();
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "aceitar" })).rejects.toThrow();
       }

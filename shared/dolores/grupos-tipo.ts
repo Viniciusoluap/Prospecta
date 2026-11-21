@@ -49,17 +49,25 @@ export type CategoriaGrupo = (typeof CATEGORIAS_GRUPO)[number];
 export const categoriaDoTipo = (tipo: string) => CATEGORIAS_GRUPO.find(c => c.tipo === tipo) ?? null;
 
 /**
- * QA-SEG EPIC-027 (achado 1, importante): o colaborador (módulo WhatsApp) só classifica grupo como cliente, pós-atendimento ou
- * engenharia, e só mexe em grupo que hoje é um desses ou "não identificado". Administrativo (sócios), jurídico e parceiros
- * comerciais liberam mais (valores, outros clientes): só o ADMIN define e só o admin tira um grupo desses tipos.
+ * QA-SEG EPIC-027 (achado 1 e rodada 2, R2-1/R2-2) — a regra do COLABORADOR (módulo WhatsApp), conferida na rota e no gatilho da
+ * 0139: só classifica grupo ainda "não identificado" ou SEM vínculo, e só como cliente / pós-atendimento (com o nº do cliente) ou
+ * engenharia DE UMA OBRA (com o nº da obra). Qualquer correção depois (trocar ou tirar o vínculo, mudar o tipo de grupo já
+ * vinculado) é do ADMIN — assim como administrativo (sócios), jurídico, parceiros comerciais e engenharia geral (sem obra), que
+ * usam o escopo interno (liberam valores e outros clientes).
  */
 export const TIPOS_DO_COLABORADOR = ["cliente", "pos_atendimento", "engenharia"] as const;
 export const TIPOS_SO_DO_ADMIN = ["administrativo", "juridico", "parceiros"] as const;
-export function colaboradorPodeClassificar(tipoAtual: TipoGrupo, novo: string): boolean {
-  const pode = (t: string) => (TIPOS_DO_COLABORADOR as readonly string[]).includes(t);
-  return pode(novo) && (pode(tipoAtual) || tipoAtual === "indefinido");
+/** Tipo de admin: os três internos e a engenharia geral (sem obra), que também usa o escopo interno. */
+export const ehTipoDeAdmin = (tipo: TipoGrupo, obraId: number | null) =>
+  (TIPOS_SO_DO_ADMIN as readonly string[]).includes(tipo) || (tipo === "engenharia" && !obraId);
+export function colaboradorPodeClassificar(atual: { tipo: TipoGrupo; leadId: number | null; obraId: number | null }, novo: string, numero: number | null): boolean {
+  const semVinculo = !atual.leadId && !atual.obraId;
+  const atualLivre = atual.tipo === "indefinido" || (semVinculo && !ehTipoDeAdmin(atual.tipo, atual.obraId));
+  if (!atualLivre || !semVinculo) return false;
+  return (novo === "cliente" || novo === "pos_atendimento" || novo === "engenharia") && !!numero && numero > 0;
 }
-export const FRASE_TIPOS_DO_ADMIN = "Administrativo (sócios), jurídico e parceiros comerciais só o administrador define ou tira, porque liberam mais informação no grupo.";
+export const FRASE_TIPOS_DO_ADMIN = "Administrativo (sócios), jurídico, parceiros comerciais e engenharia geral (sem obra) só o administrador define ou tira, porque liberam mais informação no grupo. Corrigir um grupo que já tem cliente ou obra também é do administrador.";
+export const FRASE_ENGENHARIA_COM_OBRA = "Para você, engenharia é sempre de uma obra: informe o nº da obra (engenharia geral, sem obra, é do administrador).";
 
 /** Quem colocou a Dolores no grupo: provado o dono, provado outra pessoa, ou não provado (QA-SEG E7). Vazio = cadastro à mão. */
 export const ADICIONADO_POR = ["dono", "outra_pessoa", "desconhecido"] as const;

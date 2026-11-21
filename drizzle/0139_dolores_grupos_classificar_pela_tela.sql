@@ -11,9 +11,9 @@
 --     pelo WhatsApp OU pela tela ("decidido_por" começando por 'tela:'), e pela tela sem mexer em quem adicionou nem na prova.
 --     Qualquer outra origem ('fila:', vazio) continua barrada.
 --   - Ir PARA 'recusado' continua sempre permitido.
---   - NOVO (QA-SEG EPIC-027, achado 1): quem decide pela tela ("tela:<id>") e NÃO é administrador ativo só põe ou tira os tipos
---     cliente, pós-atendimento e engenharia (e só tira de um desses ou de "não identificado"); administrativo, jurídico e
---     parceiros comerciais só o administrador define ou tira.
+--   - NOVO (QA-SEG EPIC-027, achado 1 e rodada 2): fora da decisão do dono pelo WhatsApp, pôr ou tirar um tipo de ADMIN —
+--     administrativo, jurídico, parceiros comerciais ou engenharia SEM obra (escopo interno) — exige "tela:<id de administrador
+--     ativo>" (outro formato é barrado); e, pela tela, quem não é administrador só classifica grupo ainda sem vínculo (cliente/obra).
 -- Colunas novas em "dolores_grupos" (ADD COLUMN IF NOT EXISTS, sem padrão: não dispara o gatilho nem altera linha):
 --   - "pergunta_tipo_em": quando a Dolores perguntou ao dono o tipo do grupo (a resposta só com o número vale por 30 min);
 --   - "aviso_classificacao_pendente_em": classificação feita pela tela cujo aviso ao dono não saiu (teto do dia) — relatório diário.
@@ -30,6 +30,9 @@ DECLARE
   tela_user integer;
   tipo_antes text;
   tipo_depois text;
+  admin_antes boolean;
+  admin_depois boolean;
+  eh_admin boolean;
 BEGIN
   IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_SEM_EXCLUSAO: grupo cadastrado não é apagado (desative)';
@@ -70,15 +73,26 @@ BEGIN
       AND NEW."prova_adicao" IS NOT DISTINCT FROM OLD."prova_adicao") THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: grupo recusado ou sem prova de quem colocou a Dolores só é aceito pelo dono, no WhatsApp';
   END IF;
-  -- QA-SEG EPIC-027 (achado 1): pela tela, quem não é administrador ativo só mexe em cliente, pós-atendimento e engenharia
-  IF decidiu AND coalesce(NEW."decidido_por", '') ~ '^tela:[0-9]{1,10}$' THEN
+  -- QA-SEG EPIC-027 (achado 1; rodada 2, R2-1 a R2-3): fora de 'whatsapp:%' (o dono), mexer em grupo de tipo de ADMIN —
+  -- administrativo, jurídico, parceiros ou engenharia SEM obra (escopo interno), antes OU depois — exige 'tela:<id de admin
+  -- ativo>'; qualquer outro formato ('tela:x', 'fila:1', vazio, id fora do formato) é barrado. Pela tela, quem não é admin só
+  -- classifica grupo ainda SEM vínculo (trocar ou tirar cliente/obra existente é do admin).
+  IF decidiu AND coalesce(NEW."decidido_por", '') NOT LIKE 'whatsapp:%' THEN
     tipo_antes := coalesce(OLD."tipo", CASE WHEN OLD."obra_id" IS NOT NULL THEN 'engenharia' ELSE 'cliente' END);
     tipo_depois := coalesce(NEW."tipo", CASE WHEN NEW."obra_id" IS NOT NULL THEN 'engenharia' ELSE 'cliente' END);
-    IF tipo_depois IS DISTINCT FROM tipo_antes
-       AND (tipo_antes IN ('administrativo', 'juridico', 'parceiros') OR tipo_depois IN ('administrativo', 'juridico', 'parceiros')) THEN
-      tela_user := substring(NEW."decidido_por" from 6)::integer;
-      IF NOT EXISTS (SELECT 1 FROM "users" WHERE "id" = tela_user AND "role" = 'admin' AND "active" IS TRUE) THEN
-        RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: administrativo, jurídico e parceiros só o administrador define ou tira';
+    IF tipo_depois IS DISTINCT FROM tipo_antes OR NEW."lead_id" IS DISTINCT FROM OLD."lead_id" OR NEW."obra_id" IS DISTINCT FROM OLD."obra_id" THEN
+      admin_antes := tipo_antes IN ('administrativo', 'juridico', 'parceiros') OR (tipo_antes = 'engenharia' AND OLD."obra_id" IS NULL);
+      admin_depois := tipo_depois IN ('administrativo', 'juridico', 'parceiros') OR (tipo_depois = 'engenharia' AND NEW."obra_id" IS NULL);
+      eh_admin := false;
+      IF coalesce(NEW."decidido_por", '') ~ '^tela:[0-9]{1,9}$' THEN
+        tela_user := substring(NEW."decidido_por" from 6)::integer;
+        eh_admin := EXISTS (SELECT 1 FROM "users" WHERE "id" = tela_user AND "role" = 'admin' AND "active" IS TRUE);
+      END IF;
+      IF (admin_antes OR admin_depois) AND NOT eh_admin THEN
+        RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: administrativo, jurídico, parceiros e engenharia geral (sem obra) só o administrador define ou tira';
+      END IF;
+      IF coalesce(NEW."decidido_por", '') LIKE 'tela:%' AND NOT eh_admin AND (OLD."lead_id" IS NOT NULL OR OLD."obra_id" IS NOT NULL) THEN
+        RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: trocar ou tirar o vínculo do grupo só o administrador';
       END IF;
     END IF;
   END IF;

@@ -29,7 +29,7 @@
 //   mensagens do mesmo grupo novo: uma só entrada por vez por grupo nesta instância (uma consulta à Evolution, uma vaga).
 import { randomInt } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { leads } from "../../drizzle/schema.js";
+import { leads, users } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesContagem, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import { diaDeImperatriz, jidDeGrupoValido } from "../../shared/dolores/grupos.js";
@@ -445,10 +445,12 @@ async function avisarEntradaNoAdministrativo(instancia: string, jid: string, qua
  * IA) com o grupo, o tipo antes → depois, quem mudou e quando. Conta no teto diário de avisos de grupo (contador próprio). Passou do
  * teto (ou o envio falhou): a classificação continua valendo e o grupo fica marcado "aviso pendente" — entra no relatório diário.
  */
-export async function avisarClassificacaoPelaTela(p: { grupo: DoloresGrupo; antes: TipoGrupo; depois: TipoGrupo; quem: string | null; userId: number; agora: Date; avisar: AvisoAoDono }): Promise<"avisado" | "pendente"> {
+export async function avisarClassificacaoPelaTela(p: { grupo: DoloresGrupo; antes: TipoGrupo; depois: TipoGrupo; userId: number; agora: Date; avisar: AvisoAoDono }): Promise<"avisado" | "pendente"> {
   const dia = diaDeImperatriz(p.agora);
+  // quem mudou: o NOME do cadastro (só leitura do nome), nunca o que a sessão disser
+  const [u] = await getDb().select({ nome: users.name }).from(users).where(eq(users.id, p.userId)).limit(1).catch(() => []);
   const quando = p.agora.toLocaleString("pt-BR", { timeZone: "America/Fortaleza", dateStyle: "short", timeStyle: "short" });
-  const texto = textoDoAvisoDeClassificacaoPelaTela({ nomeDoGrupo: p.grupo.nomeWhatsapp ?? p.grupo.nome, codigo: p.grupo.codigo, antes: p.antes, depois: p.depois, quem: p.quem, quando });
+  const texto = textoDoAvisoDeClassificacaoPelaTela({ nomeDoGrupo: p.grupo.nomeWhatsapp ?? p.grupo.nome, codigo: p.grupo.codigo, antes: p.antes, depois: p.depois, quem: u?.nome ?? null, quando });
   let ok = false;
   try {
     const config = await lerConfigGrupos();

@@ -50,6 +50,14 @@ na publicação).
       dizendo o que o tipo libera. "1"/"2" sem o nº do cliente não engolem a mensagem (seguem o caminho normal).
 - [x] Achado 3 (BAIXO, C4): `ligadoPorPadrao` só para grupo que entrou sozinho (`origem = automatico`).
 - [x] Achado 4 (BAIXO, C4): a consulta do @lid usa um prazo só para as duas chamadas à Evolution (a segunda usa o que sobrou).
+- [x] Rodada 2 — R2-1 (IMPORTANTE): engenharia SEM obra usa o escopo interno, então conta como tipo de admin; o colaborador só usa
+      engenharia com o nº da obra e não mexe em engenharia geral (rota, gatilho e tela com o campo da obra obrigatório).
+- [x] Rodada 2 — R2-2 (MÉDIO): o colaborador só classifica grupo ainda "não identificado" ou sem vínculo, e só como cliente/pós
+      (com o nº) ou engenharia de uma obra; trocar ou tirar vínculo existente é do admin (rota e gatilho). Matriz completa testada.
+- [x] Rodada 2 — R2-3 (BAIXO): no gatilho, fora de 'whatsapp:%', tipo de admin (antes ou depois) exige 'tela:<id de admin ativo>';
+      'tela:x', 'fila:1', vazio ou id fora do formato são barrados.
+- Risco registrado: se o CRM excluir a obra de um grupo de engenharia, o ON DELETE SET NULL deixa o grupo como engenharia geral sem
+  decisão (o gatilho deixa a exclusão passar); a obra excluída é ação do admin.
 - Achado 5: registrado aqui, sem mudança de código nesta rodada (conforme o portão).
 - Provas: `server/dolores/epic027-d-qa.test.ts` (os 3 testes "ACHADO" invertidos para "CORRIGIDO", mais o do teto de aviso).
 
