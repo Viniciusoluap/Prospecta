@@ -160,7 +160,7 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
     expect(assumido.valor).toBeCloseTo(0.0087506, 7);
     expect(assumido.cacheAssumido).toBe(true);
     // a conta antiga: cache como entrada cheia e o preço do Opus (15/75) num campo único → perto de 2
-    const antiga = estimarReais({ entrada: entradaNoLimite(REAL), saida: REAL.saida }, { entradaMilhao: 15, saidaMilhao: 75 })!;
+    const antiga = estimarReais({ entrada: REAL.entrada + REAL.cacheEscrita + REAL.cacheLeitura, saida: REAL.saida }, { entradaMilhao: 15, saidaMilhao: 75 })!;
     expect(antiga).toBeGreaterThan(1.8);
     expect(antiga / c.valor).toBeGreaterThan(20);
   });
@@ -182,7 +182,8 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
     expect(c.usouReserva).toEqual(["modelo-novo"]);
     expect(c.total).toMatchObject({ completo: true, dolares: 0.4088, reais: 2.04 });
     expect(c.porFuncao.map(f => f.funcao)).toEqual(["conversa", "documentos_e_notas"]);
-    expect(c.tokensNoLimite).toEqual({ entrada: 13_068 + 37_860 + 50_480 + 1_000_000, saida: 4_413 });
+    // QA C5-E1 r4: no limite, o cache conta pelo peso do preço (escrita 1,25×, leitura 0,1×, arredondados para cima)
+    expect(c.tokensNoLimite).toEqual({ entrada: 13_068 + 47_325 + 5_048 + 1_000_000, saida: 4_413 });
     expect(linhaDoCustoParaRelatorio(c, 1621)).toMatch(/Pelo preço de reserva: modelo-novo/);
     const sem = custoDoMes(linhas, tabela, { entradaMilhao: null, saidaMilhao: null }, null);
     expect(sem.semPreco).toEqual(["modelo-novo"]);
@@ -199,7 +200,7 @@ describe("custo — por modelo e por tipo de token (regra pura)", () => {
       precosPorModelo: { tabela, cotacao: 5.5 },
     });
     expect(texto).toMatch(/Estimativa: US\$ 0,0088 \(R\$\s0,05/);
-    expect(texto).toContain("A entrada inclui 88.340 de cache");
+    expect(texto).toContain("A entrada bruta inclui 88.340 de cache");
     expect(texto).not.toMatch(/R\$ 1,8/);
   });
 
@@ -399,8 +400,10 @@ describe("tela — preços por modelo e cotação (só admin, pelo appRouter)", 
     expect(s.gasto.custo!.usouReserva).toEqual([]);
     expect(s.gasto.reaisEstimados).toBe(0.05);
     expect(s.gasto.cotacao).toBe(5.5);
-    // o limite (a trava) conta o cache como entrada cheia — e a tela mostra os dois números
-    expect(s.gasto.uso.entrada).toBe(REAL.entrada + REAL.cacheEscrita + REAL.cacheLeitura);
+    // QA C5-E1 r4: o limite (a trava) conta o cache pelo peso do preço (escrita 1,25×, leitura 0,1×) — o banco e a conta da tela
+    // dão o mesmo número; os tokens brutos continuam gravados e aparecem por modelo
+    expect(s.gasto.uso.entrada).toBe(13_068 + 47_325 + 5_048);
+    expect(s.gasto.custo!.porModelo[0].uso).toEqual(REAL);
     expect(s.gasto.custo!.tokensNoLimite.entrada).toBe(s.gasto.uso.entrada);
     const aud = await q<any>("SELECT funcao, canal, resumo FROM dolores_acoes WHERE funcao = 'operacao_config' ORDER BY id");
     expect(aud.map(a => a.resumo.porUserId)).toEqual([1, 1]);

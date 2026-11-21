@@ -9,9 +9,12 @@ vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof i
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
-import { RESERVA_MINIMA_ENTRADA, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
+import { RESERVA_MINIMA_ENTRADA, SOBRECARGA_DE_FERRAMENTAS, definirClienteModelo, ferramentasParaOModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
+import { usoDoMes } from "./consumo.js";
+import { promptSistemaWhatsapp } from "./prompt.js";
+import { ferramentasDoWhatsapp } from "./ponte.js";
 import {
-  HISTORICO_VAZIO, JANELA_CARACTERES, codigosReais, lerJanela, semCodigosReais, textoParaGravar, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
+  HISTORICO_VAZIO, JANELA_CARACTERES, codigosReais, tokensEstimadosDoTexto, inicioDaJanela, BLOCO_MENSAGENS, BLOCO_CARACTERES, lerJanela, semCodigosReais, textoParaGravar, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
   type ItemDaConversa,
 } from "./memoria.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
@@ -159,13 +162,14 @@ describe("migração 0143", () => {
 });
 
 describe("janela da conversa (regra pura)", () => {
-  it("decisão do dono: só as últimas 100 mensagens das últimas 6 horas, da mais antiga para a mais nova", () => {
+  it("decisão do dono: no máximo as últimas 100 mensagens das últimas 6 horas, da mais antiga para a mais nova", () => {
     expect(JANELA_MENSAGENS).toBe(100);
     const linhas = Array.from({ length: 130 }, (_, i) => item(i * 2, i % 2 ? "dolores" : "dono", `m${i}`)); // m0 é a mais nova; 130 em 4h20
     const h = janelaDe([...linhas, item(7 * 60, "dono", "velha")], AGORA);
-    expect(h.itens).toHaveLength(100);
-    expect(h.itens[0].texto).toBe("m99");
-    expect(h.itens[99].texto).toBe("m0");
+    // QA C5-E1 r4 (cortes em blocos): 130 na janela → saem as 40 mais antigas (2 blocos de 20) e ficam 90
+    expect(h.itens).toHaveLength(90);
+    expect(h.itens[0].texto).toBe("m89");
+    expect(h.itens[89].texto).toBe("m0");
     expect(janelaDe([item(6 * 60 + 1, "dono", "passou de 6 h")], AGORA).itens).toEqual([]);
   });
   it("100 mensagens típicas de WhatsApp (400 caracteres) cabem inteiras no teto de 40.000", () => {
@@ -385,7 +389,8 @@ describe("conversa pelo WhatsApp com memória (IA simulada)", () => {
     await chamar(aviso({ texto: "primeiro pedido" }));
     roteiro = [comReserva(texto("ok"))];
     await chamar(aviso({ texto: "segundo pedido" }));
-    expect(reservas[0]).toBe(RESERVA_MINIMA_ENTRADA);
+    // QA C5-E1 r4: a 1ª reserva = piso do prefixo fixo + o comando (estimativa por cima, pelos bytes)
+    expect(reservas[0]).toBe(RESERVA_MINIMA_ENTRADA + tokensEstimadosDoTexto("primeiro pedido"));
     expect(reservas[1]).toBeGreaterThan(RESERVA_MINIMA_ENTRADA + 600);
     const consumo = await q<{ n: number }>("SELECT count(*)::int AS n FROM dolores_consumo");
     expect(consumo[0].n).toBe(2);
@@ -397,5 +402,142 @@ describe("conversa pelo WhatsApp com memória (IA simulada)", () => {
     await chamar(aviso({ texto: "me manda a lista completa das obras" }));
     expect(pedidos[0].maxTokens).toBeLessThanOrEqual(1_500);
     expect(pedidos[1].maxTokens).toBeGreaterThan(1_500);
+  });
+});
+
+// ── QA C5-E1 rodada 4 — correções (custo do cache, cota, reserva e concorrência) ──
+
+/** O começo do histórico que vai ao modelo, sem as marcas de cache (o que o cache da Anthropic compara). */
+const comecoDe = (h: ReturnType<typeof janelaDe>) => JSON.stringify(montarMensagens(h, "x")[0].content[0].text);
+const semCache = (x: unknown) => JSON.stringify(x).replace(/,"cache_control":\{"type":"ephemeral"\}/g, "");
+
+describe("QA r4 achado 1 — a janela desliza EM BLOCOS (o começo fica igual entre pedidos seguidos)", () => {
+  // n itens, um por minuto, o mais novo no minuto 1 (m0 é o mais novo; o mais antigo é m{n-1})
+  // papel e hora são do próprio item (m0 é o mais antigo, 200 min atrás; m1 um minuto depois…), não da posição: entrar item novo
+  // não muda os antigos. Lista da mais nova para a mais antiga, como vem do banco.
+  const linhas = (n: number) => Array.from({ length: n }, (_, i) => { const id = n - 1 - i; return item(200 - id, id % 2 ? "dolores" : "dono", `m${id}`); });
+  it("até 100 entra tudo; passou de 100, saem as 20 mais antigas de uma vez; +1 … +19 mantêm o mesmo começo; no 20º corta de novo", () => {
+    expect(BLOCO_MENSAGENS).toBe(20);
+    expect(janelaDe(linhas(100), AGORA).itens).toHaveLength(100);
+    // a 101ª corta 20 de uma vez: ficam 81, começando em m20
+    const base = janelaDe(linhas(101), AGORA);
+    expect(base.itens).toHaveLength(81);
+    expect(base.itens[0].texto).toBe("m20");
+    let antes = montarMensagens(base, "a");
+    for (let k = 1; k <= 19; k++) {
+      const h = janelaDe(linhas(101 + k), AGORA);
+      expect(h.itens.length, `+${k}`).toBe(81 + k);
+      expect(h.itens.length).toBeLessThanOrEqual(100);
+      expect(comecoDe(h), `+${k}`).toBe(comecoDe(base));
+      const depois = montarMensagens(h, "b");
+      // o histórico anterior inteiro é o começo do novo (o que o cache da Anthropic reaproveita)
+      expect(semCache(depois.slice(0, antes.length - 1))).toBe(semCache(antes.slice(0, -1)));
+      antes = depois;
+    }
+    const corte = janelaDe(linhas(121), AGORA);
+    expect(corte.itens).toHaveLength(81);
+    expect(corte.itens[0].texto).toBe("m40");
+    expect(comecoDe(corte)).not.toBe(comecoDe(base));
+  });
+
+  it("lerJanela usa o TOTAL da janela no banco (lê só as 100 mais novas): 101 a 120 linhas mantêm o mesmo começo", async () => {
+    const inserir = (de: number, ate: number) => banco.pg.exec(`INSERT INTO dolores_conversa (criado_em, papel, origem, texto, referencias) VALUES ${
+      Array.from({ length: ate - de }, (_, j) => { const i = de + j; return `('${new Date(AGORA.getTime() - (200 - i) * 60_000).toISOString()}', 'dono', 'mensagem', 'n${i}', '[]')`; }).join(",")}`);
+    await inserir(0, 101);
+    const primeira = await lerJanela(AGORA);
+    expect(primeira.itens).toHaveLength(81);
+    expect(primeira.itens[0].texto).toBe("n20");
+    await inserir(101, 120);
+    const ultima = await lerJanela(AGORA);
+    expect(ultima.itens).toHaveLength(100);
+    expect(ultima.itens[0].texto).toBe("n20");
+    await inserir(120, 121);
+    expect((await lerJanela(AGORA)).itens[0].texto).toBe("n40");
+  });
+
+  it("6 h: o início é arredondado para o marco de 30 min (nunca mais de 6 h) e só muda quando passa um marco", () => {
+    const passo = 30 * 60_000;
+    for (const min of [0, 1, 17, 29, 30, 31, 59]) {
+      const agora = new Date(AGORA.getTime() + min * 60_000);
+      const ini = inicioDaJanela(agora).getTime();
+      expect(ini % passo).toBe(0);
+      expect(agora.getTime() - ini).toBeLessThanOrEqual(6 * 3_600_000);
+      expect(agora.getTime() - ini).toBeGreaterThan(5.5 * 3_600_000 - 1);
+    }
+    // de 12:01 a 12:30 o início é o mesmo (06:30); às 12:31 passa para 07:00
+    const ini = (min: number) => inicioDaJanela(new Date(AGORA.getTime() + min * 60_000)).toISOString();
+    expect(new Set([1, 10, 29, 30].map(ini)).size).toBe(1);
+    expect(ini(31)).not.toBe(ini(30));
+    // mensagem de 5h55 atrás às 12:20: fica de fora (o início é 06:30), o que mantém o começo estável
+    const agora = new Date(AGORA.getTime() + 20 * 60_000);
+    const h = janelaDe([item(-20 + 5 * 60 + 55, "dono", "5h55"), item(-20 + 5 * 60, "dono", "5h")], agora);
+    expect(h.itens.map(i => i.texto)).toEqual(["5h"]);
+  });
+
+  it("caracteres: passou de 40.000, saem as mais antigas até o múltiplo de 10.000 seguinte; +1 … +4 mantêm o começo", () => {
+    expect(BLOCO_CARACTERES).toBe(10_000);
+    const grandes = (n: number) => Array.from({ length: n }, (_, i) => { const id = n - 1 - i; return item(200 - id, id % 2 ? "dolores" : "dono", `g${id}`.padEnd(2_000, "x")); });
+    expect(janelaDe(grandes(20), AGORA).itens).toHaveLength(20); // 40.000: cabe
+    const base = janelaDe(grandes(21), AGORA); // 42.000 → saem 10.000 (5 itens)
+    expect(base.itens).toHaveLength(16);
+    expect(base.itens[0].texto.startsWith("g5")).toBe(true);
+    for (let k = 1; k <= 4; k++) {
+      const h = janelaDe(grandes(21 + k), AGORA); // até 50.000 → continuam saindo 10.000
+      expect(comecoDe(h), `+${k}`).toBe(comecoDe(base));
+      expect(h.itens.reduce((s, i) => s + i.texto.length, 0)).toBeLessThanOrEqual(JANELA_CARACTERES);
+    }
+    const corte = janelaDe(grandes(26), AGORA); // 52.000 → saem 20.000
+    expect(corte.itens[0].texto.startsWith("g10")).toBe(true);
+  });
+
+  it("pontos de cache: no último bloco do histórico e no último marco de 20 itens (no máximo 2 no histórico)", () => {
+    const h = janelaDe(linhas(50), AGORA);
+    const blocos = montarMensagens(h, "ok").flatMap(m => m.content);
+    const marcados = blocos.filter(b => b.cache_control);
+    expect(marcados).toHaveLength(2);
+    expect(marcados[0].text).toMatch(/\nm39$/); // o 40º item a partir do começo
+    expect(marcados[1].text).toMatch(/\nm49$/); // o último item do histórico
+    expect(montarMensagens(janelaDe(linhas(40), AGORA), "ok").flatMap(m => m.content).filter(b => b.cache_control)).toHaveLength(1);
+  });
+});
+
+describe("QA r4 achado 2 — o limite mensal conta o cache pelo peso do preço (tokens brutos continuam gravados)", () => {
+  it("entrada 1.000 + escrita 1.000 (×1,25) + leitura 10.000 (×0,1) = 3.250 no limite; a linha guarda os números brutos", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_consumo (mes, mensagem_id, modelo, volta, tokens_entrada, tokens_saida, tokens_cache_escrita, tokens_cache_leitura, parada)
+      VALUES ('2026-11', NULL, 'modelo-de-teste', 1, 1000, 50, 1000, 10000, 'end_turn'), ('2026-11', NULL, 'modelo-de-teste', 2, 0, 0, 0, 3, 'end_turn')`);
+    expect(await usoDoMes("2026-11")).toEqual({ entrada: 1_000 + 1_250 + 1_001, saida: 50 }); // 10.003 × 0,1 = 1.000,3 → 1.001
+    const [l] = await q<any>("SELECT sum(tokens_cache_leitura)::int AS leitura, sum(tokens_cache_escrita)::int AS escrita FROM dolores_consumo");
+    expect(l).toEqual({ leitura: 10_003, escrita: 1_000 });
+  });
+});
+
+describe("QA r4 achado 3 — reserva cobre o prefixo fixo e estima por bytes (emoji e texto não latino)", () => {
+  it("o piso cobre o texto do sistema + as ferramentas com ações (estimativa por cima) + a sobrecarga da API", () => {
+    const prefixo = tokensEstimadosDoTexto(promptSistemaWhatsapp(false)) + tokensEstimadosDoTexto(JSON.stringify(ferramentasParaOModelo(ferramentasDoWhatsapp())));
+    expect(prefixo).toBeGreaterThan(8_000); // o prefixo real é da ordem de 9–10 mil tokens
+    expect(RESERVA_MINIMA_ENTRADA).toBeGreaterThanOrEqual(prefixo + SOBRECARGA_DE_FERRAMENTAS);
+  });
+  it("ASCII conta 1 token a cada 3; cada byte fora do ASCII conta 1 token (acento 2, chinês 3, emoji 4)", () => {
+    expect(tokensEstimadosDoTexto("")).toBe(0);
+    expect(tokensEstimadosDoTexto("abcdef")).toBe(2);
+    expect(tokensEstimadosDoTexto("é")).toBe(2);
+    expect(tokensEstimadosDoTexto("中")).toBe(3);
+    expect(tokensEstimadosDoTexto("😀")).toBe(4);
+    const emojis = "😀".repeat(1_000);
+    const h = janelaDe([item(1, "dono", emojis)], AGORA);
+    expect(tokensEstimadosDoTexto(emojis)).toBe(Buffer.byteLength(emojis, "utf8")); // pior caso: 1 token por byte
+    expect(tokensEstimadosDoHistorico(h)).toBeGreaterThan(4_000);
+  });
+});
+
+describe("QA r4 achado 4 — duas mensagens do dono ao mesmo tempo", () => {
+  it("a mensagem cujo pedido ainda está \"processando\" vai como \"ainda em andamento\", não como \"já respondida\"", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_mensagens (id, instancia, external_id, do_dono, situacao) VALUES (901, 'prospecta-dolores', 'CONC-1', true, 'processando');
+      INSERT INTO dolores_conversa (criado_em, papel, origem, texto, mensagem_id) VALUES ('${new Date(AGORA.getTime() - 60_000).toISOString()}', 'dono', 'mensagem', 'qual o andamento da Lúcia?', 901)`);
+    const ctx = () => lerJanela(AGORA).then(h => montarMensagens(h, "e a obra?")[0].content[0].text);
+    expect(await ctx()).toMatch(/ainda em andamento em outro pedido/);
+    expect(await ctx()).not.toMatch(/já respondida/);
+    await banco.pg.exec("UPDATE dolores_mensagens SET situacao = 'respondida' WHERE id = 901");
+    expect(await ctx()).toMatch(/já respondida/);
   });
 });

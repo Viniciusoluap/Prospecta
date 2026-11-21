@@ -255,11 +255,11 @@ export function montarRelatorio(p: {
       // Etapa 8 — a MESMA conta da tela: por modelo e por tipo de token (cache pelo preço de cache), reserva só para modelo sem preço
       const c = custoDoMes(t.consumo.linhas, p.precosPorModelo?.tabela ?? new Map(), p.precos, p.precosPorModelo?.cotacao ?? null);
       const cache = c.porModelo.reduce((s, m) => s + m.uso.cacheEscrita + m.uso.cacheLeitura, 0);
-      sec("Gasto da IA no mês", [`${tokens}${cache ? ` A entrada inclui ${n(cache)} de cache, que custa bem menos.` : ""} ${linhaDoCustoParaRelatorio(c, TETO_DONO_REAIS)}`]);
+      sec("Gasto da IA no mês", [`${tokens}${cache ? ` A entrada bruta inclui ${n(cache)} de cache, que custa bem menos (no limite, o cache conta pelo peso do preço).` : ""} ${linhaDoCustoParaRelatorio(c, TETO_DONO_REAIS)}`]);
     } else {
       const reais = estimarReais({ entrada: t.consumo.entrada, saida: t.consumo.saida }, p.precos);
       sec("Gasto da IA no mês", [tokens
-        + (reais == null ? " Estimativa em reais: falta informar o preço por milhão de tokens na tela." : ` Estimativa (preço único, cache como entrada cheia): ${brl(reais)} (teto do dono ${brl(TETO_DONO_REAIS)}).`)]);
+        + (reais == null ? " Estimativa em reais: falta informar o preço por milhão de tokens na tela." : ` Estimativa (preço único, cache pelo peso do preço no limite): ${brl(reais)} (teto do dono ${brl(TETO_DONO_REAIS)}).`)]);
     }
   }
   const faltam = p.falhas.map(f => NOME_SECAO[f as SecaoRonda] ?? f);

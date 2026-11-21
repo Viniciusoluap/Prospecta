@@ -14,7 +14,7 @@ import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
 import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
-import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, type Historico } from "./memoria.js";
+import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
 
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
 
@@ -67,8 +67,15 @@ export const FOLGA_POR_PARTE_MS = 1_500;
 export const FOLGA_DO_LACO_MS = FOLGA_FINAL_MS + (MAX_PARTES_RESPOSTA - 1) * FOLGA_POR_PARTE_MS;
 /** Prazo de uma consulta dentro do laço. */
 const PRAZO_CONSULTA_MS = 15_000;
-/** Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). */
-export const RESERVA_MINIMA_ENTRADA = 4_000;
+/**
+ * Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). QA C5-E1 r4
+ * (achado 3): cobre o prefixo FIXO de toda chamada — texto do sistema (~5,7 mil bytes) + ferramentas com as ações (~25 mil bytes)
+ * ≈ 10,3 mil tokens pela estimativa por cima (memoria.ts#tokensEstimadosDoTexto) + ~500 da própria API para ferramentas. Antes era
+ * 4.000, abaixo do prefixo real (~9 mil). O teste c5-e1-qa-r4 confere que o piso continua cobrindo o prefixo quando ele crescer.
+ */
+export const RESERVA_MINIMA_ENTRADA = 12_000;
+/** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
+export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
 const VALIDADE_RESERVA_MS = 90_000;
 
@@ -95,7 +102,8 @@ const clientePadrao: ClienteModelo = async p => {
     model: p.modelo,
     max_tokens: p.maxTokens,
     // o texto do sistema e as ferramentas se repetem em todas as voltas: cache reduz o custo. EPIC-027 C5 (E1): o histórico da
-    // conversa leva o próprio ponto de cache no último bloco (memoria.ts#montarMensagens), lido do cache nas voltas seguintes.
+    // conversa leva o próprio ponto de cache (memoria.ts#montarMensagens): lido do cache nas voltas seguintes do MESMO pedido e no
+    // pedido seguinte só se ele chegar dentro de ~5 min (prazo do cache) e a janela não tiver cortado o começo.
     system: [{ type: "text", text: p.sistema, cache_control: { type: "ephemeral" } }],
     tools: p.ferramentas as never,
     tool_choice: p.semFerramentas ? { type: "none" } : { type: "auto" },
@@ -215,9 +223,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   /** QA E8 A2: a resposta cortada em max_tokens trazia um pedido de consulta/ação (cortado ou completo) que NÃO foi executado. */
   let ferramentaCortada = false;
 
-  // EPIC-027 C5 (E1): a 1ª reserva já conta o histórico (estimativa por baixo); depois, a entrada real da última chamada.
+  // EPIC-027 C5 (E1): a 1ª reserva já conta o prefixo fixo (piso), o comando e o histórico (estimativas por cima, pelos bytes —
+  // QA C5-E1 r4, achado 3); depois, a entrada real da última chamada.
   let ultimaEntrada = 0;
-  const reservaInicial = RESERVA_MINIMA_ENTRADA + tokensEstimadosDoHistorico(historico);
+  const reservaInicial = RESERVA_MINIMA_ENTRADA + tokensEstimadosDoTexto(comando) + tokensEstimadosDoHistorico(historico);
   /** Saída da próxima chamada (fixada na reserva: a chamada nunca pede mais do que reservou). */
   let saidaDaChamada = tetoDeSaida;
   /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */
