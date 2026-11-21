@@ -38,6 +38,7 @@ import { paymentSettingsRouter } from "./payment-settings-router.js";
 import { regularizacaoRouter } from "./regularizacao-router.js";
 import { portalRouter } from "./portal-router.js";
 import { whatsappRouter } from "./whatsapp-router.js";
+import { whatsappGruposRouter } from "./whatsapp-grupos-central.js";
 // Central de Vendas (12/11/2026).
 import { centralVendasRouter } from "./central-vendas/router.js";
 // Maquete 3D (EPIC-022, 14/11/2026) — exclusivo do Prospecta.
@@ -190,6 +191,8 @@ export const appRouter = router({
   regularizacao: regularizacaoRouter,
   portal: portalRouter,
   whatsapp: whatsappRouter,
+  // EPIC-027 C2: grupos do WhatsApp na Central — admin e colaborador com "Grupos do WhatsApp" (papel e permissão conferidos no router)
+  whatsappGrupos: whatsappGruposRouter,
   centralVendas: centralVendasRouter,
   maquete3d: maquete3dRouter,
   maquetePublica: maquetePublicaRouter,

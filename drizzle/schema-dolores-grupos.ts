@@ -70,6 +70,8 @@ export const doloresGrupoMensagens = pgTable("dolores_grupo_mensagens", {
   reservaAte: timestamp("reserva_ate", { withTimezone: true }),
   leadDocumentId: integer("lead_document_id").references(() => leadDocuments.id, { onDelete: "set null" }),
   salvoEm: timestamp("salvo_em", { withTimezone: true }),
+  /** EPIC-027 C2 (migração 0142): nome que o participante usa no WhatsApp (pushName), filtrado — para a Central mostrar quem escreveu. */
+  nomeRemetente: varchar("nome_remetente", { length: 80 }),
 }, t => [
   uniqueIndex("dolores_grupo_mensagens_externa_uidx").on(t.instancia, t.externalId),
   index("dolores_grupo_mensagens_grupo_idx").on(t.grupoId, t.criadoEm),

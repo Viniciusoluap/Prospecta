@@ -70,6 +70,10 @@ export async function grupoAtivo(instancia: string, jid: string) {
 export const textoDeGrupoParaGravar = (s: string | null | undefined, max = 2000) =>
   sanitizarTexto(legendaSegura(s, 4000), FILTRO_DO_REGISTRO).slice(0, max) || null;
 
+/** EPIC-027 C2 — nome do participante (pushName) para gravar: uma linha, sem colchetes, filtro do registro, até 80 caracteres. */
+export const nomeDoRemetenteParaGravar = (s: string | null | undefined) =>
+  sanitizarTexto(legendaSegura(s, 200), FILTRO_DO_REGISTRO).slice(0, 80).trim() || null;
+
 export type ResultadoGrupo = {
   /** Chave da contagem do aviso (o "grupo" de antes continua sendo "grupo não cadastrado: ignorada"). */
   resultado: "grupo" | "grupo-registrada" | "grupo-repetida" | "grupo-teto" | "grupo-antiga" | "grupo-ignorada" | "grupo-erro";
@@ -151,6 +155,8 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
       midiaNome: nome ? sanitizarTexto(nome, FILTRO_DO_REGISTRO).slice(0, 160) : null,
       midiaTamanho: m.midia?.tamanho != null && Number.isFinite(m.midia.tamanho) ? Math.min(m.midia.tamanho, 2_147_483_647) : null,
       situacao: !documento ? "sem_documento" : grande ? "grande_demais" : "a_classificar",
+      // EPIC-027 C2: o nome do participante, para a Central mostrar quem escreveu (texto de terceiro: uma linha, filtro do registro)
+      nomeRemetente: nomeDoRemetenteParaGravar(m.nomeRemetente),
     }).onConflictDoNothing().returning({ id: doloresGrupoMensagens.id });
     if (!linha) return { resultado: "grupo-repetida" };
     return { resultado: "grupo-registrada", mensagemId: linha.id, aClassificar: documento && !grande && le };

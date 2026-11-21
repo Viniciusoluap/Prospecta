@@ -282,7 +282,8 @@ export async function metadadoDoGrupoEvolution(c: EvolutionConfig, instancia: st
 }
 
 /**
- * EPIC-025 (Dolores, etapa 4b) — o ÚNICO envio a GRUPO do sistema (POST /message/sendText/{instância} com o id do grupo em
+ * EPIC-025 (Dolores, etapa 4b) — o ÚNICO envio da DOLORES a GRUPO (EPIC-027 C2: o da equipe pela Central é
+ * `enviarTextoDaEquipeAoGrupoEvolution`, abaixo) (POST /message/sendText/{instância} com o id do grupo em
  * `number`): só quando a Dolores foi marcada num grupo cadastrado e ativo (server/dolores/marcacao.ts confere o destino duas
  * vezes antes). Sem prévia de link, sem menção a ninguém (`mentioned` vazio, `mentionsEveryOne` false) e citando a mensagem que
  * a marcou. Id de grupo fora da forma "<dígitos>[-<dígitos>]@g.us" é recusado aqui também (nada é enviado).
@@ -298,6 +299,24 @@ export async function enviarTextoAoGrupoEvolution(c: EvolutionConfig, instancia:
     }),
   }, fetchImpl);
   return r.ok ? (r.data?.key?.id ?? "enviada") : null;
+}
+
+/**
+ * EPIC-027 C2 — o envio da EQUIPE a um grupo, pela Central WhatsApp (server/whatsapp-grupos-central.ts confere permissão, grupo e
+ * tetos antes). Texto puro: sem citação, sem prévia de link e sem menção a ninguém (`mentioned` vazio, `mentionsEveryOne` false) —
+ * nem à Dolores (o que a equipe escreve não a marca). Id de grupo fora da forma "<dígitos>[-<dígitos>]@g.us" é recusado aqui também.
+ * Devolve se a Evolution aceitou e o id da mensagem (o eco chega com o mesmo id).
+ */
+export async function enviarTextoDaEquipeAoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, texto: string,
+  fetchImpl: Fetch = fetch): Promise<{ ok: boolean; id: string | null }> {
+  if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return { ok: false, id: null };
+  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendText/${encodeURIComponent(instancia)}`, {
+    method: "POST",
+    body: JSON.stringify({ number: grupoJid, text: texto, linkPreview: false, mentionsEveryOne: false, mentioned: [] }),
+    signal: AbortSignal.timeout(20_000),
+  }, fetchImpl);
+  const id = typeof r.data?.key?.id === "string" ? r.data.key.id.slice(0, 160) : null;
+  return { ok: r.ok, id: r.ok ? id : null };
 }
 
 /**

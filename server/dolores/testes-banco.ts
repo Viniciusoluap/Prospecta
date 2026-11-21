@@ -89,8 +89,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
     await pg.exec(c3);
     await pg.exec(c3);
   }
+  // EPIC-027 C2 (grupos do WhatsApp na Central): migração 0142, também duas vezes.
+  const c2Central = MIGRACAO_0142();
+  await pg.exec(c2Central);
+  await pg.exec(c2Central);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0142 = () => readFileSync(new URL("../../drizzle/0142_grupos_na_central.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0139 = () => readFileSync(new URL("../../drizzle/0139_dolores_grupos_classificar_pela_tela.sql", import.meta.url), "utf8");
 
