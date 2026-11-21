@@ -20,12 +20,12 @@ import { adminProcedure, publicProcedure, router } from "../_core/trpc.js";
 import { avisarMaquetePronta, avisarPedidoAprovado, destinatario } from "./avisos.js";
 import { LeituraIndisponivel, agora, alvoDoDocumento, carregarConfig, db, dependencias, modeloDaLeitura, salvarConfig } from "./base.js";
 import { clearUpload, readUpload } from "../document-upload-chunks.js";
-import { avancarLeitura, confirmarIA, iniciarLeitura, lerDocumentos, pularIA } from "./leitura.js";
+import { avancarLeitura, cancelarLeituraIA, confirmarIA, iniciarLeitura, lerDocumentos, pularIA } from "./leitura.js";
 import {
   PODE_IMPORTAR, aplicarImportacao, avancarImportacao, confirmarIAImportacao, descartarImportacao, iniciarImportacao, lerImportacao,
-  pranchasDaLeitura, pranchasParaTela, pularIAImportacao, salvarCandidata, type Importacao,
+  pranchasDaLeitura, pranchasParaTela, pularIAImportacao, salvarCandidata, cancelarLeituraIAImportacao, type Importacao,
 } from "./importacao.js";
-import { MENSAGEM_EM_CURSO, passoEmCurso, pendentesIA } from "./execucao-ia.js";
+import { MENSAGEM_EM_CURSO, MENSAGEM_LOTE, passoEmCurso, pendentesIA } from "./execucao-ia.js";
 import { ConflitoDeVersao, HistoricoIndisponivel, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
 
 type Ctx = { user: { id: number; role: string } };
@@ -141,15 +141,22 @@ const destinoSchema = z.discriminatedUnion("tipo", [
 
 /** Quem leu cada passo e o que está pendente da IA (EPIC-024 S-03), para o painel da leitura. */
 function passosParaTela(leitura: EstadoLeitura) {
-  return leitura.passos.map(({ chave, rotulo, estado, erro, tipo, motor, modelo, tokens, aguardando, motivoIA, envio, modeloAConfirmar }) => ({
+  return leitura.passos.map(({ chave, rotulo, estado, erro, tipo, motor, modelo, tokens, aguardando, motivoIA, envio, envioMotivo, modeloAConfirmar, lote, reservadoEm, loteAProcurar }) => ({
     chave, rotulo, estado, erro: erro ?? null, tipo, motor: motor ?? null, modelo: modelo ?? null, tokens: tokens ?? null,
-    aguardando: aguardando ?? null, motivoIA: motivoIA ?? null, envio: envio ?? null,
+    aguardando: aguardando ?? null, motivoIA: motivoIA ?? null, envio: envio ?? null, envioMotivo: envioMotivo ?? null,
+    /** EPIC-027 C1: andamento do lote na Anthropic (sem o id), para a tela mostrar a situação e o tempo decorrido. */
+    lote: estado === "executando" && lote?.id ? { situacao: lote.situacao, enviadoEm: lote.enviadoEm } : null,
+    /** QA C1, achados 1 e 2: o envio não confirmou o lote; o servidor o procura na Anthropic antes de dar como usado. */
+    procurandoLote: estado === "executando" && !lote?.id && !!loteAProcurar,
+    enviandoDesde: estado === "executando" && !lote?.id ? reservadoEm ?? null : null,
     /** Modelo que a confirmação do custo vai usar (a tela mostra e devolve ao confirmar; QA S-11 r2, achado 2). */
     modeloAConfirmar: estado === "aguardando" ? modeloAConfirmar ?? null : null,
   }));
 }
 /** Modelo que a tela mostrou ao admin na confirmação do custo. Sem ele (tela antiga), o servidor recusa e pede recarregar. */
 const modeloVistoSchema = z.string().trim().max(200).optional();
+/** QA C1, achado 4: a prancha que a tela mostrou ao pedir o cancelamento (o servidor confere que é a que está na IA). */
+const chavePassoSchema = z.string().min(1).max(120);
 /**
  * Resumo da IA para a tela. `autorizadas`/`usadas`: a confirmação desta execução (expira ao usar todas);
  * `lidasNaMaquete`/`teto`: o contador da maquete (leituras + importações) e o teto das Configurações.
@@ -173,6 +180,8 @@ const retornoDoPasso = (estado: EstadoLeitura, status: StatusMaquete) => {
     ...progresso, status, erro: p?.estado === "erro" ? p.erro ?? "Falha no passo." : null,
     aguardando: p?.estado === "aguardando" ? { motivo: p.aguardando ?? "chave", mensagem: p.erro ?? "", pendentes: pendentesIA(estado) }
       // Outra aba está lendo este passo pela IA: a tela para o laço (não chama de novo) e avisa.
+      // EPIC-027 C1: lote na Anthropic — a tela consulta de novo daqui a alguns segundos (pode fechar a página).
+      : p?.estado === "executando" && p.lote?.id ? { motivo: "lote" as const, mensagem: MENSAGEM_LOTE, pendentes: pendentesIA(estado) }
       : p?.estado === "executando" ? { motivo: "executando" as const, mensagem: MENSAGEM_EM_CURSO, pendentes: pendentesIA(estado) } : null,
   };
 };
@@ -467,6 +476,15 @@ export const maquete3dRouter = router({
     catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
   }),
 
+  /**
+   * EPIC-027 C1: cancela na Anthropic a leitura pela IA em andamento. Se a IA ainda não começou, nada é cobrado e a
+   * confirmação volta; se já leu, a leitura (paga) é aproveitada. O resultado chega na consulta seguinte.
+   */
+  cancelarLeituraIA: adminProcedure.input(idInput.extend({ chave: chavePassoSchema })).mutation(async ({ input }) => {
+    try { return retornoDoPasso(await cancelarLeituraIA(input.id, input.chave), "em_leitura"); }
+    catch (e) { if (e instanceof LeituraIndisponivel) throw conflito(e.message); throw e; }
+  }),
+
   /** Grava a planta corrigida na revisão. `versao` evita que duas pessoas se sobrescrevam. */
   salvarModelo: adminProcedure.input(idInput.extend({ versao: z.number().int().min(0), modelo: modeloSchema, motivo: z.string().trim().max(400).optional() })).mutation(async ({ ctx, input }) => {
     const m = await buscar(input.id);
@@ -519,6 +537,10 @@ export const maquete3dRouter = router({
 
   pularIAImportacao: adminProcedure.input(idInput).mutation(async ({ input }) => {
     try { return retornoDaImportacao(await pularIAImportacao(input.id)); } catch (e) { traduzir(e); }
+  }),
+
+  cancelarLeituraIAImportacao: adminProcedure.input(idInput.extend({ chave: chavePassoSchema })).mutation(async ({ input }) => {
+    try { return retornoDaImportacao(await cancelarLeituraIAImportacao(input.id, input.chave)); } catch (e) { traduzir(e); }
   }),
 
   /** Grava a candidata editada (antes de aplicar). */

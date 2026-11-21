@@ -18,6 +18,7 @@ import { modeloSchema, type ModeloMaquete } from "../shared/maquete-3d/modelo.js
 import { casaPadrao } from "../shared/maquete-3d/padrao.js";
 import { appRouter } from "./routers.js";
 import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
+import { loteSimulado } from "./fixtures/maquete-3d/lote-simulado.js";
 
 const VETORIAL = readFileSync(new URL("./fixtures/maquete-3d/sobrado.pdf", import.meta.url));
 const JPEG = readFileSync(new URL("../client/public/casa-compacta-linha-smart.jpg", import.meta.url));
@@ -85,7 +86,7 @@ async function pedidoComCasaPadrao() {
 }
 async function importarAteFim(id: number, entrada: { doc?: number; uploadId?: string; nome?: string } = { doc: 0 }) {
   let r = await colaborador().importarPlanta({ id, ...entrada });
-  for (let i = 0; i < 20 && !r.pronta && !r.erro && !r.aguardando; i++) r = await colaborador().avancarImportacao({ id });
+  for (let i = 0; i < 20 && !r.pronta && !r.erro && (!r.aguardando || r.aguardando.motivo === "lote"); i++) r = await colaborador().avancarImportacao({ id });
   return r;
 }
 
@@ -118,7 +119,9 @@ describe("importar planta arquitetônica na revisão", () => {
       agora: () => new Date("2026-11-16T15:00:00Z"),
       lerPdf: async d => (d.nome.startsWith("escaneada") ? RASTER : VETORIAL),
       credencialIA: async () => credencial,
-      ia: async p => { pedidos.push(p); return { json: RESPOSTA_IA, entrada: 3000, saida: 800, modelo: "claude-sonnet-5-5" }; },
+      ia: async () => { throw new Error("a leitura de prancha não usa mais a chamada direta"); },
+      // EPIC-027 C1: a prancha vai à IA num lote (simulado), consultado nos "avançar" seguintes.
+      lote: loteSimulado({ aoEnviar: p => { pedidos.push(p); }, responder: () => ({ json: RESPOSTA_IA, entrada: 3000, saida: 800, modelo: "claude-sonnet-5-5" }) }).cliente,
     });
   });
   afterEach(async () => { definirDependencias(); await banco.pg.close(); });

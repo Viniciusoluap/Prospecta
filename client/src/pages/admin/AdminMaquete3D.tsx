@@ -13,7 +13,8 @@ import { enviarPartes, LIMITE_DOCUMENTO } from "@/lib/documentos-partes";
 import { EditorPlanta } from "@/components/maquete-3d/EditorPlanta";
 import { EditorMuro } from "@/components/maquete-3d/EditorMuro";
 import { HistoricoPlanta, ImportarPlanta } from "@/components/maquete-3d/ImportarPlanta";
-import { perguntaAlemDoTeto, rotuloConfirmarIA, rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
+import { INTERVALO_CONSULTA_MS, consultaDeNovo, perguntaAlemDoTeto, rotuloConfirmarIA, rotuloContinuarLeitura } from "@/components/maquete-3d/rotulos-leitura";
+import { AndamentoLeitura } from "@/components/maquete-3d/AndamentoLeitura";
 
 const Visualizador = lazy(() => import("@/components/maquete-3d/visualizador/Visualizador"));
 import { ROTULOS_TIPO, TIPOS_MAQUETE, publicadoSemMuro, type ModeloMaquete, type TipoMaquete } from "@shared/maquete-3d/modelo";
@@ -501,7 +502,8 @@ function Detalhe({ id }: { id: number }) {
     finally { setAnexando(false); recarregar(); }
   }
 
-  // Leitura: a tela chama um passo por vez até acabar ou até um passo falhar.
+  // Leitura: a tela chama um passo por vez até acabar ou até um passo falhar. Com a prancha na IA (lote em segundo
+  // plano, EPIC-027 C1), consulta de novo a cada poucos segundos até ela terminar.
   const iniciar = trpc.maquete3d.iniciarLeitura.useMutation();
   const avancar = trpc.maquete3d.avancarLeitura.useMutation();
   const [lendo, setLendo] = useState(false);
@@ -516,6 +518,11 @@ function Detalhe({ id }: { id: number }) {
         await utils.maquete3d.detalhe.invalidate({ id });
         if (parar.current) return;
         if (r.erro) { toast.error(r.erro); break; }
+        if (r.aguardando && consultaDeNovo(r.aguardando.motivo)) {
+          await new Promise(ok => setTimeout(ok, INTERVALO_CONSULTA_MS));
+          if (parar.current) return;
+          continue;
+        }
         if (r.aguardando) { toast.warning(r.aguardando.mensagem, { duration: 12000 }); break; }
         if (!r.proximo) { toast.success("Leitura concluída. Confira a planta."); break; }
       }
@@ -533,6 +540,14 @@ function Detalhe({ id }: { id: number }) {
       await ler(false);
     } catch (e) { falha(e); recarregar(); }
   }
+  // EPIC-027 C1: cancelar a prancha na IA; e, ao abrir a página com uma prancha ainda na IA, retomar a consulta.
+  const cancelarIA = trpc.maquete3d.cancelarLeituraIA.useMutation({ onSuccess: () => { toast.info("Cancelamento pedido à Anthropic. A tela confirma o resultado em instantes."); recarregar(); }, onError: falha });
+  const retomou = useRef(false);
+  useEffect(() => {
+    if (!d || lendo || retomou.current || d.status !== "em_leitura" || !d.ia.emCurso) return;
+    retomou.current = true;
+    void ler(false);
+  }, [d, lendo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Revisão: rascunho local até salvar.
   const [rascunho, setRascunho] = useState<ModeloMaquete | null>(null);
@@ -681,12 +696,19 @@ function Detalhe({ id }: { id: number }) {
                         {p.motor === "ia" ? `— lida pela IA (modelo ${p.modelo ?? "?"}${p.tokens ? `, ${p.tokens.entrada.toLocaleString("pt-BR")} + ${p.tokens.saida.toLocaleString("pt-BR")} tokens` : ""})`
                           : p.motor === "pulada" ? "— sem a IA: ficou o que o leitor próprio leu" : "— lida pelo leitor próprio"}</span>}
                       {p.estado === "pendente" && p.motivoIA && <span className="text-xs text-gray-400">— {p.motivoIA}</span>}
-                      {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA agora (não feche a página)</span>}
+                      {p.estado === "executando" && <span className="text-xs text-amber-300">— sendo lida pela IA em segundo plano (pode fechar a página)</span>}
+                      {p.envioMotivo && <span className="text-xs text-gray-400">— {p.envioMotivo}</span>}
                       {p.erro && <span className={p.estado === "aguardando" ? "text-amber-300" : "text-red-300"}>— {p.erro}</span>}
                     </li>
                   ))}
                 </ul>
               </>
+            )}
+            {d.status === "em_leitura" && <AndamentoLeitura passos={d.passos} trabalhando={lendo} usadas={d.ia.lidasNaMaquete} teto={d.ia.teto}
+              aoCancelar={chave => cancelarIA.mutate({ id, chave })} cancelando={cancelarIA.isPending} />}
+            {d.status === "em_leitura" && d.progresso.proximo?.estado === "erro" && d.progresso.proximo.tipo === "prancha_ia" && (
+              <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || pularIA.isPending}
+                onClick={() => { if (window.confirm("Seguir sem a IA? Essas pranchas ficam com o que o leitor próprio leu (pode ser nada); a planta pode ser desenhada na revisão.")) void decidirIA(false); }}>Continuar sem a IA</Button>
             )}
             {d.status === "em_leitura" && d.progresso.proximo?.estado === "aguardando" && (
               <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
@@ -714,8 +736,7 @@ function Detalhe({ id }: { id: number }) {
               {d.status === "em_leitura" && <Button className={btnOuro} disabled={lendo} onClick={() => ler(false)}><Play className="mr-1 h-4 w-4" />{rotuloContinuarLeitura(d.progresso.proximo?.estado, d.passos.find(p => p.estado === "aguardando")?.aguardando)}</Button>}
               {(d.status === "em_revisao" || d.status === "validada" || d.status === "em_leitura") && <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || !d.documentos.length}
                 onClick={() => { if (window.confirm("Ler o projeto de novo apaga a planta atual e as correções feitas na revisão. Continuar?")) { setSujo(false); ler(true); } }}><RefreshCw className="mr-1 h-4 w-4" />Ler de novo do zero</Button>}
-              {lendo && <span className="text-gray-300">Lendo… mantenha esta página aberta.</span>}
-              {!lendo && emCurso && <span className="text-amber-300">Um passo está sendo lido pela IA agora: aguarde terminar para confirmar, seguir sem a IA ou ler de novo.</span>}
+              {emCurso && <span className="text-amber-300">Uma prancha está sendo lida pela IA: aguarde terminar (ou cancele a leitura pela IA) para confirmar, seguir sem a IA ou ler de novo.</span>}
             </div>
             {d.escalas.length > 0 && <p className="text-xs text-gray-300">Escala usada: {d.escalas.map(e => `${e.titulo || "planta"} ${e.escala ? `1:${e.escala}` : "sem escala legível"}${e.lidaPor === "ia" ? " (lida pela IA)" : ""}${!e.escala ? " — acerte uma medida conhecida na revisão" : e.origem === "texto" ? "" : e.origem === "areas" ? " (conferida pelas áreas)" : " (suposta — confira)"}`).join(" · ")}</p>}
             {d.avisosDaLeitura.map(a => <p key={a} className="text-xs text-amber-300">{a}</p>)}

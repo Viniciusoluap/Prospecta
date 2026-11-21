@@ -156,6 +156,15 @@ export function naoCobrado(e: unknown): boolean {
   return tipo === "limite" || tipo === "chave" || tipo === "permissao" || tipo === "sobrecarga" || tipo === "fora_do_ar";
 }
 
+/**
+ * EPIC-027 C1 — erro ao CRIAR o lote: se a API respondeu com erro (inclusive pedido recusado, 4xx), o lote não foi
+ * criado e nada foi cobrado. Tempo esgotado ou conexão caída: o lote pode ter sido criado (e vai ser lido e cobrado),
+ * então conta como usado — o lado seguro do teto.
+ */
+export function naoCobradoNoEnvio(e: unknown): boolean {
+  return naoCobrado(e) || tipoDoErroIA(e) === "recusado";
+}
+
 /** Devolve a reserva de uma chamada que não foi cobrada (a gravação final desconta do contador). */
 export function devolverReserva(x: Execucao, estado: EstadoLeitura): void {
   if (estado.confirmacaoIA) estado.confirmacaoIA.usadas = Math.max(0, (estado.confirmacaoIA.usadas ?? 0) - 1);
@@ -172,6 +181,8 @@ export const TOLERANCIA_RELOGIO_MS = 5_000;
  * é reserva vencida: o passo nunca fica preso até uma data do futuro (QA rodada 2, N3).
  */
 export function reservaVencida(passo: PassoLeitura): boolean {
+  // EPIC-027 C1: com o lote criado, a leitura corre na Anthropic (até 24 h) e cada "avançar" consulta; não vence pelo relógio.
+  if (passo.lote?.id || passo.loteAProcurar) return false;
   const em = passo.reservadoEm ? Date.parse(passo.reservadoEm) : NaN;
   const decorrido = agora().getTime() - em;
   return !Number.isFinite(em) || decorrido > LIMITE_RESERVA_MS || decorrido < -TOLERANCIA_RELOGIO_MS;
@@ -181,7 +192,7 @@ export const MENSAGEM_INTERROMPIDA = "A leitura deste passo pela IA foi interrom
 export function passoEmCurso(estado: EstadoLeitura | null | undefined): PassoLeitura | undefined {
   return estado?.passos.find(p => p.estado === "executando" && !reservaVencida(p));
 }
-export const MENSAGEM_PASSO_EM_CURSO = "Um passo está sendo lido pela IA agora; aguarde terminar (alguns segundos) e tente de novo.";
+export const MENSAGEM_PASSO_EM_CURSO = "Um passo está sendo lido pela IA agora; aguarde terminar (a leitura em segundo plano pode levar alguns minutos) ou cancele a leitura pela IA, e tente de novo.";
 
 /**
  * QA rodada 2, N1: enquanto um passo está sendo lido pela IA (reserva válida), confirmar, seguir sem a IA, ler de
@@ -205,7 +216,8 @@ export function aplicarResultadoDoPasso(atual: EstadoLeitura, meu: EstadoLeitura
   if (!alvo || !feito || alvo.estado !== "executando" || alvo.reservadoEm !== r.em) return false;
   // O inventário do fluxo antigo troca a lista inteira de passos: não dá para aplicar só ele.
   if (feito.tipo !== "prancha_ia" && !(PASSOS_IA_ANTIGOS.includes(feito.tipo) && feito.tipo !== "inventario")) return false;
-  Object.assign(alvo, { ...feito, reservadoEm: null });
+  // Passo que continua em curso (lote enviado à IA, EPIC-027 C1) mantém a reserva; o que terminou a libera.
+  Object.assign(alvo, { ...feito, reservadoEm: feito.estado === "executando" ? feito.reservadoEm : null });
   if (feito.estado === "feito") {
     const k = feito.tipo === "prancha_ia" ? `prancha:${feito.doc}:${feito.pagina}` : feito.chave;
     if (k in meu.parciais) atual.parciais[k] = meu.parciais[k];
@@ -232,6 +244,8 @@ export async function gravarSobreOAtual(x: Execucao, meu: EstadoLeitura, reler: 
   return false;
 }
 export const MENSAGEM_EM_CURSO = "Este passo já está sendo lido pela IA em outra aba ou janela. Aguarde alguns segundos e continue.";
+/** EPIC-027 C1: a prancha está no lote da Anthropic; a tela consulta de tempos em tempos (pode fechar a página). */
+export const MENSAGEM_LOTE = "A prancha está sendo lida pela IA em segundo plano. Pode levar alguns minutos; você pode fechar esta página (a leitura continua e a tela retoma quando você voltar).";
 
 /** Modelo que vale AGORA para a leitura por IA (o mesmo que bloqueioDaIA e a chamada usam): gravado na confirmação. */
 export async function modeloParaConfirmar(config: ConfigMaquete): Promise<string> {
