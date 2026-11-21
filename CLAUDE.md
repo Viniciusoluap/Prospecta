@@ -314,3 +314,36 @@ Estrutura apresentada e autorizada por ele ("Autorizo"). Epic: `docs/stories/epi
    assinar mensagem recebida na YCloud). Cada vinculação/desvinculação na YCloud DERRUBA a Evolution: religar pelo QR em
    Integrações e tocar em "Reativar recebimento". A vinculação só fecha em COMPUTADOR (no iPad a janela da Meta conclui e
    a YCloud não recebe o retorno; a tradução automática do navegador quebra o formulário).
+
+## EPIC-027 — respostas e autorização do dono em 21/11/2026 (REGRA)
+
+**Autorização** (palavras do dono, 21/11/2026, depois da revisão geral que ele pediu): "Tudo autorizado pode fazer a migração
+e na sequência fazer a produção de todos e todas as correções definidas até aqui que não pare até concluir tudo". Vale para as
+frentes do EPIC-027 definidas até essa data (grupos e Dolores C3/C4/C6, grupos na Central C2, Dolores natural C5 com todas as
+etapas e a memória de longo prazo, YCloud C7/C7.1, logotipo por IA C8): migrações aditivas no Neon, merge na `main` e
+conferência da Vercel, sem pedir de novo. O portão de QA continua obrigatório antes de cada publicação; apagar/alterar dados,
+remover tabela/coluna, credenciais e serviço pago novo continuam exigindo confirmação.
+
+**Respostas dele às dúvidas (não perguntar de novo):**
+1. **O nome é Dolores.** "Jarvis" foi só referência de comportamento; não usar esse nome em tela, texto, story nem conversa.
+2. **Grupos na Central**: quem já tem o módulo "WhatsApp" marcado (admin ou colaborador) vê os grupos direto — sem campo novo
+   de permissão; vê TODOS (inclusive sócios e jurídico), escreve e usa Assumir/Devolver. Corretor não vê. Classificar grupo
+   continua só do admin (tela) e do dono (WhatsApp).
+3. Grupo aceito e com tipo definido já nasce respondendo quando marcado. Resposta só com número vale ("4 sim" para sócios e
+   jurídico). Obra excluída → grupo calado até reclassificar.
+4. **Memória da conversa do dono**: últimas 100 mensagens, por 6 horas. **Memória de longo prazo dentro do sistema**: sim —
+   fatos e preferências permanentes, com tela para ver, corrigir e apagar (etapa da C5; não usar ferramenta externa).
+5. Criar tarefa/anotação: a Dolores pede "pode". Ação séria: pede "confirmo". A partir de grupo: só quando o número do dono
+   pede, e só para REGISTRAR; o grupo vê uma frase curta ("Anotado.").
+6. Proatividade: tudo o que for relevante, decidido por REGRAS do sistema (a IA só escreve), agrupado, de segunda a sábado,
+   das 07h às 20h, no máximo 6 por dia; ele pode silenciar um tipo.
+7. Gasto da Dolores separado por função: conversa 55%, documentos 20%, grupos 10%, clientes 10%, avisos 5%.
+8. **Campanha pela API oficial (YCloud)**: dispara o admin ou o colaborador com o módulo WhatsApp; chave, liga/desliga e
+   limites são só do admin. Não repetir o mesmo modelo ao mesmo contato em 7 dias; 200 por dia.
+9. Leitura de planta da maquete pode levar minutos (em segundo plano); cancelar: admin e colaborador com o módulo.
+10. Nomes "da empresa" (ninguém de fora pode se passar por eles nos grupos): Prospecta, Central Efficaz, Efficaz, VFX Capital
+    e Exclusive.
+11. **Logotipo por IA** (pedido de 21/11): o botão da Incorporação usa a chave da Anthropic do painel (desenho em SVG), com
+    linha própria em Integrações › Anthropic. Serviço pago de imagem só com autorização dele.
+12. OpenClaw: não substitui nem é substituído; a Dolores é o cérebro do negócio dentro do Prospecta, com as travas. Avaliar
+    OpenClaw só se ele pedir, e apenas como assistente pessoal pela ponte de leitura.
