@@ -519,6 +519,8 @@ async function consultarPranchaIA(estado: EstadoLeitura, passo: PassoLeitura, co
   const lote = passo.lote!;
   // Base da segunda barreira do N1: esta é a reserva feita quando o lote foi enviado.
   x.reserva = { chave: passo.chave, em: passo.reservadoEm ?? "", tokensEntrada: estado.tokensEntrada, tokensSaida: estado.tokensSaida };
+  // QA C1 R2-1: lote adotado que não termina em 2 h é solto (a maquete não fica presa a um lote que pode ser alheio).
+  if (lote.adotado && agora().getTime() - Date.parse(lote.adotadoEm ?? lote.enviadoEm) > PRAZO_LOTE_ADOTADO_MS) soltarLoteAdotado(passo, "não terminou em 2 horas");
   const credencial = await dependencias().credencialIA().catch(() => null);
   let situacao: Awaited<ReturnType<ReturnType<typeof dependencias>["lote"]["consultar"]>>;
   try {
@@ -528,11 +530,16 @@ async function consultarPranchaIA(estado: EstadoLeitura, passo: PassoLeitura, co
   } catch (e) {
     if (e instanceof LoteDeOutroPedido) {
       // O lote adotado (achados 1 e 2) terminou com o resultado de outro pedido: não era desta prancha; nada é usado dele.
+      // QA C1 R2-2: se o dono for outro passo que ainda o procura, o lote é entregue a ele (o resultado pago não se perde).
       passo.lote = null;
-      throw new LeituraIndisponivel("O lote achado na Anthropic não era o desta prancha (conferido pelo pedido quando terminou): o resultado não foi usado. A tentativa de envio conta como usada; tente de novo este passo.");
+      const entregue = await entregarLoteAoDono(lote.id, e.pedidos, lote.enviadoEm).catch(() => false);
+      throw new LeituraIndisponivel(`O lote achado na Anthropic não era o desta prancha (conferido pelo pedido quando terminou): o resultado não foi usado aqui${entregue ? " e foi entregue à leitura que o tinha enviado" : ""}. A tentativa de envio conta como usada; tente de novo este passo.`);
     }
     const tipo = tipoDoErroIA(e);
     lote.falhasDeConsulta = (lote.falhasDeConsulta ?? 0) + 1;
+    if (lote.adotado && (tipo === "chave" || tipo === "permissao" || tipo === "recusado" || lote.falhasDeConsulta >= MAX_FALHAS_CONSULTA)) {
+      soltarLoteAdotado(passo, `a consulta falhou: ${erroSeguro(e).replace(/\.$/, "")}`);
+    }
     if (tipo === "chave" || tipo === "permissao" || tipo === "recusado" || lote.falhasDeConsulta >= MAX_FALHAS_CONSULTA) {
       // QA C1, achado 3: antes de deixar o lote de lado, pede o cancelamento (melhor esforço, prazo curto) e registra.
       const aceito = credencial ? await dependencias().lote.cancelar(lote.id, credencial, Math.min(8_000, prazoDaIA(x))).then(() => true, () => false) : false;
@@ -586,6 +593,46 @@ export const ESPERA_PARA_PROCURAR_MS = 20_000;
 /** Procuras sem achar (a listagem pode atrasar alguns segundos) antes de dar a tentativa como usada. */
 export const MAX_PROCURAS = 3;
 
+/** Lote adotado sem terminar por este tempo é solto do passo (QA C1 R2-1). */
+export const PRAZO_LOTE_ADOTADO_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * QA C1 R2-1: lote ADOTADO (achado pela listagem, sem o custom_id conferido) pode ser de outra maquete ou de outra
+ * ferramenta com a mesma chave: NUNCA é cancelado na Anthropic. "Cancelar", o abandono e o prazo de 2 h só o soltam do
+ * passo; a tentativa conta como usada. Lança o erro do passo (o chamador grava).
+ */
+function soltarLoteAdotado(passo: PassoLeitura, motivo: string): never {
+  const id = passo.lote!.id;
+  Object.assign(passo, { lote: null, loteAbandonado: { id, cancelamento: "nao_pedido" } });
+  throw new LeituraIndisponivel(`O lote que foi achado na Anthropic para esta prancha foi solto (${motivo}). Ele NÃO foi cancelado na Anthropic, porque não foi possível confirmar que era desta maquete. Esta tentativa conta como usada; tente de novo este passo ou siga sem a IA.`);
+}
+
+/**
+ * QA C1 R2-2: o lote adotado terminou e era de outro pedido. Se esse pedido é o de um passo (de outra maquete ou
+ * prancha) que ainda procura o seu lote, o id é gravado nele — gravação condicional ao texto lido, então nada é
+ * sobrescrito se ele mudou no meio. O custom_id diz a coluna e a maquete; o passo é conferido pelo pedido exato.
+ */
+async function entregarLoteAoDono(loteId: string, pedidos: string[], criadoEm: string): Promise<boolean> {
+  for (const pedido of pedidos.slice(0, 3)) {
+    const m = /^(leitura|importacao)-(\d+)-/.exec(pedido);
+    if (!m) continue;
+    const coluna = m[1] as "leitura" | "importacao";
+    const [linha] = await db().select().from(maquetes3d).where(and(eq(maquetes3d.id, Number(m[2])), isNull(maquetes3d.deletedAt))).limit(1);
+    const texto = linha?.[coluna];
+    if (!linha || !texto) continue;
+    const bruto = JSON.parse(texto) as Record<string, unknown>;
+    const estado = lerEstadoLeitura(JSON.stringify(coluna === "leitura" ? bruto : bruto.estado));
+    const dono = estado.passos.find(p => p.estado === "executando" && !p.lote?.id && p.loteAProcurar?.pedido === pedido);
+    if (!dono) continue;
+    dono.lote = { id: loteId, pedido, situacao: "em_andamento", enviadoEm: criadoEm, imagem: dono.loteAProcurar!.imagem };
+    dono.loteAProcurar = null;
+    const novo = JSON.stringify(coluna === "leitura" ? estado : { ...bruto, estado });
+    const x = execucaoDe(linha, coluna, () => novo, coluna === "leitura" ? ["em_leitura"] : ["liberada", "em_revisao", "validada", "publicada"]);
+    if (await gravarSeIgual(x, novo)) return true;
+  }
+  return false;
+}
+
 /** O lote já está gravado em alguma maquete (leitura ou importação)? Então é de outra execução e não pode ser adotado. */
 async function loteJaUsado(id: string): Promise<boolean> {
   const marca = JSON.stringify(id);
@@ -613,7 +660,7 @@ async function resolverOrfao(passo: PassoLeitura, x: Execucao): Promise<"adotado
   for (const c of candidatos ?? []) if (!(await loteJaUsado(c.id))) livres.push(c);
   if (livres.length > 1) return "ambiguo";
   if (livres.length === 1) {
-    passo.lote = { id: livres[0].id, pedido: alvo.pedido, situacao: "em_andamento", enviadoEm: livres[0].criadoEm, imagem: alvo.imagem, adotado: true };
+    passo.lote = { id: livres[0].id, pedido: alvo.pedido, situacao: "em_andamento", enviadoEm: livres[0].criadoEm, imagem: alvo.imagem, adotado: true, adotadoEm: agora().toISOString() };
     passo.loteAProcurar = null;
     return "adotado";
   }
@@ -683,6 +730,12 @@ export async function cancelarLoteIA(estado: EstadoLeitura | null | undefined, c
   // QA C1, achado 4: só cancela a prancha que a tela mostrou; com a tela atrasada, pede para atualizar.
   if (passo.chave !== chave) throw new LeituraIndisponivel("A prancha que está na IA agora não é a que esta tela mostra (a leitura andou). Atualize a página e confira antes de cancelar. Nada foi cancelado.");
   if (!passo.lote?.id) throw new LeituraIndisponivel("A prancha ainda está sendo enviada à IA; aguarde alguns segundos e cancele de novo.");
+  if (passo.lote.adotado) {
+    // QA C1 R2-1: lote adotado nunca é cancelado na Anthropic (pode ser alheio): só é solto, e o passo vira erro.
+    try { soltarLoteAdotado(passo, "cancelado nesta tela"); }
+    catch (e) { Object.assign(passo, { estado: "erro", erro: (e as Error).message, reservadoEm: null }); }
+    return true;
+  }
   if (passo.lote.situacao === "cancelando") return false;
   const credencial = await dependencias().credencialIA().catch(() => null);
   if (!credencial) throw new LeituraIndisponivel("Sem a chave da IA não dá para pedir o cancelamento à Anthropic: confira em Integrações → Anthropic.");

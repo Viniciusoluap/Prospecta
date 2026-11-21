@@ -49,7 +49,7 @@ export function loteSimulado(o: {
       if (l.cancelado) return (l.resultado = { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: "canceled" } });
       if (l.restantes-- > 0) return { andamento: "em_andamento" };
       // Como na API real: o resultado é procurado pelo custom_id; sem ele, o lote é de outro pedido.
-      if (idPedido !== l.pedido.idPedido) throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).");
+      if (idPedido !== l.pedido.idPedido) throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).", [l.pedido.idPedido]);
       const r = await o.responder(l.pedido);
       const modelo = l.pedido.credencial.modelo ?? l.pedido.config.modeloIA;
       l.resultado = r instanceof Error ? { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: "errored", erro: r.message } }

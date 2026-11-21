@@ -147,7 +147,10 @@ export type ClienteLote = {
 };
 
 /** O lote terminou, mas o resultado é de outro pedido (custom_id diferente): o lote não é desta prancha. */
-export class LoteDeOutroPedido extends Error {}
+export class LoteDeOutroPedido extends Error {
+  /** Os custom_id que vieram no resultado (QA C1 R2-2: o lote pode ser de outro passo que o procura). */
+  constructor(message: string, readonly pedidos: string[] = []) { super(message); }
+}
 
 /** O pedaço do SDK que o lote usa (substituível nos testes por uma API simulada). */
 export type SdkLote = {
@@ -196,8 +199,9 @@ export function clienteLoteAnthropic(criar: CriarSdkLote = sdkPadrao): ClienteLo
       const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
       const lote = await sdk.messages.batches.retrieve(id);
       if (lote.processing_status !== "ended") return { andamento: lote.processing_status === "canceling" ? "cancelando" : "em_andamento" };
+      const vistos: string[] = [];
       for await (const linha of await sdk.messages.batches.results(id)) {
-        if (linha.custom_id !== idPedido) continue;
+        if (linha.custom_id !== idPedido) { if (vistos.length < 5) vistos.push(linha.custom_id); continue; }
         const r = linha.result;
         if (r.type === "succeeded") return { andamento: "terminado", resultado: { tipo: "respondido", mensagem: mensagemDoSdk(r.message, "") } };
         if (r.type === "errored") {
@@ -206,7 +210,7 @@ export function clienteLoteAnthropic(criar: CriarSdkLote = sdkPadrao): ClienteLo
         }
         return { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: r.type } };
       }
-      throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).");
+      throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).", vistos);
     },
     async cancelar(id, credencial, prazoMs) {
       const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });

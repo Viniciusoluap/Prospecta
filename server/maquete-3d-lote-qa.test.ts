@@ -16,7 +16,7 @@ import * as schema from "../drizzle/schema.js";
 import { getDb } from "./db.js";
 import { definirDependencias, type ClienteLote, type CredencialIA } from "./maquete-3d/base.js";
 import { ExecucaoConcorrente } from "./maquete-3d/execucao-ia.js";
-import { ESPERA_PARA_PROCURAR_MS, MAX_FALHAS_CONSULTA, MAX_PROCURAS, anexoDaPagina } from "./maquete-3d/leitura.js";
+import { ESPERA_PARA_PROCURAR_MS, MAX_FALHAS_CONSULTA, MAX_PROCURAS, PRAZO_LOTE_ADOTADO_MS, anexoDaPagina } from "./maquete-3d/leitura.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 
 
@@ -316,7 +316,7 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     expect(await contador(id)).toBe(0);
   });
 
-  it("QA-R2-1 ACHADO: lote ALHEIO (outra ferramenta com a mesma chave) adotado e ainda não conferido é CANCELADO pelo botão e pelo abandono", async () => {
+  it("QA-R2-1 (corrigido): lote ADOTADO (pode ser de outra ferramenta com a mesma chave) nunca é cancelado — o botão, o abandono e o prazo de 2 h só o soltam do passo", async () => {
     emAndamento = 100;
     const c = await prontoParaIA();
     definirDependencias({ lote: comTempoEsgotado(false) });
@@ -326,10 +326,14 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     passar(ESPERA_PARA_PROCURAR_MS + 1_000);
     expect((await avancar(c)).aguardando?.motivo).toBe("lote");
     expect(await passoIA(c)).toMatchObject({ lote: { id: "msgbatch_simulado_1", adotado: true } });
-    await colaborador().cancelarLeituraIA({ id: c, chave: "ia:0:1" });
-    expect(sim.cancelamentos).toEqual(["msgbatch_simulado_1"]); // cancelou trabalho de outro sistema
+    const r1 = await colaborador().cancelarLeituraIA({ id: c, chave: "ia:0:1" });
+    expect(sim.cancelamentos).toEqual([]); // nada cancelado na Anthropic
+    expect(r1.erro).toContain("NÃO foi cancelado na Anthropic, porque não foi possível confirmar que era desta maquete");
+    expect(await passoIA(c)).toMatchObject({ estado: "erro", lote: null, loteAbandonado: { id: "msgbatch_simulado_1", cancelamento: "nao_pedido" } });
+    expect(await contador(c)).toBe(1);
+    expect((await admin().detalhe({ id: c })).ia.emCurso).toBe(false); // a maquete não fica presa
 
-    // Abandono (30 falhas de consulta) também cancela o lote adotado sem conferência.
+    // Abandono (30 falhas de consulta): solta, sem cancelar.
     const d = await prontoParaIA();
     definirDependencias({ lote: comTempoEsgotado(false) });
     await avancar(d);
@@ -341,11 +345,35 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     falhaNaConsulta = new Error("rede");
     let r = await avancar(d);
     for (let i = 1; i < MAX_FALHAS_CONSULTA && !r.erro; i++) r = await avancar(d);
+    expect(r.erro).toContain("NÃO foi cancelado na Anthropic");
     expect(r.erro).toContain("conta como usada");
-    expect(sim.cancelamentos).toContain(alheio);
+    expect(sim.cancelamentos).not.toContain(alheio);
+    falhaNaConsulta = null;
+
+    // Prazo: adotado e sem terminar há mais de 2 h — solto do mesmo jeito.
+    const e = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(e);
+    await sim.cliente.enviar({ ...enviados.at(-1)!, idPedido: "outra-ferramenta-3" });
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    await avancar(e);
+    expect((await avancar(e)).aguardando?.motivo).toBe("lote");
+    passar(PRAZO_LOTE_ADOTADO_MS + 60_000);
+    const re = await avancar(e);
+    expect(re.erro).toContain("não terminou em 2 horas");
+    expect(sim.cancelamentos).toEqual([]);
+
+    // Lote criado normalmente (id recebido na criação) continua podendo ser cancelado.
+    const f = await prontoParaIA();
+    await avancar(f);
+    const proprio = (await passoIA(f)).lote!;
+    expect(proprio.adotado).toBeUndefined();
+    await colaborador().cancelarLeituraIA({ id: f, chave: "ia:0:1" });
+    expect(sim.cancelamentos).toEqual([proprio.id]);
   });
 
-  it("QA-R2-2 ACHADO (baixo): A (lote não criado) adota o lote órfão da B na mesma janela; a B fica sem o dela e o resultado pago da B não é usado por ninguém", async () => {
+  it("QA-R2-2 (corrigido): A (lote não criado) adota o lote órfão da B; quando ele termina, o custom_id mostra que é da B e o lote é ENTREGUE a ela — o resultado pago não se perde", async () => {
     const a = await prontoParaIA();
     const b = await prontoParaIA();
     definirDependencias({ lote: comTempoEsgotado(false) });
@@ -356,13 +384,15 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     passar(ESPERA_PARA_PROCURAR_MS + 1_000);
     expect((await avancar(a)).aguardando?.motivo).toBe("lote"); // A adota o lote da B
     expect(await passoIA(a)).toMatchObject({ lote: { id: "msgbatch_simulado_1", adotado: true } });
-    let rb = await avancar(b);
-    for (let i = 0; i < MAX_PROCURAS + 2 && !rb.erro; i++) { passar(ESPERA_PARA_PROCURAR_MS + 1_000); rb = await avancar(b); }
-    expect(rb.erro).toContain("não foi encontrado"); // a dona perdeu o lote
     const ra = await avancar(a);
-    expect(ra.erro).toContain("não era o desta prancha"); // e a A descarta o resultado (correto: nunca grava planta alheia)
-    expect([(await gravado(a)).tokensEntrada, (await gravado(b)).tokensEntrada]).toEqual([0, 0]);
+    expect(ra.erro).toContain("não era o desta prancha");
+    expect(ra.erro).toContain("foi entregue à leitura que o tinha enviado");
+    expect(await passoIA(b)).toMatchObject({ estado: "executando", loteAProcurar: null, lote: { id: "msgbatch_simulado_1" } });
+    expect((await passoIA(b)).lote!.adotado).toBeUndefined(); // conferido pelo custom_id
+    expect(await avancar(b)).toMatchObject({ erro: null, proximo: { tipo: "montagem" } });
+    expect([(await gravado(a)).tokensEntrada, (await gravado(b)).tokensEntrada]).toEqual([0, 31_234]);
     expect([await contador(a), await contador(b)]).toEqual([1, 1]); // dentro do teto
+    expect(sim.lotes.size).toBe(1);
   });
 });
 

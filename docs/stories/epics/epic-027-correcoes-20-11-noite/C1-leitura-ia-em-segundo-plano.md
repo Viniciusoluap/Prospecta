@@ -86,6 +86,21 @@ Provas em `server/maquete-3d-lote-qa.test.ts` (commit do QA `8c387d5`); os teste
 6. **Bomba de compressão**: `inflateSync(…, { maxOutputLength: 64 MB })` nos fluxos de objetos e no JPEG comprimido; passou
    do teto, o fluxo é ignorado, a página não é achada e a prancha vai inteira, com o motivo gravado no passo.
 
+## Portão de QA, rodada 2 (21/11) — R2-1 (importante) e R2-2 (baixo) corrigidos
+Provas `QA-R2-1` e `QA-R2-2` em `server/maquete-3d-lote-qa.test.ts` (commit do QA `344e678`), invertidas.
+- **R2-1:** lote ADOTADO (`lote.adotado: true`, achado pela listagem, sem o `custom_id` conferido) NUNCA é cancelado na
+  Anthropic: "Cancelar", o abandono (30 falhas, chave revogada, sem permissão, não encontrado) e o prazo de **2 h** sem
+  terminar (`PRAZO_LOTE_ADOTADO_MS`, contado de `adotadoEm`) só o SOLTAM do passo (`lote = null`,
+  `loteAbandonado.cancelamento = "nao_pedido"`), a tentativa conta como usada e a mensagem diz que a leitura não foi
+  cancelada na Anthropic porque não foi possível confirmar que era desta maquete. Lote criado normalmente (id recebido na
+  criação) continua podendo ser cancelado.
+- **R2-2:** quando o lote adotado termina com o resultado de outro pedido, os `custom_id` do resultado vêm no erro
+  (`LoteDeOutroPedido.pedidos`). O `custom_id` diz a coluna e a maquete; se lá houver um passo "executando" procurando
+  exatamente esse pedido (`loteAProcurar.pedido`), o id do lote é gravado nele com gravação condicional ao texto lido
+  (nada é sobrescrito se ele mudou no meio) e ele segue consultando — o resultado pago é aproveitado pela dona.
+  Risco aceito: se a dona já tinha desistido (3 procuras sem achar, porque o lote estava com a outra) ou a gravação
+  condicional perder a corrida, o lote não é entregue e o resultado fica sem uso (dentro do teto; nada é cobrado além).
+
 ## Limitações registradas (não corrigidas nesta story)
 - **QA-7:** lote que termina "expired" (ou com erro/cancelado) devolve a confirmação, mas não reenvia sozinho: a pessoa clica
   "Tentar de novo este passo" (a tela não reenvia depois de erro, de propósito, para não gastar sem alguém ver).
@@ -107,7 +122,7 @@ Provas em `server/maquete-3d-lote-qa.test.ts` (commit do QA `8c387d5`); os teste
 ## Testes
 (a) Automáticos — `npx vitest run server/maquete-3d*.test.ts server/integracoes-anthropic.test.ts --maxWorkers=2 --minWorkers=1`
 e `npx tsc --noEmit` (20/11/2026): **tsc sem erros; 11 arquivos, 286 testes, todos passando** (16 novos). Depois das correções do portão de QA (21/11): **tsc sem erros; 12
-arquivos, 299 testes, todos passando** (com `server/maquete-3d-lote-qa.test.ts`). Novos em `server/maquete-3d-lote.test.ts`:
+arquivos, 299 testes, todos passando** (com `server/maquete-3d-lote-qa.test.ts`). Rodada 2: ver o commit da correção. Novos em `server/maquete-3d-lote.test.ts`:
 envio → consultas → sucesso com tokens reais; parâmetros no lote (modelo, esforço, esquema, `maxRetries: 0`);
 expired/errored/canceled devolvem; cortada conta e guarda tokens; cancelar; duas abas (1 lote, 1 gravação); retomada depois
 de "recarregar" 3 h depois; falha de consulta e chave revogada (sem vazar a chave); importação com cancelamento; página

@@ -140,14 +140,15 @@ export type PassoLeitura = {
    */
   loteAProcurar?: { pedido: string; desde: string; tentativas: number; imagem?: boolean } | null;
   /** QA C1, achado 3: lote deixado de lado (consulta impossível) e se o cancelamento pedido à Anthropic foi aceito. */
-  loteAbandonado?: { id: string; cancelamento: "aceito" | "recusado" } | null;
+  /** "nao_pedido": lote ADOTADO (sem o custom_id conferido) — nunca é cancelado, só solto do passo (QA C1 R2-1). */
+  loteAbandonado?: { id: string; cancelamento: "aceito" | "recusado" | "nao_pedido" } | null;
 };
 
 /** "em_andamento": a API não separa "na fila" de "sendo lida". "cancelando": o cancelamento foi pedido. */
 export type SituacaoLote = "em_andamento" | "cancelando";
 /** `imagem`: a prancha foi como imagem (a resposta é conferida como leitura de imagem, sem cotas confirmadas por traço). */
 /** `adotado`: achado pela procura (achados 1 e 2), ainda sem o custom_id conferido (a conferência vem nos resultados). */
-export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number; adotado?: boolean };
+export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number; adotado?: boolean; adotadoEm?: string };
 
 /**
  * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta
