@@ -460,3 +460,24 @@ describe("QA rodada 3", () => {
     expect(await q("SELECT tipo, lead_id, obra_id FROM dolores_grupos WHERE id = 1")).toEqual([{ tipo: "indefinido", lead_id: null, obra_id: null }]);
   });
 });
+
+describe("QA rodada 4 — obra excluída em todos os estados", () => {
+  it("recusado continua recusado, aguardando sem prova continua sem prova, manual antigo fica calado; a exclusão nunca é barrada; zerar obra_id direto só deixa mais calado", async () => {
+    await banco.pg.exec(`
+      INSERT INTO construction_projects (title, status, progress) VALUES ('Obra A', 'in_progress', 10), ('Obra B', 'in_progress', 10), ('Obra C', 'in_progress', 10);
+      INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao, obra_id) VALUES
+        ('prospecta-dolores', '120363999000000101@g.us', 'R', 'R', true, 'engenharia', 'automatico', 'recusado', 'KR01', 'outra_pessoa', 'evento_add', (SELECT id FROM construction_projects WHERE title = 'Obra A')),
+        ('prospecta-dolores', '120363999000000102@g.us', 'S', 'S', true, 'engenharia', 'automatico', 'aguardando_dono', 'KS01', 'desconhecido', 'sem_prova', (SELECT id FROM construction_projects WHERE title = 'Obra B'));
+      INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo, obra_id) VALUES ('prospecta-dolores', '120363999000000103@g.us', 'Manual', true, (SELECT id FROM construction_projects WHERE title = 'Obra C'));`);
+    await banco.pg.exec(`DELETE FROM construction_projects WHERE title IN ('Obra A', 'Obra B', 'Obra C')`);
+    const l = await q(`SELECT codigo, nome, tipo, situacao_confirmacao, adicionado_por, prova_adicao, obra_id, obra_excluida_em IS NOT NULL AS marcada FROM dolores_grupos WHERE grupo_jid LIKE '1203639990000001%' ORDER BY grupo_jid`);
+    expect(l).toEqual([
+      { codigo: "KR01", nome: "R", tipo: "indefinido", situacao_confirmacao: "recusado", adicionado_por: "outra_pessoa", prova_adicao: "evento_add", obra_id: null, marcada: true },
+      { codigo: "KS01", nome: "S", tipo: "indefinido", situacao_confirmacao: "aguardando_dono", adicionado_por: "desconhecido", prova_adicao: "sem_prova", obra_id: null, marcada: true },
+      { codigo: null, nome: "Manual", tipo: "indefinido", situacao_confirmacao: "aguardando_dono", adicionado_por: null, prova_adicao: null, obra_id: null, marcada: true },
+    ]);
+    // o sem prova continua só do dono pela tela
+    const s = (await q(`SELECT id FROM dolores_grupos WHERE codigo = 'KS01'`))[0].id;
+    await expect(caller("admin").dolores.grupos.definirTipo({ grupoId: s, tipo: "juridico" })).rejects.toThrow(/só o dono aceita/);
+  });
+});
