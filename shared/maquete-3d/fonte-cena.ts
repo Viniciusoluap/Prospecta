@@ -333,6 +333,8 @@ export type RotuloCena = { ambiente: string; texto: string; x: number; y: number
 export type VistaCena = {
   id: string; nome: string; tipo: "geral" | "comodo";
   ambiente: string | null;
+  /** O ponto de vista é de um ambiente coberto da casa (falso na visão geral e nas áreas externas). */
+  interno: boolean;
   /** Área calculada pelo polígono e a do quadro da prancha (m²). */
   area: number | null; areaPlanta: number | null;
   pos: [number, number, number]; alvo: [number, number, number];
@@ -525,9 +527,9 @@ export function cenaDaFonte(f: FontePlanta): CenaFonte {
   const casa = caixaDaCasa(f), cx = (casa.x0 + casa.x1) / 2, cz = (casa.z0 + casa.z1) / 2;
   const diag = Math.hypot(casa.x1 - casa.x0, casa.z1 - casa.z0);
   // Direção da vista geral do protótipo validado pelo dono: (8,5; 12,1; 8,9) a partir do centro da casa.
-  const dir = [8.5, 12.1, 8.9], nd = Math.hypot(dir[0], dir[1], dir[2]), dist = diag * 1.6;
+  const dir = [8.5, 12.1, 8.9], nd = Math.hypot(dir[0], dir[1], dir[2]), dist = diag * 1.35;
   const vistas: VistaCena[] = [{
-    id: "geral", nome: "Visão geral", tipo: "geral", ambiente: null, area: null, areaPlanta: null,
+    id: "geral", nome: "Visão geral", tipo: "geral", ambiente: null, interno: false, area: null, areaPlanta: null,
     pos: [r4(cx + (dir[0] / nd) * dist), r4(piso + (dir[1] / nd) * dist), r4(cz + (dir[2] / nd) * dist)],
     alvo: [r4(cx), piso, r4(cz)], estimado: false,
   }];
@@ -550,7 +552,7 @@ export function cenaDaFonte(f: FontePlanta): CenaFonte {
       pos = [r4(p.x), r4(a.piso + ALTURA_OLHOS_TOUR), r4(p.y)];
       alvo = [r4(longe.x), r4(a.piso + 1.1), r4(longe.y)];
     }
-    vistas.push({ id: slug(a.nome), nome: a.nome, tipo: "comodo", ambiente: a.nome, area, areaPlanta: a.area_planta, pos, alvo, estimado: !!a.camera?.estimado || !a.camera });
+    vistas.push({ id: slug(a.nome), nome: a.nome, tipo: "comodo", ambiente: a.nome, interno: a.interno, area, areaPlanta: a.area_planta, pos, alvo, estimado: !!a.camera?.estimado || !a.camera });
   }
 
   return {
@@ -640,4 +642,38 @@ export function pecasDaFonte(f: FontePlanta): PecaFonte[] {
     opcoes: { ...(i.opcoes ?? {}) },
     y: pisoDoItem(f, i), estimado: !!i.estimado,
   }));
+}
+
+// ── Legenda do cômodo (só o que o JSON comprova) ──
+
+const fmt2 = (n: number) => n.toFixed(2).replace(".", ",");
+const NOME_MODELO: Record<ModeloEsquadria, string> = {
+  janela_correr: "de correr", porta_correr: "de correr", pivotante: "pivotante", abrir: "de abrir", portao_gradeado: "portão",
+};
+
+/** Aberturas que dão para o ambiente (um dos lados do vão cai nele), na ordem do JSON. */
+export function aberturasDoAmbiente(f: FontePlanta, nome: string): AberturaFonte[] {
+  const amb = f.estrutura.ambientes.find(a => a.nome === nome);
+  if (!amb) return [];
+  const pol = pontosDe(amb);
+  return f.estrutura.aberturas.filter(ab => {
+    const w = f.estrutura.paredes.find(p => p.id === ab.parede);
+    if (!w) return false;
+    const { ux, uz, nx, nz } = eixoDaParede(w), s = ab.offset + ab.larg / 2;
+    return [1, -1].some(lado => {
+      const t = lado * (w.esp / 2 + 0.1);
+      return dentroDoPoligono({ x: w.x1 + ux * s + nx * t, y: w.z1 + uz * s + nz * t }, pol);
+    });
+  });
+}
+
+/** Frases curtas sobre as aberturas do ambiente: "Janela J1 1,00 × 1,20 m, peitoril 1,10, de correr 4 folhas". */
+export function legendaDasAberturas(f: FontePlanta, nome: string): string[] {
+  return aberturasDoAmbiente(f, nome).map(ab => {
+    const t = modeloDaEsquadria(ab);
+    const tipo = ab.tipo === "janela" ? "Janela" : ab.tipo === "portao" ? "Portão" : "Porta";
+    const folhas = t.modelo === "janela_correr" || t.modelo === "porta_correr" ? ` ${t.folhas} folhas` : "";
+    const peit = ab.peitoril > 0 ? `, peitoril ${fmt2(ab.peitoril)}` : "";
+    return `${tipo} ${ab.codigo} ${fmt2(ab.larg)} × ${fmt2(ab.alt)} m${peit}, ${NOME_MODELO[t.modelo]}${folhas}${t.vidro ? ", com vidro" : ""}`;
+  });
 }

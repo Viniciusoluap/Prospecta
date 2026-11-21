@@ -203,15 +203,15 @@ export function planta2d(f: FontePlanta): Planta2D {
     porCodigo.set(ab.codigo, { codigo: ab.codigo, descricao: ab.descricao ?? ab.tipo, larg: ab.larg, alt: ab.alt, peitoril: ab.peitoril, quantidade: 1, estimado: !!ab.estimado });
   }
 
-  const margem = { esq: 0.35, cima: 1.35, dir: 1.35, baixo: 1.15 };
+  const margem = { esq: 0.35, cima: 1.35, dir: 1.35, baixo: 1.3 };
   const viewBox: [number, number, number, number] = [
     r3(caixa.x0 - margem.esq), r3(caixa.z0 - margem.cima),
     r3(caixa.x1 - caixa.x0 + margem.esq + margem.dir), r3(caixa.z1 - caixa.z0 + margem.cima + margem.baixo),
   ];
   return {
     caixa, viewBox, paredes: paredes2d, aberturas: simbolos, itens, ambientes: ambs, cadeias, cotas,
-    norte: f.norte ? { x: r3(caixa.x0 + 0.35), z: r3(caixa.z1 + 0.6), angulo: f.norte.angulo, estimado: !!f.norte.estimado } : null,
-    escala: { x: r3(caixa.x0 + 1.0), z: r3(caixa.z1 + 0.75), metros: 2 },
+    norte: f.norte ? { x: r3(caixa.x0 + 0.3), z: r3(caixa.z1 + 0.45), angulo: f.norte.angulo, estimado: !!f.norte.estimado } : null,
+    escala: { x: r3(caixa.x0 + 0.9), z: r3(caixa.z1 + 0.3), metros: 2 },
     quadroEsquadrias: Array.from(porCodigo.values()).sort((a, b) => a.codigo.localeCompare(b.codigo, "pt-BR", { numeric: true })),
     legenda: [
       "Medidas em metros. Cotas da casa pelas faixas da prancha.",

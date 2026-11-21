@@ -56,12 +56,12 @@ const PALETAS: Record<Estilo, Paleta> = {
 // ── Texturas desenhadas por código ──
 
 /** Gerador pseudoaleatório fixo: a mesma textura em toda visita. */
-function sorteio(semente: number) {
+export function sorteio(semente: number) {
   let s = semente >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
 
-function tela(lado: number, desenhar: (c: CanvasRenderingContext2D, l: number) => void): THREE.CanvasTexture {
+export function tela(lado: number, desenhar: (c: CanvasRenderingContext2D, l: number) => void): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = lado;
   desenhar(canvas.getContext("2d")!, lado);
@@ -72,7 +72,7 @@ function tela(lado: number, desenhar: (c: CanvasRenderingContext2D, l: number) =
   return t;
 }
 
-const clarear = (cor: Cor, f: number) => `#${new THREE.Color(cor).multiplyScalar(f).getHexString()}`;
+export const clarear = (cor: Cor, f: number) => `#${new THREE.Color(cor).multiplyScalar(f).getHexString()}`;
 
 function texturaMadeira(cor: Cor, veio: Cor, semente: number, tabuas = 0): THREE.CanvasTexture {
   return tela(512, (c, l) => {
@@ -105,7 +105,7 @@ function texturaTecido(cor: Cor, semente: number): THREE.CanvasTexture {
   });
 }
 
-function texturaPedra(cor: Cor, veio: Cor, semente: number): THREE.CanvasTexture {
+export function texturaPedra(cor: Cor, veio: Cor, semente: number): THREE.CanvasTexture {
   return tela(512, (c, l) => {
     const r = sorteio(semente);
     c.fillStyle = cor; c.fillRect(0, 0, l, l);
@@ -121,7 +121,7 @@ function texturaPedra(cor: Cor, veio: Cor, semente: number): THREE.CanvasTexture
   });
 }
 
-function texturaCeramica(cor: Cor, veio: Cor, semente: number, pecas: number): THREE.CanvasTexture {
+export function texturaCeramica(cor: Cor, veio: Cor, semente: number, pecas: number): THREE.CanvasTexture {
   return tela(512, (c, l) => {
     const r = sorteio(semente), p = l / pecas;
     for (let i = 0; i < pecas; i++) for (let j = 0; j < pecas; j++) {
@@ -146,7 +146,7 @@ function texturaTelha(cor: Cor, semente: number): THREE.CanvasTexture {
   });
 }
 
-function texturaRuido(cor: Cor, semente: number, grao = 0.08): THREE.CanvasTexture {
+export function texturaRuido(cor: Cor, semente: number, grao = 0.08): THREE.CanvasTexture {
   return tela(256, (c, l) => {
     const r = sorteio(semente);
     c.fillStyle = cor; c.fillRect(0, 0, l, l);

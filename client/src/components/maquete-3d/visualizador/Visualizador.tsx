@@ -13,6 +13,7 @@ import { pavimentosOrdenados, topoDaEdificacao } from "@shared/maquete-3d/geomet
 import { Casa, Entorno } from "./Casa";
 import { Ceu, horarioEm } from "./Ceu";
 import { Mobilia, mobiliaDaEdificacao } from "./Mobilia";
+import type { PecaMobilia } from "@shared/maquete-3d/mobilia";
 import { Caminhada, Orbita, Tour, caixaDaEdificacao, comandoVazio, visitanteNaEntrada, type Comando, type InfoLocal, type LegendaTour, type Visitante } from "./Navegacao";
 import { Implantacao, SITUACOES, limitesDaImplantacao, lotesDaCena, type LoteNaCena, type SituacaoLote, type UnidadeVenda } from "./Implantacao";
 import { ESTILOS, ROTULOS_ESTILO, acender, materiaisDoEstilo, type Estilo } from "./materiais";
@@ -40,8 +41,10 @@ const btn = "pointer-events-auto inline-flex h-10 items-center gap-2 rounded-ful
 const btnAtivo = "border-[#C9A961] bg-[#C9A961] text-[#1A2332] hover:bg-[#C9A961]";
 const m2 = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
-function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo, horario, qualidade, modo, telhado, pausado, reinicio, visitante, comando, onLocal, onLegenda, onFimTour, vistaDeCima, corteAte }: {
+function Cena({ itens, aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onLote, edificacao, estilo, horario, qualidade, modo, telhado, pausado, reinicio, visitante, comando, onLocal, onLegenda, onFimTour, vistaDeCima, corteAte }: {
   aprimorado: boolean; fotografo: Fotografo;
+  /** EPIC-028: itens gravados (substituem a mobília automática). */
+  itens?: (PecaMobilia & { y: number })[] | null;
   modelo: ModeloMaquete; unidades: UnidadeVenda[];
   /** Mostra o empreendimento inteiro (implantação) em vez de uma edificação. */
   noLoteamento: boolean; lote: string | null; onLote: (l: LoteNaCena | null) => void;
@@ -52,7 +55,7 @@ function Cena({ aprimorado, fotografo, modelo, unidades, noLoteamento, lote, onL
   corteAte: number | null;
 }) {
   const m = useMemo(() => materiaisDoEstilo(estilo), [estilo]);
-  const pecas = useMemo(() => (edificacao ? mobiliaDaEdificacao(edificacao) : []), [edificacao]);
+  const pecas = useMemo(() => (edificacao ? mobiliaDaEdificacao(edificacao, itens) : []), [edificacao, itens]);
   const muro = useMemo(() => muroDaMaquete(modelo), [modelo]);
   const h = useMemo(() => horarioEm(horario), [horario]);
   useEffect(() => { acender(m, h.noite); }, [m, h.noite]);
@@ -133,8 +136,10 @@ function Miniatura({ edificacao, pavimentoId, visitante }: { edificacao: Edifica
   );
 }
 
-export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
+export function Visualizador({ modelo, comercial, aoSair, unidades = [], itens = null }: {
   modelo: ModeloMaquete; comercial: DadosComerciais; aoSair?: () => void;
+  /** EPIC-028: itens da maquete (ex.: os do JSON-fonte); quando há itens, a mobília automática não entra. */
+  itens?: (PecaMobilia & { y: number })[] | null;
   /** Situação de venda das unidades (Incorporação), para colorir os lotes. */
   unidades?: UnidadeVenda[];
 }) {
@@ -232,7 +237,7 @@ export function Visualizador({ modelo, comercial, aoSair, unidades = [] }: {
         <Canvas shadows={aprimorado || QUALIDADES[qualidade].sombras ? "soft" : false} dpr={aprimorado ? [1, 2] : QUALIDADES[qualidade].dpr} camera={{ fov: 62, near: 0.08, far: 4000, position: [14, 10, 16] }}
           gl={{ antialias: true, powerPreference: "high-performance" }} style={{ position: "absolute", inset: 0, touchAction: "none" }}
           onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.76; gl.domElement.addEventListener("webglcontextlost", () => setErro("o navegador encerrou o contexto gráfico")); }}>
-          <Cena aprimorado={aprimorado} fotografo={fotografo} modelo={modelo} unidades={unidades} noLoteamento={temImplantacao && (modo === "implantacao" || (modo === "capa") || !temEdificacao)} lote={lote?.id ?? null} onLote={setLote}
+          <Cena itens={itens} aprimorado={aprimorado} fotografo={fotografo} modelo={modelo} unidades={unidades} noLoteamento={temImplantacao && (modo === "implantacao" || (modo === "capa") || !temEdificacao)} lote={lote?.id ?? null} onLote={setLote}
             edificacao={temEdificacao ? edificacao : null} estilo={estilo} horario={horario} qualidade={qualidade} modo={modo} telhado={telhado} pausado={pausado} reinicio={reinicio}
             visitante={visitante} comando={comando} onLocal={setLocal} onLegenda={setLegenda} onFimTour={fimDoTour} vistaDeCima={vistaDeCima}
             corteAte={andares.find(a => a.id === andar)?.nivel ?? null} />
