@@ -68,6 +68,9 @@ Ele mandou PARAR publicações e migrações até repassar tudo; estas são as r
 11. **Campanha pela YCloud: "eu ou colaborador se estiver marcado WhatsApp pra ele".** Interpretação adotada e informada a ele: o colaborador
     dispara e vê o painel; chave, ligar/desligar e limites continuam só do admin.
 12. Mesmo modelo não se repete em menos de 7 dias; 200 por dia: sim. 13. Leitura da maquete pode levar minutos: sim. 14. Cancelar leitura por admin e colaborador com o módulo: sim.
-15. Nomes "da empresa" (Prospecta, Central Efficaz, Efficaz, VFX Capital): AGUARDANDO a resposta dele.
+15. Nomes "da empresa": Prospecta, Central Efficaz, Efficaz, VFX Capital e **Exclusive** (confirmado; ele acrescentou "Exclusive").
+16. **Memória de longo prazo dentro do sistema: sim, incluir** (fatos e preferências permanentes, com tela para ver/corrigir/apagar) — etapa nova da C5.
+17. **O nome é Dolores, não "Jarvis"** — palavras dele: "não é Jarvis é Dolores". "Jarvis" foi só a referência de comportamento; não usar esse nome em tela, texto, story nova nem conversa com ele.
+18. Ele perguntou se isto substitui o OpenClaw e disse: "você está automatizando tudo mas você não está criando de fato uma ia específica para o meu negócio" — ver a resposta dada na conversa de 21/11; a direção é a Dolores deixar de ser roteiro fixo (memória, contexto, ação, jeito do dono), mantendo as travas de segurança.
 **Correção de regra (21/11): classificar grupo é SÓ do admin (tela) e do dono (WhatsApp); colaborador só vê e escreve.**
 Publicação: uma frente por vez, com o teste do dono entre cada uma, e só com a liberação dele.
