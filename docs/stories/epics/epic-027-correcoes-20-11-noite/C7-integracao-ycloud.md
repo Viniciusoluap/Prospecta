@@ -264,6 +264,12 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
   `server/dolores/roteamento-eco-campanha.test.ts` (novo)
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): correções do portão de QA da C7.2 (CONCERNS): QA-1 tentativa somada já na reserva e JSON gravado
+  cortado pelo tamanho serializado (surrogates soltos trocados; vale também para o vínculo); QA-2 modelo padrão DEPOIS da rotina
+  principal nos dois crons, com prazo total de até 10 s abortando as chamadas e sem mexer na resposta; QA-3 vínculo guarda as
+  versões anteriores (nome → variáveis), a v1 aprovada continua preenchendo; QA-4 texto do cartão com as condições reais.
+  `ycloud-qa-c72.test.ts` (it.fails → it; teste do _v2 invertido para o corrigido) e 8 testes novos em `ycloud-c72.test.ts`;
+  130/130 no pacote do portão.
 - 21/11/2026 — @dev (Dex): C7.2 — modelo padrão pelo servidor e template da Central enviado para aprovação (sem botão novo, pela
   correção do dono); sem migração. Testes em `server/ycloud/ycloud-c72.test.ts`.
 - 21/11/2026 — @dev (Dex): correções do portão de QA da C7.1 (F1, F2, F3, texto fixo, webhook, eco no roteamento, limite do dia no

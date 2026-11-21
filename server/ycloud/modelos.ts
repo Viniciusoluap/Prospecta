@@ -16,7 +16,7 @@ import {
   IDIOMA_MODELO, MODELO_PADRAO, ROTULO_STATUS_MODELO, componentesDoNovoModelo, converterTemplateParaModelo, nomeDoModeloDoTemplate,
   temModeloDeMarketingPtBr, type CategoriaNovoModelo, type NovoModelo,
 } from "../../shared/whatsapp/ycloud.js";
-import { ErroYcloud, criarModeloYcloud, listarModelosYcloud, semSegredo, type ModeloYcloud } from "../_core/ycloud.js";
+import { ErroYcloud, criarModeloYcloud, listarModelosYcloud, semSegredo, textoBemFormado, type ModeloYcloud } from "../_core/ycloud.js";
 import { getDb } from "../db.js";
 import { auditarYcloud, chaveYcloud, depsYcloud, lerConfigYcloud, type AutorYcloud } from "./config.js";
 
@@ -46,6 +46,22 @@ async function gravar(chave: string, valor: string) {
   await getDb().insert(dashboardSettings).values({ key: chave, value: valor, updatedAt: depsYcloud().agora() })
     .onConflictDoUpdate({ target: dashboardSettings.key, set: { value: valor, updatedAt: depsYcloud().agora() } });
 }
+/** dashboard_settings.value é varchar(500): o limite vale para o texto JÁ serializado (JSON escapa alguns caracteres em até 6). */
+export const MAX_VALOR_SETTING = 500;
+/** Serializa cortando o campo de texto `campo` (motivo) até caber; sem ele, devolve null se não couber. */
+function serializarCabendo<T extends object>(obj: T, campo?: keyof T): string | null {
+  let o = obj;
+  let j = JSON.stringify(o);
+  if (campo) {
+    let txt = typeof o[campo] === "string" ? (o[campo] as unknown as string) : "";
+    while (j.length > MAX_VALOR_SETTING && txt) {
+      txt = textoBemFormado(txt, Math.max(0, Array.from(txt).length - Math.max(1, Math.ceil((j.length - MAX_VALOR_SETTING) / 6))));
+      o = { ...o, [campo]: txt || null };
+      j = JSON.stringify(o);
+    }
+  }
+  return j.length <= MAX_VALOR_SETTING ? j : null;
+}
 const jsonOu = <T>(v: string | null): T | null => { if (!v) return null; try { return JSON.parse(v) as T; } catch { return null; } };
 
 /** Dia no fuso de Brasília (AAAA-MM-DD): "no máximo 1 tentativa por dia". */
@@ -54,7 +70,7 @@ export const diaDeBrasilia = (d: Date) => new Intl.DateTimeFormat("en-CA", { tim
 /** Motivo para guardar/mostrar: mensagem montada pelo código + explicação da Meta (limpa), sem a chave. */
 function motivoDoErro(e: unknown, chave: string | null): string {
   const base = e instanceof ErroYcloud ? `${e.message}${e.explicacaoMeta ? ` Meta: ${e.explicacaoMeta}` : ""}` : "Falha inesperada ao falar com a YCloud.";
-  return semSegredo(base, chave).slice(0, 220);
+  return textoBemFormado(semSegredo(base, chave), 220);
 }
 
 // ── 1. Modelo padrão ──
@@ -72,7 +88,7 @@ const FINAIS = new Set(["criado", "ja_existia"]);
  * Garante o modelo padrão. Idempotente e à prova de corrida. `lista`: modelos já lidos agora (evita consultar de novo).
  * Nunca lança: o chamador (cron, listagem) segue com o que estava fazendo.
  */
-export async function garantirModeloPadrao(p: { origem: "cron" | "listagem"; lista?: ModeloYcloud[] } = { origem: "cron" }):
+export async function garantirModeloPadrao(p: { origem: "cron" | "listagem"; lista?: ModeloYcloud[]; signal?: AbortSignal } = { origem: "cron" }):
   Promise<{ r: ResultadoModeloPadrao; modelo?: ModeloYcloud }> {
   let chave: string | null = null;
   try {
@@ -87,15 +103,20 @@ export async function garantirModeloPadrao(p: { origem: "cron" | "listagem"; lis
     const cfg = await lerConfigYcloud();
     if (!chave || !cfg.numeroConfere || !cfg.wabaId) return { r: "nao_pronta" };
     const tentativas = est?.t ?? 0;
-    const reserva: EstadoPadrao = { s: "andamento", t: tentativas, d: dia, em: agora.toISOString() };
+    // Portão de QA (QA-1): a tentativa é somada JÁ NA RESERVA (antes de qualquer POST). Se o fechamento falhar, a reserva
+    // "andamento" fica com a tentativa contada e o dia marcado: respeita 1 por dia e 3 no total. Só a falha ao LISTAR devolve.
+    const reserva: EstadoPadrao = { s: "andamento", t: tentativas + 1, d: dia, em: agora.toISOString() };
     if (!(await trocarSe(CHAVE_ESTADO_MODELO_PADRAO, bruto, JSON.stringify(reserva)))) return { r: "ocupado" };
-    const fechar = (e: Partial<EstadoPadrao>) => gravar(CHAVE_ESTADO_MODELO_PADRAO, JSON.stringify({ ...reserva, ...e }));
-    const c = { apiKey: chave, fetchImpl: depsYcloud().fetch };
+    const fechar = async (e: Partial<EstadoPadrao>) => {
+      const v = serializarCabendo<EstadoPadrao>({ ...reserva, ...e }, "m") ?? JSON.stringify({ ...reserva, ...e, m: null });
+      await gravar(CHAVE_ESTADO_MODELO_PADRAO, v);
+    };
+    const c = { apiKey: chave, fetchImpl: depsYcloud().fetch, signal: p.signal };
 
     let lista = p.lista;
     if (!lista) {
       try { lista = await listarModelosYcloud(c, cfg.wabaId); } catch (e) {
-        await fechar({ s: "falhou", m: motivoDoErro(e, chave) }); // não conta tentativa; volta amanhã
+        await fechar({ s: "falhou", t: tentativas, m: motivoDoErro(e, chave) }); // nada foi criado: não conta tentativa; volta amanhã
         return { r: "falhou_listar" };
       }
     }
@@ -107,19 +128,37 @@ export async function garantirModeloPadrao(p: { origem: "cron" | "listagem"; lis
     try {
       const criado = await criarModeloYcloud(c, pedidoDoModelo(MODELO_PADRAO, cfg.wabaId));
       const st = typeof criado?.status === "string" ? criado.status.replace(/[^A-Z_]/g, "").slice(0, 20) : null;
-      await fechar({ s: "criado", t: tentativas + 1, st });
+      await fechar({ s: "criado", st });
       await auditarYcloud({ acao: "modelo_padrao_enviado", usuarioId: null, papel: "sistema", modelo: `${MODELO_PADRAO.nome} (${IDIOMA_MODELO})`, detalhe: `origem=${p.origem}${st ? `; status_ycloud=${st}` : ""}` });
       return { r: "criado", modelo: { ...criado, name: criado?.name ?? MODELO_PADRAO.nome, language: criado?.language ?? IDIOMA_MODELO, category: criado?.category ?? "MARKETING", status: criado?.status ?? "PENDING", components: criado?.components ?? componentesDoNovoModelo(MODELO_PADRAO) } };
     } catch (e) {
       const ambiguo = e instanceof ErroYcloud && e.ambiguo;
       const m = motivoDoErro(e, chave);
-      await fechar({ s: ambiguo ? "incerto" : "recusado", t: tentativas + 1, m });
+      await fechar({ s: ambiguo ? "incerto" : "recusado", m });
       await auditarYcloud({ acao: "modelo_padrao_recusado", usuarioId: null, papel: "sistema", modelo: `${MODELO_PADRAO.nome} (${IDIOMA_MODELO})`, detalhe: m });
       return { r: ambiguo ? "incerto" : "recusado" };
     }
   } catch {
     console.error("[ycloud/modelo-padrao] não consegui conferir o modelo padrão; tenta de novo na próxima rodada.");
     return { r: "falhou_listar" };
+  }
+}
+
+/**
+ * Portão de QA (QA-2): nos crons, roda DEPOIS da rotina principal, com prazo total curto — aborta as chamadas à YCloud e nunca lança
+ * nem muda a resposta do cron. Devolve o resultado ou "sem_tempo".
+ */
+export async function garantirModeloPadraoNoCron(prazoMs = 10_000): Promise<ResultadoModeloPadrao | "sem_tempo"> {
+  if (prazoMs < 1_000) return "sem_tempo";
+  const ctl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const tempo = new Promise<"sem_tempo">(r => { timer = setTimeout(() => { ctl.abort(); r("sem_tempo"); }, prazoMs); });
+  try {
+    return await Promise.race([garantirModeloPadrao({ origem: "cron", signal: ctl.signal }).then(x => x.r, () => "falhou_listar" as const), tempo]);
+  } catch {
+    return "falhou_listar";
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -140,7 +179,14 @@ export function pedidoDoModelo(m: NovoModelo, wabaId: string) {
 export type VinculoTemplate = {
   /** nome do modelo na YCloud */ n: string; /** categoria */ c: CategoriaNovoModelo; /** posição (1..n) → variável da Central */ v: string[];
   /** resumo do texto enviado */ h: string; /** versão do nome (_v2…) */ ver: number; /** enviado em */ e: string;
+  /** Portão de QA (QA-3): versões anteriores ainda podem estar aprovadas — nome do modelo → variáveis (a mais recente primeiro) */
+  ant?: Array<[string, string[]]>;
 };
+
+/** Todos os nomes de modelo do vínculo (atual e anteriores) → variáveis. */
+export function mapeamentosDoVinculo(v: VinculoTemplate): Array<[string, string[]]> {
+  return [[v.n, v.v], ...(Array.isArray(v.ant) ? v.ant.filter(a => Array.isArray(a) && typeof a[0] === "string" && Array.isArray(a[1])) : [])];
+}
 export const resumoDoTexto = (conteudo: string) => createHash("sha256").update(String(conteudo).replace(/\r\n?/g, "\n").trim()).digest("hex").slice(0, 24);
 const chaveDoVinculo = (templateId: number) => `${PREFIXO_VINCULO_TEMPLATE}${templateId}`;
 
@@ -179,9 +225,16 @@ export async function enviarTemplateParaAprovacao(p: { templateId: number; nomeT
   const nome = nomeDoModeloDoTemplate(p.nomeTemplate, p.templateId, ver);
   const conv = converterTemplateParaModelo({ conteudo: p.conteudo, nomeModelo: nome, categoria: p.categoria });
   if (!conv.ok) return falha(`Para virar modelo da API oficial, ajuste: ${conv.problemas.join(" ")}`);
-  const novo: VinculoTemplate = { n: nome, c: p.categoria, v: conv.variaveis, h, ver, e: depsYcloud().agora().toISOString() };
-  const valor = JSON.stringify(novo);
-  if (valor.length > 500) return falha("Variáveis demais para guardar o vínculo com a API oficial.");
+  const base: VinculoTemplate = { n: nome, c: p.categoria, v: conv.variaveis, h, ver, e: depsYcloud().agora().toISOString() };
+  // QA-3: guarda também as versões anteriores (a v1 aprovada segue preenchendo {{nome}} na campanha); cabendo em 500, as mais
+  // antigas saem primeiro
+  let anteriores = antigo ? mapeamentosDoVinculo(antigo).filter(([n]) => n !== nome) : [];
+  let valor = serializarCabendo<VinculoTemplate>(anteriores.length ? { ...base, ant: anteriores } : base);
+  while (!valor && anteriores.length) {
+    anteriores = anteriores.slice(0, -1);
+    valor = serializarCabendo<VinculoTemplate>(anteriores.length ? { ...base, ant: anteriores } : base);
+  }
+  if (!valor) return falha("Variáveis demais para guardar o vínculo com a API oficial.");
   if (!(await trocarSe(k, bruto, valor))) return { ok: true, nome, status: null, repetido: true, motivo: null }; // outra chamada já enviou
   try {
     const r = await criarModeloYcloud({ apiKey: chave, fetchImpl: depsYcloud().fetch }, pedidoDoModelo(conv.modelo, cfg.wabaId));

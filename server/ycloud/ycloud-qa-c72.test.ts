@@ -129,8 +129,8 @@ const semChaveEmLugarNenhum = async () => {
 describe("QA C7.2 — modelo padrão", () => {
   // ACHADO QA-1 (portão 21/11): se a gravação do estado final falhar depois do POST (aqui: motivo que, escapado pelo JSON, passa de
   // value(500)), o estado fica "andamento" com t=0 e o servidor tenta 1 POST por dia para sempre — o "3 no total" não vale.
-  // `it.fails`: passa enquanto o achado existir; quando for corrigido, troque para `it`.
-  it.fails("motivo da recusa com caracteres que o JSON escapa não estoura value(500) nem destrava o limite de 3", async () => {
+  // QA-1 corrigido (a tentativa conta na reserva; o JSON gravado cabe em value(500)).
+  it("motivo da recusa com caracteres que o JSON escapa não estoura value(500) nem destrava o limite de 3", async () => {
     await integrar();
     const aspas = "\ud800".repeat(190); // surrogate isolado: JSON.stringify escreve 6 caracteres por unidade
     respostaCriar = () => ({ status: 400, json: { error: { status: 400, code: "PARAM_INVALID", whatsappApiError: { error_user_msg: aspas } } } });
@@ -210,12 +210,13 @@ describe("QA C7.2 — template da Central", () => {
   });
 
   // ACHADO QA-3 (baixo): o vínculo guarda só a versão mais nova; a v1 aprovada continua selecionável na campanha, mas sem preenchimento automático.
-  it("nova versão (_v2): o modelo v1 já aprovado perde o mapeamento das variáveis (documenta o comportamento atual)", async () => {
+  // QA-3 corrigido: o vínculo guarda o mapeamento por NOME de modelo (v1 e v2).
+  it("nova versão (_v2): o modelo v1 já aprovado continua com o mapeamento das variáveis", async () => {
     await integrar();
     const r = await admin().whatsapp.salvarTemplate({ nome: "Promo", categoria: "Captação", conteudo: "Olá, {{nome}}! Promoção.", apiOficial: { categoria: "MARKETING" } });
     await admin().whatsapp.salvarTemplate({ id: r.id, nome: "Promo", categoria: "Captação", conteudo: "Olá, {{nome}}! Promoção nova.", apiOficial: { categoria: "MARKETING" } });
     modelosDaConta = [...modelosDaConta, { wabaId: "waba1", name: "promo", language: "pt_BR", category: "MARKETING", status: "APPROVED", components: [{ type: "BODY", text: "Olá, {{1}}! Promoção." }] }];
     const lista = await admin().whatsappOficial.modelos();
-    expect(lista.find(m => m.nome === "promo")?.variaveisDoTemplate ?? null).toBeNull();
+    expect(lista.find(m => m.nome === "promo")?.variaveisDoTemplate).toEqual(["nome"]);
   });
 });

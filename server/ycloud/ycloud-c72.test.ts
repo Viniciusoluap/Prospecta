@@ -21,7 +21,7 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { definirDependenciasYcloud } from "./config.js";
-import { CHAVE_ESTADO_MODELO_PADRAO, garantirModeloPadrao } from "./modelos.js";
+import { CHAVE_ESTADO_MODELO_PADRAO, garantirModeloPadrao, garantirModeloPadraoNoCron } from "./modelos.js";
 import { AVISO_DISPARO_BLOQUEADO } from "../whatsapp-canais.js";
 import { MODELO_PADRAO, converterTemplateParaModelo, nomeDoModeloDoTemplate, problemasDoNovoModelo } from "../../shared/whatsapp/ycloud.js";
 
@@ -35,6 +35,8 @@ let modelosDaConta: any[];
 let respostaCriar: (corpo: any, n: number) => { status: number; json?: unknown; lancar?: boolean };
 let chamadas: Array<{ url: string; metodo: string; chave: string | null; corpo: any }>;
 let atrasoCriarMs = 0;
+let travarListagem = false;
+let sinalVisto: AbortSignal | null = null;
 
 const resposta = (status: number, json: unknown) => new Response(JSON.stringify(json), { status, headers: { "Content-Type": "application/json" } });
 
@@ -49,7 +51,13 @@ const fetchFalso = vi.fn(async (url: string | URL | Request, init?: RequestInit)
   if (u.includes("/whatsapp/phoneNumbers")) {
     return resposta(200, { items: [{ id: "p1", phoneNumber: `+${EMPRESA}`, wabaId: "waba1", verifiedName: "VFX Capital", status: "CONNECTED", qualityRating: "GREEN", whatsappBusinessManagerMessagingLimit: "TIER_250" }] });
   }
-  if (u.includes("/whatsapp/templates") && metodo === "GET") return resposta(200, { items: modelosDaConta });
+  if (u.includes("/whatsapp/templates") && metodo === "GET") {
+    if (travarListagem) {
+      sinalVisto = init?.signal ?? null;
+      await new Promise((_r, rej) => init?.signal?.addEventListener("abort", () => rej(new Error("abortado"))));
+    }
+    return resposta(200, { items: modelosDaConta });
+  }
   if (u.endsWith("/whatsapp/templates") && metodo === "POST") {
     const n = chamadas.filter(c => c.metodo === "POST" && c.url.endsWith("/whatsapp/templates")).length;
     if (atrasoCriarMs) await new Promise(r => setTimeout(r, atrasoCriarMs));
@@ -106,6 +114,8 @@ beforeEach(async () => {
   modelosDaConta = [MODELO_UTILIDADE, MARKETING_EN];
   respostaCriar = () => ({ status: 200 });
   atrasoCriarMs = 0;
+  travarListagem = false;
+  sinalVisto = null;
   chamadas = [];
   fetchFalso.mockClear();
   erroLog.mockClear();
@@ -332,5 +342,100 @@ describe("C7.2 — regras puras", () => {
   it("aviso da Central: disparo em massa é pela Campanha pela API oficial (coexistência já existe)", () => {
     expect(AVISO_DISPARO_BLOQUEADO).toMatch(/Campanha pela API oficial/);
     expect(AVISO_DISPARO_BLOQUEADO).not.toMatch(/fase separada|bloqueado até/);
+  });
+});
+
+describe("C7.2 — correções do portão de QA", () => {
+  it("QA-1: a tentativa conta já na reserva — reserva 'andamento' sem fechamento (função morreu) respeita 1/dia e 3 no total", async () => {
+    await integrar();
+    await pg.query(`INSERT INTO dashboard_settings (key, value) VALUES ($1, $2)`, [CHAVE_ESTADO_MODELO_PADRAO, JSON.stringify({ s: "andamento", t: 2, d: "2026-11-20", em: "2026-11-20T13:00:00.000Z" })]);
+    respostaCriar = () => ({ status: 400, json: { error: { status: 400, code: "PARAM_INVALID" } } });
+    expect((await garantirModeloPadrao()).r).toBe("recusado"); // 3ª tentativa
+    expect(await estado()).toMatchObject({ s: "recusado", t: 3 });
+    relogio = new Date(AGORA.getTime() + 86_400_000);
+    expect((await garantirModeloPadrao()).r).toBe("desistiu");
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("QA-1: durante o POST a reserva já tem a tentativa somada (se o fechamento falhar, nada destrava o limite)", async () => {
+    await integrar();
+    let durante: any = null;
+    respostaCriar = () => ({ status: 200 });
+    atrasoCriarMs = 20;
+    const p = garantirModeloPadrao();
+    await new Promise(r => setTimeout(r, 10));
+    durante = await estado();
+    await p;
+    expect(durante).toMatchObject({ s: "andamento", t: 1 });
+  });
+
+  it("QA-1: motivo com caracteres que o JSON escapa → o valor gravado cabe em 500 e é JSON válido", async () => {
+    await integrar();
+    respostaCriar = () => ({ status: 400, json: { error: { status: 400, code: "PARAM_INVALID", whatsappApiError: { error_user_msg: `${"\\\"".repeat(150)}\ud800\udc00\udbff` } } } });
+    expect((await garantirModeloPadrao()).r).toBe("recusado");
+    const [r] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = '${CHAVE_ESTADO_MODELO_PADRAO}'`);
+    expect(r.value.length).toBeLessThanOrEqual(500);
+    expect(JSON.parse(r.value)).toMatchObject({ s: "recusado", t: 1 });
+    expect(JSON.parse(r.value).m).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+  });
+
+  it("QA-2: no cron, prazo total curto — a YCloud travada é abortada e volta 'sem_tempo' sem lançar", async () => {
+    await integrar();
+    travarListagem = true;
+    const t0 = Date.now();
+    expect(await garantirModeloPadraoNoCron(1_200)).toBe("sem_tempo");
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect(sinalVisto?.aborted).toBe(true);
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("QA-2: nos dois crons, o modelo padrão roda DEPOIS da rotina principal e não entra na resposta", () => {
+    const fonte = readFileSync(new URL("../../api/index.ts", import.meta.url), "utf8");
+    const dolores = fonte.indexOf("saida = await tratarCronDolores(req)");
+    const depoisDolores = fonte.indexOf("garantirModeloPadraoNoCron(", dolores);
+    expect(dolores).toBeGreaterThan(0);
+    expect(depoisDolores).toBeGreaterThan(dolores);
+    expect(fonte.indexOf("return res.status(saida.status).json(saida.body)")).toBeGreaterThan(depoisDolores);
+    const lead = fonte.indexOf("executarRotinaCentralVendas({");
+    expect(fonte.indexOf("garantirModeloPadraoNoCron(", lead)).toBeGreaterThan(lead);
+    expect(fonte).not.toMatch(/centralVendas, modeloPadrao/);
+    expect(fonte).not.toMatch(/garantirModeloPadrao\(\{/);
+  });
+
+  it("QA-3: texto mudou e saiu _v2 — a v1 ainda aprovada continua preenchendo as variáveis na campanha", async () => {
+    await integrar();
+    const texto = "Olá, {{nome}}! Novidade sobre {{servicos}} para você.";
+    const r = await admin().whatsapp.salvarTemplate({ nome: "Novidade", categoria: "Captação", conteudo: texto, apiOficial: { categoria: "MARKETING" } });
+    const v1 = posts().find(p => p.corpo.name === "novidade")!.corpo;
+    await admin().whatsapp.salvarTemplate({ id: r.id, nome: "Novidade", categoria: "Captação", conteudo: "Olá, {{nome}}! Sou {{corretor}}, tenho novidade.", apiOficial: { categoria: "MARKETING" } });
+    const v2 = posts().find(p => p.corpo.name === "novidade_v2")!.corpo;
+    modelosDaConta = [MARKETING_PT, { ...v1, status: "APPROVED" }, { ...v2, status: "PENDING" }];
+    const lista = await admin().whatsappOficial.modelos();
+    expect(lista.find(m => m.nome === "novidade")?.variaveisDoTemplate).toEqual(["nome", "servicos"]);
+    expect(lista.find(m => m.nome === "novidade_v2")?.variaveisDoTemplate).toEqual(["nome", "corretor"]);
+    const [linha] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = 'ycloud.template.${r.id}'`);
+    expect(linha.value.length).toBeLessThanOrEqual(500);
+  });
+
+  it("QA-3: muitas versões — o vínculo cabe em 500 (as versões mais antigas saem primeiro) e a atual sempre fica", async () => {
+    await integrar();
+    const vars = "{{nome}} {{corretor}} {{servicos}} {{dia}} {{horario}} {{imovel}} {{banco}}";
+    let id: number | undefined;
+    for (let i = 0; i < 12; i++) {
+      const r = await admin().whatsapp.salvarTemplate({ id, nome: "Modelo com nome bem comprido para versões", categoria: "x1", conteudo: `Olá, ${vars.split(" ").join(", e ")} versão ${i}.`, apiOficial: { categoria: "MARKETING" } });
+      id = r.id;
+      expect(r.apiOficial?.ok).toBe(true);
+    }
+    const [linha] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = 'ycloud.template.${id}'`);
+    expect(linha.value.length).toBeLessThanOrEqual(500);
+    const v = JSON.parse(linha.value);
+    expect(v.ver).toBe(12);
+    expect(v.ant.length).toBeGreaterThan(0);
+    expect(v.ant[0][0]).toMatch(/_v11$/);
+  });
+
+  it("QA-4: o texto do cartão de modelos diz as condições reais do envio automático", () => {
+    const fonte = readFileSync(new URL("../../client/src/components/whatsapp/CampanhaApiOficial.tsx", import.meta.url), "utf8");
+    expect(fonte).toMatch(/Com a chave salva e o número conferido, se a conta não tiver nenhum modelo de marketing em português/);
   });
 });
