@@ -21,6 +21,7 @@ import {
 } from "@shared/incorporacao/premissas-loteamento";
 import { composicaoFinanceira, type ModoFonte } from "@shared/incorporacao/composicao-custos";
 import { vgvItemMix } from "@shared/incorporacao/mix-produtos";
+import { blocoApartamento, conferirTerrenoMix } from "@shared/incorporacao/ocupacao-mix";
 import {
   recebimentosPorAno,
   custosPorAno,
@@ -34,7 +35,7 @@ import { exigirResultado } from "./compat/acao-resultado";
 import { formatCurrency, formatArea } from "./compat/util";
 import { NumeroInput } from "@/components/ui/numero-input";
 import { NumeroBRField } from "./compat/numero-br-field";
-import type { EstudoData } from "./incorporacao-detail";
+import type { EstudoData } from "@shared/incorporacao/estudo-data";
 
 // Aba "Viabilidade" (antes "Loteamento" + "Urbanístico" + "Viabilidade (EVE)" —
 // unificadas): premissas editáveis + mix de produtos (lotes, casas, apartamentos
@@ -131,7 +132,11 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
     setMix(() => {
       const novo = [...mix];
       // alternar "Casa pronta" só muda a forma de cálculo: área, R$/m² e valor por unidade ficam preservados
-      novo[i] = { ...novo[i], [campo]: campo === "nome" || campo === "casaPronta" ? valor : (typeof valor === "number" ? valor : parseFloat(String(valor)) || 0) };
+      novo[i] = { ...novo[i], [campo]: campo === "nome" || campo === "casaPronta" || campo === "apartamento" ? valor : (typeof valor === "number" ? valor : parseFloat(String(valor)) || 0) };
+      if (campo === "apartamento" && valor === true) novo[i] = { ...novo[i], casaPronta: false,
+        apartamentosPorAndar: novo[i].apartamentosPorAndar ?? 6, andares: novo[i].andares ?? 4,
+        areaBlocoM2: novo[i].areaBlocoM2 ?? 1000, vagasPorBloco: novo[i].vagasPorBloco ?? 24 };
+      if (campo === "casaPronta" && valor === true) novo[i] = { ...novo[i], apartamento: false };
       // Casa Pronta sem área: sugere a área média dos lotes do cenário/lotes avulsos (editável)
       if (campo === "casaPronta" && valor === true && !(novo[i].areaUnidadeM2 > 0) && areaMediaLote > 0) novo[i] = { ...novo[i], areaUnidadeM2: areaMediaLote };
       return novo;
@@ -156,7 +161,9 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   const unidadesDisponiveis = origemUrbanismo?.lotes.length ?? 0;
   const unidadesMix = mix.reduce((s, p) => s + (Number.isFinite(p.quantidade) ? p.quantidade : 0), 0);
   const temCasaPronta = mix.some((p) => p.casaPronta);
-  const temLoteSeparado = mix.some((p) => !p.casaPronta && /lote/i.test(p.nome));
+  const temApartamento = mix.some((p) => p.apartamento);
+  const temLoteSeparado = mix.some((p) => !p.casaPronta && !p.apartamento && /lote/i.test(p.nome));
+  const ocupacao = conferirTerrenoMix(mix, r.urbanistico.areaVendavelM2, origemUrbanismo?.lotes);
   const setFonte = (campo: "custoInfraFonte" | "marketingFonte" | "terrenoFonte") => (v: ModoFonte) => { setForm({ ...form, [campo]: v }); };
   const urb = r.urbanistico;
 
@@ -217,9 +224,9 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
       <div className="bg-white border border-gray-100 p-4">
         <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Mix de produtos</p>
         <p className="text-[11px] text-gray-400 mb-3">
-          Aqui você define o que vai ser vendido: só lotes, lotes + casas, área de prédio para apartamentos, comercial — qualquer combinação. Cada linha é um produto do mix (VGV = quantidade × área × preço/m²). Marque <b>Casa pronta</b> quando a casa (com o lote) é vendida por unidade: VGV = quantidade × valor de venda por unidade.
+          Aqui você define o que vai ser vendido: lotes, casas, apartamentos ou comercial. Marque <b>Casa pronta</b> ou <b>Apartamento</b> para vender por unidade: VGV = quantidade × valor de venda por unidade. Apartamentos compartilham o terreno por bloco, incluindo estacionamento.
         </p>
-        {mix.some((p) => !p.casaPronta) && <div className="grid grid-cols-12 gap-2 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide px-0.5">
+        {mix.some((p) => !p.casaPronta && !p.apartamento) && <div className="grid grid-cols-12 gap-2 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide px-0.5">
           <span className="col-span-5">Produto</span>
           <span className="col-span-2">Quantidade</span>
           <span className="col-span-2">Área/unid. (m²)</span>
@@ -228,18 +235,26 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
         <div className="space-y-3">
           {mix.map((p, i) => (
             <div key={i} className="border border-gray-100 p-2.5 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-1.5 text-[11px] font-bold text-gray-600 uppercase tracking-wide">
                 <input type="checkbox" checked={!!p.casaPronta} onChange={(e) => updProduto(i, "casaPronta", e.target.checked)} />
                 Casa pronta
               </label>
-              {p.casaPronta ? (
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-gray-600 uppercase tracking-wide">
+                <input type="checkbox" checked={!!p.apartamento} onChange={(e) => updProduto(i, "apartamento", e.target.checked)} />
+                Apartamento
+              </label>
+              </div>
+              {p.casaPronta || p.apartamento ? (
               <div className="grid grid-cols-12 gap-2 items-center">
                 <label className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Produto
                   <input value={p.nome} onChange={(e) => updProduto(i, "nome", e.target.value)} className="w-full text-sm border border-gray-200 px-2 py-1.5 normal-case font-normal text-gray-800" placeholder="Ex.: Casa 2 quartos" /></label>
                 <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase">Quantidade
                   <input type="number" value={p.quantidade || ""} onChange={(e) => updProduto(i, "quantidade", e.target.value)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder="Qtd" /></label>
-                <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase" title="Área do LOTE de cada casa (não a área construída): base do custo de infraestrutura por m².">Área do lote (m²)
-                  <NumeroBRField value={p.areaUnidadeM2} onValueChange={(v) => updProduto(i, "areaUnidadeM2", v)} className={`w-full text-sm border px-2 py-1.5 font-normal text-gray-800 ${p.areaUnidadeM2 > 0 ? "border-gray-200" : "border-red-400"}`} placeholder="m² do lote" /></label>
+                {p.apartamento ? <div className="col-span-2 text-[10px] font-bold text-gray-400 uppercase">Blocos necessários
+                  <p className="py-1.5 text-sm text-gray-800">{blocoApartamento(p).blocos.toLocaleString("pt-BR")}</p>
+                </div> : <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase" title="Área do LOTE de cada casa (não a área construída): base do custo de infraestrutura por m².">Área do lote (m²)
+                  <NumeroBRField value={p.areaUnidadeM2} onValueChange={(v) => updProduto(i, "areaUnidadeM2", v)} className={`w-full text-sm border px-2 py-1.5 font-normal text-gray-800 ${p.areaUnidadeM2 > 0 ? "border-gray-200" : "border-red-400"}`} placeholder="m² do lote" /></label>}
                 <label className="col-span-3 text-[10px] font-bold text-gray-400 uppercase">Valor de venda por unidade (R$)
                   <NumeroBRField value={p.precoUnidade ?? 0} onValueChange={(v) => updProduto(i, "precoUnidade", v)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder="R$ por unidade" /></label>
                 <button type="button" onClick={() => removerProduto(i)}
@@ -259,9 +274,19 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
                   className="col-span-1 text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
               </div>
               )}
+              {p.apartamento && <div className="space-y-2 border-t border-gray-100 pt-2">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <Num label="Apartamentos por andar" value={p.apartamentosPorAndar ?? 6} onChange={v => updProduto(i, "apartamentosPorAndar", v)} />
+                  <Num label="Número de andares" value={p.andares ?? 4} onChange={v => updProduto(i, "andares", v)} />
+                  <Num label="Terreno por bloco com estacionamento" sufixo="m²" value={p.areaBlocoM2 ?? 1000} onChange={v => updProduto(i, "areaBlocoM2", v)} />
+                  <Num label="Vagas previstas por bloco" value={p.vagasPorBloco ?? 24} onChange={v => updProduto(i, "vagasPorBloco", v)} />
+                </div>
+                <p className="text-xs text-gray-600">{p.apartamentosPorAndar ?? 6} apartamentos × {p.andares ?? 4} andares = {blocoApartamento(p).unidadesPorBloco} por bloco · {blocoApartamento(p).blocos} blocos · terreno total: {fmtM2(blocoApartamento(p).areaTotalM2)}. Cada bloco ocupa um lote; a área informada já inclui as vagas e a circulação.</p>
+                {!blocoApartamento(p).valido || !Number.isInteger(p.quantidade) || p.quantidade < 0 ? <p role="alert" className="text-xs font-bold text-red-600">Informe área positiva, quantidade inteira não negativa e números inteiros positivos para apartamentos por andar, andares e vagas.</p> : !blocoApartamento(p).estacionamentoSuficiente ? <p role="alert" className="text-xs font-bold text-red-600">Estacionamento insuficiente: são necessárias {blocoApartamento(p).unidadesPorBloco} vagas por bloco e foram previstas {blocoApartamento(p).vagasPorBloco}. Ajuste a composição ou as vagas dentro da área informada.</p> : null}
+              </div>}
               <p className="text-xs text-right text-gray-500">
-                {p.casaPronta && !(p.areaUnidadeM2 > 0) ? <span className="block text-left font-bold text-red-600">Informe a área do lote: sem ela, o custo de infraestrutura por m² desta linha fica zerado.</span> : null}
-                {p.casaPronta ? `${(p.quantidade || 0).toLocaleString("pt-BR")} × ${formatCurrency(p.precoUnidade ?? 0)} = ` : null}
+                {p.casaPronta && !p.apartamento && !(p.areaUnidadeM2 > 0) ? <span className="block text-left font-bold text-red-600">Informe a área do lote: sem ela, o custo de infraestrutura por m² desta linha fica zerado.</span> : null}
+                {p.casaPronta || p.apartamento ? `${(p.quantidade || 0).toLocaleString("pt-BR")} × ${formatCurrency(p.precoUnidade ?? 0)} = ` : null}
                 VGV do produto: <span className="font-bold text-[var(--brand-dark)]">{formatCurrency(vgvItemMix(p))}</span>
               </p>
             </div>
@@ -271,15 +296,17 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
           <Plus size={12} /> Adicionar produto
         </button>
         <p className="text-[11px] text-gray-400 mt-2">
-          Capacidade estimada do terreno com o tamanho médio atual do mix: <b>{urb.capacidadeEstimadaUnidades.toLocaleString("pt-BR")} unidades</b>
-          {" "}({fmtM2(urb.areaVendavelM2)} vendável ÷ {formatArea(r.mix.totalUnidades > 0 ? r.mix.areaVendidaM2 / r.mix.totalUnidades : 0)} médios por unidade).
+          Capacidade estimada por área{temApartamento ? " e vagas, com a composição informada" : " com o tamanho médio atual do mix"}: <b>{urb.capacidadeEstimadaUnidades.toLocaleString("pt-BR")} unidades</b>
+          {" "}({fmtM2(urb.areaVendavelM2)} vendável).{temApartamento ? ` Terreno ocupado pelo mix: ${fmtM2(ocupacao.areaTotalM2)}. A implantação depende de os blocos caberem nos lotes.` : ""}
         </p>
         {unidadesDisponiveis > 0 && (
-          <p className={`text-[11px] mt-1 ${unidadesMix > unidadesDisponiveis ? "font-bold text-red-600" : "text-gray-500"}`}>
-            Unidades do mix: {unidadesMix.toLocaleString("pt-BR")} · lotes disponíveis no {origemUrbanismo?.origem === "lotes_avulsos" ? "cadastro de lotes avulsos" : "cenário"}: {unidadesDisponiveis.toLocaleString("pt-BR")}
-            {unidadesMix > unidadesDisponiveis ? " — o mix tem mais unidades do que lotes disponíveis." : ""}
+          <p className={`text-[11px] mt-1 ${ocupacao.excedeLotes ? "font-bold text-red-600" : "text-gray-500"}`}>
+            Unidades do mix: {unidadesMix.toLocaleString("pt-BR")}{temApartamento ? ` · lotes necessários: ${ocupacao.lotesNecessarios.toLocaleString("pt-BR")}` : ""} · lotes disponíveis no {origemUrbanismo?.origem === "lotes_avulsos" ? "cadastro de lotes avulsos" : "cenário"}: {unidadesDisponiveis.toLocaleString("pt-BR")}
+            {ocupacao.excedeLotes ? " — o mix ocupa mais lotes do que os disponíveis." : ""}
           </p>
         )}
+        {temApartamento && ocupacao.excedeArea && <p role="alert" className="text-xs font-bold text-red-600">Área insuficiente: o mix ocupa {fmtM2(ocupacao.areaTotalM2)} e há {fmtM2(urb.areaVendavelM2)} disponíveis.</p>}
+        {temApartamento && ocupacao.lotesIncompativeis && <p role="alert" className="text-xs font-bold text-red-600">Os blocos e demais produtos não cabem nas áreas dos lotes disponíveis. Ajuste a área por bloco ou a composição do mix.</p>}
         {temCasaPronta && temLoteSeparado && (
           <p className="text-[11px] mt-1 font-bold text-amber-700">Atenção: há uma Casa Pronta e também um produto de lote. A Casa Pronta já inclui o lote no valor por unidade — não cadastre o mesmo lote duas vezes, para não duplicar o VGV.</p>
         )}

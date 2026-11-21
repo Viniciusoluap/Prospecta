@@ -5,6 +5,8 @@
 // (`lib/finance/loteamento.ts`) sem alteração de lógica — o restante desse
 // arquivo (urbanístico + EVE completo) fica para a story de backlog S-13.
 
+import { areaTerrenoItemMix } from "./ocupacao-mix.js";
+
 export interface ItemMixProduto {
   nome: string;
   quantidade: number;
@@ -17,14 +19,22 @@ export interface ItemMixProduto {
    * sendo a do LOTE (base do custo de infraestrutura), nunca a área construída.
    */
   casaPronta?: boolean;
-  /** Valor de venda por unidade (só usado quando `casaPronta`). */
+  /** Apartamentos vendidos por unidade, agrupados em blocos no terreno. */
+  apartamento?: boolean;
+  apartamentosPorAndar?: number;
+  andares?: number;
+  /** Área total de terreno por bloco, JÁ incluindo estacionamento e circulação. */
+  areaBlocoM2?: number;
+  /** Vagas efetivamente previstas dentro da área de cada bloco. */
+  vagasPorBloco?: number;
+  /** Valor de venda por unidade (Casa pronta ou Apartamento). */
   precoUnidade?: number;
 }
 
-/** VGV de um item do mix (por unidade quando Casa Pronta; por m² caso contrário). */
+/** VGV de um item do mix (por unidade para casa/apartamento; por m² para os demais). */
 export function vgvItemMix(it: ItemMixProduto): number {
   const qtd = Number.isFinite(it.quantidade) ? it.quantidade : 0;
-  if (it.casaPronta) return qtd * (Number.isFinite(it.precoUnidade) ? (it.precoUnidade as number) : 0);
+  if (it.casaPronta || it.apartamento) return qtd * (Number.isFinite(it.precoUnidade) ? (it.precoUnidade as number) : 0);
   return qtd * it.areaUnidadeM2 * it.precoM2;
 }
 
@@ -36,6 +46,7 @@ export interface ResultadoMixItem extends ItemMixProduto {
 export interface ResultadoMix {
   itens: ResultadoMixItem[];
   totalUnidades: number;
+  /** Terreno do mix: apartamentos contam a área integral de seus blocos, com estacionamento. */
   areaVendidaM2: number;
   vgv: number;
   precoMedioUnidade: number;
@@ -44,7 +55,7 @@ export interface ResultadoMix {
 export function calcularMix(itens: ItemMixProduto[]): ResultadoMix {
   const resultado: ResultadoMixItem[] = itens.map((it) => ({
     ...it,
-    areaTotalM2: it.quantidade * it.areaUnidadeM2,
+    areaTotalM2: areaTerrenoItemMix(it),
     vgv: vgvItemMix(it),
   }));
   const totalUnidades = resultado.reduce((s, i) => s + i.quantidade, 0);
