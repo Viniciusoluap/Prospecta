@@ -1,7 +1,7 @@
 // EPIC-027 C5 (E1) — a voz da Dolores: o filtro de saída (só o texto do modelo), os rótulos das consultas, o "esquece" e o
 // prompt novo (sem citar ferramenta, sem "aprovar CÓDIGO"). Regras puras: nada de banco nem de rede.
 import { describe, expect, it } from "vitest";
-import { ROTULO_CONSULTA, ehPedidoDeEsquecer, pedeDetalhe, rotulosDasConsultas, semCodigos, vozDaDolores } from "../../shared/dolores/voz.js";
+import { MAX_ENTRADA_VOZ, ROTULO_CONSULTA, ehPedidoDeEsquecer, pedeDetalhe, rotulosDasConsultas, semCodigos, vozDaDolores } from "../../shared/dolores/voz.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { ACOES } from "./acoes/registro.js";
 import { FUNCOES } from "./funcoes.js";
@@ -60,6 +60,45 @@ describe("filtro de voz (shared/dolores/voz.ts)", () => {
   });
 });
 
+describe("QA C5-E1 achado 1 — sem ReDoS: todas as regex da voz são lineares", () => {
+  /** Melhor de 3 (a 1ª também aquece o JIT): carga da máquina não derruba; regex catastrófica fica lenta nas 3. */
+  const melhorDe3 = (f: () => void) => Math.min(...[0, 1, 2].map(() => { const t0 = performance.now(); f(); return performance.now() - t0; }));
+  const DEGENERADAS = [
+    `[${"a_a ".repeat(5000)}`, `[a_${"aa_".repeat(5000)}`, `[${"a_a;".repeat(5000)}`, `[${"a_a, ".repeat(4000)}`, `[ ${" ".repeat(19_000)}`,
+    `${" ".repeat(19_000)}x`, `(fonte:${" ".repeat(19_000)}`, `leadId${" ".repeat(19_000)}`, `aprovar ${"K7M3P e ".repeat(2500)}`,
+    `código ${"K7HM ".repeat(4000)}`, `«grupo K7HM ${"x".repeat(19_000)}`, `${"listar_".repeat(3000)}`, `${"\u0000 ".repeat(9000)}`,
+    `${"[] () ".repeat(3500)}`, `${"\n".repeat(19_000)}`, `${"esquece ".repeat(2500)}`,
+  ];
+  it("entradas degeneradas de ~20 mil caracteres: cada filtro em menos de 50 ms", () => {
+    for (const d of DEGENERADAS) {
+      expect(melhorDe3(() => vozDaDolores(d)), JSON.stringify(d.slice(0, 20))).toBeLessThan(50);
+      expect(melhorDe3(() => semCodigos(d)), JSON.stringify(d.slice(0, 20))).toBeLessThan(50);
+      expect(melhorDe3(() => { ehPedidoDeEsquecer(d); pedeDetalhe(d); }), JSON.stringify(d.slice(0, 20))).toBeLessThan(50);
+    }
+  });
+  it("a entrada é cortada em 20.000 caracteres antes do filtro (100 mil caracteres não passam do teto)", () => {
+    expect(MAX_ENTRADA_VOZ).toBe(20_000);
+    const enorme = `${"a_a ".repeat(25_000)}[listar_obras]`;
+    expect(melhorDe3(() => vozDaDolores(`[${enorme}`))).toBeLessThan(50);
+    expect(vozDaDolores("x".repeat(30_000)).texto).toHaveLength(20_000);
+  });
+  it("o separador entre identificadores continua aceitando ;, vírgula e espaço", () => {
+    expect(vozDaDolores("Ok [listar_obras listar_medicoes] fim").texto).toBe("Ok fim");
+    expect(vozDaDolores("Ok [listar_obras;listar_medicoes]").texto).toBe("Ok");
+    expect(vozDaDolores("Ok [listar_obras , listar_medicoes ;]").texto).toBe("Ok");
+  });
+});
+
+describe("QA C5-E1 achado 3 — códigos fora da memória em qualquer caixa e sem aspas", () => {
+  it("\"aprovar k7m3p\", \"Recusar K7M3P e AC3DE\", \"grupo khmn 3\", \"código khmn\"", () => {
+    expect(semCodigos("aprovar k7m3p").toUpperCase()).not.toContain("K7M3P");
+    expect(semCodigos("Recusar K7M3P e AC3DE agora")).toBe("agora");
+    expect(semCodigos("grupo KHMN aceitar")).toBe("grupo aceitar");
+    expect(semCodigos("grupo khmn 3")).not.toMatch(/khmn/i);
+    expect(semCodigos("o grupo (código khmn) entrou")).toBe("o grupo entrou");
+  });
+});
+
 describe("mensagens do dono reconhecidas por código", () => {
   it("esquece / limpa a conversa: só a mensagem inteira", () => {
     for (const t of ["esquece", "Esquece.", "esqueça tudo", "limpa a conversa", "Novo assunto!", "começa de novo", "Dolores, esquece"]) expect(ehPedidoDeEsquecer(t), t).toBe(true);
@@ -90,6 +129,10 @@ describe("prompt de sistema novo (trava de regressão)", () => {
       expect(promptSistemaWhatsapp(mascarar)).toBe(p);
       // tamanho: curto (o antigo tinha ~8.800 caracteres)
       expect(p.length).toBeLessThan(6_500);
+      // QA C5-E1 achado 5: as proibições que saíram do prompt antigo voltam, curtas
+      for (const t of ["Nunca edite nem apague lançamento\n  financeiro confirmado", "nunca assine nem valide documento técnico ou jurídico",
+        "Alerta de nota duplicada, de possível\n  adulteração ou de dado bancário não gravado vai SEMPRE na resposta", "palavras do DONO, nunca de um nome tirado do grupo",
+        "A PCI sai sem assinatura"]) expect(p).toContain(t);
     });
   }
 });

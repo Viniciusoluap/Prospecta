@@ -193,7 +193,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // EPIC-027 C5 (E1): o histórico traz respostas e avisos montados com dado do sistema (e conteúdo encaminhado) — é leitura
   // anterior: o pedido nasce contaminado, como depois de uma consulta.
   const historico = p.historico ?? HISTORICO_VAZIO;
-  if (!contaminado && historico.itens.some(i => i.papel !== "dono" || i.origem !== "mensagem")) { contaminado = true; motivoContaminacao = "leitura"; }
+  // QA C5-E1 (achado 2): as referências também trazem nome de terceiro (cliente, grupo) ao modelo — contaminam do mesmo jeito.
+  if (!contaminado && (historico.itens.some(i => i.papel !== "dono" || i.origem !== "mensagem") || historico.referencias.length > 0)) { contaminado = true; motivoContaminacao = "leitura"; }
   const refsPorConsulta: ReferenciaConversa[][] = [];
   const tetoDeSaida = pedeDetalhe(p.comando) ? MAX_TOKENS_SAIDA : MAX_TOKENS_SAIDA_CONVERSA;
   const codigosNaFila = new Set<string>();

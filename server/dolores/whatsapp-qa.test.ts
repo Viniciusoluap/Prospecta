@@ -504,9 +504,10 @@ describe("QA r7 A2 — links na resposta ao dono: só o domínio do sistema e o 
     // casos patológicos para a regex de host: 200 kB em menos de 1 s cada
     for (const p of ["a.", "x.x/", "[a](", "a.a.a.a ", "1.1.1.1.", "[::", "xn--a.", "рф.", "a.com:", "//a.b", "_a.b_", "a​."]) {
       const s = p.repeat(Math.ceil(200 * 1024 / p.length));
-      const t0 = performance.now();
-      tratarLinksDaResposta(s, SISTEMA);
-      expect(performance.now() - t0, p).toBeLessThan(1000);
+      // Estabilidade (QA C5-E1): o tempo é o MELHOR de 3 execuções — um pico de carga da máquina (vários testes em paralelo)
+      // não derruba a prova; uma regex catastrófica continua lenta nas três e falha igual. O teto (1 s) é o mesmo.
+      const tempos = [0, 1, 2].map(() => { const t0 = performance.now(); tratarLinksDaResposta(s, SISTEMA); return performance.now() - t0; });
+      expect(Math.min(...tempos), p).toBeLessThan(1000);
     }
   });
 

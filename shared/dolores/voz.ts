@@ -45,46 +45,72 @@ export function rotulosDasConsultas(nomes: readonly string[]): string {
   return r.join(", ");
 }
 
+// QA C5-E1 (ReDoS): toda regex daqui é LINEAR — separador obrigatório entre repetições, nada de "[ \t]*" no começo (que, numa
+// busca global, vira quadrática em sequência longa de espaços), \s* nunca encostado em outro quantificador que também aceite
+// espaço, e tamanhos com teto. A entrada é cortada em MAX_ENTRADA_VOZ antes de qualquer regex. Teste de tempo com entradas
+// degeneradas em c5-e1-voz.test.ts e c5-e1-qa.test.ts.
+/** Teto da entrada dos filtros desta etapa (a saída do modelo cabe com folga: 5.000 tokens ≈ 15 mil caracteres). */
+export const MAX_ENTRADA_VOZ = 20_000;
 const SNAKE = "[a-z][a-z0-9]*(?:_[a-z0-9]+)+";
-/** Colchetes cujo conteúdo é SÓ identificadores snake_case separados por ";", "," ou espaço. */
-const COLCHETE_DE_FERRAMENTA = new RegExp(`[ \\t]*\\[\\s*${SNAKE}(?:\\s*[;,]?\\s*${SNAKE})*\\s*[;,]?\\s*\\]`, "g");
+/** Colchetes cujo conteúdo é SÓ identificadores snake_case separados (obrigatoriamente) por ";", "," ou espaço. */
+const COLCHETE_DE_FERRAMENTA = new RegExp(`\\[\\s*${SNAKE}(?:(?:\\s*[;,]\\s*|\\s+)${SNAKE})*\\s*[;,]?\\s*\\]`, "g");
 /** "(fonte: listar_obras)", "(via consultar_cliente)": parêntese de fonte que cita ferramenta. */
-const PARENTESE_DE_FONTE = new RegExp(`[ \\t]*\\((?:fontes?|via|consultas?|fun[cç](?:ão|ões))\\s*:?\\s*[^)\\n]{0,200}\\)`, "gi");
+const PARENTESE_DE_FONTE = /\((?:fontes?|via|consultas?|fun[cç](?:ão|ões))(?=[\s:])[^)\n]{0,200}\)/gi;
+const TEM_SNAKE = new RegExp(SNAKE);
 const NOMES = Object.keys(ROTULO_CONSULTA).sort((a, b) => b.length - a.length);
 /** Nome de ferramenta conhecido solto no texto (com crase em volta, se houver). */
 const NOME_SOLTO = new RegExp(`\`?\\b(${NOMES.join("|")})\\b\`?`, "g");
 /** Id interno citado: "leadId 456", "(grupoId: 12)", "obraId=3". */
-const ID_INTERNO = /[ \t]*\(?\b(?:leadId|grupoId|obraId|notaId|processoId|tarefaId|financiamentoId|servicoId|mensagemId)\b\s*[:=#]?\s*\d+\)?/g;
+const ID_INTERNO = /\(?\b(?:leadId|grupoId|obraId|notaId|processoId|tarefaId|financiamentoId|servicoId|mensagemId)\b(?:[ \t]{0,3}[:=#])?[ \t]{0,3}\d{1,12}\)?/g;
 const COD = `[${ALFABETO_CODIGO}]{5}`;
 /** "aprovar K7M2P", «recusar K7M2P, AC3DE» (com aspas em volta, se houver). Maiúsculas: é o formato do código. */
-const APROVAR_CODIGO = new RegExp(`[«"“']?\\b(?:[Aa]provar|[Aa]provo|[Rr]ecusar|[Rr]ecuso)\\s+${COD}(?:\\s*(?:,|\\be\\b)\\s*${COD})*\\b[»"”']?`, "g");
+const APROVAR_CODIGO = new RegExp(`[«"“']?\\b(?:[Aa]provar|[Aa]provo|[Rr]ecusar|[Rr]ecuso)[ \\t]{1,3}${COD}(?:[ \\t]{0,3}(?:,|\\be\\b)[ \\t]{0,3}${COD}){0,9}\\b[»"”']?`, "g");
 const CODG = `[${ALFABETO_CODIGO_GRUPO}]{4}`;
 /** "(código K7QM)", "código K7QM". */
-const CODIGO_DE_GRUPO = new RegExp(`[ \\t]*\\(?\\bc[oó]digo\\s+${CODG}\\b\\)?`, "g");
+const CODIGO_DE_GRUPO = new RegExp(`\\(?\\bc[oó]digo[ \\t]{1,3}${CODG}\\b\\)?`, "g");
 /** «grupo K7QM 3», "grupo K7QM ignorar" — comando de grupo entre aspas. */
-const COMANDO_DE_GRUPO = new RegExp(`[«"“]grupo\\s+${CODG}\\b[^»"”\\n]{0,40}[»"”]`, "g");
+const COMANDO_DE_GRUPO = new RegExp(`[«"“]grupo[ \\t]{1,3}${CODG}\\b[^»"”\\n]{0,40}[»"”]`, "g");
+// Para a MEMÓRIA (semCodigos), mais largo: o dono digita o código em minúsculas e o comando sem aspas (lerDecisaoDoDono e
+// lerDecisaoDeGrupo aceitam). Pode levar junto uma palavra de 4/5 letras parecida com código — na memória, tirar a mais é seguro.
+const APROVAR_CODIGO_LARGO = new RegExp(`\\b(?:aprovar|aprovo|recusar|recuso)[ \\t]{1,3}${COD}(?:[ \\t]{0,3}(?:,|\\be\\b)[ \\t]{0,3}${COD}){0,9}\\b`, "gi");
+const CODIGO_DE_GRUPO_LARGO = new RegExp(`\\(?\\bc[oó]digo[ \\t]{1,3}${CODG}\\b\\)?`, "gi");
+const COMANDO_DE_GRUPO_LARGO = new RegExp(`\\bgrupo[ \\t]{1,3}${CODG}\\b`, "gi");
 
 const MARCA = "\u0000";
+const ehEspaco = (c: string) => c === " " || c === "\t";
 
-/** Junta o que sobrou em volta das remoções (só nesses pontos: o resto do texto fica como veio). */
+/**
+ * Junta o que sobrou em volta das remoções (só nesses pontos: o resto do texto fica como veio). Sem regex sobre o texto inteiro
+ * (linear): parte nas marcas, tira os espaços que encostam nelas e junta com nada (antes de pontuação, quebra ou fim) ou com um espaço.
+ */
 function costurar(t: string): string {
-  return t
-    .replace(new RegExp(`[ \\t]*${MARCA}+[ \\t]*(?=[.,;:!?)]|\\n|$)`, "g"), "")
-    .replace(new RegExp(`[ \\t]*${MARCA}+[ \\t]*`, "g"), " ")
-    .replace(/\(\s*\)|\[\s*\]/g, "")
-    .replace(/\n{3,}/g, "\n\n");
+  const partes = t.split(MARCA);
+  let fim = partes[0];
+  for (let i = 1; i < partes.length; i++) {
+    let e = fim.length;
+    while (e > 0 && ehEspaco(fim[e - 1])) e--;
+    fim = fim.slice(0, e);
+    const p = partes[i];
+    let k = 0;
+    while (k < p.length && ehEspaco(p[k])) k++;
+    const resto = p.slice(k);
+    const proximo = resto[0];
+    const junta = proximo === undefined ? "" : ".,;:!?)\n".includes(proximo) || fim.length === 0 || fim.endsWith("\n") ? "" : " ";
+    fim += junta + resto;
+  }
+  return fim.replace(/\(\)|\[\]/g, "").replace(/\n{3,}/g, "\n\n");
 }
 
 /**
  * Filtro de saída da voz (só o texto do MODELO). Devolve o texto e quantas correções houve (vai para a auditoria como
- * número, sem texto).
+ * número, sem texto). Entrada acima de MAX_ENTRADA_VOZ é cortada antes (o envio corta em 3 mensagens bem antes disso).
  */
 export function vozDaDolores(texto: string): { texto: string; correcoes: number } {
   let correcoes = 0;
   const marcar = () => { correcoes++; return MARCA; };
-  let t = String(texto ?? "");
+  let t = String(texto ?? "").slice(0, MAX_ENTRADA_VOZ).replaceAll(MARCA, "");
   t = t.replace(COLCHETE_DE_FERRAMENTA, marcar);
-  t = t.replace(PARENTESE_DE_FONTE, m => (new RegExp(SNAKE).test(m) ? marcar() : m));
+  t = t.replace(PARENTESE_DE_FONTE, m => (TEM_SNAKE.test(m) ? marcar() : m));
   t = t.replace(NOME_SOLTO, (_m, nome: string) => { correcoes++; return ROTULO_CONSULTA[nome] ?? ""; });
   t = t.replace(ID_INTERNO, marcar);
   t = t.replace(APROVAR_CODIGO, marcar);
@@ -93,13 +119,21 @@ export function vozDaDolores(texto: string): { texto: string; correcoes: number 
   return { texto: correcoes ? costurar(t).trim() : t, correcoes };
 }
 
-/** Tira códigos de aprovação e de grupo (texto que vai para a memória: o modelo nunca vê códigos). */
+/** Tira códigos de aprovação e de grupo (texto que vai para a memória: o modelo nunca vê códigos), em qualquer caixa e sem aspas. */
 export function semCodigos(texto: string): string {
-  const t = String(texto ?? "").replace(APROVAR_CODIGO, MARCA).replace(COMANDO_DE_GRUPO, MARCA).replace(CODIGO_DE_GRUPO, MARCA);
+  const t = String(texto ?? "").slice(0, MAX_ENTRADA_VOZ).replaceAll(MARCA, "")
+    .replace(COMANDO_DE_GRUPO, MARCA).replace(APROVAR_CODIGO_LARGO, MARCA).replace(COMANDO_DE_GRUPO_LARGO, `grupo${MARCA}`).replace(CODIGO_DE_GRUPO_LARGO, MARCA);
   return t.includes(MARCA) ? costurar(t).trim() : t;
 }
 
-const normalizar = (s: string) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/[.!\s]+$/, "").replace(/\s+/g, " ");
+/** Normaliza a mensagem do dono para os reconhecimentos por código (sem regex sobre espaço no fim: linear). */
+const normalizar = (s: string) => {
+  let t = String(s ?? "").slice(0, 400).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  let e = t.length;
+  while (e > 0 && (t[e - 1] === "." || t[e - 1] === "!" || /\s/.test(t[e - 1]))) e--;
+  t = t.slice(0, e);
+  return t.replace(/\s+/g, " ");
+};
 const ESQUECER = new Set([
   "esquece", "esqueca", "esquece tudo", "esqueca tudo", "esquece isso", "esqueca isso", "limpa a conversa", "limpar a conversa", "limpa conversa",
   "limpe a conversa", "zera a conversa", "zerar a conversa", "novo assunto", "outro assunto", "comeca de novo", "comecar de novo", "vamos comecar de novo",
@@ -111,6 +145,6 @@ export const FRASE_ESQUECI = "Certo, começamos do zero.";
 
 /** O dono pediu lista completa / relatório / detalhe: libera a saída longa (5.000); senão, resposta curta (1.500). */
 export function pedeDetalhe(texto: string | null | undefined): boolean {
-  const t = normalizar(String(texto ?? "")).slice(0, 400);
+  const t = normalizar(String(texto ?? ""));
   return /\b(lista completa|todos os|todas as|tudo sobre|relatorio|detalhad[oa]s?|detalhe|completo|completa|analise|cada um|um por um|item por item)\b/.test(t);
 }

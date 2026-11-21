@@ -146,7 +146,7 @@ async function atualizarMensagem(id: number, dados: Partial<{ situacao: Situacao
  */
 async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown>; prazoFinal: number; quadros?: string | null;
   /** EPIC-027 C5 (E1): `false` = não entra na memória da conversa; senão, entra com estas referências. */
-  memoria?: false | { referencias?: ReferenciaConversa[] } }) {
+  memoria?: false | { referencias?: ReferenciaConversa[]; codigos?: readonly string[] } }) {
   if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) {
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
@@ -212,7 +212,9 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   // entram (têm os códigos de aprovação, que o modelo nunca vê): só uma linha dizendo que foram mostrados.
   if (ctx.memoria !== false && enviadas.length) {
     const nota = ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
-    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${filtrar(texto)}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
+    // QA C5-E1 (achado 3): resposta a um comando de confirmação (texto do SISTEMA) perde também os códigos citados
+    const gravado = ctx.memoria?.codigos ? semOsCodigos(filtrar(texto), ctx.memoria.codigos) : filtrar(texto);
+    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
   }
   return completa;
 }
@@ -340,6 +342,18 @@ export async function credencialDoAtendimento(): Promise<CredencialGrupo> {
  */
 export const credencialDaLeituraDeNota = () => credencialDaClassificacao("dolores_notas");
 
+/** QA C5-E1 (achado 3): o que fica na memória quando o dono responde com um comando de confirmação (sem o código). */
+export const FRASE_DECISAO_NA_MEMORIA = "(o dono respondeu a um pedido de confirmação do sistema)";
+/**
+ * Resposta do sistema a um comando de confirmação, para a memória: sem os códigos conhecidos (qualquer caixa) e sem códigos entre
+ * colchetes/parênteses ("[K7M3P]", "(KHMN)"). Só para texto do SISTEMA (nunca do modelo): pode tirar uma sigla a mais.
+ */
+export function semOsCodigos(texto: string, codigos: readonly string[]): string {
+  let t = texto.slice(0, 20_000).replace(/[[(][A-Z0-9]{4,5}[\])]/g, "(código)");
+  for (const c of codigos) if (/^[A-Za-z0-9]{4,5}$/.test(c)) t = t.replace(new RegExp(`\\b${c}\\b`, "gi"), "(código)");
+  return t;
+}
+
 async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean }, prazoFinal: number, autorInicial: number | null) {
   const agora = deps.agora();
   const mes = mesFortaleza(agora);
@@ -354,7 +368,10 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     return ok ? "esquece" : "erro";
   }
   // EPIC-027 C5 (E1): a mensagem do dono entra na memória da conversa, marcada pela origem (encaminhada e anexo são dado).
-  if (msg.texto) await gravarNaConversa({ papel: "dono", origem: msg.encaminhada ? "encaminhada" : msg.temMidia ? "com_midia" : "mensagem", texto: msg.texto, agora: deps.agora(), mensagemId: msg.id });
+  // QA C5-E1 (achado 3): comando de confirmação ("aprovar CÓDIGO", "grupo CÓDIGO …") não entra com o código — só uma linha neutra.
+  const ehDecisao = !msg.encaminhada && !msg.temMidia && (lerDecisaoDoDono(msg.texto) !== null || lerDecisaoDeGrupo(msg.texto) !== null);
+  if (msg.texto) await gravarNaConversa({ papel: "dono", origem: msg.encaminhada ? "encaminhada" : msg.temMidia ? "com_midia" : "mensagem",
+    texto: ehDecisao ? FRASE_DECISAO_NA_MEMORIA : msg.texto, agora: deps.agora(), mensagemId: msg.id });
   // QA achado 6: texto encaminhado é de terceiro — não vira ordem, nem quando vem do dono
   if (msg.encaminhada) {
     await responderAoDono(cfg, msg.numero, FRASE_ENCAMINHADA, { mensagemId: msg.id, autor, resumo: { bloqueio: "encaminhada" }, prazoFinal });
@@ -378,7 +395,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       console.error("[dolores/whatsapp] falha ao decidir itens da fila", erroCurto(e));
       texto = "Dolores: não consegui registrar a decisão agora; nada foi executado. Tente de novo em instantes.";
     }
-    await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { decisao: decisao.decisao, codigos: decisao.codigos.length }, prazoFinal });
+    await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { decisao: decisao.decisao, codigos: decisao.codigos.length }, prazoFinal, memoria: { codigos: decisao.codigos } });
     await atualizarMensagem(msg.id, { situacao: "respondida", motivo: `decisão da fila: ${decisao.decisao}`, respondidaEm: deps.agora() });
     return `decisao:${decisao.decisao}`;
   }
@@ -390,7 +407,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const { codigo, ...d } = decisaoDeGrupo;
     const r = await decidirGrupo({ codigo }, d, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
-    await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal });
+    await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal, memoria: { codigos: [codigo] } });
     await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo: ${d.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
     return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
   }
@@ -401,7 +418,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pela opção", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
     if (r) {
-      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal });
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal, memoria: { codigos: [] } });
       await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo pela opção: ${opcao.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
       return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
     }

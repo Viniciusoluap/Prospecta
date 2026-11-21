@@ -104,7 +104,7 @@ describe("QA 1 — injeção pela memória", () => {
 
   // ACHADO 2: só referências (itens com mais de 6 h, refs com menos de 24 h) → o cabeçalho leva o RÓTULO de terceiro (nome de
   // grupo) ao modelo, mas o pedido NÃO nasce contaminado (cerebro.ts só olha historico.itens) — a ação direta executa na hora.
-  it.fails("ACHADO 2 — refs sozinhas (nome de grupo de terceiro no cabeçalho) deveriam contaminar o pedido", async () => {
+  it("ACHADO 2 — refs sozinhas (nome de grupo de terceiro no cabeçalho) deveriam contaminar o pedido", async () => {
     const antiga = new Date(AGORA.getTime() - 7 * 3_600_000).toISOString();
     await banco.pg.exec(`INSERT INTO dolores_conversa (criado_em, papel, origem, texto, referencias) VALUES
       ('${antiga}', 'dono', 'mensagem', 'quais grupos?', '[]'),
@@ -136,7 +136,7 @@ describe("QA 3 — segredos e códigos na memória", () => {
   });
   // ACHADO 3: lerDecisaoDoDono aceita o código em minúsculas e lerDecisaoDeGrupo aceita o comando SEM aspas; semCodigos só tira
   // código MAIÚSCULO e comando de grupo ENTRE ASPAS — o código vai em claro para a memória (e daí para o modelo).
-  it.fails("ACHADO 3 — \"aprovar k7m3p\" (minúsculas) e \"grupo KHMN aceitar\" (sem aspas) deveriam sair da memória", () => {
+  it("ACHADO 3 — \"aprovar k7m3p\" (minúsculas) e \"grupo KHMN aceitar\" (sem aspas) deveriam sair da memória", () => {
     expect(textoParaGravar("aprovar k7m3p").toUpperCase()).not.toContain("K7M3P");
     expect(textoParaGravar("grupo KHMN aceitar")).not.toContain("KHMN");
   });
@@ -153,7 +153,7 @@ describe("QA 4 — filtro de voz", () => {
   });
   // ACHADO 1: COLCHETE_DE_FERRAMENTA tem separador OPCIONAL entre identificadores ([;,]? e \s* dos dois lados) → backtracking
   // exponencial quando o "]" não fecha. ~97 caracteres ≈ 0,7 s; ~130 caracteres passa de minutos (trava o processo).
-  it.fails("ACHADO 1 — ReDoS: \"[\" + \"a_a \"×22 (89 caracteres) deveria levar menos de 20 ms", () => {
+  it("ACHADO 1 — ReDoS: \"[\" + \"a_a \"×22 (89 caracteres) deveria levar menos de 20 ms", () => {
     const t0 = performance.now();
     vozDaDolores(`[${"a_a ".repeat(22)}`);
     expect(performance.now() - t0).toBeLessThan(20);

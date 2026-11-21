@@ -11,13 +11,13 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { RESERVA_MINIMA_ENTRADA, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import {
-  HISTORICO_VAZIO, JANELA_CARACTERES, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
+  HISTORICO_VAZIO, JANELA_CARACTERES, lerJanela, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
   type ItemDaConversa,
 } from "./memoria.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, MIGRACAO_0143, criarBanco } from "./testes-banco.js";
-import { definirDependenciasWhatsapp, enviarAvisoAoDono, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { FRASE_DECISAO_NA_MEMORIA, definirDependenciasWhatsapp, enviarAvisoAoDono, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
 const DONO = "5599991234567";
 const CHAVE = "sk-ant-chave-de-teste-nao-real-123456";
@@ -267,6 +267,21 @@ describe("conversa pelo WhatsApp com memória (IA simulada)", () => {
     expect(ctx).toContain("[Aviso automático do sistema enviado ao dono");
     expect(ctx).toContain("grupo do WhatsApp «Obra Lúcia Brena» (grupoId 1)");
     expect(ctx).not.toContain("KHMN");
+  });
+
+  it("QA C5-E1 achado 3: \"aprovar CÓDIGO\" e \"grupo CÓDIGO …\" entram só como linha neutra, sem o código", async () => {
+    await chamar(aviso({ texto: "aprovar k7m3p" }));
+    await chamar(aviso({ texto: "grupo KHMN ignorar" }));
+    const donos = (await conversa()).filter(g => g.papel === "dono");
+    expect(donos.map(g => g.texto)).toEqual([FRASE_DECISAO_NA_MEMORIA, FRASE_DECISAO_NA_MEMORIA]);
+    expect(JSON.stringify(await conversa())).not.toMatch(/k7m3p|KHMN/i);
+  });
+
+  it("QA C5-E1 achado 4: a leitura também apaga o que passou de 24 h (nada fica para sempre sem gravação nova)", async () => {
+    const velha = new Date(AGORA.getTime() - 25 * 3_600_000).toISOString();
+    await banco.pg.exec(`INSERT INTO dolores_conversa (criado_em, papel, origem, texto) VALUES ('${velha}', 'dono', 'mensagem', 'antiga')`);
+    await lerJanela(AGORA);
+    expect(await conversa()).toEqual([]);
   });
 
   it("retenção: o que passou de 24 h é apagado na próxima gravação; o que passou de 6 h não vai ao modelo", async () => {
