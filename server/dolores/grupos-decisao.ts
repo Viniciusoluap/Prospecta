@@ -31,7 +31,7 @@ export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | n
 const aspas = (s: string | null | undefined) => { const t = limparNomeDeTerceiro(s); return t ? `«${t}»` : "(sem nome)"; };
 
 /** Aplica a decisão do dono ao grupo (pelo código, no WhatsApp; pelo id, na tela). Devolve o texto para o dono. */
-export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number }, d: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
+export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number; instancia?: string }, d: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
   const db = getDb();
   const pedidoId = origem.via === "whatsapp" ? `wa:${origem.mensagemId}` : `tela:grupos:${"grupoId" in alvo ? alvo.grupoId : "codigo"}`;
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>) =>
@@ -41,7 +41,9 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
       resumo: { ...resumo, ...(origem.via === "tela" ? { porUserId: origem.userId } : {}) } });
   let g: DoloresGrupo | undefined;
   try {
-    [g] = await db.select().from(doloresGrupos).where("codigo" in alvo ? eq(doloresGrupos.codigo, alvo.codigo) : eq(doloresGrupos.id, alvo.grupoId)).limit(1);
+    // EPIC-027 (portão da C2): pela tela, só grupo da instância da empresa
+    [g] = await db.select().from(doloresGrupos).where("codigo" in alvo ? eq(doloresGrupos.codigo, alvo.codigo)
+      : alvo.instancia ? and(eq(doloresGrupos.id, alvo.grupoId), eq(doloresGrupos.instancia, alvo.instancia)) : eq(doloresGrupos.id, alvo.grupoId)).limit(1);
   } catch (e) {
     console.error("[dolores/grupos-decisao] grupos indisponíveis", erroParaLog(e));
     return { ok: false, texto: "Dolores: não consegui ler os grupos agora (a migração 0133 foi aplicada?); nada mudou.", grupoId: null };
@@ -125,7 +127,8 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
     await db.transaction(async tx => {
       // definir o tipo de um grupo recusado (ou sem prova de quem colocou a Dolores) também o aceita — é a decisão do dono no
       // WhatsApp (pela tela, recusado acima)
-      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor, obraExcluidaEm: null,
+      // EPIC-027 (portão da C2): classificar pela TELA não reativa grupo desativado; o comando do dono no WhatsApp reativa (como antes)
+      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ...(origem.via === "whatsapp" ? { ativo: true } : {}), situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor, obraExcluidaEm: null,
         ...(semProva ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
         atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
       // grupo confirmado nasce com o interruptor LIGADO (se ninguém mexeu nele antes); nada fala com o interruptor geral desligado

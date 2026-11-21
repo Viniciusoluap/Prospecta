@@ -204,9 +204,10 @@ export const gruposRouter = router({
     if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
     if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
     const db = getDb();
-    const [antes] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
+    const instancia = await instanciaDaDolores();
+    const [antes] = await db.select().from(doloresGrupos).where(and(eq(doloresGrupos.id, input.grupoId), eq(doloresGrupos.instancia, instancia))).limit(1).catch(semMigracao);
     if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
-    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
+    const r = await decidirGrupo({ grupoId: input.grupoId, instancia }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
     // QA-SEG EPIC-027 (achado 1b): toda classificação pela tela vira aviso ao dono (útil com mais de um administrador)
     let aviso: "avisado" | "pendente" | null = null;

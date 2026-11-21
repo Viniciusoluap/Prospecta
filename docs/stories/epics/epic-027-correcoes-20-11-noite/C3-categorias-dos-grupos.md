@@ -3,7 +3,7 @@
 Status: InReview (ramo `epic027-d`; implementada, aguarda o portão de QA de segurança).
 Epic: EPIC-027 — Correções de 20/11/2026 (noite) (`EPIC.md`).
 Paridade: a Dolores é exceção (exclusiva do Prospecta); nada a portar para o Grupo Santa Fé.
-Migração: `drizzle/0139_dolores_grupos_classificar_pela_tela.sql` (troca a função do gatilho e acrescenta 2 colunas anuláveis; NÃO aplicada — aplicar no Neon
+Migração: `drizzle/0144_dolores_grupos_so_admin_classifica.sql` (só a função do gatilho; NÃO aplicada) sobre a `drizzle/0139_dolores_grupos_classificar_pela_tela.sql` (aplicada) (troca a função do gatilho e acrescenta 2 colunas anuláveis; NÃO aplicada — aplicar no Neon
 na publicação).
 
 ## Pedido do dono (prints de 20/11, noite) e decisões do EPIC
@@ -12,8 +12,22 @@ na publicação).
   diferentes (`grupo <código> cliente <nº> | jurídico | administrativo | parceiros | engenharia`).
 - Pergunta da Dolores ao dono com opções NUMERADAS (pode responder só com o número; o comando antigo continua).
 - Botão "Corrigir tipo ou vínculo" em TODO grupo aceito, inclusive "não identificado · aguardando o dono" (hoje só "Ignorar").
-- Classificar: admin e colaborador com o módulo WhatsApp. **Aceitar grupo recusado / sem prova continua só do dono pelo
+- Classificar: **SÓ o administrador** pela tela e o dono pelo WhatsApp (regra CORRIGIDA pelo dono em 21/11, abaixo). **Aceitar grupo recusado / sem prova continua só do dono pelo
   WhatsApp** (regra de 19/11).
+
+## Regra corrigida pelo dono (21/11/2026) — vale acima do que está riscado como histórico abaixo
+Palavras dele: "eu disse que o colaborador pode ter acesso às mensagens do grupo assim como as mensagens dos clientes, mas em
+nenhum momento eu falei que ele iria classificar". Portanto:
+- [x] `dolores.grupos.definirTipo` é só do admin por PAPEL (admin ativo); colaborador, com ou sem o módulo WhatsApp, recebe o
+      FORBIDDEN genérico do módulo ANTES de qualquer consulta (sem nome, código nem "existe/não existe"). Saíram a entrada do mapa
+      em `server/_core/trpc.ts`, `colaboradorPodeClassificar`, `TIPOS_DO_COLABORADOR`, as frases e toda a tela do colaborador.
+- [x] Gatilho (migração 0144, a 0139 já está em produção): fora de 'whatsapp:%', mudar tipo ou vínculo ou tirar o grupo de
+      'aguardando_dono' exige 'tela:<id de administrador ativo>'; qualquer outro valor → "só o administrador classifica o grupo
+      pela tela". A fila (ligar o grupo ao card aprovado) passa a gravar quem aprovou: 'whatsapp:fila:<id>' ou 'tela:<id>'.
+- [x] Portão da C2: a rota filtra pela instância da empresa e classificar pela tela não reativa grupo desativado.
+- Os achados 1, R2-* e R3-2 do colaborador (abaixo) ficam como histórico: a trava do colaborador foi substituída por "nunca".
+  Continuam valendo: aviso ao dono a cada classificação pela tela (com o vínculo), resposta numerada com 30 min e confirmação,
+  obra excluída → calado, `ligadoPorPadrao`, quadro de marcações.
 
 ## Critérios de aceite
 - [x] AC1: uma única fonte em `shared/dolores/grupos-tipo.ts` (`CATEGORIAS_GRUPO`: opção 1–6, tipo, rótulo, linha do que
@@ -29,7 +43,7 @@ na publicação).
 - [x] AC4: tela — todo grupo aceito tem "Definir tipo ou vínculo" (tipo indefinido) / "Corrigir tipo ou vínculo"; recusado e sem
       prova mostram só "o dono responde 'grupo CÓDIGO aceitar'" e "Ignorar este grupo". A lista de tipos mostra o número, o rótulo
       e a linha do que a categoria permite. Texto do topo do cartão simplificado, com a lista das 6 categorias.
-- [x] AC5: servidor — `dolores.grupos.definirTipo` aceita admin e colaborador com o módulo WhatsApp (mapa de procedimentos +
+- [x] AC5 (SUBSTITUÍDO pela regra de 21/11: só o admin): servidor — `dolores.grupos.definirTipo` aceitava admin e colaborador com o módulo WhatsApp (mapa de procedimentos +
       PAPEL); corretor, cliente e colaborador sem o módulo: FORBIDDEN. Colaborador não desativa ("ignorar") nem "aceitar". O
       resto de `dolores.*` continua só do admin.
 - [x] AC6: a tela nunca aceita grupo recusado/sem prova: `decidirGrupo` recusa "aceitar" e qualquer tipo para eles pela tela; o

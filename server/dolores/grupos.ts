@@ -17,6 +17,7 @@ import {
   doloresGrupoMensagens, doloresGrupos, doloresGruposConfig, doloresGruposContagem, type DoloresGrupo, type DoloresGruposConfig,
 } from "../../drizzle/schema-dolores-grupos.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
+import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { tipoEfetivo } from "../../shared/dolores/grupos-tipo.js";
 import {
   diaDeImperatriz, ehDocumento, jidDeGrupoValido, legendaSegura, lerMensagemDeGrupo, mensagemDeGrupoAntiga, nomeSeguroDeArquivo, type TipoMensagemGrupo,
@@ -165,10 +166,16 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
  * escrita da ação aprovada. Devolve false se o grupo já tinha vínculo ou não está ativo (aí nada muda).
  */
 export async function ligarGrupoAoCliente(tx: DrizzleDb, grupoId: number, leadId: number, userId: number | null, aprovacaoId: number | null = null): Promise<boolean> {
-  // Etapa 7: é decisão do dono (aprovou o item da fila) — grava a decisão junto (o gatilho só deixa o vínculo mudar assim)
+  // Etapa 7: é decisão de quem aprovou o item da fila — grava a decisão junto (o gatilho só deixa o vínculo mudar assim).
+  // EPIC-027 (0144, regra do dono de 21/11): o gatilho só aceita o dono no WhatsApp ('whatsapp:…') ou um admin ativo pela tela
+  // ('tela:<id>'); quem aprovou vem da própria aprovação. Sem aprovação conferida, nada muda (falha fechada).
+  if (!aprovacaoId) return false;
+  const [ap] = await tx.select({ via: doloresAprovacoes.decididoVia, por: doloresAprovacoes.decididoPorUserId }).from(doloresAprovacoes).where(eq(doloresAprovacoes.id, aprovacaoId)).limit(1);
+  const decididoPor = ap?.via === "whatsapp" ? `whatsapp:fila:${aprovacaoId}` : ap?.via === "tela" && ap.por ? `tela:${ap.por}` : null;
+  if (!decididoPor) return false;
   const agora = new Date();
   const r = await tx.update(doloresGrupos).set({ leadId, tipo: sql`CASE WHEN ${doloresGrupos.tipo} = 'pos_atendimento' THEN 'pos_atendimento' ELSE 'cliente' END`, situacaoConfirmacao: "confirmado", decididoEm: agora,
-    decididoPor: `fila:${aprovacaoId ?? "aprovada"}`.slice(0, 40), atualizadoEm: agora, atualizadoPorUserId: userId })
+    decididoPor: decididoPor.slice(0, 40), atualizadoEm: agora, atualizadoPorUserId: userId })
     .where(and(eq(doloresGrupos.id, grupoId), eq(doloresGrupos.ativo, true), isNull(doloresGrupos.leadId), isNull(doloresGrupos.obraId),
       // grupo interno (jurídico, administrativo, parceiros, engenharia) nunca vira grupo de cliente pela fila
       or(isNull(doloresGrupos.tipo), inArray(doloresGrupos.tipo, ["indefinido", "cliente", "pos_atendimento"])),
