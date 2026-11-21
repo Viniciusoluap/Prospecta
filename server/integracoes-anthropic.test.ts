@@ -266,6 +266,9 @@ describe("Anthropic — acesso e isolamento", () => {
       [path.join("server", "dolores", "router.ts")]: ["existeChaveAnthropicPainel"],
       [path.join("server", "dolores", "whatsapp.ts")]: ["configuracaoAnthropicPainel"],
       [path.join("server", "maquete-3d", "base.ts")]: ["configuracaoAnthropicPainel"],
+      // EPIC-027 C8 (21/11): proposta de logotipo da Incorporação — terceiro ponto nomeado (resolverCredencialLogotipo),
+      // só ao clicar em "Gerar logotipo com IA"; a tela só pergunta SE há chave (existeChaveAnthropicPainel).
+      [path.join("server", "incorporacao-logo-ia.ts")]: ["configuracaoAnthropicPainel", "existeChaveAnthropicPainel"],
     };
     const marcas = ["anthropic-painel", "anthropic_painel", "configuracaoAnthropicPainel", "CHAVE_SEGREDO_ANTHROPIC_PAINEL", "CHAVE_MODELO_ANTHROPIC_PAINEL"];
     const usam: string[] = [];
@@ -291,7 +294,7 @@ describe("Anthropic — acesso e isolamento", () => {
         if (imports.length !== 1 || nomes.some(n => !permitido.includes(n))) importacoesErradas.push(`${rel}: ${nomes.join(", ")}`);
         if (texto.includes("CHAVE_SEGREDO_ANTHROPIC_PAINEL") || texto.includes("anthropic_painel_api_key")) leemAChave.push(rel);
         const chamadas = texto.split("configuracaoAnthropicPainel(").length - 1;
-        const leChave = [path.join("server", "dolores", "whatsapp.ts"), path.join("server", "maquete-3d", "base.ts")].includes(rel);
+        const leChave = [path.join("server", "dolores", "whatsapp.ts"), path.join("server", "maquete-3d", "base.ts"), path.join("server", "incorporacao-logo-ia.ts")].includes(rel);
         if (leChave ? chamadas !== 1 : chamadas > 0) leemAChave.push(`${rel} (${chamadas} chamadas)`);
       }
     };
@@ -343,6 +346,20 @@ describe("Anthropic — acesso e isolamento", () => {
     expect(corpo).toContain("configuracaoAnthropicPainel()");
     expect(fonte).not.toMatch(/CHAVE_(SEGREDO|MODELO)_ANTHROPIC_PAINEL/);
     expect(fonte).not.toMatch(/ENV\.\w+\s*=[^=]/);
+  });
+
+  it("EPIC-027 C8: no logotipo, só resolverCredencialLogotipo lê a chave (uma chamada, sem ENV), e o resto só pergunta SE há chave", () => {
+    const fonte = readFileSync(path.resolve(import.meta.dirname, "incorporacao-logo-ia.ts"), "utf8");
+    expect(/import \{ configuracaoAnthropicPainel, existeChaveAnthropicPainel \} from "\.\/_core\/anthropic-painel\.js";/.test(fonte)).toBe(true);
+    expect(fonte.match(/configuracaoAnthropicPainel/g)).toHaveLength(2);
+    const corpo = fonte.slice(fonte.indexOf("export async function resolverCredencialLogotipo"), fonte.indexOf("export async function logotipoIaDisponivel"));
+    expect(corpo).toContain("configuracaoAnthropicPainel()");
+    expect(fonte).not.toMatch(/CHAVE_(SEGREDO|MODELO)_ANTHROPIC_PAINEL|anthropic_painel_api_key|\bENV\b|process\.env/);
+    // a chave não vai para log: só código HTTP e tipo do erro
+    expect(fonte).not.toMatch(/console\.\w+\([^)]*(apiKey|credencial|\.message)/);
+    // o router do logotipo não toca no módulo do painel
+    const router = readFileSync(path.resolve(import.meta.dirname, "incorporacao-logo-router.ts"), "utf8");
+    expect(router).not.toMatch(/anthropic-painel|configuracaoAnthropicPainel|imageGeneration/);
   });
 
   it("no router, só as rotas do painel usam o acessor (e nenhuma usa a função para uso futuro)", () => {

@@ -1,5 +1,7 @@
 // EPIC-024 S-02 — logotipo do empreendimento em Dados Gerais: enviar (PNG, JPG, SVG, PDF) ou gerar com IA,
 // pré-visualizar, aprovar, trocar e excluir. PDF e SVG viram PNG aqui no navegador; o servidor guarda as duas versões.
+// EPIC-027 C8: a IA (chave de Configurações › Integrações › Anthropic) devolve um SVG já limpo pelo servidor, que segue
+// o MESMO caminho do SVG enviado (vira PNG aqui, pré-visualização, aprovar ou gerar outra).
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -108,13 +110,14 @@ export function LogotipoEmpreendimento({ studyId }: { studyId: number }) {
   async function gerar() {
     setErro(null);
     setAvisoIa(null);
-    setOcupado("Gerando a proposta de logotipo...");
+    setOcupado("Gerando o logotipo… (pode levar até 40 segundos)");
     try {
       const r = await gerarIa.mutateAsync({ studyId });
       if (!r.ok) { setAvisoIa(r.motivo); return; }
       const bytes = Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0));
-      const nome = r.mime === "image/png" ? "logotipo-ia.png" : "logotipo-ia.jpg";
-      await preparar(new File([bytes], nome, { type: r.mime }), "ia");
+      if (previa) setPrevia(null);
+      await preparar(new File([bytes], "logotipo-ia.svg", { type: r.mime }), "ia");
+      if (r.restantes <= 1) setAvisoIa(r.restantes === 1 ? "Resta 1 proposta pela IA hoje." : "Esta foi a última proposta pela IA de hoje.");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao gerar o logotipo.");
     } finally {
@@ -156,6 +159,11 @@ export function LogotipoEmpreendimento({ studyId }: { studyId: number }) {
                 <Button type="button" onClick={aprovar} disabled={!!ocupado} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
                   Aprovar e salvar
                 </Button>
+                {previa.origem === "ia" && (
+                  <Button type="button" variant="outline" onClick={gerar} disabled={!!ocupado} className="border-[#C9A961]/40 bg-transparent text-white hover:bg-white/10">
+                    <Sparkles className="h-4 w-4 mr-1" /> Gerar outra
+                  </Button>
+                )}
                 <Button type="button" variant="outline" onClick={() => setPrevia(null)} disabled={!!ocupado} className="border-[#C9A961]/40 bg-transparent text-white hover:bg-white/10">
                   <X className="h-4 w-4 mr-1" /> Cancelar
                 </Button>
@@ -166,7 +174,7 @@ export function LogotipoEmpreendimento({ studyId }: { studyId: number }) {
               <Button type="button" onClick={() => inputRef.current?.click()} disabled={!!ocupado} className="bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold">
                 <Upload className="h-4 w-4 mr-1" /> {logo ? "Trocar logotipo" : "Enviar logotipo"}
               </Button>
-              <Button type="button" variant="outline" onClick={gerar} disabled={!!ocupado} className="border-[#C9A961]/40 bg-transparent text-white hover:bg-white/10">
+              <Button type="button" variant="outline" onClick={gerar} disabled={!!ocupado || ia?.disponivel === false} className="border-[#C9A961]/40 bg-transparent text-white hover:bg-white/10">
                 <Sparkles className="h-4 w-4 mr-1" /> Gerar logotipo com IA
               </Button>
               {logo && (
@@ -182,10 +190,10 @@ export function LogotipoEmpreendimento({ studyId }: { studyId: number }) {
             </div>
           )}
           <p className="text-xs text-gray-400">PNG, JPG, JPEG, SVG ou PDF, até 10 MB. PDF e SVG são convertidos em imagem para a exibição.</p>
-          {ia && !ia.disponivel && !avisoIa && (
-            <p className="text-xs text-amber-200">IA de imagem não configurada ({ia.faltando.join(" e ")} ausente).</p>
+          {ia && !ia.disponivel && !avisoIa && ia.motivo && (
+            <p className="text-xs text-amber-200">{ia.motivo}</p>
           )}
-          {ocupado && <p className="text-xs text-gray-300">{ocupado}</p>}
+          {ocupado && <p role="status" aria-live="polite" className="text-xs text-gray-300">{ocupado}</p>}
           {avisoIa && <p role="status" className="rounded border border-amber-400/40 bg-amber-500/10 p-2 text-xs text-amber-100">{avisoIa}</p>}
           {erro && <p role="alert" className="text-xs text-red-300">{erro}</p>}
         </div>
