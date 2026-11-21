@@ -55,3 +55,19 @@ escopo por tipo de grupo travado no servidor; chave da Anthropic lida só nos po
 
 ## Paridade (Grupo Santa Fé)
 Dolores e Maquete 3D são exceções. O que é da Central WhatsApp (C2, C6, C7) entra como pendência no ROADMAP.
+
+## Respostas do dono às dúvidas de 21/11/2026 (não perguntar de novo)
+Ele mandou PARAR publicações e migrações até repassar tudo; estas são as respostas dele, ponto a ponto:
+1. **Grupos na Central:** "quem já tem 'WhatsApp' marcado deve ver os grupos direto" — NÃO existe campo novo; vale o módulo WhatsApp do colaborador.
+2. Quem vê, vê TODOS os grupos (inclusive sócios e jurídico): sim. 3. Colaborador escreve nos grupos: sim. 4. Assumir/Devolver no grupo pelo colaborador: confirmado.
+5. Grupo aceito e com categoria nasce respondendo quando marcada, por qualquer pessoa do grupo: sim.
+6. Categoria só com o número (30 min; sócios e jurídico pedem "4 sim"): sim. 7. Obra excluída → grupo calado até reclassificar: sim.
+8. **Memória da Dolores: últimas 100 mensagens por 6 h** (era 10). Ele perguntou do Obsidian: não se aplica (arquivos locais do aparelho);
+   proposta em aberto, aguardando a resposta dele: memória de longo prazo dentro do sistema (fatos e preferências, com tela para ver/corrigir/apagar).
+9. Na E2, criar tarefa e anotar no cliente passam a pedir "pode": sim. 10. Ações sérias pedem "confirmo": sim.
+11. **Campanha pela YCloud: "eu ou colaborador se estiver marcado WhatsApp pra ele".** Interpretação adotada e informada a ele: o colaborador
+    dispara e vê o painel; chave, ligar/desligar e limites continuam só do admin.
+12. Mesmo modelo não se repete em menos de 7 dias; 200 por dia: sim. 13. Leitura da maquete pode levar minutos: sim. 14. Cancelar leitura por admin e colaborador com o módulo: sim.
+15. Nomes "da empresa" (Prospecta, Central Efficaz, Efficaz, VFX Capital): AGUARDANDO a resposta dele.
+**Correção de regra (21/11): classificar grupo é SÓ do admin (tela) e do dono (WhatsApp); colaborador só vê e escreve.**
+Publicação: uma frente por vez, com o teste do dono entre cada uma, e só com a liberação dele.
