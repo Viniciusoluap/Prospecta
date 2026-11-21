@@ -75,6 +75,12 @@ async function primeiraVez(chave: string): Promise<boolean> {
 
 // ── Quem pediu: o dono, provado pelo servidor ──
 
+/** Prova do @lid do dono vale por 10 min nesta instância (só positiva; muda o número do dono ou o grupo → outra chave). */
+const PROVA_DO_LID_MS = 10 * 60_000;
+const provasDoLid = new Map<string, number>();
+/** Só para testes: esquece as provas de @lid guardadas. */
+export function esquecerProvasDoLid() { provasDoLid.clear(); }
+
 /**
  * O remetente desta mensagem de grupo é o DONO? Número: comparação estrita (a mesma da conversa direta) e nunca o número da própria
  * Dolores. @lid: só se a lista de participantes da Evolution (fonte do servidor do WhatsApp; primeiro `/group/participants`, depois
@@ -86,6 +92,11 @@ export async function remetenteEhODono(cfg: DoloresWhatsappConfig, grupo: Dolore
   if (!r || !cfg.numeroDono || !cfg.instancia) return false;
   if (r.numero) return ehNumeroDoDono(r.numero, cfg.numeroDono) && !ehNumeroDoDono(r.numero, cfg.numeroDolores);
   if (grupo.situacaoConfirmacao === "recusado") return false;
+  // prova recente (desta instância) do mesmo @lid para o MESMO número do dono: não consulta de novo (e um terceiro que gaste as
+  // consultas da hora não cala o dono)
+  const chaveDaProva = `${cfg.numeroDono}|${grupo.id}|${r.lid}`;
+  const provada = provasDoLid.get(chaveDaProva);
+  if (provada && o.ms() - provada < PROVA_DO_LID_MS) return true;
   const restante = o.prazoFinal - o.ms() - MINIMO_PEDIDO_DONO_MS;
   if (restante < 1_500) return false;
   if (!(await vagaNoContador(`pd-lid:${grupo.id}:${o.agora.toISOString().slice(0, 13)}`, MAX_CONSULTAS_LID_DONO_HORA).catch(() => false))) return false;
@@ -107,7 +118,9 @@ export async function remetenteEhODono(cfg: DoloresWhatsappConfig, grupo: Dolore
   }
   if (numeros.size !== 1) return false;
   const [n] = Array.from(numeros);
-  return ehNumeroDoDono(n, cfg.numeroDono) && !ehNumeroDoDono(n, cfg.numeroDolores);
+  const ok = ehNumeroDoDono(n, cfg.numeroDono) && !ehNumeroDoDono(n, cfg.numeroDolores);
+  if (ok) { if (provasDoLid.size > 500) provasDoLid.clear(); provasDoLid.set(chaveDaProva, o.ms()); } else provasDoLid.delete(chaveDaProva);
+  return ok;
 }
 
 // ── O alvo, travado no próprio grupo ──

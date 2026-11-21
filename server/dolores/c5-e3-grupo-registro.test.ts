@@ -18,6 +18,7 @@ import { configEvolution } from "../whatsapp-router.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
+import { esquecerProvasDoLid } from "./grupo-pedido-dono.js";
 import { definirDependenciasMarcacao, type RespostaGrupo } from "./marcacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
@@ -93,6 +94,7 @@ beforeEach(async () => {
   for (const jid of [G_CLI, G_JUR, G_OUTRO]) await banco.pg.query(`INSERT INTO dolores_marcacoes_grupo (grupo_id, responder_ligado) VALUES ($1, true)`, [await grupoId(jid)]);
   ENV.cookieSecret = "segredo-do-servidor-de-teste-0123456789";
   esquecerUsuarioDolores();
+  esquecerProvasDoLid();
   agora = new Date(AGORA);
   definirDependenciasPonte({ agora: () => agora });
   definirDependenciasRoteamento({ agora: () => agora });
@@ -180,6 +182,7 @@ describe("o dono pede no grupo", () => {
     expect(noGrupo().map(x => x.texto)).toEqual([FRASE_ANOTADO]);
     // a Evolution passa a dizer que esse @lid é de outro número: não prova mais
     participantes = [{ id: LID_DONO, phoneNumber: `${EMPREITEIRO}@s.whatsapp.net` }];
+    esquecerProvasDoLid(); // a prova guardada vale 10 min nesta instância
     await noGrupoPede({ texto: "anota: agora não vale", participant: LID_DONO });
     expect(await fila()).toHaveLength(1);
   });
