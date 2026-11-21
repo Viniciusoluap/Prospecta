@@ -61,6 +61,7 @@ import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { funcaoLiberada } from "./permissoes.js";
 import type { Resultado } from "./leitura/comum.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
+import { grupoAssumidoPelaEquipe } from "./grupo-assumido.js";
 
 // ── Configuração ──
 
@@ -83,6 +84,8 @@ export async function lerConfigMarcacoes(): Promise<typeof CONFIG_MARCACOES_PADR
  * O interruptor GERAL continua valendo por cima (nasce desligado).
  */
 export async function grupoLigado(grupo: DoloresGrupo): Promise<boolean> {
+  // EPIC-027 C2: a equipe assumiu o grupo pela Central ("Assumir (humano)") — calada até devolverem, por cima do interruptor
+  if (await grupoAssumidoPelaEquipe(grupo.id)) return false;
   const [g] = await getDb().select({ ligado: doloresMarcacoesGrupo.responderLigado }).from(doloresMarcacoesGrupo).where(eq(doloresMarcacoesGrupo.grupoId, grupo.id)).limit(1);
   return g ? g.ligado === true : ligadoPorPadrao(grupo);
 }
