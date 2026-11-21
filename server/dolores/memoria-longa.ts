@@ -30,6 +30,11 @@ export const FRASE_MEMORIA_COM_INVISIVEL = "O texto tem caracteres invisíveis (
 export const FRASE_MEMORIA_TAMANHO = `O que eu guardo na memória tem de ser curto: de ${MIN_TEXTO_MEMORIA} a ${MAX_TEXTO_MEMORIA} caracteres.`;
 export const FRASE_MEMORIA_CHEIA = `A memória já tem ${MAX_MEMORIAS_ATIVAS} lembranças ativas; arquive alguma (Integrações › Memória da Dolores) antes de guardar outra.`;
 
+/** Chave PIX, agência, conta, banco… (sem acento, minúsculo). */
+const TERMO_BANCARIO = /\b(?:pix|agencia|ag|conta|cc|banco|bancaria|bancario|ted|doc|boleto|iban|swift)\b/;
+/** Número de 6 dígitos ou mais (com ou sem pontuação) ou um e-mail. */
+const NUMERO_OU_EMAIL = /\d(?:[\d.\-/ ]{4,}\d)|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
+
 export type TextoDaMemoria = { ok: true; texto: string; mascarou: boolean } | { ok: false; motivo: string };
 
 /**
@@ -43,6 +48,8 @@ export function textoDaMemoria(bruto: string | null | undefined): TextoDaMemoria
   const linha = textoDeDado(s, Number.MAX_SAFE_INTEGER);
   // segredo e dado bancário: o filtro de segurança sem a parte de dados pessoais mexeria no texto → recusa
   if (sanitizarTexto(linha, { mascararDadosPessoais: false }) !== linha) return { ok: false, motivo: FRASE_MEMORIA_COM_SEGREDO };
+  // mais estrito que o filtro geral (a memória volta à IA em toda conversa): termo bancário + número longo ou e-mail = dado bancário
+  if (TERMO_BANCARIO.test(normalizarMemoria(linha)) && NUMERO_OU_EMAIL.test(linha)) return { ok: false, motivo: FRASE_MEMORIA_COM_SEGREDO };
   if (tratarLinksDaResposta(linha, null) !== linha) return { ok: false, motivo: FRASE_MEMORIA_COM_LINK };
   const mascarado = textoDeDado(sanitizarTexto(linha, FILTRO_DO_REGISTRO), Number.MAX_SAFE_INTEGER);
   if (mascarado.trim().length < MIN_TEXTO_MEMORIA || mascarado.length > MAX_TEXTO_MEMORIA) return { ok: false, motivo: FRASE_MEMORIA_TAMANHO };

@@ -110,7 +110,8 @@ describe("regras puras", () => {
     for (const f of ["preparar_cobranca", "conciliar_nota_obra", "aceitar_grupo", "funcao_que_nao_existe"]) expect(nivelDoItem(f, {}), f).toBe("serio");
     // toda ação registrada tem um nível decidido (nenhuma cai no "desconhecido" por esquecimento, menos as sérias de propósito)
     const registro = ACOES.filter(a => nivelDoItem(a.nome, { tipo: "cliente", troca: false, ligado: false }) === "registro").map(a => a.nome).sort();
-    expect(registro).toEqual(["classificar_grupo", "criar_card_cliente", "criar_tarefa", "gerar_documento", "ignorar_grupo", "ligar_resposta_grupo", "registrar_acompanhamento", "salvar_documentos_grupo", "salvar_nota_obra"]);
+    // EPIC-027 C5 (memória de longo prazo): guardar/corrigir/esquecer_memoria também são "pode"
+    expect(registro).toEqual(["classificar_grupo", "corrigir_memoria", "criar_card_cliente", "criar_tarefa", "esquecer_memoria", "gerar_documento", "guardar_memoria", "ignorar_grupo", "ligar_resposta_grupo", "registrar_acompanhamento", "salvar_documentos_grupo", "salvar_nota_obra"]);
   });
 
   it("a pergunta não tem código nem a palavra \"código\" (o filtro de saída a trataria como senha)", () => {

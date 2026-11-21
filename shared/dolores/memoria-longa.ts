@@ -63,7 +63,8 @@ const palavrasDeConteudo = (s: string) => normalizarMemoria(s).split(/[^a-z0-9]+
  * documento não vira memória só porque o modelo o propôs. Texto sem palavra de conteúdo nenhuma: não serve.
  */
 export function veioDasPalavrasDoDono(texto: string, mensagemDoDono: string, extras: readonly string[] = []): boolean {
-  const conteudo = palavrasDeConteudo(texto);
+  // a máscara de dado pessoal ("(dado pessoal omitido)") é do sistema, não conta como palavra de ninguém
+  const conteudo = palavrasDeConteudo(String(texto ?? "").replace(/[([]dado pessoal omitido[)\]]/gi, " "));
   if (!conteudo.length) return false;
   const doDono = new Set([...palavrasDeConteudo(mensagemDoDono), ...extras.flatMap(palavrasDeConteudo)]);
   const presentes = conteudo.filter(p => doDono.has(p)).length;
