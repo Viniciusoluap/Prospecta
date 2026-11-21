@@ -3,14 +3,19 @@
 import { useMemo } from "react";
 import type { Edificacao } from "@shared/maquete-3d/modelo";
 import { ESPESSURA_LAJE, pavimentosOrdenados } from "@shared/maquete-3d/geometria3d";
-import { mobiliarPavimento, type PecaMobilia } from "@shared/maquete-3d/mobilia";
+import { mobiliarPavimento, pecasDoPavimento, type PecaMobilia } from "@shared/maquete-3d/mobilia";
 import { corDaLuz, type Estilo, type Materiais } from "./materiais";
 import { CATALOGO } from "./moveis";
 
 export type PecaNaCena = PecaMobilia & { y: number; chave: string };
 
-/** Toda a mobília da edificação, com a altura do andar (pavimento-tipo repete a mesma mobília em cada andar). */
-export function mobiliaDaEdificacao(e: Edificacao): PecaNaCena[] {
+/**
+ * Toda a mobília da edificação, com a altura do andar (pavimento-tipo repete a mesma mobília em cada andar).
+ * EPIC-028: quando a maquete tem itens gravados (ex.: os `itens` do JSON-fonte, `pecasDaFonte`), eles SUBSTITUEM a
+ * mobília automática; sem itens, nada muda.
+ */
+export function mobiliaDaEdificacao(e: Edificacao, itens?: (PecaMobilia & { y: number })[] | null): PecaNaCena[] {
+  if (itens && itens.length) return pecasDoPavimento(pavimentosOrdenados(e)[0], itens).map(p => ({ ...(p as PecaMobilia & { y: number }), chave: `item-${p.id}` }));
   return pavimentosOrdenados(e).flatMap(pv => {
     const pecas = mobiliarPavimento(pv);
     return Array.from({ length: pv.repeticoes }, (_, k) => pecas.map(p => ({ ...p, y: pv.nivel + k * (pv.peDireito + ESPESSURA_LAJE), chave: `${pv.id}-${k}-${p.id}` }))).flat();

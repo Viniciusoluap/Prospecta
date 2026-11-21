@@ -11,6 +11,9 @@ export const TIPOS_MOVEL = [
   "bancada_cozinha", "armario_aereo", "geladeira", "vaso_sanitario", "lavatorio", "espelho", "box_chuveiro",
   "tanque", "maquina_lavar", "armario_servico", "mesa_externa", "churrasqueira", "prateleira",
   "planta", "luminaria_piso", "quadro", "cortina", "pendente", "plafon", "carro",
+  // EPIC-028: balcão americano (base baixa + tampo em balanço), usado pelos itens do JSON-fonte; a mobília
+  // automática não o sorteia.
+  "balcao",
 ] as const;
 export type TipoMovel = (typeof TIPOS_MOVEL)[number];
 
@@ -415,3 +418,11 @@ export function mobiliarComodo(c: Comodo, pv: Pavimento): PecaMobilia[] {
 }
 
 export const mobiliarPavimento = (pv: Pavimento): PecaMobilia[] => pv.comodos.flatMap(c => mobiliarComodo(c, pv));
+
+/**
+ * EPIC-028: peças de um pavimento — os itens gravados da maquete (ex.: os `itens` do JSON-fonte) SUBSTITUEM a
+ * mobília automática; sem itens, vale a mobília automática de sempre.
+ */
+export function pecasDoPavimento<T extends PecaMobilia>(pv: Pavimento, itens?: T[] | null): (T | PecaMobilia)[] {
+  return itens && itens.length ? itens : mobiliarPavimento(pv);
+}

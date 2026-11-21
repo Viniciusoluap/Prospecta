@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -77,6 +78,9 @@ import BrokerPortal from "./pages/BrokerPortal";
 import EmpreiteiroPortal from "./pages/EmpreiteiroPortal";
 import { BrokerRoute } from "./components/BrokerRoute";
 import { LegacyRedirect } from "./components/LegacyRedirect";
+
+// EPIC-028: prévia do gerador da maquete (carregada sob demanda).
+const MaqueteDemo = lazy(() => import("./pages/MaqueteDemo"));
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -290,6 +294,10 @@ function Router() {
       </Route>
       {/* Link público da maquete entregue ao cliente (só maquete publicada pelo admin). */}
       <Route path="/maquete/:token" component={MaquetePublica} />
+      {/* EPIC-028 (Etapa 2): prévia do gerador a partir do JSON-fonte do repositório, sem banco (não é a rota pública do lote). */}
+      <Route path="/maquete-demo/:planta">
+        <Suspense fallback={null}><MaqueteDemo /></Suspense>
+      </Route>
       {/* Maquete 3D (EPIC-022, 14/11/2026): exclusivo do Prospecta. */}
       <Route path="/admin/maquete-3d">
         <AdminRoute module="maquete3d">

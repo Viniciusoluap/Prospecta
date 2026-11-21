@@ -1,0 +1,1267 @@
+{
+  "versao": 1,
+  "nome": "Lote 4, Quadra 18 — Bairro Vila Esmeralda (unidade habitacional térrea)",
+  "lote": {
+    "w": 5,
+    "d": 30,
+    "fonte": "planta",
+    "nota": "150,00 m² (carimbo). Cadeia: 0,15 | 10,00 | 9,45 | 10,25 | 0,15. Em z: de −10,15 (fundo) a 19,85 (rua)."
+  },
+  "niveis": {
+    "rua": {
+      "valor": 0,
+      "fonte": "planta"
+    },
+    "garagem": {
+      "valor": 0.2,
+      "fonte": "planta"
+    },
+    "externo": {
+      "valor": 0.35,
+      "fonte": "planta",
+      "nota": "Área de serviço e varanda."
+    },
+    "banheiro": {
+      "valor": 0.39,
+      "fonte": "planta"
+    },
+    "box": {
+      "valor": 0.38,
+      "fonte": "planta"
+    },
+    "interno": {
+      "valor": 0.4,
+      "fonte": "planta"
+    },
+    "forro": {
+      "valor": 3.2,
+      "fonte": "corte A",
+      "nota": "Pé-direito 2,80 (cortes A e B), forro de gesso."
+    }
+  },
+  "norte": {
+    "angulo": 0,
+    "fonte": "fachada norte",
+    "estimado": true,
+    "nota": "A fachada da rua é a fachada norte da prancha; a prancha não traz o ângulo exato."
+  },
+  "estrutura": {
+    "casa": {
+      "w": 5,
+      "d": 9.45,
+      "fonte": "planta",
+      "faixas_largura": [
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        },
+        {
+          "medida": 1.99,
+          "tipo": "ambiente",
+          "nome": "Cozinha / Sala"
+        },
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        },
+        {
+          "medida": 2.56,
+          "tipo": "ambiente",
+          "nome": "Quartos / hall e banheiro"
+        },
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        }
+      ],
+      "faixas_profundidade": [
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        },
+        {
+          "medida": 3.5,
+          "tipo": "ambiente",
+          "nome": "Quarto 1"
+        },
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        },
+        {
+          "medida": 1.85,
+          "tipo": "ambiente",
+          "nome": "Hall / banheiro"
+        },
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        },
+        {
+          "medida": 3.5,
+          "tipo": "ambiente",
+          "nome": "Quarto 2"
+        },
+        {
+          "medida": 0.15,
+          "tipo": "parede"
+        }
+      ],
+      "nota": "Profundidade pela cadeia do lado direito (cortes B: mesma cadeia)."
+    },
+    "paredes": [
+      {
+        "id": "par-fundo-q1",
+        "x1": 2.14,
+        "z1": 0.075,
+        "x2": 5,
+        "z2": 0.075,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Fundo do quarto 1 (faixa 0,15 da cadeia do lado direito)."
+      },
+      {
+        "id": "par-direita",
+        "x1": 4.925,
+        "z1": 0,
+        "x2": 4.925,
+        "z2": 9.45,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Divisa direita (faixa 0,15 da largura)."
+      },
+      {
+        "id": "par-frente-q2",
+        "x1": 2.14,
+        "z1": 9.375,
+        "x2": 5,
+        "z2": 9.375,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Frente do quarto 2."
+      },
+      {
+        "id": "par-esquerda",
+        "x1": 0.075,
+        "z1": 0.86,
+        "x2": 0.075,
+        "z2": 8.1,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Divisa esquerda: da cozinha (z 0,86) até a frente da sala (z 8,10)."
+      },
+      {
+        "id": "par-fundo-cozinha",
+        "x1": 0,
+        "z1": 0.935,
+        "x2": 2.14,
+        "z2": 0.935,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Cozinha × área de serviço; face em z 0,86 (prancha: 0,85 medido no desenho; protótipo 0,86)."
+      },
+      {
+        "id": "par-frente-sala",
+        "x1": 0,
+        "z1": 8.025,
+        "x2": 2.14,
+        "z2": 8.025,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Sala × varanda. Cadeia do lado esquerdo da prancha: 0,15|1,76|1,06|4,14|0,15 a partir de z 0,86 dá 7,97–8,12 (2 cm de diferença do protótipo; mantido o protótipo)."
+      },
+      {
+        "id": "par-cozinha-q1",
+        "x1": 2.215,
+        "z1": 0,
+        "x2": 2.215,
+        "z2": 3.8,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Cozinha × quarto 1 (faixa 0,15 entre 1,99 e 2,56)."
+      },
+      {
+        "id": "par-sala-q2",
+        "x1": 2.215,
+        "z1": 5.65,
+        "x2": 2.215,
+        "z2": 9.45,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Sala × quarto 2. Entre z 3,80 e 5,65 não há parede: a sala se abre para o hall."
+      },
+      {
+        "id": "par-q1-hall",
+        "x1": 2.29,
+        "z1": 3.725,
+        "x2": 4.85,
+        "z2": 3.725,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Quarto 1 × hall/banheiro."
+      },
+      {
+        "id": "par-hall-banho",
+        "x1": 3.275,
+        "z1": 3.8,
+        "x2": 3.275,
+        "z2": 5.65,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Hall (0,91) × banheiro (1,50)."
+      },
+      {
+        "id": "par-hall-q2",
+        "x1": 2.29,
+        "z1": 5.725,
+        "x2": 4.85,
+        "z2": 5.725,
+        "esp": 0.15,
+        "h": 2.8,
+        "base": 0.4,
+        "fonte": "planta",
+        "nota": "Hall/banheiro × quarto 2."
+      },
+      {
+        "id": "muro-fundo",
+        "x1": 0,
+        "z1": -10.075,
+        "x2": 5,
+        "z2": -10.075,
+        "esp": 0.15,
+        "h": 1.8,
+        "base": 0,
+        "fonte": "protótipo",
+        "muro": true,
+        "estimado": true,
+        "nota": "Posição pela planta (10,00 de quintal); altura de 1,80 m do protótipo, sem cota na prancha."
+      },
+      {
+        "id": "muro-esq-fundo",
+        "x1": 0.075,
+        "z1": -10.15,
+        "x2": 0.075,
+        "z2": 0.86,
+        "esp": 0.15,
+        "h": 1.8,
+        "base": 0,
+        "fonte": "protótipo",
+        "muro": true,
+        "estimado": true,
+        "nota": "Altura do protótipo; sem cota na prancha."
+      },
+      {
+        "id": "muro-dir-fundo",
+        "x1": 4.925,
+        "z1": -10.15,
+        "x2": 4.925,
+        "z2": 0,
+        "esp": 0.15,
+        "h": 1.8,
+        "base": 0,
+        "fonte": "protótipo",
+        "muro": true,
+        "estimado": true,
+        "nota": "Altura do protótipo; sem cota na prancha."
+      },
+      {
+        "id": "muro-esq-frente",
+        "x1": 0.075,
+        "z1": 8.1,
+        "x2": 0.075,
+        "z2": 19.85,
+        "esp": 0.15,
+        "h": 1.8,
+        "base": 0,
+        "fonte": "protótipo",
+        "muro": true,
+        "estimado": true,
+        "nota": "Altura do protótipo; sem cota na prancha."
+      },
+      {
+        "id": "muro-dir-frente",
+        "x1": 4.925,
+        "z1": 9.45,
+        "x2": 4.925,
+        "z2": 19.85,
+        "esp": 0.15,
+        "h": 1.8,
+        "base": 0,
+        "fonte": "protótipo",
+        "muro": true,
+        "estimado": true,
+        "nota": "Altura do protótipo; sem cota na prancha."
+      },
+      {
+        "id": "muro-frente",
+        "x1": 0,
+        "z1": 19.775,
+        "x2": 5,
+        "z2": 19.775,
+        "esp": 0.15,
+        "h": 3,
+        "base": 0,
+        "fonte": "fachada norte",
+        "muro": true,
+        "estimado": true,
+        "nota": "Fachada da rua: z pela planta (10,25 de recuo + 0,15). Altura ≈ 3,00 m medida no desenho da fachada norte (sem cota); o protótipo usa 1,80 m com o portão mais alto que o muro."
+      }
+    ],
+    "aberturas": [
+      {
+        "id": "j1-q1",
+        "codigo": "J1",
+        "tipo": "janela",
+        "parede": "par-fundo-q1",
+        "offset": 0.93,
+        "larg": 1,
+        "alt": 1.2,
+        "peitoril": 1.1,
+        "abertura": "correr",
+        "descricao": "Janela de correr 4 folhas (vidro)",
+        "fonte": "quadro de esquadrias",
+        "nota": "Posição: cotas 1,00 | 0,78 da planta (0,78 até a face interna da divisa direita)."
+      },
+      {
+        "id": "j1-cozinha",
+        "codigo": "J1",
+        "tipo": "janela",
+        "parede": "par-fundo-cozinha",
+        "offset": 0.98,
+        "larg": 1,
+        "alt": 1.2,
+        "peitoril": 1.1,
+        "abertura": "correr",
+        "descricao": "Janela de correr 4 folhas (vidro)",
+        "fonte": "protótipo",
+        "estimado": true,
+        "nota": "Medidas do quadro de esquadrias; posição sem cota na prancha (no desenho começa em x ≈ 1,00, junto ao pilarete)."
+      },
+      {
+        "id": "j1-q2",
+        "codigo": "J1",
+        "tipo": "janela",
+        "parede": "par-frente-q2",
+        "offset": 0.93,
+        "larg": 1,
+        "alt": 1.2,
+        "peitoril": 1.1,
+        "abertura": "correr",
+        "descricao": "Janela de correr 4 folhas (vidro)",
+        "fonte": "quadro de esquadrias",
+        "nota": "Posição: cota 0,78 da planta."
+      },
+      {
+        "id": "p3-cozinha",
+        "codigo": "P3",
+        "tipo": "porta",
+        "parede": "par-fundo-cozinha",
+        "offset": 0.24,
+        "larg": 0.6,
+        "alt": 2.1,
+        "peitoril": 0,
+        "abertura": "esq",
+        "abre_para": "Cozinha",
+        "descricao": "Porta de abrir (madeira), cozinha → área de serviço",
+        "fonte": "planta",
+        "nota": "Medidas do quadro de esquadrias; dobradiça junto à divisa esquerda, folha abre para dentro da cozinha (arco na planta). Posição medida no desenho (x 0,23–0,83); protótipo 0,24–0,84."
+      },
+      {
+        "id": "p4-q1",
+        "codigo": "P4",
+        "tipo": "porta",
+        "parede": "par-q1-hall",
+        "offset": 0.03,
+        "larg": 0.7,
+        "alt": 2.1,
+        "peitoril": 0,
+        "abertura": "esq",
+        "abre_para": "Quarto 1",
+        "descricao": "Porta de abrir (madeira)",
+        "fonte": "planta",
+        "nota": "Dobradiça do lado do hall (x 2,32), abre para o quarto 1. Posição do protótipo, conferida no desenho."
+      },
+      {
+        "id": "p4-q2",
+        "codigo": "P4",
+        "tipo": "porta",
+        "parede": "par-hall-q2",
+        "offset": 0.09,
+        "larg": 0.7,
+        "alt": 2.1,
+        "peitoril": 0,
+        "abertura": "esq",
+        "abre_para": "Quarto 2",
+        "descricao": "Porta de abrir (madeira)",
+        "fonte": "planta",
+        "nota": "Dobradiça do lado da sala (x 2,38), abre para o quarto 2. Posição do protótipo, conferida no desenho."
+      },
+      {
+        "id": "p3-banho",
+        "codigo": "P3",
+        "tipo": "porta",
+        "parede": "par-hall-banho",
+        "offset": 1.2,
+        "larg": 0.6,
+        "alt": 2.1,
+        "peitoril": 0,
+        "abertura": "dir",
+        "abre_para": "Banheiro",
+        "descricao": "Porta de abrir (madeira)",
+        "fonte": "planta",
+        "nota": "z 5,00–5,60; dobradiça do lado do quarto 2 (z 5,60), abre para dentro do banheiro (arco na planta)."
+      },
+      {
+        "id": "p2-sala",
+        "codigo": "P2",
+        "tipo": "porta",
+        "parede": "par-frente-sala",
+        "offset": 0.52,
+        "larg": 1.6,
+        "alt": 2.5,
+        "peitoril": 0,
+        "abertura": "correr",
+        "descricao": "Porta de correr com 2 painéis em alumínio e vidro (quadro: \"janela de correr\" de 1,60 × 2,50)",
+        "fonte": "quadro de esquadrias",
+        "nota": "Posição medida no desenho (x 0,53–2,13); protótipo 0,52–2,12."
+      },
+      {
+        "id": "pt1",
+        "codigo": "PT1",
+        "tipo": "portao",
+        "parede": "muro-frente",
+        "offset": 0.2,
+        "larg": 3,
+        "alt": 2.4,
+        "peitoril": 0,
+        "abertura": "correr",
+        "descricao": "Portão da garagem (de enrolar na fachada norte)",
+        "fonte": "planta",
+        "estimado": true,
+        "nota": "3,00 × 2,40 do quadro; posição medida no desenho (x ≈ 0,22–3,21). O protótipo põe o portão em x 1,00–4,00 e não tem a P1."
+      },
+      {
+        "id": "p1",
+        "codigo": "P1",
+        "tipo": "porta",
+        "parede": "muro-frente",
+        "offset": 3.7,
+        "larg": 1,
+        "alt": 2.5,
+        "peitoril": 0,
+        "abertura": "dir",
+        "abre_para": "Garagem e frente",
+        "descricao": "Porta pivotante (madeira), entrada de pedestres",
+        "fonte": "planta",
+        "estimado": true,
+        "nota": "1,00 × 2,50 do quadro; no muro da frente, à direita do portão (desenho: x ≈ 3,70–4,70, abre para dentro do lote). Pivotante tratada como de abrir pelo lado da dobradiça (conservador)."
+      }
+    ],
+    "ambientes": [
+      {
+        "nome": "Quarto 1",
+        "poligono": [
+          [
+            2.29,
+            0.15
+          ],
+          [
+            4.85,
+            0.15
+          ],
+          [
+            4.85,
+            3.65
+          ],
+          [
+            2.29,
+            3.65
+          ]
+        ],
+        "area_planta": 9.07,
+        "perimetro_planta": 12.2,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "2,56 × 3,50 pelas cotas. O quadro (9,07 m²; 12,20 m) corresponde a ≈ 2,57 × 3,53.",
+        "camera": {
+          "x": 2.75,
+          "z": 3.3,
+          "alvo": [
+            4.1,
+            1.0,
+            0.9
+          ],
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 2,55 z 3,50; afastada 20 cm da folha da P4 aberta (Etapa 2)."
+        }
+      },
+      {
+        "nome": "Quarto 2",
+        "poligono": [
+          [
+            2.29,
+            5.8
+          ],
+          [
+            4.85,
+            5.8
+          ],
+          [
+            4.85,
+            9.3
+          ],
+          [
+            2.29,
+            9.3
+          ]
+        ],
+        "area_planta": 9.07,
+        "perimetro_planta": 12.2,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "2,56 × 3,50 pelas cotas.",
+        "camera": {
+          "x": 2.75,
+          "z": 6.25,
+          "alvo": [
+            4.2,
+            1.0,
+            8.6
+          ],
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 2,60 z 6,05; afastada 20 cm da folha da P4 aberta (Etapa 2)."
+        }
+      },
+      {
+        "nome": "Cozinha",
+        "poligono": [
+          [
+            0.15,
+            1.01
+          ],
+          [
+            2.14,
+            1.01
+          ],
+          [
+            2.14,
+            3.65
+          ],
+          [
+            0.95,
+            3.65
+          ],
+          [
+            0.95,
+            3.8
+          ],
+          [
+            0.15,
+            3.8
+          ]
+        ],
+        "area_planta": 5.4,
+        "perimetro_planta": 9.37,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "1,99 × 2,64 mais a passagem de 0,80 para a sala. A faixa sob o balcão (1,19 × 0,15) fica fora do quadro, como na prancha.",
+        "camera": {
+          "x": 0.55,
+          "z": 3.55,
+          "alvo": [
+            1.7,
+            1.3,
+            1.3
+          ],
+          "fonte": "protótipo"
+        }
+      },
+      {
+        "nome": "Divisa cozinha/sala",
+        "poligono": [
+          [
+            0.95,
+            3.65
+          ],
+          [
+            2.14,
+            3.65
+          ],
+          [
+            2.14,
+            3.8
+          ],
+          [
+            0.95,
+            3.8
+          ]
+        ],
+        "area_planta": null,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "Faixa onde a prancha desenha o elemento de 1,19 m; agora é a base do balcão. Não está no quadro de ambientes."
+      },
+      {
+        "nome": "Sala",
+        "poligono": [
+          [
+            0.15,
+            3.8
+          ],
+          [
+            2.14,
+            3.8
+          ],
+          [
+            2.14,
+            7.95
+          ],
+          [
+            0.15,
+            7.95
+          ]
+        ],
+        "area_planta": 8.21,
+        "perimetro_planta": 12.24,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "Sala de estar/jantar, 1,99 × 4,15 (cadeia da prancha: 4,14).",
+        "camera": {
+          "x": 1.2,
+          "z": 7.75,
+          "alvo": [
+            1.25,
+            1.5,
+            3.6
+          ],
+          "fonte": "protótipo"
+        }
+      },
+      {
+        "nome": "Hall",
+        "poligono": [
+          [
+            2.17,
+            3.8
+          ],
+          [
+            3.2,
+            3.8
+          ],
+          [
+            3.2,
+            5.65
+          ],
+          [
+            2.17,
+            5.65
+          ]
+        ],
+        "area_planta": 1.9,
+        "perimetro_planta": 5.76,
+        "piso": 0.4,
+        "interno": true,
+        "fonte": "quadro de ambientes",
+        "estimado": true,
+        "nota": "A cota da prancha é 0,91 de largura (0,91 × 1,85 = 1,68 m², 11% abaixo do quadro). Área 1,90 e perímetro 5,76 do quadro só fecham com 1,03 × 1,85: o hall do quadro inclui parte da faixa sem parede entre o hall e a sala (x 2,14–2,29). Adotado x 2,17–3,20."
+      },
+      {
+        "nome": "Banheiro",
+        "poligono": [
+          [
+            3.35,
+            3.8
+          ],
+          [
+            4.85,
+            3.8
+          ],
+          [
+            4.85,
+            5.65
+          ],
+          [
+            3.35,
+            5.65
+          ]
+        ],
+        "area_planta": 2.78,
+        "perimetro_planta": 6.71,
+        "piso": 0.39,
+        "interno": true,
+        "fonte": "planta",
+        "nota": "1,50 × 1,85. Piso +0,39; box +0,38.",
+        "camera": {
+          "x": 3.62,
+          "z": 5.42,
+          "alvo": [
+            4.5,
+            0.9,
+            4.1
+          ],
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 3,30 (dentro da parede do hall); movida para dentro do banheiro, fora do batente (Etapa 2)."
+        }
+      },
+      {
+        "nome": "Área de serviço",
+        "poligono": [
+          [
+            0.15,
+            -0.47
+          ],
+          [
+            2.14,
+            -0.47
+          ],
+          [
+            2.14,
+            0.86
+          ],
+          [
+            0.15,
+            0.86
+          ]
+        ],
+        "area_planta": 2.64,
+        "perimetro_planta": 6.64,
+        "piso": 0.35,
+        "interno": false,
+        "fonte": "quadro de ambientes",
+        "estimado": true,
+        "nota": "Descoberta, atrás da cozinha. Largura 1,99 (cota); profundidade 1,33 tirada do perímetro do quadro (6,64 m): vai da calçada de fundo (z −0,47) à parede da cozinha (z 0,86). Protótipo: z −0,45.",
+        "camera": {
+          "x": 1.15,
+          "z": -2.6,
+          "alvo": [
+            1.15,
+            1.0,
+            0.5
+          ],
+          "fonte": "protótipo",
+          "nota": "Vista a partir do quintal, como no protótipo."
+        }
+      },
+      {
+        "nome": "Varanda",
+        "poligono": [
+          [
+            0.15,
+            8.1
+          ],
+          [
+            2.14,
+            8.1
+          ],
+          [
+            2.14,
+            9.45
+          ],
+          [
+            0.15,
+            9.45
+          ]
+        ],
+        "area_planta": null,
+        "piso": 0.35,
+        "interno": false,
+        "fonte": "planta",
+        "nota": "1,99 × 1,37 pela cota (o protótipo vai até a face da casa, 1,35)."
+      },
+      {
+        "nome": "Garagem e frente",
+        "poligono": [
+          [
+            0.15,
+            9.45
+          ],
+          [
+            4.85,
+            9.45
+          ],
+          [
+            4.85,
+            19.7
+          ],
+          [
+            0.15,
+            19.7
+          ]
+        ],
+        "area_planta": null,
+        "piso": 0.2,
+        "interno": false,
+        "fonte": "planta",
+        "nota": "Recuo frontal de 10,25 m; nível +0,20 da prancha. Inclui a faixa em frente à varanda.",
+        "camera": {
+          "x": 2.5,
+          "z": 19.4,
+          "alvo": [
+            2.4,
+            1.4,
+            9.0
+          ],
+          "fonte": "protótipo",
+          "nota": "Vista a partir do portão, olhando para a casa."
+        }
+      },
+      {
+        "nome": "Quintal",
+        "poligono": [
+          [
+            0.15,
+            -10
+          ],
+          [
+            4.85,
+            -10
+          ],
+          [
+            4.85,
+            0
+          ],
+          [
+            2.14,
+            0
+          ],
+          [
+            2.14,
+            -0.47
+          ],
+          [
+            0.15,
+            -0.47
+          ]
+        ],
+        "area_planta": null,
+        "piso": 0.2,
+        "interno": false,
+        "fonte": "planta",
+        "estimado": true,
+        "nota": "Fundo de 10,00 m; nível sem marca na prancha (adotado o da garagem)."
+      }
+    ],
+    "cobertura": {
+      "tipo": "duas_aguas",
+      "material": "telha de fibrocimento",
+      "inclinacao": 0.2,
+      "cumeeira": {
+        "eixo": "x",
+        "em": 4.725
+      },
+      "topo_paredes": 3.2,
+      "forro": "gesso",
+      "platibanda": {
+        "altura": 1.15,
+        "esp": 0.15
+      },
+      "calhas": true,
+      "fonte": "protótipo",
+      "nota": "Mantido o telhado do protótipo validado pelo dono. A prancha diverge: planta de cobertura marca 25% (não 20%), águas de 4,40 m, calhas de zinco no fundo e na frente e rufos nas divisas; o corte B dá 1,60 m de platibanda acima do forro (+3,20 → +4,80) e mostra laje acima do forro. Decisão pendente do dono."
+    }
+  },
+  "itens": [
+    {
+      "id": "bancada-pia",
+      "tipo": "bancada_cozinha",
+      "ambiente": "Cozinha",
+      "x": 1.545,
+      "z": 1.305,
+      "rot": 0,
+      "larg": 1.19,
+      "prof": 0.59,
+      "alt": 0.9,
+      "material": "granito",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "protótipo",
+      "opcoes": {
+        "pia": true
+      },
+      "nota": "Sob a J1. Na prancha a bancada começa em x ≈ 0,86, fora do giro da P3."
+    },
+    {
+      "id": "bancada-fogao",
+      "tipo": "bancada_cozinha",
+      "ambiente": "Cozinha",
+      "x": 1.845,
+      "z": 2.185,
+      "rot": 270,
+      "larg": 1.17,
+      "prof": 0.59,
+      "alt": 0.9,
+      "material": "granito",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "planta",
+      "opcoes": {
+        "cooktop": true
+      },
+      "estimado": true,
+      "nota": "Encostada no quarto 1. Termina em z 2,77 como na prancha (protótipo ia até 3,65 e ocupava o lugar da geladeira). Cooktop em z ≈ 2,05–2,60."
+    },
+    {
+      "id": "geladeira",
+      "tipo": "geladeira",
+      "ambiente": "Cozinha",
+      "x": 1.79,
+      "z": 3.3,
+      "rot": 270,
+      "larg": 0.7,
+      "prof": 0.7,
+      "alt": 1.8,
+      "material": "aço inox",
+      "cor": "#9aa0a4",
+      "editavel": true,
+      "fonte": "planta",
+      "estimado": true,
+      "nota": "Canto da cozinha junto ao balcão e à parede do quarto 1, onde a prancha desenha a geladeira (x ≈ 1,30–2,14, z ≈ 2,77–3,65). Medidas 0,70 × 0,70 × 1,80 estimadas. Saiu da frente da P3 (protótipo: x 0,15–0,85, z 1,01–1,70)."
+    },
+    {
+      "id": "balcao",
+      "tipo": "balcao",
+      "ambiente": "Cozinha",
+      "x": 1.545,
+      "z": 3.85,
+      "rot": 0,
+      "larg": 1.19,
+      "prof": 0.4,
+      "alt": 1.1,
+      "material": "granito",
+      "cor": "#e9e4da",
+      "editavel": true,
+      "fonte": "dono",
+      "alcanca": [
+        "Divisa cozinha/sala",
+        "Sala"
+      ],
+      "estimado": false,
+      "opcoes": {
+        "base_prof": 0.15,
+        "tampo_prof": 0.4
+      },
+      "nota": "Balcão americano no lugar da \"mureta\" de 1,19 m: base de 0,15 na linha z 3,65–3,80 e tampo de 0,40 avançando 0,25 para a sala. Altura 1,10 aprovada pelo dono em 21/11/2026 (a prancha não traz cota; o corte A desenha o elemento até o forro)."
+    },
+    {
+      "id": "mesa-jantar",
+      "tipo": "mesa_jantar",
+      "ambiente": "Sala",
+      "x": 1.15,
+      "z": 4.7,
+      "rot": 0,
+      "larg": 0.6,
+      "prof": 1.2,
+      "alt": 0.76,
+      "material": "madeira",
+      "cor": "#9c6c48",
+      "editavel": true,
+      "fonte": "protótipo",
+      "opcoes": {
+        "lugares": 4
+      }
+    },
+    {
+      "id": "cadeira-1",
+      "tipo": "cadeira",
+      "ambiente": "Sala",
+      "x": 0.55,
+      "z": 4.4,
+      "rot": 90,
+      "larg": 0.4,
+      "prof": 0.4,
+      "alt": 0.9,
+      "material": "tecido",
+      "cor": "#5d6872",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true,
+      "nota": "Altura com encosto estimada (protótipo: só o assento, 0,45)."
+    },
+    {
+      "id": "cadeira-2",
+      "tipo": "cadeira",
+      "ambiente": "Sala",
+      "x": 0.55,
+      "z": 5,
+      "rot": 90,
+      "larg": 0.4,
+      "prof": 0.4,
+      "alt": 0.9,
+      "material": "tecido",
+      "cor": "#5d6872",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true
+    },
+    {
+      "id": "cadeira-3",
+      "tipo": "cadeira",
+      "ambiente": "Sala",
+      "x": 1.75,
+      "z": 4.4,
+      "rot": 270,
+      "larg": 0.4,
+      "prof": 0.4,
+      "alt": 0.9,
+      "material": "tecido",
+      "cor": "#5d6872",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true
+    },
+    {
+      "id": "cadeira-4",
+      "tipo": "cadeira",
+      "ambiente": "Sala",
+      "x": 1.75,
+      "z": 5,
+      "rot": 270,
+      "larg": 0.4,
+      "prof": 0.4,
+      "alt": 0.9,
+      "material": "tecido",
+      "cor": "#5d6872",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true
+    },
+    {
+      "id": "sofa",
+      "tipo": "sofa",
+      "ambiente": "Sala",
+      "x": 0.55,
+      "z": 6.275,
+      "rot": 90,
+      "larg": 1.75,
+      "prof": 0.8,
+      "alt": 0.85,
+      "material": "tecido",
+      "cor": "#5d6872",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true,
+      "nota": "Encostado na divisa esquerda. Recuado para z 5,40–7,15 (protótipo 6,00–7,80; prancha ≈ 6,26–7,87) para liberar a faixa de 0,80 m em frente à P2."
+    },
+    {
+      "id": "rack-tv",
+      "tipo": "rack_tv",
+      "ambiente": "Sala",
+      "x": 1.995,
+      "z": 6.575,
+      "rot": 270,
+      "larg": 1.05,
+      "prof": 0.29,
+      "alt": 0.5,
+      "material": "madeira",
+      "cor": "#9c6c48",
+      "editavel": true,
+      "fonte": "protótipo",
+      "opcoes": {
+        "tv": true
+      },
+      "estimado": true,
+      "nota": "TV sobre o rack (protótipo: tela de 0,90 a 1,60 m). Recuado para z 6,05–7,10 (protótipo 6,30–7,40) pela faixa da P2."
+    },
+    {
+      "id": "cama-q1",
+      "tipo": "cama",
+      "ambiente": "Quarto 1",
+      "x": 3.69,
+      "z": 1.09,
+      "rot": 0,
+      "larg": 1.38,
+      "prof": 1.88,
+      "alt": 1,
+      "material": "tecido",
+      "cor": "#ece8df",
+      "editavel": true,
+      "fonte": "protótipo",
+      "opcoes": {
+        "casal": true
+      },
+      "nota": "Cabeceira (1,00 m) no fundo, sob a J1: abaixo do peitoril de 1,10."
+    },
+    {
+      "id": "criado-q1-a",
+      "tipo": "criado_mudo",
+      "ambiente": "Quarto 1",
+      "x": 2.725,
+      "z": 0.35,
+      "rot": 0,
+      "larg": 0.45,
+      "prof": 0.4,
+      "alt": 0.5,
+      "material": "madeira",
+      "cor": "#9c6c48",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "criado-q1-b",
+      "tipo": "criado_mudo",
+      "ambiente": "Quarto 1",
+      "x": 4.63,
+      "z": 0.35,
+      "rot": 0,
+      "larg": 0.4,
+      "prof": 0.4,
+      "alt": 0.5,
+      "material": "madeira",
+      "cor": "#9c6c48",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "cama-q2",
+      "tipo": "cama",
+      "ambiente": "Quarto 2",
+      "x": 3.91,
+      "z": 7.52,
+      "rot": 270,
+      "larg": 1.38,
+      "prof": 1.88,
+      "alt": 1,
+      "material": "tecido",
+      "cor": "#ece8df",
+      "editavel": true,
+      "fonte": "protótipo",
+      "opcoes": {
+        "casal": true
+      },
+      "nota": "Cabeceira na divisa direita."
+    },
+    {
+      "id": "criado-q2",
+      "tipo": "criado_mudo",
+      "ambiente": "Quarto 2",
+      "x": 4.615,
+      "z": 6.525,
+      "rot": 270,
+      "larg": 0.45,
+      "prof": 0.43,
+      "alt": 0.5,
+      "material": "madeira",
+      "cor": "#9c6c48",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "vaso",
+      "tipo": "vaso_sanitario",
+      "ambiente": "Banheiro",
+      "x": 3.7,
+      "z": 4.275,
+      "rot": 0,
+      "larg": 0.4,
+      "prof": 0.65,
+      "alt": 0.75,
+      "material": "louça",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "box",
+      "tipo": "box_chuveiro",
+      "ambiente": "Banheiro",
+      "x": 4.525,
+      "z": 4.225,
+      "rot": 0,
+      "larg": 0.65,
+      "prof": 0.85,
+      "alt": 2,
+      "material": "vidro",
+      "cor": "#9fc3d6",
+      "editavel": true,
+      "fonte": "protótipo",
+      "nota": "Piso do box +0,38."
+    },
+    {
+      "id": "lavatorio",
+      "tipo": "lavatorio",
+      "ambiente": "Banheiro",
+      "x": 4.625,
+      "z": 5.275,
+      "rot": 270,
+      "larg": 0.45,
+      "prof": 0.45,
+      "alt": 0.85,
+      "material": "louça",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "tanque",
+      "tipo": "tanque",
+      "ambiente": "Área de serviço",
+      "x": 1.125,
+      "z": 0.5,
+      "rot": 180,
+      "larg": 0.55,
+      "prof": 0.6,
+      "alt": 0.85,
+      "material": "louça",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "maquina-lavar",
+      "tipo": "maquina_lavar",
+      "ambiente": "Área de serviço",
+      "x": 1.75,
+      "z": 0.5,
+      "rot": 180,
+      "larg": 0.6,
+      "prof": 0.6,
+      "alt": 0.9,
+      "material": "metal",
+      "cor": "#fafafa",
+      "editavel": true,
+      "fonte": "protótipo"
+    },
+    {
+      "id": "carro",
+      "tipo": "carro",
+      "ambiente": "Garagem e frente",
+      "x": 2.5,
+      "z": 14.1,
+      "rot": 0,
+      "larg": 1.8,
+      "prof": 4.2,
+      "alt": 1.4,
+      "material": "pintura",
+      "cor": "#3f6f8f",
+      "editavel": true,
+      "fonte": "protótipo",
+      "estimado": true,
+      "nota": "Ilustrativo (vaga coberta pelo recuo frontal)."
+    }
+  ]
+}
