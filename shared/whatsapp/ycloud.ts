@@ -225,3 +225,140 @@ export const ROTULO_STATUS_ENVIO: Record<string, string> = {
   na_fila: "Na fila", enviando: "Enviando", aceita: "Aceita pela YCloud", enviada: "Enviada", entregue: "Entregue", lida: "Lida",
   falhou: "Falhou", incerto: "Incerto (conferir)",
 };
+
+// ── C7.2 (21/11/2026): criar modelo pelo Prospecta (sem o painel da YCloud) ──
+// Fonte do formato: https://docs.ycloud.com/api-reference/whatsapp-templates/create-a-template.md (POST /whatsapp/templates):
+// wabaId, name (até 512, minúsculas e dígitos — o exemplo da própria documentação usa "_"), language, category (MARKETING / UTILITY /
+// AUTHENTICATION), components: BODY obrigatório (até 1024 caracteres; com variável, `example.body_text` = [[um valor por variável]]),
+// FOOTER opcional (até 60 caracteres, só texto).
+// Regras da Meta para variáveis (guia de modelos da Meta, referido pela documentação da YCloud): posicionais {{1}}, {{2}}… em
+// sequência, cada uma com exemplo; o corpo não começa nem termina com variável; duas variáveis não ficam coladas.
+
+export const IDIOMA_MODELO = "pt_BR";
+export const CATEGORIAS_NOVO_MODELO = ["MARKETING", "UTILITY"] as const;
+export type CategoriaNovoModelo = (typeof CATEGORIAS_NOVO_MODELO)[number];
+export const MAX_CORPO_MODELO = 1024;
+export const MAX_RODAPE_MODELO = 60;
+export const MAX_NOME_MODELO = 512;
+export const MAX_VARIAVEIS_MODELO = 20;
+
+export type NovoModelo = { nome: string; categoria: CategoriaNovoModelo; corpo: string; exemplos: string[]; rodape?: string | null };
+
+/** O modelo padrão que o servidor envia sozinho, uma vez, quando a conta não tem modelo de marketing em pt_BR (pedido do dono, 21/11). */
+export const MODELO_PADRAO: NovoModelo = {
+  nome: "novidades_prospecta",
+  categoria: "MARKETING",
+  corpo: "Olá, {{1}}! Aqui é da Prospecta. Temos novidades em imóveis financiados e construção na sua região. Quer que um consultor te mande os detalhes? Responda SIM. Para não receber mais, responda SAIR.",
+  exemplos: ["Maria"],
+  rodape: null,
+};
+
+/** Problemas do modelo (vazio = pode enviar para aprovação). Mesma regra no servidor (quem decide) e na tela (só avisa antes). */
+export function problemasDoNovoModelo(m: NovoModelo): string[] {
+  const p: string[] = [];
+  const nome = String(m.nome ?? "");
+  if (!nome) p.push("Dê um nome ao modelo.");
+  else if (nome.length > MAX_NOME_MODELO || !/^[a-z0-9_]+$/.test(nome)) p.push("Nome: só letras minúsculas sem acento, números e \"_\" (ex.: novidades_jardim).");
+  if (!(CATEGORIAS_NOVO_MODELO as readonly string[]).includes(m.categoria)) p.push("Categoria: Marketing ou Utilidade.");
+  const corpo = String(m.corpo ?? "");
+  if (!corpo.trim()) p.push("Escreva o texto da mensagem.");
+  if (corpo.length > MAX_CORPO_MODELO) p.push(`O texto passa de ${MAX_CORPO_MODELO} caracteres.`);
+  const ps = placeholders(corpo);
+  if (ps.some(x => !/^\d+$/.test(x))) p.push("Use só variáveis numeradas: {{1}}, {{2}}…");
+  else {
+    const nums = ps.map(Number);
+    const distintos = Array.from(new Set(nums)).sort((a, b) => a - b);
+    if (distintos.length > MAX_VARIAVEIS_MODELO) p.push(`No máximo ${MAX_VARIAVEIS_MODELO} variáveis.`);
+    if (!distintos.every((n, i) => n === i + 1)) p.push("As variáveis precisam estar em sequência, começando em {{1}} ({{1}}, {{2}}, {{3}}…).");
+    else if (nums.length !== distintos.length) p.push("Cada variável aparece uma vez só no texto.");
+    else if (!nums.every((n, i) => n === i + 1)) p.push("As variáveis aparecem no texto na ordem: primeiro {{1}}, depois {{2}}…");
+    if (ps.length) {
+      const t = corpo.trim();
+      if (/^\{\{[^{}]*\}\}/.test(t)) p.push("O texto não pode começar com uma variável.");
+      if (/\{\{[^{}]*\}\}[\s.!?…]*$/.test(t)) p.push("O texto não pode terminar com uma variável.");
+      if (/\}\}\s*\{\{/.test(corpo)) p.push("Duas variáveis não podem ficar coladas: ponha texto entre elas.");
+    }
+    // precaução nossa (a Meta recusa texto com espaçamento exagerado): no máximo uma linha em branco seguida
+    if (/\n[ \t]*\n[ \t]*\n/.test(corpo)) p.push("Quebra de linha em excesso: deixe no máximo uma linha em branco seguida.");
+    const exemplos = Array.isArray(m.exemplos) ? m.exemplos : [];
+    if (exemplos.length !== distintos.length) p.push("Dê um exemplo para cada variável (a Meta exige para analisar).");
+    exemplos.forEach((e, i) => {
+      const prob = problemaDoParametro(String(e ?? ""), 200);
+      if (prob) p.push(`Exemplo de {{${i + 1}}}: ${prob}.`);
+    });
+  }
+  const rodape = String(m.rodape ?? "");
+  if (rodape) {
+    if (rodape.length > MAX_RODAPE_MODELO) p.push(`O rodapé passa de ${MAX_RODAPE_MODELO} caracteres.`);
+    if (placeholders(rodape).length) p.push("O rodapé não pode ter variável.");
+    if (/[\n\r]/.test(rodape)) p.push("O rodapé fica numa linha só.");
+  }
+  return p;
+}
+
+/** `components` de POST /whatsapp/templates (formato da documentação da YCloud). */
+export function componentesDoNovoModelo(m: NovoModelo):
+  Array<{ type: "BODY"; text: string; example?: { body_text: string[][] } } | { type: "FOOTER"; text: string }> {
+  const exemplos = (m.exemplos ?? []).map(e => String(e).trim());
+  const rodape = String(m.rodape ?? "").trim();
+  return [
+    { type: "BODY", text: m.corpo.trim(), ...(exemplos.length ? { example: { body_text: [exemplos] } } : {}) },
+    ...(rodape ? [{ type: "FOOTER" as const, text: rodape }] : []),
+  ];
+}
+
+/** "Já existe modelo de marketing em pt_BR" (qualquer situação, menos apagado) — com ele, o servidor não cria o padrão. */
+export function temModeloDeMarketingPtBr(lista: Array<{ name?: string; language?: string; category?: string; status?: string }>): boolean {
+  return lista.some(m => m.language === IDIOMA_MODELO && ((m.category === "MARKETING" && m.status !== "DELETED") || m.name === MODELO_PADRAO.nome));
+}
+
+// ── C7.2 (pedido do dono, 21/11): o template da Central vira modelo da API oficial, sem botão novo ──
+// As variáveis nomeadas da Central ({{nome}}, {{corretor}}…) viram {{1}}, {{2}}… na ordem em que aparecem; o mapeamento
+// (posição → nome) fica guardado para a campanha preencher depois. Os exemplos que a Meta exige saem sozinhos.
+
+export const EXEMPLO_POR_VARIAVEL: Record<string, string> = {
+  nome: "Maria", corretor: "João", dia: "25/11", horario: "14h", servicos: "financiamento", servico: "financiamento",
+};
+export const exemploDaVariavel = (v: string) => EXEMPLO_POR_VARIAVEL[v] ?? "exemplo";
+
+/** Variáveis que a campanha pela API oficial preenche sozinha, a partir do cadastro do contato. */
+export const FONTE_AUTOMATICA_DA_VARIAVEL: Record<string, "primeiro_nome"> = { nome: "primeiro_nome" };
+
+const VARIAVEL_NOMEADA = /\{\{\s*([a-zA-Z_]+)\s*\}\}/g;
+export const MAX_NOME_MODELO_DO_TEMPLATE = 60;
+
+/** Nome do modelo na YCloud a partir do nome do template: minúsculas sem acento, dígitos e "_" (ex.: "Follow-up 48h" → "follow_up_48h"). */
+export function nomeDoModeloDoTemplate(nomeTemplate: string, templateId: number, versao = 1): string {
+  const base = String(nomeTemplate ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, MAX_NOME_MODELO_DO_TEMPLATE - 8).replace(/_+$/g, "") || `modelo_${templateId}`;
+  return versao > 1 ? `${base}_v${versao}` : base;
+}
+
+export type ConversaoDoTemplate =
+  | { ok: true; modelo: NovoModelo; variaveis: string[] }
+  | { ok: false; problemas: string[] };
+
+/** Converte o texto do template da Central no modelo da API oficial e confere as regras da Meta. */
+export function converterTemplateParaModelo(p: { conteudo: string; nomeModelo: string; categoria: CategoriaNovoModelo }): ConversaoDoTemplate {
+  const problemas: string[] = [];
+  const conteudo = String(p.conteudo ?? "").replace(/\r\n?/g, "\n");
+  if (placeholders(conteudo).some(x => !/^[a-zA-Z_]+$/.test(x))) {
+    problemas.push("Use só as variáveis da Central ({{nome}}, {{corretor}}…); variáveis numeradas não são aceitas aqui.");
+  }
+  const variaveis: string[] = [];
+  const corpo = conteudo.replace(VARIAVEL_NOMEADA, (_m, nome: string) => {
+    const v = nome.toLowerCase();
+    if (variaveis.includes(v)) {
+      if (!problemas.some(x => x.includes(`{{${v}}}`))) problemas.push(`A variável {{${v}}} aparece mais de uma vez: na API oficial cada variável aparece uma vez só.`);
+      return `{{${variaveis.indexOf(v) + 1}}}`;
+    }
+    variaveis.push(v);
+    return `{{${variaveis.length}}}`;
+  });
+  if (problemas.length) return { ok: false, problemas };
+  const modelo: NovoModelo = { nome: p.nomeModelo, categoria: p.categoria, corpo, exemplos: variaveis.map(exemploDaVariavel), rodape: null };
+  const regras = problemasDoNovoModelo(modelo).map(x => x
+    .replace("O texto não pode começar com uma variável.", "O texto não pode começar com uma variável (ex.: comece com \"Olá,\" antes de {{nome}}).")
+    .replace("O texto não pode terminar com uma variável.", "O texto não pode terminar com uma variável: acrescente uma frase depois dela."));
+  return regras.length ? { ok: false, problemas: regras } : { ok: true, modelo, variaveis };
+}

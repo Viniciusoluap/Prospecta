@@ -45,7 +45,8 @@ export default function AdminWhatsApp() {
   const [selectedTemplate, setSelectedTemplate] = useState<WhatsappTemplate | null>(null);
   const [mensagem, setMensagem] = useState("");
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
-  const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
+  // EPIC-027 C7.2: `apiOficial` = "Usar também em campanha pela API oficial" (só admin), com a categoria da Meta
+  const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string; apiOficial?: { categoria: "MARKETING" | "UTILITY" } } | null>(null);
   // EPIC-027 C7.1 (21/11): "Campanha pela API oficial" (YCloud) para quem pode operar — admin ou colaborador com o módulo WhatsApp
   // (decisão do dono). A tela só esconde; quem decide é o servidor. A configuração da integração continua só do admin.
   const podeCampanhaOficial = podeOperarCampanhaOficial({ perfil: role, ativo: user?.active ?? true, permissoes: parsePermissions(user?.permissions) });
@@ -64,9 +65,17 @@ export default function AdminWhatsApp() {
   const templatesQuery = trpc.whatsapp.templates.useQuery();
   const servicosQuery = trpc.whatsapp.servicosDisponiveis.useQuery();
   const templates = templatesQuery.data ?? [];
+  const situacaoOficial = trpc.whatsappOficial.situacaoDosTemplates.useQuery(undefined, { enabled: role === "admin" && activeTab === "templates", retry: false });
+  const oficialDoTemplate = (id: string) => (/^\d+$/.test(id) ? situacaoOficial.data?.find(x => x.templateId === Number(id)) ?? null : null);
   const salvarTemplate = trpc.whatsapp.salvarTemplate.useMutation({
-    onSuccess: () => { toast.success("Template salvo."); setEditor(null); utils.whatsapp.templates.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: (r) => {
+      const o = r.apiOficial;
+      if (!o) toast.success("Template salvo.");
+      else if (!o.ok) toast.error(o.motivo ?? "O template foi salvo, mas não foi enviado para a API oficial.", { duration: 12_000 });
+      else toast.success(o.repetido ? `Template salvo. O modelo "${o.nome}" já tinha sido enviado com este texto.` : `Template salvo e enviado para aprovação da Meta como "${o.nome}". A análise costuma levar de minutos a algumas horas.`);
+      setEditor(null); utils.whatsapp.templates.invalidate(); void utils.whatsappOficial.situacaoDosTemplates.invalidate();
+    },
+    onError: (e) => toast.error(e.message, { duration: 12_000 }),
   });
 
   const enviar = trpc.whatsapp.enviar.useMutation();
@@ -368,6 +377,27 @@ export default function AdminWhatsApp() {
                   </div>
                   <div><Label className="text-gray-300">Conteúdo</Label><textarea rows={7} className={`${inputCls} mt-1 w-full rounded-md px-3 py-2 text-sm`} value={editor.conteudo} onChange={e => setEditor({ ...editor, conteudo: e.target.value })} /></div>
                   <p className="whitespace-pre-wrap rounded bg-[#1A2332] p-3 text-xs text-gray-300"><b className="text-[#C9A961]">Prévia:</b><br />{editor.conteudo || "Digite o conteúdo do template."}</p>
+                  {role === "admin" && (() => {
+                    const ja = editor.id ? situacaoOficial.data?.find(x => x.templateId === editor.id) ?? null : null;
+                    return (
+                      <div className="space-y-2 rounded border border-[#C9A961]/20 bg-[#1A2332] p-3 text-xs text-gray-300">
+                        <label className="flex items-start gap-2">
+                          <input type="checkbox" className="mt-0.5" checked={!!editor.apiOficial} onChange={e => setEditor({ ...editor, apiOficial: e.target.checked ? { categoria: ja?.categoria ?? "MARKETING" } : undefined })} />
+                          <span>Usar também em campanha pela API oficial (enviar para aprovação da Meta)</span>
+                        </label>
+                        {editor.apiOficial && <>
+                          <div className="flex items-center gap-2"><span>Categoria na Meta:</span>
+                            <select value={editor.apiOficial.categoria} onChange={e => setEditor({ ...editor, apiOficial: { categoria: e.target.value as "MARKETING" | "UTILITY" } })} className={`${inputCls} rounded-md px-2 py-1 text-xs`}>
+                              <option value="MARKETING">Marketing (novidades, ofertas, convites)</option>
+                              <option value="UTILITY">Utilidade (andamento de um atendimento já combinado)</option>
+                            </select>
+                          </div>
+                          <p className="text-[11px] text-gray-400">As variáveis ({"{{nome}}"}, {"{{corretor}}"}…) viram {"{{1}}"}, {"{{2}}"}… na ordem em que aparecem; os exemplos que a Meta pede são preenchidos sozinhos. O texto não pode começar nem terminar com variável, e cada variável aparece uma vez.</p>
+                        </>}
+                        {ja && <p className="text-[11px] text-yellow-200">Já enviado como "{ja.nome}" ({ja.statusRotulo ?? "situação não consultada"}). Se mudar o texto e salvar com a opção marcada, ele vai de novo para aprovação da Meta (como nova versão); até a aprovação, a campanha usa o modelo já aprovado.</p>}
+                      </div>
+                    );
+                  })()}
                   <div className="flex gap-2"><Button disabled={salvarTemplate.isPending || editor.nome.trim().length < 2 || editor.categoria.trim().length < 2 || editor.conteudo.trim().length < 2} onClick={() => salvarTemplate.mutate(editor)} className="bg-green-600 hover:bg-green-700"><Save className="mr-2 h-4 w-4" />Salvar</Button><Button variant="outline" onClick={() => setEditor(null)}>Cancelar</Button></div>
                 </CardContent>
               </Card>
@@ -378,9 +408,21 @@ export default function AdminWhatsApp() {
                   <CardContent className="p-5">
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div><p className="text-sm font-bold text-white">{t.name}</p><span className="rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{t.category}</span></div>
-                      <Button size="sm" variant="outline" onClick={() => setEditor({ id: /^\d+$/.test(t.id) ? Number(t.id) : undefined, nome: t.name, categoria: t.category, conteudo: t.body })}>Editar</Button>
+                      <Button size="sm" variant="outline" onClick={() => { const o = oficialDoTemplate(t.id); setEditor({ id: /^\d+$/.test(t.id) ? Number(t.id) : undefined, nome: t.name, categoria: t.category, conteudo: t.body, ...(o ? { apiOficial: { categoria: o.categoria } } : {}) }); }}>Editar</Button>
                     </div>
                     <p className="mt-3 whitespace-pre-line text-xs leading-relaxed text-gray-400">{t.body}</p>
+                    {(() => {
+                      const o = oficialDoTemplate(t.id);
+                      if (!o) return null;
+                      return (
+                        <div className="mt-3 rounded border border-[#C9A961]/20 bg-[#1A2332] p-2 text-[11px]">
+                          <p>API oficial: <b className="text-white">{o.nome}</b> ·{" "}
+                            <span className={o.status === "APPROVED" ? "text-green-300" : o.status === "REJECTED" ? "text-red-300" : "text-yellow-200"}>{o.statusRotulo ?? "situação não consultada"}</span></p>
+                          {o.motivoRecusa && <p className="text-red-200">Motivo da recusa: {o.motivoRecusa}</p>}
+                          {o.textoMudou && <p className="text-orange-200">O texto mudou depois do envio: abra "Editar", marque a opção da API oficial e salve para reenviar à aprovação.</p>}
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               ))}

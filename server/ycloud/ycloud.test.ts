@@ -493,6 +493,7 @@ const ROTAS_ADMINISTRAR: Record<string, (c: C) => Promise<unknown>> = {
   salvarSegredoAvisos: c => c.whatsappOficial.salvarSegredoAvisos({ segredo: "y".repeat(24) }),
   salvarConfig: c => c.whatsappOficial.salvarConfig({ tetoDia: 50 }),
   auditoria: c => c.whatsappOficial.auditoria(),
+  situacaoDosTemplates: c => c.whatsappOficial.situacaoDosTemplates(),
 };
 const ROTAS_OPERAR: Record<string, (c: C) => Promise<unknown>> = {
   prontidao: c => c.whatsappOficial.prontidao(),

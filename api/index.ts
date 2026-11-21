@@ -42,7 +42,9 @@ import doloresPonteRotas from "../server/dolores/ponte.js";
 import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 // EPIC-025 E6 (17/11): rondas e relatório diário da Dolores (cron próprio, CRON_SECRET em tempo constante).
-import { tratarCronDolores } from "../server/dolores/rondas.js";
+import { cronAutorizado, tratarCronDolores } from "../server/dolores/rondas.js";
+// EPIC-027 C7.2 (21/11): modelo padrão da API oficial (YCloud) enviado para aprovação pelo próprio servidor, uma vez, nos crons.
+import { garantirModeloPadrao } from "../server/ycloud/modelos.js";
 import { CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
 
@@ -187,7 +189,9 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
       console.error("[cron/central-vendas]", e instanceof Error ? e.message : "falha");
       return { erro: true };
     });
-    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
+    // EPIC-027 C7.2: modelo padrão da API oficial (uma vez; no máximo 1 tentativa por dia e 3 no total; nunca lança).
+    const modeloPadrao = (await garantirModeloPadrao({ origem: "cron" })).r;
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, modeloPadrao });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
@@ -200,6 +204,9 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
 app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   try {
+    // EPIC-027 C7.2: de hora em hora (07h–14h de Brasília), só com o segredo do cron: o modelo padrão sai na primeira hora em que
+    // a integração está pronta. Uma consulta rápida quando já foi feito; nunca lança nem muda a resposta da Dolores.
+    if (cronAutorizado(req.headers.authorization)) await garantirModeloPadrao({ origem: "cron" });
     const r = await tratarCronDolores(req);
     return res.status(r.status).json(r.body);
   } catch (err) {

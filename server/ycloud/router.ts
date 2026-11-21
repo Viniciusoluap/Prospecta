@@ -16,7 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc.js";
 import { parsePermissions } from "../../shared/admin-permissions.js";
-import { ErroYcloud, criarEndpointYcloud, listarNumerosYcloud, semSegredo } from "../_core/ycloud.js";
+import { ErroYcloud, criarEndpointYcloud, listarModelosYcloud, listarNumerosYcloud, semSegredo } from "../_core/ycloud.js";
 import {
   MAX_DESTINATARIOS_CAMPANHA, ROTULO_QUALIDADE, ROTULO_STATUS_NUMERO, podeAdministrarIntegracaoOficial, podeOperarCampanhaOficial,
 } from "../../shared/whatsapp/ycloud.js";
@@ -29,6 +29,7 @@ import {
   lerConfigYcloud, listarAuditoriaYcloud, normalizarChaveYcloud, type AutorYcloud, normalizarSegredoWebhook, segredoWebhookYcloud, urlWebhookYcloud,
 } from "./config.js";
 import { conferirNumeroYcloud, escolherNumeroDaEmpresa, modelosDaConta } from "./conta.js";
+import { estadoModeloPadrao, situacaoDosTemplates } from "./modelos.js";
 import * as db from "../db.js";
 
 /** Administrar a integração: só admin ativo, por papel (o módulo não basta). */
@@ -96,6 +97,8 @@ async function status() {
     usados24h: usados, restanteHoje: Number.isFinite(vagas.restante) ? vagas.restante : null,
     avisos: { configurado: Boolean(segredo), final: finalDoSegredo(segredo), endpointId: cfg.webhookEndpointId, status: cfg.webhookStatus, url: urlWebhookYcloud(), eventos: [...EVENTOS_YCLOUD] },
     optout: await totalOptout(),
+    /** C7.2: o que o servidor fez com o modelo padrão (novidades_prospecta) */
+    modeloPadrao: await estadoModeloPadrao(),
   };
 }
 
@@ -199,6 +202,20 @@ export const whatsappOficialRouter = router({
     await auditarYcloud({ acao: input.ligado === true ? "disparos_ligados" : input.ligado === false ? "disparos_desligados" : "config_salva", usuarioId: ctx.user.id, papel: ctx.user.role });
     return { success: true as const };
   }, "Não foi possível salvar.")),
+
+  /**
+   * C7.2: situação (em análise / aprovado / recusado + motivo) dos templates da Central enviados à API oficial, para o próprio cartão.
+   * Consulta a YCloud; se não der, devolve o vínculo sem a situação.
+   */
+  situacaoDosTemplates: soAdmin.query(() => tentar(async () => {
+    const chave = await chaveYcloud();
+    let lista = null;
+    if (chave) {
+      const cfg = await lerConfigYcloud();
+      lista = await listarModelosYcloud({ apiKey: chave, fetchImpl: depsYcloud().fetch }, cfg.wabaId).catch(() => null);
+    }
+    return situacaoDosTemplates(lista);
+  }, "Não consegui ler a situação dos modelos.")),
 
   /** Auditoria completa: quem fez o quê (nome e papel), sem telefone nem segredo. */
   auditoria: soAdmin.query(() => tentar(() => listarAuditoriaYcloud(), "Não consegui ler a auditoria.")),

@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertCircle, Loader2, Megaphone, RefreshCw, Send } from "lucide-react";
-import { ROTULO_CATEGORIA_MODELO, ROTULO_STATUS_MODELO, type FonteVariavel } from "@shared/whatsapp/ycloud";
+import { FONTE_AUTOMATICA_DA_VARIAVEL, ROTULO_CATEGORIA_MODELO, ROTULO_STATUS_MODELO, type FonteVariavel } from "@shared/whatsapp/ycloud";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,16 +21,22 @@ const ROTULO_CAMPANHA: Record<string, string> = { enviando: "Enviando", pausada:
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 type Modelo = { nome: string; idioma: string; categoria: string | null; status: string | null; motivoRecusa: string | null;
+  variaveisDoTemplate?: string[] | null;
   analise: { compativel: boolean; motivo: string | null; campos: Array<{ chave: string; local: "cabecalho" | "corpo"; indice: number }>; corpo: string; cabecalho: string | null } };
 
 /** Modelos da conta da YCloud, com situação de aprovação (Templates da Central). */
 export function ModelosApiOficial() {
-  const modelos = trpc.whatsappOficial.modelos.useMutation({ onError: e => toast.error(e.message) });
+  const utils = trpc.useUtils();
+  // C7.2: listar também garante o modelo padrão (novidades_prospecta) quando a conta não tem modelo de marketing em pt_BR
+  const modelos = trpc.whatsappOficial.modelos.useMutation({
+    onSuccess: () => { void utils.whatsappOficial.situacaoDosTemplates.invalidate(); void utils.whatsappOficial.status.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
   return (
     <Card className={cardCls}>
       <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-[#C9A961]"><Megaphone className="h-4 w-4" /> Modelos da API oficial (YCloud)</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm text-gray-200">
-        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são criados e enviados para aprovação no painel da YCloud (passo a passo na story C7); aqui você confere a situação.</p>
+        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são enviados para aprovação da Meta daqui mesmo: marque a opção ao criar ou editar um template abaixo. Se a conta não tiver nenhum modelo de marketing, o sistema envia sozinho o modelo padrão "novidades_prospecta".</p>
         <Button size="sm" variant="outline" disabled={modelos.isPending} onClick={() => modelos.mutate()}><RefreshCw className={`mr-1 h-3 w-3 ${modelos.isPending ? "animate-spin" : ""}`} /> {modelos.data ? "Atualizar modelos" : "Carregar modelos"}</Button>
         {modelos.data && (modelos.data.length === 0 ? <p className="text-xs text-gray-400">Nenhum modelo na conta.</p> : (
           <div className="space-y-2">
@@ -40,6 +46,7 @@ export function ModelosApiOficial() {
                   <span className={m.status === "APPROVED" ? "text-green-300" : m.status === "REJECTED" ? "text-red-300" : "text-yellow-200"}>{ROTULO_STATUS_MODELO[m.status ?? ""] ?? m.status ?? "—"}</span>
                   {!m.analise.compativel && <span className="text-orange-200"> · não dá para disparar por aqui: {m.analise.motivo}</span>}</p>
                 {m.motivoRecusa && <p className="text-[11px] text-red-200">Motivo da recusa: {m.motivoRecusa}</p>}
+                {m.variaveisDoTemplate && <p className="text-[11px] text-gray-400">Veio de um template da Central: {m.variaveisDoTemplate.map((v, i) => `{{${i + 1}}} = {{${v}}}`).join(" · ") || "sem variáveis"}</p>}
                 <p className="mt-1 whitespace-pre-line text-[11px] text-gray-400">{m.analise.cabecalho ? `${m.analise.cabecalho}\n` : ""}{m.analise.corpo}</p>
               </div>
             ))}
@@ -48,6 +55,24 @@ export function ModelosApiOficial() {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * C7.2: modelo que veio de um template da Central — cada {{n}} já sabe de qual variável veio ({{nome}} → primeiro nome do contato);
+ * o que não tem origem automática fica como "Texto fixo" para preencher.
+ */
+function preenchidasDoTemplate(m: Modelo | null): Record<string, FonteVariavel> {
+  const v = m?.variaveisDoTemplate;
+  if (!m || !v?.length) return {};
+  const out: Record<string, FonteVariavel> = {};
+  for (const c of m.analise.campos) {
+    if (c.local !== "corpo") continue;
+    const nome = v[c.indice - 1];
+    if (!nome) continue;
+    const auto = FONTE_AUTOMATICA_DA_VARIAVEL[nome];
+    out[c.chave] = auto ? { fonte: auto } : { fonte: "fixo", texto: "" };
+  }
+  return out;
 }
 
 /** Formulário da campanha (os destinatários vêm da lista da esquerda, os mesmos leads do CRM). */
@@ -97,7 +122,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
         <div>
           <Label className="text-gray-300">Modelo aprovado</Label>
           <div className="mt-1 flex gap-2">
-            <select value={chaveModelo} onChange={e => { setChaveModelo(e.target.value); setVariaveis({}); }} className={`${inputCls} w-full rounded-md px-3 py-2 text-sm`}>
+            <select value={chaveModelo} onChange={e => { setChaveModelo(e.target.value); setVariaveis(preenchidasDoTemplate(aprovados.find((m: Modelo) => `${m.nome}:${m.idioma}` === e.target.value) ?? null)); }} className={`${inputCls} w-full rounded-md px-3 py-2 text-sm`}>
               <option value="">{modelos.isPending ? "Carregando modelos…" : aprovados.length ? "— Escolha um modelo —" : "Nenhum modelo aprovado e compatível"}</option>
               {aprovados.map((m: Modelo) => <option key={`${m.nome}:${m.idioma}`} value={`${m.nome}:${m.idioma}`}>{m.nome} ({m.idioma}) — {ROTULO_CATEGORIA_MODELO[m.categoria ?? ""] ?? m.categoria}</option>)}
             </select>
@@ -113,7 +138,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
                 <div key={c.chave} className="grid gap-1 sm:grid-cols-2">
                   <select aria-label={`Valor de {{${c.indice}}}`} value={v?.fonte ?? ""} className={`${inputCls} rounded-md px-2 py-1.5 text-xs`}
                     onChange={e => { const f = e.target.value; setVariaveis(x => ({ ...x, [c.chave]: f === "fixo" ? { fonte: "fixo", texto: "" } : { fonte: f as "primeiro_nome" | "nome_completo" } })); }}>
-                    <option value="">{`{{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"} — escolha`}</option>
+                    <option value="">{`{{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"}${c.local === "corpo" && modelo.variaveisDoTemplate?.[c.indice - 1] ? ` ({{${modelo.variaveisDoTemplate[c.indice - 1]}}})` : ""} — escolha`}</option>
                     <option value="primeiro_nome">Primeiro nome do contato</option>
                     <option value="nome_completo">Nome completo do contato</option>
                     <option value="fixo">Texto fixo</option>

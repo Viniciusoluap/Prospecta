@@ -10,6 +10,7 @@ import {
 } from "../shared/whatsapp/conversas.js";
 import { LEAD_SERVICE_TYPES } from "../shared/lead-services.js";
 import { VARIAVEIS_TEMPLATE_PERMITIDAS, WHATSAPP_TEMPLATES } from "../shared/whatsapp/templates.js";
+import { converterTemplateParaModelo, podeAdministrarIntegracaoOficial } from "../shared/whatsapp/ycloud.js";
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
 import {
@@ -255,6 +256,8 @@ const templateSchema = z.object({
   nome: z.string().trim().min(2).max(120),
   categoria: z.string().trim().min(2).max(80),
   conteudo: z.string().trim().min(2).max(4096),
+  /** EPIC-027 C7.2: "Usar também em campanha pela API oficial" (só admin) — envia para aprovação da Meta com esta categoria. */
+  apiOficial: z.object({ categoria: z.enum(["MARKETING", "UTILITY"]) }).strict().optional(),
 });
 const variaveisPermitidas = new Set<string>(VARIAVEIS_TEMPLATE_PERMITIDAS);
 function validarConteudoTemplate(conteudo: string) {
@@ -273,15 +276,30 @@ export const whatsappRouter = router({
   salvarTemplate: protectedProcedure.input(templateSchema).mutation(async ({ ctx, input }) => {
     if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Somente o administrador pode alterar templates." });
     validarConteudoTemplate(input.conteudo);
+    // EPIC-027 C7.2: antes de salvar, confere se o texto pode virar modelo da API oficial (nada é salvo pela metade)
+    if (input.apiOficial) {
+      if (!podeAdministrarIntegracaoOficial({ perfil: ctx.user.role, ativo: ctx.user.active ?? true })) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador envia modelos para a API oficial." });
+      }
+      const conv = converterTemplateParaModelo({ conteudo: input.conteudo, nomeModelo: "verificacao", categoria: input.apiOficial.categoria });
+      if (!conv.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `Para usar na API oficial, ajuste o texto: ${conv.problemas.join(" ")}` });
+    }
     const dados = { nome: input.nome, categoria: input.categoria, conteudo: input.conteudo, atualizadoPorId: ctx.user.id, updatedAt: new Date() };
+    let id: number;
     if (input.id) {
       const [r] = await getDb().update(whatsappTemplates).set(dados).where(eq(whatsappTemplates.id, input.id)).returning();
       if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "Template não encontrado." });
-      return { id: r.id };
+      id = r.id;
+    } else {
+      const slug = `personalizado-${Date.now()}-${ctx.user.id}`;
+      const [r] = await getDb().insert(whatsappTemplates).values({ slug, ...dados, criadoPorId: ctx.user.id }).returning();
+      id = r.id;
     }
-    const slug = `personalizado-${Date.now()}-${ctx.user.id}`;
-    const [r] = await getDb().insert(whatsappTemplates).values({ slug, ...dados, criadoPorId: ctx.user.id }).returning();
-    return { id: r.id };
+    if (!input.apiOficial) return { id, apiOficial: null };
+    const { enviarTemplateParaAprovacao } = await import("./ycloud/modelos.js");
+    const apiOficial = await enviarTemplateParaAprovacao({ templateId: id, nomeTemplate: input.nome, conteudo: input.conteudo, categoria: input.apiOficial.categoria, autor: { id: ctx.user.id, papel: ctx.user.role } })
+      .catch(() => ({ ok: false, nome: null, status: null, repetido: false, motivo: "O template foi salvo na Central, mas não consegui falar com a YCloud agora. Salve de novo em instantes." }));
+    return { id, apiOficial };
   }),
 
   servicosDisponiveis: adminProcedure.query(() => LEAD_SERVICE_TYPES.map(value => ({ value, label: rotulo(value) }))),

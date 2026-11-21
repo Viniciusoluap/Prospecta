@@ -308,6 +308,12 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   tetos, preço, avisos de entrega, auditoria) = só admin por papel; a auditoria guarda id e papel de quem disparou. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
+- [ ] C7.2 — modelos criados pelo próprio sistema (21/11, pedido do dono: não usar o painel da YCloud): modelo padrão
+  `novidades_prospecta` (MARKETING, pt_BR) enviado UMA vez pelo servidor quando a conta não tem modelo de marketing em pt_BR (crons
+  + listagem; compare-and-set; 1 tentativa por dia, 3 no total); no formulário de template da Central ("+ Novo template"/"Editar",
+  só admin), a opção "Usar também em campanha pela API oficial" converte {{nome}}… em {{1}}…, valida as regras da Meta, envia
+  para aprovação, mostra a situação no cartão e a campanha preenche sozinha as variáveis mapeadas; aviso da Central atualizado
+  (disparo em massa = Campanha pela API oficial). Sem migração aqui (estado em `dashboard_settings`).
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026)
 
