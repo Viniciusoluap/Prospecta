@@ -109,7 +109,7 @@ export function GruposWhatsApp() {
   const [antigas, setAntigas] = useState<Pagina | null>(null);
   const [carregando, setCarregando] = useState(false);
   const enviar = trpc.whatsappGrupos.enviar.useMutation({
-    onSuccess: () => { setTexto(""); utils.whatsappGrupos.mensagens.invalidate(); utils.whatsappGrupos.listar.invalidate(); },
+    onSuccess: r => { if (r.aviso) toast.warning(r.aviso); setTexto(""); utils.whatsappGrupos.mensagens.invalidate(); utils.whatsappGrupos.listar.invalidate(); },
     onError: e => toast.error(e.message),
   });
   useEffect(() => { setAntigas(null); setTexto(""); }, [grupoId]);

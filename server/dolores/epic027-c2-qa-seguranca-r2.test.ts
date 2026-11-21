@@ -1,4 +1,4 @@
-// Portão de QA de SEGURANÇA do EPIC-027 C2 — RODADA 2 (depois do merge 42e55fd). Só provas; nenhum código de produção alterado.
+// Portão de QA de SEGURANÇA do EPIC-027 C2 — RODADA 2 (depois do merge 42e55fd). Os "ACHADO" de B1/B2 viraram "CORRIGIDO".
 // Mesmo cenário do epic027-c2-qa-seguranca.test.ts (copiado, para este arquivo rodar sozinho).
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -111,12 +111,30 @@ describe("QA-SEG C2 r2 — nome que imita (contornos)", () => {
   it("marcados: maiúsculas, acento, dígitos, largura zero (vira espaço visível) e 'Prospecta' em qualquer lugar", () => {
     for (const n of ["DOLORES", "Dolorés", "D0l0res", "Dolores​", "equipe-Bianca", "Atendimento Prospecta", "Dolores da Prospecta"]) expect(nomeImitaQuemNaoE(nomeDoRemetenteParaGravar(n)), n).toBe(true);
   });
-  it("ACHADO (baixo): homógrafo cirílico ('Dоlores' com о U+043E), letras espaçadas e nome de usuário real da equipe NÃO são marcados", () => {
-    expect(exibido("Dоlores")).toBe("Dоlores"); // visualmente idêntico a "Dolores"
-    expect(exibido("D o l o r e s")).toBe("D o l o r e s");
-    expect(exibido("Do​lores")).toBe("Do lores"); // largura zero vira espaço: visível, não marcado
-    expect(exibido("Bianca Souza")).toBe("Bianca Souza"); // mesmo nome de usuária da equipe (cadastro)
-    expect(exibido("Fulano, da equipe")).toBe("Fulano, da equipe");
+  it("CORRIGIDO (B1): homógrafo cirílico/grego, letras espaçadas ou com pontos, largura zero, nomes da empresa e nome de usuário da equipe são marcados", () => {
+    const EQUIPE = ["Vinícius Admin", "Bianca Souza"];
+    for (const n of ["Dоlores", "Dοlores", "D o l o r e s", "D.o.l.o.r.e.s", "D-o_l*o r e s", "Do​lores", "Ｄｏｌｏｒｅｓ", "Fulano, da equipe",
+      "Central Efficaz", "Eficaz Atendimento", "VFX Capital", "P r o s p e c t a"]) {
+      expect(nomeImitaQuemNaoE(nomeDoRemetenteParaGravar(n), EQUIPE), n).toBe(true);
+    }
+    expect(autorDoParticipante({ nome: nomeDoRemetenteParaGravar("Bianca Souza"), remetente: null, doDono: false }, EQUIPE)).toBe("Bianca Souza (participante)");
+    expect(autorDoParticipante({ nome: nomeDoRemetenteParaGravar("BIANCA  souza"), remetente: null, doDono: false }, EQUIPE)).toBe("BIANCA souza (participante)");
+    // nomes comuns continuam como estão (igualdade com o usuário, não "contém": "Ana" não marca "Ana Paula")
+    for (const n of ["Maria Silva", "Bianca", "Dolorosa Lima", "Ana"]) expect(exibido(n), n).toBe(n);
+    expect(autorDoParticipante({ nome: "Ana Paula", remetente: null, doDono: false }, ["Ana"])).toBe("Ana Paula");
+  });
+
+  it("B1: tempo linear — 10 mil nomes patológicos de 400 caracteres em menos de 2 s", () => {
+    const sujos = ["D o ".repeat(100), "a.".repeat(200), "́".repeat(400), "ｄ".repeat(400), "dolore".repeat(66)];
+    const inicio = Date.now();
+    for (let i = 0; i < 2000; i++) for (const n of sujos) nomeImitaQuemNaoE(n, ["Vinícius Admin", "Bianca Souza"]);
+    expect(Date.now() - inicio).toBeLessThan(2000);
+  });
+
+  it("B1 pela rota: participante com o nome de uma usuária ativa da equipe aparece marcado (o cadastro é lido no servidor)", async () => {
+    await chamar(doGrupo(J(1), "pode mandar o boleto", { nome: "Bianca Souza" }));
+    const r = await caller(ADMIN).whatsappGrupos.mensagens({ grupoId: 1 });
+    expect(r.mensagens.map(m => [m.origem, m.autor])).toEqual([["participante", "Bianca Souza (participante)"]]);
   });
 });
 
@@ -126,13 +144,25 @@ describe("QA-SEG C2 r2 — ordem e janelas", () => {
     expect(await n("SELECT count(*)::int AS n FROM pg_trigger WHERE tgname LIKE 'whatsapp_grupo_envios_%'")).toBe(2);
   });
 
-  it("ACHADO (baixo): se a GRAVAÇÃO do envio falhar depois da Evolution aceitar, a mensagem saiu ao grupo sem registro de autor", async () => {
+  it("CORRIGIDO (B2): a gravação do envio falha depois da Evolution aceitar — tenta de novo e, sem conseguir, o autor fica na auditoria e a tela é avisada", async () => {
     await banco.pg.exec(`CREATE FUNCTION qa_falha() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'falha simulada'; END; $$ LANGUAGE plpgsql;
       CREATE TRIGGER qa_falha BEFORE INSERT ON whatsapp_grupo_envios FOR EACH ROW EXECUTE FUNCTION qa_falha();`);
-    await expect(caller(COLAB_COM).whatsappGrupos.enviar({ grupoId: 1, texto: "saiu sem registro" })).rejects.toThrow();
-    expect(evolucao).toHaveBeenCalledTimes(1); // saiu pelo número da empresa
+    const r = await caller(COLAB_COM).whatsappGrupos.enviar({ grupoId: 1, texto: "saiu sem registro" });
+    expect(r).toMatchObject({ ok: true, id: null, aviso: expect.stringMatching(/saiu para o grupo, mas o registro .* falhou/) });
+    expect(evolucao).toHaveBeenCalledTimes(1); // saiu uma vez só (as novas tentativas são só da gravação)
     expect(await n("SELECT count(*)::int AS n FROM whatsapp_grupo_envios")).toBe(0);
-    expect(await n("SELECT count(*)::int AS n FROM dolores_acoes WHERE funcao = 'grupo_central_envio'")).toBe(0);
+    const acoes = await q<{ resultado: string; resumo: any; motivo: string }>("SELECT resultado, resumo, motivo FROM dolores_acoes WHERE funcao = 'grupo_central_envio'");
+    expect(acoes).toEqual([expect.objectContaining({ resultado: "ok", resumo: expect.objectContaining({ registroFalhou: true, porUserId: 2, porNome: "Bianca Souza", externalId: "EQUIPE1", grupoId: 1 }) })]);
+    expect(JSON.stringify(acoes)).not.toContain("saiu sem registro");
+  });
+
+  it("B2: falha só na primeira gravação — a nova tentativa grava e não há aviso", async () => {
+    // a sequência não volta atrás com a falha (o contador numa tabela voltaria junto com o INSERT recusado)
+    await banco.pg.exec(`CREATE SEQUENCE qa_cont;
+      CREATE FUNCTION qa_falha1() RETURNS trigger AS $$ BEGIN IF nextval('qa_cont') = 1 THEN RAISE EXCEPTION 'falha uma vez'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
+      CREATE TRIGGER qa_falha1 BEFORE INSERT ON whatsapp_grupo_envios FOR EACH ROW EXECUTE FUNCTION qa_falha1();`);
+    await expect(caller(ADMIN).whatsappGrupos.enviar({ grupoId: 1, texto: "oi" })).resolves.toMatchObject({ ok: true, aviso: null });
+    expect(await q("SELECT enviado_por, external_id FROM whatsapp_grupo_envios")).toEqual([{ enviado_por: 1, external_id: "EQUIPE1" }]);
   });
 
   it("assumido: só 'tabela inexistente' (42P01) libera; coluna faltando, permissão negada ou erro qualquer → continua calada", async () => {

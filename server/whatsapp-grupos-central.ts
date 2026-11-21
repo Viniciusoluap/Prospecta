@@ -40,6 +40,7 @@ import { reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
 import { conexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
 
 export const SEM_PERMISSAO_GRUPOS = "Sem permissão para ver os grupos do WhatsApp (peça ao administrador a permissão \"Grupos do WhatsApp\").";
+export const MENSAGEM_SAIU_SEM_REGISTRO = "A mensagem saiu para o grupo, mas o registro no sistema falhou: ela pode não aparecer aqui. Quem enviou ficou anotado na auditoria.";
 export const GRUPO_NAO_ENCONTRADO = "Grupo não encontrado na Central.";
 
 /** Toda rota daqui: usuário logado E `podeVerGruposNaCentral` (papel + módulo WhatsApp + permissão "Grupos do WhatsApp"). */
@@ -166,11 +167,15 @@ export const whatsappGruposRouter = router({
     ]);
     // o eco de um envio da equipe nunca aparece duas vezes (hoje ele nem é registrado: é mensagem da própria conta)
     const nomes = await nomesDosRemetentes(entradas.map(m => m.id));
+    // portão de QA r2 (B1): nome de participante igual ao de um usuário ATIVO da equipe também é marcado "(participante)"
+    const equipe = (await db.select({ nome: users.name }).from(users)
+      .where(and(eq(users.active, true), inArray(users.role, ["admin", "colaborador"]))).limit(500))
+      .map(u => u.nome).filter((x): x is string => !!x);
     const ecos = new Set(envios.map(e => e.externalId).filter((x): x is string => !!x));
     const itens: ItemDoGrupo[] = [
       ...entradas.filter(m => !ecos.has(m.externalId)).map(m => ({
         chave: `m${m.id}`, origem: "participante" as const,
-        autor: autorDoParticipante({ nome: nomes.has(m.id) ? textoDeDado(nomes.get(m.id), 80) : null, remetente: m.remetente, doDono: m.doDono }),
+        autor: autorDoParticipante({ nome: nomes.has(m.id) ? textoDeDado(nomes.get(m.id), 80) : null, remetente: m.remetente, doDono: m.doDono }, equipe),
         texto: mascarado(textoDaMensagemDeGrupo(m)),
         quando: m.enviadaEm ?? m.criadoEm, ordem: m.criadoEm, situacao: null,
       })),
@@ -216,18 +221,29 @@ export const whatsappGruposRouter = router({
     let r: { ok: boolean; id: string | null };
     try { r = await enviarTextoDaEquipeAoGrupoEvolution({ ...configurada, semRedirecionamento: true }, conn.instancia, g.grupoJid, input.texto); }
     catch { r = { ok: false, id: null }; }
-    const [linha] = await db.insert(whatsappGrupoEnvios).values({
-      grupoId: g.id, instancia: g.instancia, externalId: r.ok ? r.id : null, texto: input.texto, situacao: r.ok ? "enviada" : "falhou",
+    // portão de QA r2 (B2): a mensagem já pode ter saído — a gravação de quem enviou tenta 3 vezes (a 1ª + 2 curtas)
+    const valores = {
+      grupoId: g.id, instancia: g.instancia, externalId: r.ok ? r.id : null, texto: input.texto, situacao: r.ok ? "enviada" as const : "falhou" as const,
       enviadoPor: ctx.user.id, enviadoPorNome: nome,
-    }).returning({ id: whatsappGrupoEnvios.id });
-    // auditoria sem o texto (dolores_acoes.autor_user_id é só da Dolores: quem enviou vai no resumo)
+    };
+    let linha: { id: number } | null = null;
+    for (let tentativa = 0; tentativa < 3 && !linha; tentativa++) {
+      if (tentativa) await new Promise(ok => setTimeout(ok, 150 * tentativa));
+      linha = await db.insert(whatsappGrupoEnvios).values(valores).returning({ id: whatsappGrupoEnvios.id })
+        .then(([l]) => l ?? null).catch(() => null);
+    }
+    // auditoria sem o texto (dolores_acoes.autor_user_id é só da Dolores: quem enviou vai no resumo). Sem a linha do envio, é ESTE o
+    // registro de quem escreveu no grupo (nunca fica mensagem no grupo sem autor registrado).
     await registrarAcao({
-      funcao: "grupo_central_envio", resultado: r.ok ? "ok" : "erro", motivo: r.ok ? "a equipe escreveu no grupo pela Central" : "o WhatsApp não aceitou a mensagem",
-      autorUserId: null, canal: "tela", pedidoId: `central:grupo:${g.id}:envio:${linha.id}`,
-      resumo: { grupoId: g.id, envioId: linha.id, porUserId: ctx.user.id, papel: ctx.user.role, tamanho: input.texto.length },
+      funcao: "grupo_central_envio", resultado: r.ok ? "ok" : "erro",
+      motivo: !linha ? (r.ok ? "a equipe escreveu no grupo pela Central, mas o registro do envio falhou (autor fica nesta auditoria)" : "o WhatsApp não aceitou a mensagem e o registro do envio falhou")
+        : r.ok ? "a equipe escreveu no grupo pela Central" : "o WhatsApp não aceitou a mensagem",
+      autorUserId: null, canal: "tela", pedidoId: `central:grupo:${g.id}:envio:${linha?.id ?? `sem-registro:${r.id ?? "sem-id"}`}`,
+      resumo: { grupoId: g.id, envioId: linha?.id ?? null, registroFalhou: !linha, externalId: r.ok ? r.id : null, porUserId: ctx.user.id, porNome: nome, papel: ctx.user.role, tamanho: input.texto.length },
     });
+    if (r.ok && !linha) return { ok: true, id: null, aviso: MENSAGEM_SAIU_SEM_REGISTRO };
     if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "O WhatsApp não aceitou a mensagem. Confira a conexão." });
-    return { ok: true, id: linha.id };
+    return { ok: true, id: linha!.id, aviso: null };
   }),
 
   /** Quem atende o grupo: a Dolores (pelas regras de sempre) ou a equipe ("Assumir (humano)"). */

@@ -41,24 +41,62 @@ export function textoDaMensagemDeGrupo(m: { tipo: string; texto: string | null; 
   return m.texto ? `${cabeca} ${m.texto}` : cabeca;
 }
 
-/** Nome de exibição da empresa no WhatsApp (o participante que se chama assim também é marcado). */
-export const NOME_DA_EMPRESA = "Prospecta";
+/**
+ * Nomes "da empresa": participante cujo nome contenha um destes é marcado "(participante)". Lista única, fácil de editar.
+ * Provisória: o dono ainda vai confirmar quais nomes a empresa usa (portão de QA da C2, rodada 2).
+ */
+export const NOMES_DA_EMPRESA: readonly string[] = [
+  "Prospecta",
+  "Central Efficaz", // a confirmar pelo dono
+  "Efficaz",         // a confirmar pelo dono
+  "Eficaz",          // a confirmar pelo dono
+  "VFX Capital",     // a confirmar pelo dono (conta da YCloud)
+];
+/** Nomes que só a própria Dolores e a equipe usam na conversa do grupo. */
+const NOMES_RESERVADOS = ["dolores", "equipe"] as const;
 
-const comparavel = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** Homógrafos comuns (cirílico e grego) → latim, e dígitos que imitam letras. */
+const HOMOGRAFOS: Readonly<Record<string, string>> = {
+  "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
+  "і": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ӏ": "l", "ԛ": "q", "ԝ": "w",
+  "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "μ": "m", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+  "ς": "s", "σ": "o", "ℓ": "l",
+  "0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s",
+};
 
 /**
- * Portão de QA da C2 (achado 3): o nome que o participante escolheu imita a Dolores, a equipe ou a empresa? ("Dolores", "D0lores",
- * "Dolores IA", "equipe — Fulano", "Equipe Prospecta", "Prospecta"…). Por código, sobre o nome sem acento nem símbolos.
+ * Forma compacta para comparar: NFKC (letras largas/estilizadas viram comuns), minúsculas, sem diacríticos, homógrafos → latim e SÓ
+ * as letras a–z (espaços, pontos, traços e invisíveis entre as letras somem: "D o l o r e s", "D.o.l.o.r.e.s" → "dolores").
+ * Laço simples por caractere (tempo linear; nenhuma regex com retrocesso). Entrada cortada em 400 caracteres.
  */
-export function nomeImitaQuemNaoE(nome: string | null | undefined): boolean {
-  const c = comparavel(String(nome ?? "")).replace(/0/g, "o").replace(/1/g, "l").replace(/3/g, "e");
+export function formaCompacta(s: string | null | undefined): string {
+  const base = String(s ?? "").slice(0, 400).normalize("NFKC").toLowerCase().normalize("NFD");
+  let out = "";
+  for (const ch of base) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x300 && cp <= 0x36f) continue; // diacrítico
+    const t = HOMOGRAFOS[ch] ?? ch;
+    if (t >= "a" && t <= "z" && t.length === 1) out += t;
+  }
+  return out;
+}
+
+/**
+ * Portão de QA da C2 (achados 3 e r2-B1): o nome que o participante escolheu imita a Dolores, a equipe, a empresa ou um usuário da
+ * equipe? Por código, sobre a forma compacta: contém "dolores" ou "equipe"; contém um dos `NOMES_DA_EMPRESA`; ou é IGUAL ao nome de
+ * um usuário ativo da equipe (`equipe`, lido do cadastro pelo servidor).
+ */
+export function nomeImitaQuemNaoE(nome: string | null | undefined, equipe: readonly string[] = []): boolean {
+  const c = formaCompacta(nome);
   if (!c) return false;
-  return /\bdolores\b/.test(c) || /^dolore?s/.test(c) || /^equipe\b/.test(c) || c.includes(comparavel(NOME_DA_EMPRESA));
+  if (NOMES_RESERVADOS.some(r => c.includes(r))) return true;
+  if (NOMES_DA_EMPRESA.some(e => { const x = formaCompacta(e); return x.length >= 4 && c.includes(x); })) return true;
+  return equipe.some(u => { const x = formaCompacta(u); return x.length >= 4 && x === c; });
 }
 
 /** Autor de uma mensagem de participante: o nome dele (marcado se imitar a Dolores/equipe/empresa) ou o número mascarado. */
-export function autorDoParticipante(m: { nome: string | null; remetente: string | null; doDono: boolean }): string {
-  const base = m.nome ? (nomeImitaQuemNaoE(m.nome) ? `${m.nome} (participante)` : m.nome) : m.remetente ?? "participante";
+export function autorDoParticipante(m: { nome: string | null; remetente: string | null; doDono: boolean }, equipe: readonly string[] = []): string {
+  const base = m.nome ? (nomeImitaQuemNaoE(m.nome, equipe) ? `${m.nome} (participante)` : m.nome) : m.remetente ?? "participante";
   return m.doDono ? `${base} (dono)` : base;
 }
 

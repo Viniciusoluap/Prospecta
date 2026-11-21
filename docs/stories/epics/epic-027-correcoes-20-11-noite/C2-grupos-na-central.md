@@ -141,3 +141,18 @@ exatamente igual faz na conversa".
 - Engenheiro com a permissão NÃO vê grupos (mantido de propósito: só admin e colaborador).
 - Testes: `c2-grupos-na-central.test.ts` (colaborador FORBIDDEN em `definirTipo` em qualquer caso; guardas da 0142) e
   `epic027-c2-qa-seguranca.test.ts` (os "ACHADO" invertidos para "CORRIGIDO").
+
+## Portão de QA, rodada 2 (21/11) — PASS com ressalvas baixas; B1 e B2 fechadas
+- B1 — corrigido: `nomeImitaQuemNaoE` compara pela forma compacta (`formaCompacta`: NFKC, minúsculas, sem diacríticos, homógrafos
+  cirílico/grego e dígitos → latim, só as letras a–z; laço por caractere, tempo linear, sem regex com retrocesso). Marca "(participante)"
+  quem contém "dolores" ou "equipe", um dos nomes da empresa (`NOMES_DA_EMPRESA`, lista única: "Prospecta", e — a confirmar pelo dono —
+  "Central Efficaz", "Efficaz", "Eficaz", "VFX Capital") ou tem nome IGUAL ao de um usuário ativo da equipe (admin/colaborador, lido do
+  cadastro no servidor). Provas: "Dоlores" (cirílico), "D o l o r e s", "D.o.l.o.r.e.s", largura total, nome de usuária; teste de tempo.
+- B2 — corrigido: se a gravação em `whatsapp_grupo_envios` falhar depois que a Evolution aceitou, a rota tenta mais 2 vezes (150 ms e
+  300 ms); se ainda falhar, a auditoria (`dolores_acoes`, "grupo_central_envio", sem o texto) guarda quem enviou (id e nome), o grupo e
+  o id da mensagem, e a tela recebe o aviso "A mensagem saiu para o grupo, mas o registro no sistema falhou…". Nunca há mensagem no
+  grupo sem autor registrado.
+- B3 — documentado, sem mudança de código (decisão do portão): ressalva baixa mantida como risco aceito. `grupoAssumidoPelaEquipe`
+  só libera com "tabela inexistente" (42P01); coluna faltando, permissão negada ou qualquer outro erro continuam calando a Dolores no
+  grupo (falha fechada, provada em `epic027-c2-qa-seguranca-r2.test.ts`).
+- Ajuste dos nomes da empresa: pendência do dono (confirmar a lista em `shared/whatsapp/grupos-central.ts`).
