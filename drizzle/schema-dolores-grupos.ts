@@ -72,6 +72,9 @@ export const doloresGrupoMensagens = pgTable("dolores_grupo_mensagens", {
   reservaAte: timestamp("reserva_ate", { withTimezone: true }),
   leadDocumentId: integer("lead_document_id").references(() => leadDocuments.id, { onDelete: "set null" }),
   salvoEm: timestamp("salvo_em", { withTimezone: true }),
+  // EPIC-027 C2 (migração 0142): a coluna "nome_remetente" (nome do participante no WhatsApp) fica FORA desta definição de propósito
+  // (portão de QA, achado 2): os select() completos desta tabela continuam funcionando com o banco ainda sem a 0142. Ela é lida e
+  // gravada só por server/dolores/grupo-mensagens-nome.ts, tolerando a coluna ausente.
 }, t => [
   uniqueIndex("dolores_grupo_mensagens_externa_uidx").on(t.instancia, t.externalId),
   index("dolores_grupo_mensagens_grupo_idx").on(t.grupoId, t.criadoEm),

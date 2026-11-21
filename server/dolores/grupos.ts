@@ -28,6 +28,7 @@ import { getDb, type DrizzleDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { gravarNomeDoRemetente } from "./grupo-mensagens-nome.js";
 
 /** Padrões da configuração (os mesmos da migração), usados se a linha ainda não existir. */
 export const CONFIG_GRUPOS_PADRAO: Omit<DoloresGruposConfig, "atualizadoEm" | "atualizadoPor"> = {
@@ -70,6 +71,10 @@ export async function grupoAtivo(instancia: string, jid: string) {
 /** Texto de grupo para gravar: uma linha por trecho, sem controle/invisíveis, e o filtro do registro (sempre mascarado). */
 export const textoDeGrupoParaGravar = (s: string | null | undefined, max = 2000) =>
   sanitizarTexto(legendaSegura(s, 4000), FILTRO_DO_REGISTRO).slice(0, max) || null;
+
+/** EPIC-027 C2 — nome do participante (pushName) para gravar: uma linha, sem colchetes, filtro do registro, até 80 caracteres. */
+export const nomeDoRemetenteParaGravar = (s: string | null | undefined) =>
+  sanitizarTexto(legendaSegura(s, 200), FILTRO_DO_REGISTRO).slice(0, 80).trim() || null;
 
 export type ResultadoGrupo = {
   /** Chave da contagem do aviso (o "grupo" de antes continua sendo "grupo não cadastrado: ignorada"). */
@@ -154,6 +159,9 @@ export async function tratarMensagemDeGrupo(cfg: DoloresWhatsappConfig, item: un
       situacao: !documento ? "sem_documento" : grande ? "grande_demais" : "a_classificar",
     }).onConflictDoNothing().returning({ id: doloresGrupoMensagens.id });
     if (!linha) return { resultado: "grupo-repetida" };
+    // EPIC-027 C2: o nome do participante, para a Central mostrar quem escreveu (texto de terceiro: uma linha, filtro do registro).
+    // Em separado e tolerante (achado 2 do portão): sem a coluna da 0142, a mensagem fica registrada sem o nome.
+    await gravarNomeDoRemetente(linha.id, nomeDoRemetenteParaGravar(m.nomeRemetente));
     return { resultado: "grupo-registrada", mensagemId: linha.id, aClassificar: documento && !grande && le };
   } catch (e) {
     console.error("[dolores/grupos] falha ao registrar a mensagem do grupo", erroParaLog(e));
