@@ -5,7 +5,7 @@
 //   a obra (opcional). Tipos internos ficam sem vínculo.
 // - O gatilho da 0133 só deixa tipo e vínculo mudarem com `decidido_em` gravado na mesma operação — é o que esta função faz.
 // - Mensagem de grupo nunca chega aqui (o webhook trata grupo antes e nunca o transforma em comando).
-// - EPIC-027 C3: pela tela (admin ou colaborador com o módulo WhatsApp) se CLASSIFICA grupo já aceito, inclusive o "aguardando o
+// - EPIC-027 C3: pela tela (só o administrador — regra do dono de 21/11) se CLASSIFICA grupo já aceito, inclusive o "aguardando o
 //   dono" de tipo indefinido que o dono adicionou/aceitou. O que segue (R2-3) passa a valer só para recusado / sem prova.
 // - QA-SEG E7 (achado 6c; r2, R2-3): grupo RECUSADO ou automático "aguardando o dono" (sem prova de quem colocou a Dolores, ou
 //   adicionado pelo dono mas de tipo indefinido) só sai desse estado pelo comando do DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
