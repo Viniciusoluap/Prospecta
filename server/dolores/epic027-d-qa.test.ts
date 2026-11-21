@@ -301,3 +301,52 @@ describe("QA C3 — resposta só com o número", () => {
     expect(p).not.toMatch(/5599977776666|sk-ant-abc123/);
   });
 });
+
+describe("QA rodada 2 — trava de escopo do colaborador", () => {
+  it("ACHADO R2-1 (importante): colaborador transforma grupo de CLIENTE em 'engenharia' SEM obra — escopo interno (outro cliente liberado), igual ao que a trava quis impedir", async () => {
+    const colab = caller("colaborador", ["whatsapp"], 2);
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 1 });
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia" }); // sem nº da obra
+    expect(await q("SELECT tipo, lead_id, obra_id FROM dolores_grupos WHERE id = 1")).toEqual([{ tipo: "engenharia", lead_id: null, obra_id: null }]);
+    // engenharia sem obra cai no ramo "administrativo, jurídico, engenharia geral" de escopoDoGrupo: foraDeEscopo com PERMITIDOS_POR_TIPO.interno
+    expect(PERMITIDOS_POR_TIPO.interno).toContain("outro_cliente");
+    // e engenharia da obra 1 → engenharia geral (amplia de uma obra para todas), também pelo colaborador
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia", numero: 1 });
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia" });
+    expect(await q("SELECT obra_id FROM dolores_grupos WHERE id = 1")).toEqual([{ obra_id: null }]);
+    // o gatilho também deixa (tipo_antes = tipo_depois = engenharia; a obra não conta)
+    await banco.pg.exec(`UPDATE dolores_grupos SET obra_id = 1, decidido_em = now() + interval '5 s', decidido_por = 'tela:2' WHERE id = 1`);
+    await banco.pg.exec(`UPDATE dolores_grupos SET obra_id = NULL, decidido_em = now() + interval '10 s', decidido_por = 'tela:2' WHERE id = 1`);
+  });
+
+  it("ACHADO R2-2 (médio): colaborador re-aponta grupo de cliente para OUTRO cliente (dados do 2º cliente no grupo do 1º); só aviso posterior ao dono", async () => {
+    const colab = caller("colaborador", ["whatsapp"], 2);
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 1 });
+    enviarAoDono.mockClear();
+    await colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 2 });
+    expect(await q("SELECT tipo, lead_id FROM dolores_grupos WHERE id = 1")).toEqual([{ tipo: "cliente", lead_id: 2 }]);
+    expect(enviarAoDono).toHaveBeenCalledTimes(1);
+  });
+
+  it("gatilho: 'tela:<admin INATIVO>' e 'tela:<colaborador>' barrados; id enorme falha fechado", async () => {
+    await banco.pg.exec(`UPDATE users SET active = false WHERE id = 1`);
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 1`)).rejects.toThrow(/só o administrador/);
+    await expect(banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:9999999999' WHERE id = 1`)).rejects.toThrow();
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "engenharia" });
+  });
+
+  it("ACHADO R2-3 (baixo, defesa em profundidade): 'decidido_por' fora do formato 'tela:<nº>' (ex.: 'tela:x', 'fila:1') pula a conferência de admin no gatilho", async () => {
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'administrativo', decidido_em = now() + interval '5 s', decidido_por = 'tela:x' WHERE id = 1`);
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "administrativo" });
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'juridico', decidido_em = now() + interval '10 s', decidido_por = 'fila:1' WHERE id = 1`);
+    expect(await grupoPorJid(ENG)).toMatchObject({ tipo: "juridico" });
+  });
+
+  it("aviso ao dono pela tela: texto fixo, sem telefone/CPF/valores e intacto nos filtros", async () => {
+    enviarAoDono.mockClear();
+    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 1 });
+    const t = (enviarAoDono.mock.calls[0][0] as { texto: string }).texto;
+    expect(t).not.toMatch(/\d{3}\.\d{3}|99123|R\$|Maria Trello/);
+    expect(sanitizarTexto(t, filtroDaSaida("whatsapp"))).toBe(t);
+  });
+});
