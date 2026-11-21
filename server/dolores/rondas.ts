@@ -13,7 +13,7 @@
 // - Nada aqui grava em módulo do sistema, cria item na fila, chama a IA ou fala em grupo.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
-import { and, desc, eq, gt, gte, inArray, isNull, like, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, like, ne, notInArray, sql } from "drizzle-orm";
 import { bankTransactions, leadServices, leads, whatsappMessages } from "../../drizzle/schema.js";
 import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresAprovacoes, doloresAutoria } from "../../drizzle/schema-dolores-fila.js";
@@ -129,7 +129,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
       .where(and(eq(whatsappMessages.direcao, "entrada"), eq(whatsappMessages.lida, false)));
     return { totais: { conversas: { semLeitura: contar(r?.n) } } };
   })],
-  ["grupos", lerSecao(async () => {
+  ["grupos", lerSecao(async ({ agora }) => {
     const [r] = await bancoDaLeitura().select({
       aClassificar: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} in ('a_classificar', 'classificando'))`.mapWith(Number),
       aConferir: sql<number>`count(*) filter (where ${doloresGrupoMensagens.situacao} = 'confira')`.mapWith(Number),
@@ -141,7 +141,14 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     // Etapa 7: grupos novos esperando a resposta do dono (nome que não bateu com nada: só observam)
     const [a] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
       .where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono")));
-    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n) } } };
+    // QA-SEG EPIC-027 (achado 1b): classificações pela tela cujo aviso ao dono não saiu (teto do dia) nas últimas 24 h
+    const [p] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
+      .where(gte(doloresGrupos.avisoClassificacaoPendenteEm, new Date(agora.getTime() - 24 * 3_600_000)));
+    // QA-SEG EPIC-027 (R3-1): grupos de engenharia cuja obra foi excluída no CRM (calados até reclassificar)
+    const [o] = await bancoDaLeitura().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresGrupos)
+      .where(and(eq(doloresGrupos.ativo, true), isNotNull(doloresGrupos.obraExcluidaEm), eq(doloresGrupos.tipo, "indefinido")));
+    return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n),
+      classificadosSemAviso: contar(p?.n), obraExcluida: contar(o?.n) } } };
   })],
   ["notas", lerSecao(async () => {
     const [r] = await bancoDaLeitura().select({

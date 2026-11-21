@@ -15,21 +15,22 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
-import { LIMITES_ENTRADA, gerarCodigoDeGrupo, precisaDoAceiteDoDono, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
-import { entrarNoGrupo } from "./grupos-entrada.js";
+import { LIMITES_ENTRADA, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { avisarClassificacaoPelaTela, entrarNoGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
 import { INSTANCIA_DOLORES } from "../../shared/dolores/whatsapp.js";
-import { listarGruposEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
+import { listarGruposEvolution } from "../_core/evolution.js";
 import { doloresMarcacoesConfig, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
-import { LIMITES_MARCACOES, lidValido } from "../../shared/dolores/marcacao.js";
-import { ehNumeroDoDono } from "../../shared/dolores/whatsapp.js";
-import { CONFIG_MARCACOES_PADRAO, desligamentoDaMarcacaoPorFalha, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
+import { LIMITES_MARCACOES } from "../../shared/dolores/marcacao.js";
+import { CONFIG_MARCACOES_PADRAO, conferirLidDaDolores, desligamentoDaMarcacaoPorFalha, lerConfigMarcacoes, limparPausaDaMarcacao, marcacoesRecentes } from "./marcacao.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { classificarPendentes, desligamentoPorFalha, limparPausaPorFalhaNoConsumo } from "./classificacao.js";
 import { lerConfigWhatsapp } from "./consumo.js";
+import { desfechosDasMarcacoes } from "../whatsapp-recebimento.js";
+import { agoraDoRoteamento } from "./roteamento.js";
 import { CONFIG_GRUPOS_PADRAO, lerConfigGrupos, listarGruposParaTela, pendenciasDeClassificacao } from "./grupos.js";
 import { credencialDaClassificacao, enviarAvisoAoDono } from "./whatsapp.js";
 
@@ -47,32 +48,8 @@ const semMigracao0129 = (e: unknown): never => {
 };
 const limite = (k: keyof typeof LIMITES_MARCACOES) => z.number().int().min(LIMITES_MARCACOES[k].min).max(LIMITES_MARCACOES[k].max);
 
-/**
- * Etapa 4b — confere o @lid da Dolores pela lista de participantes de um grupo cadastrado (Evolution, só leitura): o participante
- * cujo número é EXATAMENTE o número conectado e confirmado da Dolores. Grava o @lid junto com o número para o qual ele vale.
- * Sem número confirmado, sem @lid na lista ou sem o número dela: não grava nada (as menções por @lid continuam sem contar).
- */
-async function conferirLid(grupoId: number, userId: number): Promise<{ conferido: boolean; motivo: string }> {
-  const cfg = await lerConfigWhatsapp().catch(() => null);
-  if (!cfg?.instancia || cfg.statusConexao !== "conectado" || !cfg.numeroDolores) return { conferido: false, motivo: "a conexão da Dolores ainda não foi confirmada" };
-  const [g] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupoId)).limit(1);
-  if (!g || !g.ativo || g.instancia !== cfg.instancia) return { conferido: false, motivo: "grupo não cadastrado ou desativado" };
-  const { configEvolution } = await import("../whatsapp-router.js");
-  const configurada = await configEvolution();
-  // QA E4 r2 N4: a chamada recusa redirecionamento (o apikey não vai a outro host)
-  const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
-  if (!evo) return { conferido: false, motivo: "servidor do WhatsApp (Evolution) não configurado" };
-  let lista: Awaited<ReturnType<typeof participantesDoGrupoEvolution>>;
-  try { lista = await participantesDoGrupoEvolution(evo, cfg.instancia, g.grupoJid); }
-  catch { return { conferido: false, motivo: "a Evolution não listou os participantes agora" }; }
-  const dela = lista.filter(p => p.numero && ehNumeroDoDono(p.numero, cfg.numeroDolores));
-  if (!dela.length) return { conferido: false, motivo: "o número da Dolores não apareceu na lista de participantes" };
-  const lids = Array.from(new Set(dela.map(p => p.lid).filter(lidValido)));
-  if (lids.length !== 1) return { conferido: false, motivo: lids.length ? "mais de um @lid para o número da Dolores (não gravado)" : "este grupo não usa @lid (as menções vêm pelo número)" };
-  await getDb().update(doloresMarcacoesConfig).set({ lidDolores: lids[0], lidDoNumero: cfg.numeroDolores, lidConferidoEm: new Date(), atualizadoEm: new Date(), atualizadoPor: userId })
-    .where(eq(doloresMarcacoesConfig.id, 1));
-  return { conferido: true, motivo: "@lid da Dolores conferido" };
-}
+/** Etapa 4b — confere o @lid da Dolores por um grupo (EPIC-027 C4: a mesma conferência do webhook, em marcacao.ts). */
+const conferirLid = (grupoId: number, userId: number) => conferirLidDaDolores(grupoId, { userId, origem: "tela" });
 const semMigracao = (e: unknown): never => {
   if (e instanceof TRPCError) throw e;
   throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_MIGRACAO });
@@ -180,7 +157,7 @@ export const gruposRouter = router({
     const agora = new Date();
     await db.update(doloresGrupos).set({
       ...(input.nome !== undefined ? { nome: input.nome } : {}), ...(input.ativo !== undefined ? { ativo: input.ativo } : {}),
-      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
+      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}`, obraExcluidaEm: null } : {}),
       atualizadoEm: agora, atualizadoPorUserId: ctx.user.id,
     }).where(eq(doloresGrupos.id, g.id));
     await auditar(ctx.user.id, "atualizar_grupo", g.id, { ativo: input.ativo ?? g.ativo, leadId, obraId, rotuloMudou: input.nome !== undefined });
@@ -217,6 +194,7 @@ export const gruposRouter = router({
    * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
    * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
    */
+  // regra do dono (21/11): classificar é SÓ do administrador pela tela (e do dono pelo WhatsApp); colaborador nunca classifica
   definirTipo: soAdmin.input(z.object({
     grupoId: id32,
     tipo: z.enum(["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar", "aceitar"]),
@@ -225,9 +203,22 @@ export const gruposRouter = router({
     const tipo = input.tipo;
     if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
     if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
-    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
+    const db = getDb();
+    const instancia = await instanciaDaDolores();
+    const [antes] = await db.select().from(doloresGrupos).where(and(eq(doloresGrupos.id, input.grupoId), eq(doloresGrupos.instancia, instancia))).limit(1).catch(semMigracao);
+    if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
+    const r = await decidirGrupo({ grupoId: input.grupoId, instancia }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
-    return { ok: true, texto: r.texto.replace(/^Dolores: /, "") };
+    // QA-SEG EPIC-027 (achado 1b): toda classificação pela tela vira aviso ao dono (útil com mais de um administrador)
+    let aviso: "avisado" | "pendente" | null = null;
+    if (tipo !== "ignorar" && tipo !== "aceitar") {
+      const [depois] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, antes.id)).limit(1);
+      if (depois && (depois.tipo !== antes.tipo || depois.leadId !== antes.leadId || depois.obraId !== antes.obraId)) {
+        // o nome de quem mudou vem do cadastro (lido em grupos-entrada.ts), não da sessão
+        aviso = await avisarClassificacaoPelaTela({ grupo: depois, antes: tipoEfetivo(antes), depois: tipoEfetivo(depois), userId: ctx.user.id, agora: new Date(), avisar: enviarAvisoAoDono });
+      }
+    }
+    return { ok: true, texto: r.texto.replace(/^Dolores: /, ""), aviso };
   }),
 
   /**
@@ -274,9 +265,13 @@ export const gruposRouter = router({
    */
   marcacoes: soAdmin.input(z.object({ grupoId: id32.optional() }).strict().optional()).query(async ({ input }) => {
     try {
-      const [config, porGrupo, lista] = await Promise.all([
-        lerConfigMarcacoes(), getDb().select().from(doloresMarcacoesGrupo), marcacoesRecentes(input?.grupoId ?? null, 50),
+      const [config, porGrupo, lista, todos] = await Promise.all([
+        lerConfigMarcacoes(), getDb().select().from(doloresMarcacoesGrupo), marcacoesRecentes(input?.grupoId ?? null, 50), getDb().select().from(doloresGrupos),
       ]);
+      // EPIC-027 C4: grupo sem linha mostra o padrão (nasce ligado o aceito de tipo conhecido) — o mesmo que o webhook usa
+      const comLinha = new Set(porGrupo.map(g => g.grupoId));
+      const padrao = todos.filter(g => !comLinha.has(g.id) && ligadoPorPadrao(g)).map(g => ({ grupoId: g.id, ligado: true }));
+      const desfechos = await desfechosDasMarcacoes(agoraDoRoteamento(), 24).catch(() => []);
       const numero = (await lerConfigWhatsapp().catch(() => null))?.numeroDolores ?? null;
       // desligada sozinha (uso de uma resposta não registrado no consumo), inclusive a pausa só em memória: a tela mostra
       const desligada = await desligamentoDaMarcacaoPorFalha().catch(() => null);
@@ -288,7 +283,9 @@ export const gruposRouter = router({
           // o @lid não é telefone, mas só o fim aparece na tela
           lid: config.lidDolores && config.lidDoNumero === numero ? { final: config.lidDolores.replace(/@lid$/, "").slice(-4), conferidoEm: config.lidConferidoEm } : null,
         },
-        grupos: porGrupo.map(g => ({ grupoId: g.grupoId, ligado: g.responderLigado })),
+        grupos: [...porGrupo.map(g => ({ grupoId: g.grupoId, ligado: g.responderLigado })), ...padrao],
+        // EPIC-027 C4: o que aconteceu com cada marcação nas últimas 24 h (sem texto nem telefone), inclusive as não registradas
+        desfechos,
         marcacoes: lista.map(m => ({ ...m, grupo: textoDeDado(m.grupo, 120) })),
       };
     } catch (e) { return semMigracao0129(e); }

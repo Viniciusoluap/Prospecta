@@ -305,9 +305,9 @@ export async function enviarTextoAoGrupoEvolution(c: EvolutionConfig, instancia:
  * conferir o @lid do número da Dolores (grupos novos do WhatsApp mencionam por @lid). Devolve, por participante, o @lid e o
  * número quando a Evolution informa (campos variam por versão: id, jid, lid, phoneNumber, pn). No máximo 1.024.
  */
-export async function participantesDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch): Promise<Array<{ lid: string | null; numero: string | null }>> {
+export async function participantesDoGrupoEvolution(c: EvolutionConfig, instancia: string, grupoJid: string, fetchImpl: Fetch = fetch, prazoMs = 15_000): Promise<Array<{ lid: string | null; numero: string | null }>> {
   if (!/^[0-9]{5,40}(-[0-9]{1,20})?@g\.us$/.test(grupoJid)) return [];
-  const r = await chamar<unknown>(c, `/group/participants/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(15_000) }, fetchImpl);
+  const r = await chamar<unknown>(c, `/group/participants/${encodeURIComponent(instancia)}?groupJid=${encodeURIComponent(grupoJid)}`, { signal: AbortSignal.timeout(prazoMs) }, fetchImpl);
   if (!r.ok) throw new Error(`A Evolution não listou os participantes (HTTP ${r.status})${motivo(r.data)}.`);
   const bruto = (r.data as { participants?: unknown } | null)?.participants ?? r.data;
   const lista = Array.isArray(bruto) ? bruto.slice(0, 1024) : [];

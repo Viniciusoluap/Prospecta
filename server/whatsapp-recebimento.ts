@@ -9,7 +9,10 @@ import { whatsappRecebimentoContagem } from "../drizzle/schema-whatsapp-atendime
 import { getDb } from "./db.js";
 
 export type DestinoDoItem =
-  | "chegou" | "central" | "central_sem_numero" | "dolores" | "grupo" | "propria" | "ignorado" | "repetida" | "erro" | "evento";
+  | "chegou" | "central" | "central_sem_numero" | "dolores" | "grupo" | "propria" | "ignorado" | "repetida" | "erro" | "evento"
+  // EPIC-027 C4: o desfecho de cada marcação (ou possível marcação) da Dolores num grupo. NÃO é destino de item (o item do grupo já
+  // contou em "grupo"): fica fora da conta de "sem desfecho" e aparece no quadro das marcações.
+  | "marcacao";
 
 /** Hora UTC "2026-11-20T14" (a chave do contador). */
 export const horaDoRegistro = (d: Date) => d.toISOString().slice(0, 13);
@@ -90,7 +93,7 @@ export async function resumoDoRecebimento(agora: Date, horas = 24): Promise<Resu
   const porEndereco: Record<string, number> = {};
   for (const l of linhas) if (l.destino === "chegou" && l.evento === "messages.upsert") porEndereco[l.endereco || "?"] = (porEndereco[l.endereco || "?"] ?? 0) + l.total;
   const chegaram = soma(l => l.destino === "chegou");
-  const desfechos = soma(l => l.destino !== "chegou");
+  const desfechos = soma(l => l.destino !== "chegou" && l.destino !== "marcacao");
   const ignoradas = new Map<string, { motivo: string; endereco: string; evento: string; total: number }>();
   for (const l of linhas) {
     if (l.destino !== "ignorado") continue;
@@ -108,4 +111,17 @@ export async function resumoDoRecebimento(agora: Date, horas = 24): Promise<Resu
     semDesfecho: Math.max(0, chegaram - desfechos),
     ignoradas: Array.from(ignoradas.values()).sort((a, b) => b.total - a.total).slice(0, 30),
   };
+}
+
+/**
+ * EPIC-027 C4 — o que aconteceu com as marcações da Dolores nos grupos nas últimas `horas` (padrão 24): por desfecho (a chave de
+ * `tratarMarcacao`, com o detalhe depois do ponto), sem texto, número nem grupo. Inclui o que não chega a virar linha em
+ * dolores_marcacoes (menção por @lid desconhecido, conexão não confirmada, grupo fora da lista, atrasada, reentrega).
+ */
+export async function desfechosDasMarcacoes(agora: Date, horas = 24): Promise<Array<{ chave: string; total: number }>> {
+  const desde = horaDoRegistro(new Date(agora.getTime() - (horas - 1) * 60 * 60_000));
+  const linhas = await getDb().select().from(whatsappRecebimentoContagem).where(gte(whatsappRecebimentoContagem.hora, desde));
+  const por = new Map<string, number>();
+  for (const l of linhas) if (l.destino === "marcacao") por.set(l.motivo, (por.get(l.motivo) ?? 0) + l.total);
+  return Array.from(por, ([chave, total]) => ({ chave, total })).sort((a, b) => b.total - a.total).slice(0, 30);
 }
