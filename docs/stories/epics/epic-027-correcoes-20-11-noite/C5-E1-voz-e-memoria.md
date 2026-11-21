@@ -141,3 +141,7 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
   sem assinatura). Instabilidade de `whatsapp-qa` "QA r8 achados 1, 2 e 5": prova de tempo de parede (1 s para 200 kB) sob
   carga; agora vale o melhor de 3 execuções com o mesmo teto. tsc limpo; o conjunto pedido (8 arquivos, 204 testes) passou
   duas vezes seguidas.
+- 21/11/2026 — @dev (Dex): rodada 2 do portão (CONCERNS, 1 médio): na memória, só conta como código a palavra TODA EM
+  MAIÚSCULAS ou com dígito (`pareceCodigo`, conferido no replacer) — "pode aprovar venda do lote?", "não vou recusar ajuda",
+  "não mexa no grupo nada" ficam inteiras; `semOsCodigos` troca só "[XXXXX]" (alfabeto da fila) e "(XXXX)" (alfabeto do grupo)
+  e os códigos do comando em maiúsculas — "(2026)", "[CNPJ]" e "Nada mudou" ficam. tsc limpo; 8 arquivos, 207 testes verdes.
