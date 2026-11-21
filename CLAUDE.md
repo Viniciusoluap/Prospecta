@@ -276,3 +276,39 @@ exato do botão ou campo — e dizendo o que ele deve ver ao final. Nunca "confi
 
 Do mesmo dia: quando ele pedir para "estruturar para eu autorizar", apresentar a estrutura e ESPERAR o "autorizo"
 antes de construir.
+
+## Dolores "Jarvis", grupos na Central e YCloud — decisões do dono em 20/11/2026 (noite) (REGRA)
+
+Estrutura apresentada e autorizada por ele ("Autorizo"). Epic: `docs/stories/epics/epic-027-correcoes-20-11-noite/EPIC.md`.
+
+1. **Referência de conversa** — palavras do dono: "eu quero algo igual ao Jarvis" e "como se eu tivesse conversando com o
+   ChatGPT do meu próprio negócio […] resolver problemas dentro do meu negócio e não simplesmente ter programações". Na
+   conversa com o dono a Dolores fala natural e curto, nunca mostra nome de ferramenta nem código interno, lembra do
+   contexto ("ela", "esse grupo") e RESOLVE pelo WhatsApp em vez de mandar ir à tela. Confirmação proporcional:
+   consultar → direto; registrar (nota, tarefa, vínculo) → um "pode"; sério (dinheiro, apagar, mensagem a cliente) →
+   confirmação explícita.
+2. **Grupos na Central WhatsApp** — aparecem TODOS os grupos; veem o admin e o colaborador que tiver a permissão própria
+   marcada no cadastro; o humano pode escrever no grupo pela Central, "exatamente igual faz na conversa". Isto substitui o
+   trecho da regra de 20/11 (manhã) de que grupos nunca aparecem na Central. A conversa direta do dono com a Dolores
+   continua fora da Central. O que um humano escreve no grupo não é comando para ela.
+3. **Classificar × aceitar grupo** — classificar (tipo e vínculo) pode ser pelo WhatsApp e pela tela. Aceitar grupo em
+   que outra pessoa a colocou (recusado / sem prova) continua SÓ do dono, pelo WhatsApp (regra de 19/11).
+   **Trava do portão de QA (21/11), informada ao dono:** colaborador só põe ou tira os tipos cliente, pós-atendimento e
+   engenharia; administrativo (sócios), jurídico e parceiros comerciais só o admin — porque trocar o tipo amplia o que
+   ela revela no grupo. Toda classificação pela tela avisa o dono no WhatsApp. Só afrouxar se ele mandar.
+4. **Agir a partir de grupo** — liberado SÓ quando o NÚMERO DO DONO pede, e SÓ para registrar (salvar nota, orçamento,
+   documento). Nunca dinheiro, nunca mensagem a terceiro. Ajusta o item 5 da regra de 19/11; para todos os demais,
+   mensagem de grupo continua nunca sendo comando.
+5. **Proatividade** — "tudo o que achar relevante". Cuidados aceitos por ele: a relevância é decidida por REGRAS do
+   sistema (a IA só escreve o aviso); avisos parecidos agrupados; ele pode silenciar um tipo; função com limite próprio.
+6. **Gasto separado por função** — "cada função com seu gasto": conversa com o dono, resposta em grupo, atendimento a
+   cliente, classificação de documentos e proatividade, cada uma com limite e modelo próprios, e a tela mostra o consumo
+   de cada. Uma função não consome o crédito da outra.
+7. **Maquete 3D — leitura pela IA** — roda em lote na Anthropic (segundo plano); tentativa sem resultado não é cobrada
+   nem conta no teto; manter o modelo escolhido pelo dono, sem reduzir qualidade por conta própria. Queixa dele que
+   originou a mudança: "acabei consumindo meus créditos à toa".
+8. **YCloud (API oficial, coexistência)** — número vinculado pelo dono em 20/11 (conta "VFX Capital"). Disparos de
+   campanha saem pela API oficial, por modelo aprovado; conversas, grupos e a Dolores continuam pela Evolution (não
+   assinar mensagem recebida na YCloud). Cada vinculação/desvinculação na YCloud DERRUBA a Evolution: religar pelo QR em
+   Integrações e tocar em "Reativar recebimento". A vinculação só fecha em COMPUTADOR (no iPad a janela da Meta conclui e
+   a YCloud não recebe o retorno; a tradução automática do navegador quebra o formulário).
