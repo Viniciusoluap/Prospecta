@@ -120,6 +120,12 @@ Conferir com uma campanha real de 1 destinatário antes de dar como resolvido.
     Assinatura válida com `t` de até 8 h atrás é aceita; `t` no futuro continua limitado a 5 min; id já visto nunca é reprocessado.
 11. Índice em `ycloud_envios.mensagem_central_id`.
 
+## Correções da rodada 2 do portão (21/11)
+- R2-1: "não repetir o modelo" tem mínimo de 1 dia (banco: CHECK 1–90; servidor: recusa 0 com a frase da tela). A conferência roda
+  dentro da trava de um lote por vez e de novo para cada envio logo antes do POST (cobre trava vencida); testado com dois lotes de
+  campanhas diferentes em paralelo.
+- R2-2: falha ao conferir "já recebeu este modelo" no lote → os envios reservados voltam para a fila e a campanha pausa (nunca "incerto").
+
 ## Pendência: retenção
 Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `ycloud_eventos` e `ycloud_auditoria` — NÃO implementada
 (apagar dados exige ordem do dono). `ycloud_optout` não entra na retenção (o pedido de não receber vale para sempre).
@@ -146,5 +152,6 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - `docs/stories/epics/ROADMAP.md` (pendência de porte), esta story
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): correções R2-1 e R2-2 da rodada 2 do portão.
 - 21/11/2026 — @dev (Dex): correções 1–11 do portão de QA (CONCERNS/NEEDS_WORK); segue InReview para nova revisão.
 - 20/11/2026 — @dev (Dex): story criada a partir do pedido do coordenador; InProgress → InReview (implementação, testes e tsc ok; aguarda @qa).

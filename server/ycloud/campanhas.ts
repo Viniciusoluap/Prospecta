@@ -107,6 +107,9 @@ export async function bloqueiosDeOptout(chaves: string[], leadIds: number[]): Pr
   }
 }
 
+/** Consultas trocáveis nos testes (falha simulada). */
+export const verificacoesYcloud = { jaReceberamOModelo: (...a: Parameters<typeof jaReceberamOModelo>) => jaReceberamOModelo(...a) };
+
 const STATUS_JA_SAIU = ["enviando", "aceita", "enviada", "entregue", "lida", "incerto"] as const;
 
 /** Telefones (forma canônica) que já receberam — ou estão para receber — o MESMO modelo em OUTRA campanha desde `desde`. */
@@ -452,7 +455,16 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
       res.falhas++;
       continue;
     }
-    if ((await jaReceberamOModelo([e.chaveTelefone], modeloDoLote, desdeRepeticao, { excetoCampanha: campanhaId, incluirFila: false })).size) {
+    let repetido: boolean;
+    try { repetido = (await verificacoesYcloud.jaReceberamOModelo([e.chaveTelefone], modeloDoLote, desdeRepeticao, { excetoCampanha: campanhaId, incluirFila: false })).size > 0; }
+    catch {
+      // R2-2: mesma regra do opt-out — sem conferir, nada sai: este e os demais reservados voltam para a fila (nunca "incerto") e pausa
+      await devolverParaFila(pendentes());
+      await pausarCampanha(campanhaId, "Não consegui conferir quem já recebeu este modelo; nada foi enviado. Clique em \"Continuar envio\" para tentar de novo.");
+      res.motivo = "Não consegui conferir quem já recebeu este modelo; campanha pausada.";
+      break;
+    }
+    if (repetido) {
       await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "REPETIDO", motivo: `Não enviada: já recebeu este modelo nos últimos ${janela} dia(s).`, falhouEm: d.agora(), atualizadoEm: d.agora() })
         .where(eq(ycloudEnvios.id, e.id));
       res.falhas++;

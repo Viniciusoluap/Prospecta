@@ -507,4 +507,21 @@ describe("QA rodada 2 — duas prévias diferentes e janela 0", () => {
     await admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId });
     expect(recebidosPor("+5599988881111")).toBe(1);
   });
+
+  it("CORRIGIDO R2-2: falha ao conferir 'já recebeu este modelo' no lote → envios voltam para a fila (nunca 'incerto'), campanha pausada, nada sai", async () => {
+    const { verificacoesYcloud } = await import("./campanhas.js");
+    await configurarTudo();
+    const { campanhaId } = await campanha([1, 2]);
+    const espiao = vi.spyOn(verificacoesYcloud, "jaReceberamOModelo").mockRejectedValue(new Error("banco fora"));
+    try {
+      const r = await admin().whatsappOficial.enviarLote({ campanhaId });
+      expect(r.status).toBe("pausada");
+      expect(r.motivo).toMatch(/já recebeu este modelo/);
+    } finally { espiao.mockRestore(); }
+    expect(envioCalls()).toHaveLength(0);
+    expect((await envios()).map(e => e.status)).toEqual(["na_fila", "na_fila"]);
+    await admin().whatsappOficial.mudarCampanha({ campanhaId, acao: "continuar" });
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    expect(envioCalls()).toHaveLength(2);
+  });
 });
