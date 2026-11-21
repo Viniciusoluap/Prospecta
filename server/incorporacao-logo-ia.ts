@@ -5,7 +5,9 @@
 // - A chave nunca vai para log, erro, resposta ou tela: o log guarda só o código HTTP e o tipo do erro.
 // - Teto: TETO_LOGO_IA_POR_DIA propostas por empreendimento e por pessoa a cada dia (Imperatriz, UTC−3), contadas em
 //   dashboard_settings (sem tabela nova). A reserva é feita ANTES de chamar a IA e conta mesmo se a chamada falhar — o
-//   lado seguro do gasto, como na Maquete 3D.
+//   lado seguro do gasto, como na Maquete 3D. Decisão do portão de QA (21/11): SVG da IA recusado pela limpeza (aninhamento,
+//   elementos ou <use> demais, CSS proibido) também conta — a chamada já foi paga, e não contar abriria um jeito de gastar
+//   crédito sem limite. A recusa nunca vira erro 500: qualquer falha da limpeza vira "logotipo inválido".
 // - O SVG devolvido é conteúdo não confiável: passa pela MESMA limpeza do SVG enviado (server/incorporacao-logo-svg.ts).
 import { and, eq, ne, sql } from "drizzle-orm";
 import { configuracaoAnthropicPainel, existeChaveAnthropicPainel } from "./_core/anthropic-painel.js";
@@ -136,8 +138,8 @@ export async function gerarSvgDoLogotipo(
   try {
     svg = sanitizarSvg(bruto, LIMITE_SVG_IA_BYTES);
   } catch (e) {
-    if (e instanceof SvgRecusado) return invalido;
-    throw e;
+    if (!(e instanceof SvgRecusado)) console.error("[logotipo-ia] falha na limpeza do SVG", { tipo: (e as { name?: string })?.name ?? typeof e });
+    return invalido;
   }
   // depois da limpeza precisa continuar sendo SVG com algum desenho
   if (tipoDoLogo(svg) !== "image/svg+xml" || !/<(path|rect|circle|ellipse|polygon|polyline|line|text)[\s>/]/.test(svg.toString("utf8"))) return invalido;

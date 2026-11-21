@@ -55,13 +55,18 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     id: "incorporacao_logotipo",
     rotulo: "Logotipo da incorporação",
     descricao: "Desenha uma proposta de logotipo (em SVG) a partir do nome, da cidade e do tipo do empreendimento. Só gasta quando alguém da Incorporação clica em \"Gerar logotipo com IA\", uma proposta por clique, até 5 por empreendimento e 5 por pessoa a cada dia. A proposta só substitui o logotipo atual depois de aprovada.",
-    recomendacao: "Um modelo intermediário (ex.: Sonnet) equilibra a qualidade do desenho e o tempo de resposta; um modelo maior pode passar do tempo limite.",
+    recomendacao: "Sem escolha, vale o mesmo padrão da Maquete 3D (Opus). Se a proposta passar do tempo limite de 40 segundos, escolha aqui um modelo intermediário (ex.: Sonnet) oferecido pela sua chave.",
   },
 };
 
-/** Modelo usado pela função quando nem ela nem o preferencial do painel têm modelo escolhido. Só nomes de modelo. */
+/**
+ * Modelo usado pela função quando nem ela nem o preferencial do painel têm modelo escolhido. Só nomes de modelo.
+ * Portão de QA C8 (21/11): o padrão do logotipo é o mesmo id já usado como padrão válido na Maquete 3D
+ * (`MODELO_IA_PADRAO`, `claude-opus-5-5`, também na tabela oficial de preços da Dolores) — `claude-sonnet-5` não está
+ * confirmado em nenhuma lista do projeto.
+ */
 export const MODELO_PADRAO_DA_FUNCAO: Partial<Record<FuncaoAnthropic, string>> = {
-  incorporacao_logotipo: "claude-sonnet-5",
+  incorporacao_logotipo: "claude-opus-5-5",
 };
 
 export const ehFuncaoAnthropic = (v: unknown): v is FuncaoAnthropic =>

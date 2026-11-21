@@ -85,7 +85,7 @@ export const SISTEMA_LOGOTIPO = [
   "Responda SOMENTE com um único documento SVG, começando por <svg e terminando por </svg>, sem texto antes ou depois e sem bloco de código.",
   "Regras do SVG: xmlns=\"http://www.w3.org/2000/svg\", viewBox=\"0 0 512 512\", width=\"512\" height=\"512\"; fundo branco liso (um <rect> branco do tamanho todo);",
   "um símbolo simples e marcante feito com formas geométricas (path, rect, circle, polygon) e o nome do empreendimento escrito exatamente como no campo \"nome\", num <text> com font-family genérica (sans-serif ou serif);",
-  "no máximo três cores; sem <script>, sem <foreignObject>, sem <image>, sem links, sem fontes ou arquivos externos, sem animação, sem comentários;",
+  "no máximo três cores, sempre em atributos de apresentação (fill, stroke) no próprio elemento; sem <style> e sem atributo style, sem <script>, sem <foreignObject>, sem <image>, sem links, sem fontes ou arquivos externos, sem animação, sem comentários;",
   "código enxuto: no máximo 60 elementos e 8 KB.",
 ].join(" ");
 

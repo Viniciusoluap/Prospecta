@@ -6,6 +6,13 @@
 //   <foreignObject>, animações (<set>/<animate> podem trocar um href), <a>, metadados de editores e qualquer elemento
 //   fora da lista; atributos on*, href/xlink:href que não seja âncora interna (#id) — em <image>, só imagem embutida
 //   PNG/JPG/GIF/WebP —, qualquer valor com javascript:/vbscript:, url(...) que não seja #id, @import e expression().
+// Portão de QA (21/11), defesa em profundidade:
+// - recusa antes do parse quando há mais de LIMITE_NOS_SVG elementos (conta barata, linear), e durante a limpeza quando o
+//   aninhamento passa de LIMITE_PROFUNDIDADE_SVG níveis — nunca estoura a pilha (erro 500);
+// - em <style> e em qualquer atributo (inclusive style=) sai o valor com "\" (escape de CSS), @import, image-set(),
+//   -webkit-image-set(), src(), expression() ou url(...) que não seja #id. O <style> continua aceito porque SVG exportado
+//   por editores (Illustrator, Figma) pinta por classe; o prompt da IA pede só atributos de apresentação;
+// - "bomba de <use>": mais de LIMITE_USE_SVG <use> ou <use> apontando para algo que contém outro <use> → recusa.
 // O que é exibido continua sendo o PNG gerado no navegador a partir deste SVG (um <img> não executa script).
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 
@@ -25,7 +32,14 @@ const ELEMENTOS = new Set([
 const PRECISAM_DE_HREF = new Set(["use", "image", "textPath"]);
 const IMAGEM_EMBUTIDA = /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i;
 const ANCORA = /^#[\w.:-]+$/;
-const VALOR_PERIGOSO = /(java|vb)script\s*:|expression\s*\(|@import|behavior\s*:|-moz-binding/i;
+const VALOR_PERIGOSO = /(java|vb)script\s*:|expression\s*\(|@import|behavior\s*:|-moz-binding|image-set\s*\(|\bsrc\s*\(|\\/i;
+
+/** Mais elementos que isto: recusado antes do parse. */
+export const LIMITE_NOS_SVG = 5_000;
+/** Aninhamento máximo de elementos. */
+export const LIMITE_PROFUNDIDADE_SVG = 64;
+/** Quantidade máxima de <use>. */
+export const LIMITE_USE_SVG = 50;
 
 export class SvgRecusado extends Error {}
 
@@ -83,18 +97,57 @@ function limparElemento(el: Elemento) {
   return true;
 }
 
-function limparFilhos(no: No) {
+/** Limpa os filhos de `no`; `profundidade` é o nível de `no` (raiz = 1). Recursão limitada por LIMITE_PROFUNDIDADE_SVG. */
+function limparFilhos(no: No, profundidade: number, conta: { nos: number; uses: Elemento[]; elementos: Elemento[] }) {
   for (const filho of Array.from(no.childNodes)) {
     if (filho.nodeType === 1) {
       const el = filho as Elemento;
       const doSvg = el.namespaceURI === SVG_NS || el.namespaceURI === null;
       if (!doSvg || !ELEMENTOS.has(el.localName)) { no.removeChild(filho); continue; }
-      if (limparElemento(el)) limparFilhos(el);
+      if (profundidade + 1 > LIMITE_PROFUNDIDADE_SVG)
+        throw new SvgRecusado(`O SVG tem elementos aninhados demais (mais de ${LIMITE_PROFUNDIDADE_SVG} níveis). Exporte o desenho de novo, achatando os grupos.`);
+      if (++conta.nos > LIMITE_NOS_SVG) throw new SvgRecusado(`O SVG tem elementos demais (mais de ${LIMITE_NOS_SVG}).`);
+      if (limparElemento(el)) {
+        conta.elementos.push(el);
+        if (el.localName === "use") conta.uses.push(el);
+        limparFilhos(el, profundidade + 1, conta);
+      }
     } else if (filho.nodeType !== 3 && filho.nodeType !== 4) {
       // texto e CDATA ficam (dentro de <text> e <style>; o <style> já foi conferido); o resto sai
       no.removeChild(filho); // comentários, instruções de processamento, etc.
     }
   }
+}
+
+/** `el` é ou contém um <use>? (busca com pilha explícita; a árvore já tem profundidade e tamanho limitados) */
+function contemUse(el: Elemento): boolean {
+  const pilha: No[] = [el];
+  while (pilha.length) {
+    const n = pilha.pop()!;
+    if (n.nodeType === 1 && (n as Elemento).localName === "use") return true;
+    pilha.push(...Array.from(n.childNodes));
+  }
+  return false;
+}
+
+/** Bomba de <use>: teto de quantidade e nenhum <use> apontando para algo que contém outro <use>. */
+function conferirUses(conta: { uses: Elemento[]; elementos: Elemento[] }) {
+  if (conta.uses.length > LIMITE_USE_SVG) throw new SvgRecusado(`O SVG tem mais de ${LIMITE_USE_SVG} elementos <use>.`);
+  if (!conta.uses.length) return;
+  const porId = new Map<string, Elemento>();
+  for (const e of conta.elementos) { const id = e.getAttribute("id"); if (id && !porId.has(id)) porId.set(id, e); }
+  for (const u of conta.uses) {
+    const alvo = porId.get((u.getAttribute("href") || u.getAttribute("xlink:href") || "").trim().slice(1));
+    if (alvo && contemUse(alvo)) throw new SvgRecusado("O SVG tem um <use> que repete outro <use>, o que não é aceito.");
+  }
+}
+
+/** Mais de LIMITE_NOS_SVG aberturas de elemento? Para de contar assim que passa (não monta lista). */
+function elementosDemais(texto: string): boolean {
+  const abre = /<[A-Za-z_]/g;
+  let n = 0;
+  while (abre.exec(texto)) if (++n > LIMITE_NOS_SVG) return true;
+  return false;
 }
 
 /**
@@ -105,6 +158,8 @@ export function sanitizarSvg(bytes: Uint8Array | string, limiteBytes: number): B
   const tamanho = typeof bytes === "string" ? Buffer.byteLength(bytes, "utf8") : bytes.length;
   if (tamanho > limiteBytes) throw new SvgRecusado(`O SVG passa do limite de ${Math.round(limiteBytes / 1024)} KB.`);
   let texto = (typeof bytes === "string" ? bytes : new TextDecoder("utf-8", { fatal: false }).decode(bytes)).replace(/^﻿/, "");
+  // conta barata (linear) ANTES do parse: arquivo com elementos demais nem chega ao parser
+  if (elementosDemais(texto)) throw new SvgRecusado(`O SVG tem elementos demais (mais de ${LIMITE_NOS_SVG}).`);
   if (/<!ENTITY/i.test(texto)) throw new SvgRecusado("O SVG declara entidades XML, o que não é aceito.");
   const doctypes = texto.match(/<!DOCTYPE[^>]*>/gi) ?? [];
   if (doctypes.some(d => d.includes("[")) || /<!DOCTYPE[^>]*\[/i.test(texto)) throw new SvgRecusado("O SVG traz um DOCTYPE com declarações internas, o que não é aceito.");
@@ -123,7 +178,9 @@ export function sanitizarSvg(bytes: Uint8Array | string, limiteBytes: number): B
   for (const n of Array.from(doc.childNodes as unknown as ArrayLike<No>)) if (n !== raizes[0]) (doc as unknown as No).removeChild(n);
   const raiz = raizes[0];
   limparElemento(raiz);
-  limparFilhos(raiz);
+  const conta = { nos: 1, uses: [] as Elemento[], elementos: [raiz] as Elemento[] };
+  limparFilhos(raiz, 1, conta);
+  conferirUses(conta);
   if (!raiz.getAttribute("xmlns")) raiz.setAttribute("xmlns", SVG_NS);
   const saida = new XMLSerializer().serializeToString(doc as never);
   return Buffer.from(saida, "utf8");

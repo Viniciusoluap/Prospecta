@@ -25,6 +25,7 @@ import { encryptSecret } from "./_core/secret-vault.js";
 import { CHAVE_SEGREDO_ANTHROPIC_PAINEL } from "./_core/anthropic-painel.js";
 import { chaveModeloDaFuncao } from "./_core/modelo-por-funcao.js";
 import { MAX_TOKENS_LOGO_IA, PRAZO_LOGO_IA_MS, svgDaResposta } from "./incorporacao-logo-ia.js";
+import { MODELO_IA_PADRAO } from "../shared/maquete-3d/regras.js";
 import { usuarioDaIncorporacao } from "./routes/camadas-terreno.js";
 import logoRotas from "./routes/incorporacao-logo.js";
 import { incorporationStudies } from "../drizzle/schema";
@@ -249,11 +250,12 @@ describe("geração com IA (EPIC-027 C8: SVG pela chave do painel)", () => {
     expect(await admin().incorporacao.logo.obter({ studyId: 1 })).toBeNull(); // só proposta
   });
 
-  it("sem modelo da função nem preferencial: usa o padrão da função (Sonnet)", async () => {
+  it("sem modelo da função nem preferencial: usa o padrão da função (o mesmo id padrão da Maquete)", async () => {
     await cadastrarChave();
     anthropicCreate.mockResolvedValueOnce(resposta(SVG_IA));
     await admin().incorporacao.logo.gerarIa({ studyId: 1 });
-    expect((anthropicCreate.mock.calls[0][0] as { model: string }).model).toBe("claude-sonnet-5");
+    expect((anthropicCreate.mock.calls[0][0] as { model: string }).model).toBe("claude-opus-5-5");
+    expect(MODELO_IA_PADRAO).toBe("claude-opus-5-5");
   });
 
   it("saída que não é SVG (texto, HTML, cortada, recusada, SVG que fica vazio) vira erro amigável", async () => {

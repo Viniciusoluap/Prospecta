@@ -17,7 +17,7 @@ pré-visualização e a pessoa aprova (ou gera outra / cancela) antes de substit
 removido da geração de logotipo (`server/_core/imageGeneration.ts` continua no repositório, sem uso por esta função).
 
 - **Função própria no painel**: "Logotipo da incorporação" (`incorporacao_logotipo`) em Integrações › Anthropic › Modelo
-  por função. Ordem do modelo: o da função → o preferencial do painel → padrão da função `claude-sonnet-5`. Escolher modelo
+  por função. Ordem do modelo: o da função → o preferencial do painel → padrão da função `claude-opus-5-5` (o mesmo id padrão da Maquete 3D; trocado no portão de QA porque `claude-sonnet-5` não está confirmado em nenhuma lista do projeto). Escolher modelo
   não liga nada; a IA só é chamada quando a pessoa clica no botão.
 - **Chave**: lida num único ponto nomeado, `resolverCredencialLogotipo` (`server/incorporacao-logo-ia.ts`), terceiro ponto
   vigiado por `server/integracoes-anthropic.test.ts` (a tela só pergunta SE há chave, por `existeChaveAnthropicPainel`).
@@ -61,7 +61,7 @@ removido da geração de logotipo (`server/_core/imageGeneration.ts` continua no
 - `shared/funcoes-anthropic.ts` — função `incorporacao_logotipo` e `MODELO_PADRAO_DA_FUNCAO`.
 - `server/_core/anthropic-painel.ts` — padrão da função no painel; documentação dos três pontos de leitura.
 - `client/src/components/incorporacao/LogotipoEmpreendimento.tsx` — SVG da IA no mesmo caminho do enviado; mensagens; "Gerar outra".
-- Testes: `server/incorporacao-logo-svg.test.ts` (novo), `server/incorporacao-logotipo.test.ts`,
+- Testes: `server/incorporacao-logo-svg.test.ts` (novo), `server/incorporacao-logo-qa.test.ts` (portão de QA), `server/incorporacao-logotipo.test.ts`,
   `server/integracoes-anthropic.test.ts`, `server/integracoes-modelo-por-funcao.test.ts`.
 
 ## Testes
@@ -69,10 +69,33 @@ removido da geração de logotipo (`server/_core/imageGeneration.ts` continua no
 (`e8-respostas-e-custo`, `operacao`, `e8-qa-seguranca`, `c6-qa-seguranca`): todos passando; `npx vite build` ok.
 (b) Manuais — nenhum (sem acesso ao painel com a chave real neste ramo).
 (c) Pendentes em produção — gerar um logotipo real num empreendimento; conferir o tempo de resposta do modelo escolhido
-(se passar de 40 s, escolher um modelo mais rápido na linha "Logotipo da incorporação"); conferir que `claude-sonnet-5`
+(se passar de 40 s, escolher um modelo mais rápido na linha "Logotipo da incorporação"); conferir que `claude-opus-5-5`
 existe na conta (se o preferencial estiver escolhido, ele vale antes do padrão).
 
 ## Limitações honestas
 - É um desenho vetorial simples (formas geométricas e o nome em fonte genérica), não arte de designer nem imagem
   fotográfica; serve como proposta inicial. A fonte do texto é a do navegador de quem gera (sem fonte externa).
 - Proposta que falha (tempo, resposta inválida) conta no teto do dia.
+
+## Correções do portão de QA (21/11)
+1. **[médio-baixo] Aninhamento profundo**: a limpeza agora tem teto de 64 níveis (`LIMITE_PROFUNDIDADE_SVG`) e 5.000
+   elementos (`LIMITE_NOS_SVG`); passou disso → `SvgRecusado` com mensagem amigável (400 no envio, "logotipo inválido" na
+   IA), nunca `RangeError`/500. A contagem de elementos é feita ANTES do parse (laço linear que para no limite): 10 MB com
+   1 milhão de níveis é recusado em milissegundos. No caminho da IA, qualquer falha da limpeza vira "logotipo inválido".
+   [AUTO-DECISION] SVG da IA recusado consome a cota do dia? → Sim (a chamada já foi paga; não contar abriria um jeito de
+   gastar crédito sem limite) — documentado no cabeçalho de `server/incorporacao-logo-ia.ts`.
+2. **[baixo] CSS**: em `<style>` e em qualquer atributo (inclusive `style=`), sai o valor com `\` (escape de CSS),
+   `@import`, `image-set(`/`-webkit-image-set(`, `src(`, `expression(` ou `url(` que não seja `#id`.
+   [AUTO-DECISION] Remover `<style>` por inteiro? → Não: SVG exportado por Illustrator/Figma pinta por classe dentro de
+   `<style>`, e removê-lo deixaria logotipos enviados sem cor. O `<style>` fica sob a lista mais estrita; o prompt da IA
+   passa a pedir só atributos de apresentação (sem `<style>` nem `style=`).
+3. **[baixo] Bomba de `<use>`**: no máximo 50 `<use>` (`LIMITE_USE_SVG`); `<use>` apontando para elemento que é ou contém
+   outro `<use>` (inclusive o próprio ancestral) → recusado.
+4. **Modelo padrão**: `claude-sonnet-5` não aparece confirmado em nenhuma lista do projeto (a lista do painel vem da conta;
+   a tabela oficial de preços tem só `claude-haiku-5-5` e `claude-opus-5-5`). Padrão passa a ser `claude-opus-5-5`, o
+   mesmo de `MODELO_IA_PADRAO` da Maquete 3D; a recomendação do painel orienta escolher um intermediário se passar de 40 s.
+
+Testes: `npx tsc --noEmit` sem erros; `npx vitest run server/incorporacao-logo-svg.test.ts server/incorporacao-logo-qa.test.ts
+server/incorporacao-logotipo.test.ts server/integracoes-anthropic.test.ts server/integracoes-modelo-por-funcao.test.ts`:
+5 arquivos, 100 testes passando (os "ACHADO" do QA invertidos para o comportamento corrigido, mais casos novos de
+profundidade, quantidade, `<use>`, CSS e caminho da IA). Não há script `npm run lint` no projeto.

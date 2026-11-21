@@ -1,9 +1,9 @@
 // EPIC-027 C8 — portão de QA de segurança (Quinn, 21/11): tentativas de burlar a limpeza do SVG e o pedido à IA.
-// Os casos marcados "ACHADO" documentam o comportamento atual que o portão registrou (não são regressão do código).
+// Os casos marcados "ACHADO" eram falhas registradas pelo portão; depois da correção afirmam o comportamento corrigido.
 import { describe, expect, it } from "vitest";
-import { LIMITE_SVG_IA_BYTES, SvgRecusado, sanitizarSvg } from "./incorporacao-logo-svg";
+import { LIMITE_NOS_SVG, LIMITE_PROFUNDIDADE_SVG, LIMITE_SVG_IA_BYTES, LIMITE_USE_SVG, SvgRecusado, sanitizarSvg } from "./incorporacao-logo-svg";
 import { gerarSvgDoLogotipo, svgDaResposta } from "./incorporacao-logo-ia";
-import { dadosDoLogotipo, pedidoLogotipo } from "../shared/incorporacao/logotipo";
+import { SISTEMA_LOGOTIPO, dadosDoLogotipo, pedidoLogotipo } from "../shared/incorporacao/logotipo";
 
 const NS = 'xmlns="http://www.w3.org/2000/svg"';
 const limpar = (s: string, lim = LIMITE_SVG_IA_BYTES) => sanitizarSvg(s, lim).toString("utf8");
@@ -50,24 +50,61 @@ describe("QA C8 — vetores que precisam sair", () => {
   });
 });
 
-describe("QA C8 — achados registrados (defesa em profundidade; o SVG só é desenhado como <img> e o original sai como anexo sandbox)", () => {
-  it("ACHADO (baixo): escape CSS em <style> passa pela lista (\\75rl( e @\\69mport)", () => {
+describe("QA C8 — achados do portão, corrigidos (defesa em profundidade; o SVG só é desenhado como <img> e o original sai como anexo sandbox)", () => {
+  it("ACHADO (baixo) corrigido: escape CSS em <style> (\\75rl( e @\\69mport) faz o <style> sair", () => {
     const r = limpar(`<svg ${NS}><style>rect{fill:\\75rl(https://evil/a)} @\\69mport "https://evil/b.css";</style><rect width="1" height="1"/></svg>`);
-    expect(r).toContain("evil"); // documenta: não é removido
+    expect(r).not.toContain("evil");
+    expect(r).not.toContain("<style");
+    expect(r).toContain("<rect");
   });
 
-  it("ACHADO (baixo): image-set() com string busca recurso externo sem passar por url(", () => {
-    const r = limpar(`<svg ${NS}><rect width="1" height="1" style="fill:image-set(&quot;https://evil/p.png&quot; 1x)"/></svg>`);
-    expect(r).toContain("evil");
+  it("ACHADO (baixo) corrigido: image-set()/-webkit-image-set()/src()/escape no style= e em <style> saem", () => {
+    const r = limpar(`<svg ${NS}><rect width="1" height="1" style="fill:image-set(&quot;https://evil/p.png&quot; 1x)"/>`
+      + `<rect width="1" height="1" style="fill:-webkit-image-set(&quot;//evil/q.png&quot; 1x)"/><rect width="1" height="1" style="fill:\\75rl(//evil/r)"/>`
+      + `<style>rect{fill:image-set("https://evil/s.png" 1x)}</style><style>rect{background:src("https://evil/t")}</style>`
+      + `<style>.a{fill:#123456}</style><rect class="a" width="1" height="1" style="fill:url(#g)"/></svg>`);
+    expect(r).not.toMatch(/evil|image-set|\\/);
+    expect(r).toContain(".a{fill:#123456}"); // <style> limpo de editor continua
+    expect(r).toContain('style="fill:url(#g)"');
   });
 
-  it("ACHADO (baixo): aninhamento profundo no envio (até 10 MB) estoura a pilha com erro que não é SvgRecusado (vira 500)", () => {
-    const n = 200_000;
-    const fundo = `<svg ${NS}>${"<g>".repeat(n)}${"</g>".repeat(n)}</svg>`;
-    let erro: unknown = null;
-    try { sanitizarSvg(fundo, 10 * 1024 * 1024); } catch (e) { erro = e; }
-    // registra o tipo do erro; se um dia passar a ser SvgRecusado (ou funcionar), o achado foi resolvido
-    expect(erro === null || erro instanceof SvgRecusado || erro instanceof RangeError).toBe(true);
+  it("ACHADO (médio-baixo) corrigido: aninhamento profundo no envio (até 10 MB) é recusado depressa, com SvgRecusado", () => {
+    const n = 1_000_000;
+    const fundo = `<svg ${NS}>${"<g>".repeat(n)}${"</g>".repeat(n)}</svg>`; // ~7 MB
+    const inicio = performance.now();
+    expect(() => sanitizarSvg(fundo, 10 * 1024 * 1024)).toThrow(SvgRecusado);
+    expect(performance.now() - inicio).toBeLessThan(1_000);
+  });
+
+  it("aninhamento acima de 64 níveis (com poucos elementos) é recusado; 64 níveis passam", () => {
+    const aninhado = (n: number) => `<svg ${NS}>${"<g>".repeat(n)}<circle r="1"/>${"</g>".repeat(n)}</svg>`;
+    expect(() => limpar(aninhado(LIMITE_PROFUNDIDADE_SVG))).toThrow(/aninhados demais/);
+    expect(limpar(aninhado(LIMITE_PROFUNDIDADE_SVG - 2))).toContain("<circle");
+  });
+
+  it("mais de 5.000 elementos é recusado antes do parse", () => {
+    expect(() => sanitizarSvg(`<svg ${NS}>${"<g/>".repeat(LIMITE_NOS_SVG + 1)}</svg>`, 10 * 1024 * 1024)).toThrow(/elementos demais/);
+  });
+
+  it("bomba de <use>: mais de 50 <use> ou <use> que aponta para algo com outro <use> é recusado; <use> simples passa", () => {
+    const def = `<defs><path id="p" d="M0 0h1"/></defs>`;
+    expect(() => limpar(`<svg ${NS}>${def}${'<use href="#p"/>'.repeat(LIMITE_USE_SVG + 1)}</svg>`)).toThrow(SvgRecusado);
+    expect(limpar(`<svg ${NS}>${def}${'<use href="#p"/>'.repeat(LIMITE_USE_SVG)}</svg>`)).toContain("<use");
+    const bomba = `<svg ${NS}><defs><path id="a" d="M0 0h1"/><g id="b"><use href="#a"/><use href="#a"/></g><g id="c"><use href="#b"/><use href="#b"/></g></defs><use href="#c"/></svg>`;
+    expect(() => limpar(bomba)).toThrow(/repete outro <use>/);
+    expect(() => limpar(`<svg ${NS}><g id="x"><use href="#x"/></g></svg>`)).toThrow(SvgRecusado); // aponta para o próprio ancestral
+  });
+
+  it("no caminho da IA, SVG recusado pela limpeza vira 'logotipo inválido' (não é erro 500)", async () => {
+    const fundo = `<svg ${NS}>${"<g>".repeat(100)}<circle r="1"/>${"</g>".repeat(100)}</svg>`;
+    const cred = { apiKey: "sk-ant-SEGREDO-QA", modelo: "m" };
+    const cliente = async () => ({ messages: { create: async () => ({ stop_reason: "end_turn", content: [{ type: "text", text: fundo }] }) } });
+    const r = await gerarSvgDoLogotipo({ name: "Teste" }, cred, cliente);
+    expect(r).toEqual({ ok: false, motivo: expect.stringMatching(/não devolveu um logotipo válido/) });
+  });
+
+  it("o prompt da IA pede atributos de apresentação, sem <style>", () => {
+    expect(SISTEMA_LOGOTIPO).toMatch(/sem <style> e sem atributo style/);
   });
 });
 
