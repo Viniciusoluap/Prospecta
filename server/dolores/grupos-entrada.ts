@@ -29,13 +29,13 @@
 //   mensagens do mesmo grupo novo: uma só entrada por vez por grupo nesta instância (uma consulta à Evolution, uma vaga).
 import { randomInt } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { leads } from "../../drizzle/schema.js";
+import { constructionProjects, leads, users } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesContagem, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import { diaDeImperatriz, jidDeGrupoValido } from "../../shared/dolores/grupos.js";
 import {
   MAX_AVISOS_SEM_PROVA_DIA, autorEhODono, autoriaPendente, avisoDoTetoDeEntrada, avisoDoTetoSemProva, criacaoRecente, descobrirTipoDoGrupo, donoNoMetadado, ehADolores,
-  gerarCodigoDeGrupo, lerParticipante, numeroDoJid, textoDoAvisoDeAutoriaDesconhecida, textoDoAvisoDeEntrada, textoDoAvisoDeEntradaNoAdministrativo, textoDoAvisoDeRecolocada, textoDoAvisoDeRecusa,
+  gerarCodigoDeGrupo, lerParticipante, numeroDoJid, textoDoAvisoDeAutoriaDesconhecida, textoDoAvisoDeClassificacaoPelaTela, textoDoAvisoDeEntrada, textoDoAvisoDeEntradaNoAdministrativo, textoDoAvisoDeRecolocada, textoDoAvisoDeRecusa,
   textoDoResumoDeSemProva, tipoEfetivo, type AdicionadoPor, type ClienteParaTipo, type MetadadoDoGrupo, type ProvaAdicao, type TipoGrupo,
 } from "../../shared/dolores/grupos-tipo.js";
 import type { DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
@@ -296,7 +296,7 @@ async function nomeDoCliente(leadId: number) {
  * provadamente adicionou usa o teto configurado; recusado/sem prova tem contagem própria: os N primeiros do dia, depois UM
  * resumo no dia (achado 4) — terceiros não esgotam os avisos dos grupos do dono nem mandam dezenas de mensagens.
  */
-async function avisarEntrada(grupo: DoloresGrupo, p: { avisar: AvisoAoDono | null; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela"; cliente: { id: number; nome: string | null } | null; tetoAvisos: number; dia: string; chave?: string }): Promise<boolean> {
+async function avisarEntrada(grupo: DoloresGrupo, p: { avisar: AvisoAoDono | null; agora?: Date; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela"; cliente: { id: number; nome: string | null } | null; tetoAvisos: number; dia: string; chave?: string }): Promise<boolean> {
   if (!p.avisar || !grupo.codigo) return false;
   if (!(await primeiraVez(p.chave ?? `aviso-grupo:${grupo.id}`))) return false;
   const semProva = grupo.adicionadoPor !== "dono";
@@ -319,6 +319,11 @@ async function avisarEntrada(grupo: DoloresGrupo, p: { avisar: AvisoAoDono | nul
     : autoriaPendente(grupo) ? textoDoAvisoDeAutoriaDesconhecida({ nomeDoGrupo: grupo.nomeWhatsapp, codigo: grupo.codigo })
     : textoDoAvisoDeEntrada({ nomeDoGrupo: grupo.nomeWhatsapp, codigo: grupo.codigo, tipo: grupo.tipo ?? "indefinido", cliente: p.cliente });
   const r = await p.avisar(texto, ctx).catch(() => ({ ok: false, motivo: "falha" }));
+  // EPIC-027 C3: a pergunta do tipo saiu — a resposta só com o número vale por 30 min a partir daqui
+  if (r.ok && grupo.situacaoConfirmacao !== "recusado" && !autoriaPendente(grupo) && tipoEfetivo(grupo) === "indefinido") {
+    const { marcarPerguntaDoTipo } = await import("./grupos-decisao.js");
+    await marcarPerguntaDoTipo(grupo.id, { agora: p.agora ?? new Date() });
+  }
   return r.ok;
 }
 
@@ -433,4 +438,40 @@ async function avisarEntradaNoAdministrativo(instancia: string, jid: string, qua
     console.error("[dolores/grupos-entrada] falha ao conferir entrada no grupo administrativo", erroParaLog(e));
     return "grupo-evento-outro";
   }
+}
+
+/**
+ * QA-SEG EPIC-027 (achado 1b) — classificação feita pela TELA (só administrador; útil com mais de um): aviso ao dono no WhatsApp (texto fixo, sem
+ * IA) com o grupo, o tipo antes → depois, quem mudou e quando. Conta no teto diário de avisos de grupo (contador próprio). Passou do
+ * teto (ou o envio falhou): a classificação continua valendo e o grupo fica marcado "aviso pendente" — entra no relatório diário.
+ */
+export async function avisarClassificacaoPelaTela(p: { grupo: DoloresGrupo; antes: TipoGrupo; depois: TipoGrupo; userId: number; agora: Date; avisar: AvisoAoDono }): Promise<"avisado" | "pendente"> {
+  const dia = diaDeImperatriz(p.agora);
+  // quem mudou: o NOME do cadastro (só leitura do nome), nunca o que a sessão disser
+  const [u] = await getDb().select({ nome: users.name }).from(users).where(eq(users.id, p.userId)).limit(1).catch(() => []);
+  const quando = p.agora.toLocaleString("pt-BR", { timeZone: "America/Fortaleza", dateStyle: "short", timeStyle: "short" });
+  // QA-SEG EPIC-027 (R3-2): o aviso diz QUAL cliente/obra foi ligado (nome do cadastro, limpo, e o nº)
+  let vinculo: { tipo: "cliente" | "obra"; id: number; nome: string | null } | null = null;
+  if (p.grupo.leadId) {
+    const [l] = await getDb().select({ nome: leads.name }).from(leads).where(eq(leads.id, p.grupo.leadId)).limit(1).catch(() => []);
+    vinculo = { tipo: "cliente", id: p.grupo.leadId, nome: l?.nome ?? null };
+  } else if (p.grupo.obraId) {
+    const [o] = await getDb().select({ nome: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, p.grupo.obraId)).limit(1).catch(() => []);
+    vinculo = { tipo: "obra", id: p.grupo.obraId, nome: o?.nome ?? null };
+  }
+  const texto = textoDoAvisoDeClassificacaoPelaTela({ nomeDoGrupo: p.grupo.nomeWhatsapp ?? p.grupo.nome, codigo: p.grupo.codigo, antes: p.antes, depois: p.depois, quem: u?.nome ?? null, quando, vinculo });
+  let ok = false;
+  try {
+    const config = await lerConfigGrupos();
+    if (await vaga(`avisos-classificacao-tela:${dia}`, config.tetoAvisosGruposDia)) {
+      const r = await p.avisar(texto, { funcao: "grupo_classificacao_aviso", pedidoId: `tela:grupos:${p.grupo.id}:aviso`, autor: null, prazoFinal: Date.now() + 15_000, canal: "tela",
+        resumo: { grupoId: p.grupo.id, antes: p.antes, depois: p.depois, porUserId: p.userId } });
+      ok = r.ok;
+    }
+  } catch (e) { console.error("[dolores/grupos-entrada] falha no aviso da classificação pela tela", erroParaLog(e)); }
+  await getDb().update(doloresGrupos).set({ avisoClassificacaoPendenteEm: ok ? null : p.agora }).where(eq(doloresGrupos.id, p.grupo.id))
+    .catch(e => console.error("[dolores/grupos-entrada] não marquei o aviso pendente", erroParaLog(e)));
+  if (!ok) await registrarAcao({ funcao: "grupo_classificacao_aviso", resultado: "recusada", autorUserId: null, canal: "tela", pedidoId: `tela:grupos:${p.grupo.id}:aviso`,
+    motivo: "aviso ao dono da classificação pela tela não saiu (teto do dia ou falha): fica pendente e entra no relatório diário", resumo: { grupoId: p.grupo.id, porUserId: p.userId } }).catch(() => undefined);
+  return ok ? "avisado" : "pendente";
 }

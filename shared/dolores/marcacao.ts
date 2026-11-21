@@ -154,6 +154,81 @@ export function doloresFoiMarcada(item: unknown, id: IdentidadeDolores): Resulta
   return { marcada: true, externalId, grupoJid, pergunta: perguntaDoGrupo(texto), participante, participanteBruto: bruto?.slice(0, 80) ?? null, enviadaEm: s === null ? null : new Date(s * 1000) };
 }
 
+/**
+ * EPIC-027 C4 — as menções REAIS de uma mensagem de grupo (a lista do WhatsApp, `mentionedJid`), sem conferir de quem são. Serve só
+ * para saber se houve menção e se alguma veio por "@lid" (para tentar aprender o @lid da conta pelo servidor e, se não der, deixar o
+ * motivo visível). Nunca serve para APRENDER o @lid: quem escreve a menção é terceiro. Visualização única, reação, edição,
+ * encaminhada e o que não é de grupo → lista vazia (as mesmas exclusões de `doloresFoiMarcada`).
+ */
+export function mencoesDoItem(item: unknown): string[] {
+  const d = (item ?? {}) as { key?: Record<string, unknown>; message?: Mensagem | null; contextInfo?: unknown };
+  const key = d.key ?? {};
+  if (typeof key.remoteJid !== "string" || !key.remoteJid.endsWith("@g.us") || key.fromMe === true) return [];
+  const m = desembrulharTemporaria(d.message ?? {});
+  if (!m || m.reactionMessage || m.protocolMessage || m.editedMessage) return [];
+  const cis = contextos(m, d.contextInfo);
+  if (cis.some(ci => ci.isForwarded === true || (typeof ci.forwardingScore === "number" && ci.forwardingScore > 0))) return [];
+  return cis.flatMap(mencoesDe).slice(0, 100);
+}
+
+/**
+ * EPIC-027 C4 — o @lid da PRÓPRIA conta, numa mensagem que a conta enviou num grupo (`key.fromMe` = true, posto pela Evolution/
+ * WhatsApp, nunca por terceiro): nos grupos que endereçam por @lid, o `key.participant` da mensagem dela é o @lid dela. Se o aviso
+ * trouxer também o número (`participantAlt`/`participantPn`), ele precisa ser o número conectado; número diferente → null.
+ * Mensagem que não é dela, sem @lid ou fora da forma → null.
+ */
+export function lidDaPropriaMensagem(item: unknown, numeroDaConta: string | null): string | null {
+  if (!numeroDaConta) return null;
+  const key = ((item ?? {}) as { key?: Record<string, unknown> }).key ?? {};
+  if (key.fromMe !== true || typeof key.remoteJid !== "string" || !key.remoteJid.endsWith("@g.us")) return null;
+  const lid = typeof key.participant === "string" && lidValido(key.participant.trim()) ? key.participant.trim() : null;
+  if (!lid) return null;
+  for (const alt of [key.participantAlt, key.participantPn]) {
+    if (typeof alt !== "string" || !alt) continue;
+    const n = JID_NUMERO.exec(alt.trim());
+    if (!n || !ehNumeroDoDono(n[1], numeroDaConta)) return null;
+  }
+  return lid;
+}
+
+/**
+ * EPIC-027 C4 — o que aconteceu com cada marcação (ou possível marcação) recebida, para o quadro da tela (sem texto nem telefone).
+ * A chave é a devolvida por `tratarMarcacao` (com ":" trocado por "."). Sempre em português simples.
+ */
+export const ROTULO_DESFECHO_MARCACAO: Record<string, string> = {
+  "marcacao-respondida": "respondida",
+  "marcacao-apresentacao": "respondida com a apresentação (marcada sem pergunta)",
+  "marcacao-fora": "respondida com a frase fixa (pergunta fora do que o grupo permite)",
+  "marcacao-lid-desconhecido": "possível marcação não respondida: a menção veio por @lid e o @lid da Dolores ainda não foi conferido",
+  "marcacao-sem-identidade": "não respondida: a conexão do WhatsApp não está confirmada (número conectado desconhecido)",
+  "marcacao-grupo-nao-cadastrado": "não respondida: grupo fora da lista da Dolores",
+  "marcacao-grupo-recusado": "não respondida: grupo recusado (outra pessoa colocou a Dolores)",
+  "marcacao-aguardando-dono": "não respondida: grupo sem tipo definido (aguardando o dono)",
+  "marcacao-pausada": "não respondida: Dolores pausada",
+  "marcacao-desligada": "não respondida: interruptor desligado (geral ou do grupo)",
+  "marcacao-antiga": "não respondida: chegou atrasada (passou da janela de resposta)",
+  "marcacao-repetida": "reentrega da mesma marcação (já tratada)",
+  "marcacao-ocupada": "não respondida: outra resposta em andamento no grupo",
+  "marcacao-teto-remetente": "não respondida: teto de marcações por pessoa por hora",
+  "marcacao-teto-grupo": "não respondida: teto de respostas do grupo no dia",
+  "marcacao-bloqueada": "não respondida: a IA não pode rodar agora (pausa, chave, modelo ou limite)",
+  "marcacao-sem-tempo": "não respondida: sem tempo no prazo do aviso",
+  "marcacao-erro-envio": "não respondida: o envio ao grupo falhou",
+  "marcacao-indisponivel": "não respondida: banco indisponível",
+  "marcacao-erro": "não respondida: falha inesperada",
+  "marcacao-sem-vinculo": "respondida com a frase fixa (grupo sem cliente ligado)",
+  "marcacao-parceiro-nao-identificado": "respondida com a frase fixa (parceiro não identificado pelo número)",
+};
+/** Rótulo de uma chave do quadro ("marcacao-bloqueada.limite_mensal" → o rótulo de "marcacao-bloqueada" + o detalhe). */
+export function rotuloDoDesfechoDaMarcacao(chave: string): string {
+  const [base, ...resto] = chave.split(".");
+  const r = ROTULO_DESFECHO_MARCACAO[base];
+  if (!r) return chave;
+  return resto.length ? `${r} (${resto.join(".").replace(/_/g, " ")})` : r;
+}
+/** Desfechos que NÃO são resposta no grupo (o quadro os mostra como "não respondida"). */
+export const desfechoRespondido = (chave: string) => /^marcacao-(respondida|apresentacao|fora|sem-vinculo|parceiro-nao-identificado)(\.|$)/.test(chave);
+
 function segundosDe(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && /^\d+$/.test(v)) return Number(v);
