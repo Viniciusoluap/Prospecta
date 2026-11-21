@@ -171,7 +171,7 @@ describe("QA — dinheiro e proteção do número", () => {
     const p2 = await admin().whatsappOficial.previa(entrada([1, 2, 3]));
     expect(p2.contagem).toMatchObject({ jaRecebeu: 2, aEnviar: 1 });
     expect(p2.janelaRepeticaoDias).toBe(7);
-    // 8 dias depois a janela libera; com a janela em 0 não confere
+    // 8 dias depois a janela libera
     relogio = new Date(AGORA.getTime() + 8 * 24 * 60 * 60_000);
     expect((await admin().whatsappOficial.previa(entrada([1, 2]))).contagem.jaRecebeu).toBe(0);
   });
@@ -179,9 +179,10 @@ describe("QA — dinheiro e proteção do número", () => {
   it("CORRIGIDO 1b: duas campanhas criadas ANTES de qualquer envio (chaves diferentes): o lote da segunda pula quem já recebeu o modelo", async () => {
     await configurarTudo();
     const a = await campanha([1]);
-    await pg.exec("UPDATE ycloud_config SET janela_repeticao_dias = 0");
-    const b = await campanha([1]); // sem conferência na prévia
-    await pg.exec("UPDATE ycloud_config SET janela_repeticao_dias = 7");
+    // esconde a fila de A só durante a prévia de B (simula as duas prévias antes de qualquer reserva)
+    await pg.exec(`UPDATE ycloud_envios SET status = 'falhou' WHERE campanha_id = ${a.campanhaId}`);
+    const b = await campanha([1]);
+    await pg.exec(`UPDATE ycloud_envios SET status = 'na_fila' WHERE campanha_id = ${a.campanhaId}`);
     await admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId });
     await admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId });
     expect(recebidosPor("+5599988881111")).toBe(1);
@@ -471,10 +472,39 @@ describe("QA rodada 2 — duas prévias diferentes e janela 0", () => {
     expect(recebidosPor("+5599988881111")).toBe(1);
     expect(recebidosPor("+5599977772222")).toBe(1);
   });
-  it("ACHADO R2-1: com 'não repetir' = 0 dias, o mesmo cenário manda em DOBRO (proteção some sem aviso)", async () => {
+  it("CORRIGIDO R2-1: 'não repetir' = 0 é recusado (tela e banco); com o mínimo de 1 dia, duas abas simultâneas mandam UMA vez", async () => {
     await configurarTudo();
-    await admin().whatsappOficial.salvarConfig({ janelaRepeticaoDias: 0 });
-    await duasAbas();
-    expect(recebidosPor("+5599988881111")).toBe(2);
+    await expect(admin().whatsappOficial.salvarConfig({ janelaRepeticaoDias: 0 })).rejects.toThrow(/Mínimo 1 dia/);
+    await expect(pg.exec("UPDATE ycloud_config SET janela_repeticao_dias = 0")).rejects.toThrow();
+    await admin().whatsappOficial.salvarConfig({ janelaRepeticaoDias: 1 });
+    const { a, b } = await duasAbas();
+    expect(a.campanhaId).not.toBe(b.campanhaId);
+    expect(recebidosPor("+5599988881111")).toBe(1);
+    expect(recebidosPor("+5599977772222")).toBe(1);
+    const pulados = await q<{ n: number }>("SELECT count(*)::int AS n FROM ycloud_envios WHERE erro_codigo = 'REPETIDO'");
+    expect(pulados[0].n).toBe(2);
+  });
+
+  it("CORRIGIDO R2-1b: dois lotes de campanhas diferentes em PARALELO (trava vencida forçada no meio) não mandam o mesmo modelo duas vezes", async () => {
+    await configurarTudo();
+    await admin().whatsappOficial.salvarConfig({ janelaRepeticaoDias: 1 });
+    const a = await campanha([1]);
+    await pg.exec(`UPDATE ycloud_envios SET status = 'falhou' WHERE campanha_id = ${a.campanhaId}`);
+    const b = await campanha([1]);
+    await pg.exec(`UPDATE ycloud_envios SET status = 'na_fila' WHERE campanha_id = ${a.campanhaId}`);
+    // a trava é solta à força a cada POST (simula um lote que passou dos 70 s): mesmo assim a conferência por envio barra
+    const original = fetchFalso.getMockImplementation()!;
+    definirDependenciasYcloud({
+      agora: () => relogio, esperar: async () => undefined, numeroDaEmpresa: async () => EMPRESA, numeroDoDono: async () => DONO,
+      conexaoDaEmpresaId: async () => 1, urlDoSite: () => "https://www.exemplo-prospecta.test",
+      fetch: (async (u: any, init?: RequestInit) => {
+        if (String(u).endsWith("/whatsapp/messages")) await pg.exec("UPDATE ycloud_config SET lote_ate = NULL");
+        return original(u, init);
+      }) as never,
+    });
+    await Promise.all([admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId }), admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId })]);
+    await admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId });
+    await admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId });
+    expect(recebidosPor("+5599988881111")).toBe(1);
   });
 });

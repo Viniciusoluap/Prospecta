@@ -170,9 +170,9 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
   const comTelefone = cadastro.map(l => { const e164 = telefoneE164(l.telefone); return { ...l, e164, chave: e164 ? chaveCanonicaTelefone(e164) : null }; });
   const chaves = comTelefone.map(l => l.chave).filter((x): x is string => !!x);
   const bloqueios = await bloqueiosDeOptout(chaves, cadastro.map(l => l.id));
-  const janela = situacao.cfg.janelaRepeticaoDias;
-  const repetidos = janela > 0
-    ? await jaReceberamOModelo(chaves, modelo, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { incluirFila: true }) : new Set<string>();
+  // mínimo 1 dia, também aqui (o banco já recusa 0): a proteção nunca some
+  const janela = Math.max(1, situacao.cfg.janelaRepeticaoDias);
+  const repetidos = await jaReceberamOModelo(chaves, modelo, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { incluirFila: true });
   const usaNome = modelo.analise.campos.some(c => entrada.variaveis[c.chave]?.fonte !== "fixo");
 
   const contagem = { selecionados: ids.length, aEnviar: 0, optout: 0, invalidos: ids.length - cadastro.length, duplicados: 0, reservados: 0, semNome: 0, nomeRecusado: 0, parametroInvalido: 0, jaRecebeu: 0, acimaDoLimite: 0 };
@@ -429,10 +429,11 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
     await pausarCampanha(campanhaId, e instanceof Error ? e.message : "Não consegui conferir o opt-out.");
     return fim();
   }
-  const janela = situacao.cfg.janelaRepeticaoDias;
-  const repetidos = janela > 0
-    ? await jaReceberamOModelo(reservados.map(r => r.chaveTelefone), { nome: camp.modeloNome, idioma: camp.modeloIdioma }, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { excetoCampanha: campanhaId, incluirFila: false })
-    : new Set<string>();
+  // "já recebeu este modelo": conferido DENTRO da trava de um lote por vez (travarLote — UPDATE atômico no banco), de novo para cada
+  // envio logo antes do POST (cobre até a trava vencida de um lote que demorou), sempre com no mínimo 1 dia
+  const janela = Math.max(1, situacao.cfg.janelaRepeticaoDias);
+  const desdeRepeticao = new Date(d.agora().getTime() - janela * 24 * 60 * 60_000);
+  const modeloDoLote = { nome: camp.modeloNome, idioma: camp.modeloIdioma };
   const conexaoId = await d.conexaoDaEmpresaId().catch(() => null);
   const origem = situacao.conferencia.numero;
   let ultimoEnvio = 0;
@@ -451,7 +452,7 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
       res.falhas++;
       continue;
     }
-    if (repetidos.has(e.chaveTelefone)) {
+    if ((await jaReceberamOModelo([e.chaveTelefone], modeloDoLote, desdeRepeticao, { excetoCampanha: campanhaId, incluirFila: false })).size) {
       await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "REPETIDO", motivo: `Não enviada: já recebeu este modelo nos últimos ${janela} dia(s).`, falhouEm: d.agora(), atualizadoEm: d.agora() })
         .where(eq(ycloudEnvios.id, e.id));
       res.falhas++;

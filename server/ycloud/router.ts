@@ -127,7 +127,7 @@ export const whatsappOficialRouter = router({
     ligado: z.boolean().optional(),
     tetoDia: z.number().int().min(1).max(100_000).optional(),
     tetoCampanha: z.number().int().min(1).max(MAX_DESTINATARIOS_CAMPANHA).optional(),
-    janelaRepeticaoDias: z.number().int().min(0).max(90).optional(),
+    janelaRepeticaoDias: z.number().int().min(1, "Mínimo 1 dia: a mesma pessoa nunca recebe o mesmo modelo duas vezes no mesmo dia.").max(90).optional(),
     precoEstimado: z.number().min(0).max(100).nullable().optional(),
     moeda: z.string().regex(/^[A-Z]{3}$/).optional(),
   }).strict()).mutation(({ ctx, input }) => tentar(async () => {

@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS "ycloud_config" (
   "ligado" boolean NOT NULL DEFAULT false,
   "teto_dia" integer NOT NULL DEFAULT 200 CHECK ("teto_dia" BETWEEN 1 AND 100000),
   "teto_campanha" integer NOT NULL DEFAULT 250 CHECK ("teto_campanha" BETWEEN 1 AND 100000),
-  -- quem recebeu o MESMO modelo nos últimos N dias (qualquer campanha) é pulado; 0 = não confere
-  "janela_repeticao_dias" integer NOT NULL DEFAULT 7 CHECK ("janela_repeticao_dias" BETWEEN 0 AND 90),
+  -- quem recebeu o MESMO modelo nos últimos N dias (qualquer campanha) é pulado; mínimo 1 dia (nunca desliga)
+  "janela_repeticao_dias" integer NOT NULL DEFAULT 7 CHECK ("janela_repeticao_dias" BETWEEN 1 AND 90),
   "preco_estimado" numeric(10, 4) CHECK ("preco_estimado" IS NULL OR "preco_estimado" >= 0),
   "moeda" varchar(3) NOT NULL DEFAULT 'USD',
   -- última conferência do número na YCloud (GET /whatsapp/phoneNumbers)
