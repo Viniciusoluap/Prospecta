@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { ArrowLeft, Bot, Download, ExternalLink, Hand, Link2, RefreshCw, Send, Trash2, Unlink, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Bot, Download, ExternalLink, Hand, Link2, MessageCircle, RefreshCw, Send, Trash2, Unlink, UserPlus, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +13,9 @@ import {
 import { trpc } from "@/lib/trpc";
 import { alternarItem, alternarTodosVisiveis, chaveDaConversa, ehConversaSemNumero, podarSelecao, textoConfirmacaoExclusao } from "@shared/whatsapp/conversas";
 import { TEXTO_MODO, ajudaDoEstado } from "@shared/dolores/modo-conversa";
+import { podeVerGruposNaCentral } from "@shared/whatsapp/grupos-central";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { GruposWhatsApp } from "./GruposWhatsApp";
 
 const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 /** EPIC-026 C2: a conversa cujo número o WhatsApp não informou ("@lid") aparece assim — nunca com um telefone inventado. */
@@ -180,7 +183,31 @@ function AtendimentoDaConversa({ numero }: { numero: string }) {
   );
 }
 
+/**
+ * EPIC-027 C2: "Conversas | Grupos". A aba Grupos só aparece para o admin e o colaborador com a permissão "Grupos do WhatsApp" (o
+ * servidor confere de novo em toda rota de grupo). As conversas diretas continuam como antes (grupo nunca entra nelas).
+ */
 export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | null }) {
+  const { user } = useAuth();
+  const veGrupos = podeVerGruposNaCentral(user);
+  const [aba, setAba] = useState<"conversas" | "grupos">("conversas");
+  if (!veGrupos) return <ConversasDiretas numeroInicial={numeroInicial} />;
+  return (
+    <div className="space-y-3">
+      <div role="tablist" aria-label="Conversas ou grupos" className="inline-flex rounded-lg border border-[#C9A961]/30 bg-[#1A2332] p-1 text-sm">
+        {([["conversas", "Conversas", MessageCircle], ["grupos", "Grupos", Users]] as const).map(([k, rot, Icone]) => (
+          <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => setAba(k)}
+            className={`inline-flex items-center gap-1 rounded px-3 py-1 font-bold ${aba === k ? "bg-[#C9A961] text-[#1A2332]" : "text-gray-300 hover:text-white"}`}>
+            <Icone className="h-4 w-4" /> {rot}
+          </button>
+        ))}
+      </div>
+      {aba === "conversas" ? <ConversasDiretas numeroInicial={numeroInicial} /> : <GruposWhatsApp />}
+    </div>
+  );
+}
+
+function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
   const [numero, setNumero] = useState<string | null>(numeroInicial ?? null);
   const [texto, setTexto] = useState("");
