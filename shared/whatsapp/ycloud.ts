@@ -113,7 +113,8 @@ export function telefoneMascarado(e164: string | null | undefined): string {
 
 export type ComponenteModelo = { type?: string; format?: string; text?: string; buttons?: Array<{ type?: string; text?: string; url?: string }> };
 export type CampoModelo = { chave: string; local: "cabecalho" | "corpo"; indice: number; limite: number };
-export type AnaliseModelo = { compativel: boolean; motivo: string | null; campos: CampoModelo[]; corpo: string; cabecalho: string | null };
+/** `rodape` (C7.3): texto do rodapé do modelo (sem variável), guardado no envio para reconhecer o eco exato da campanha. */
+export type AnaliseModelo = { compativel: boolean; motivo: string | null; campos: CampoModelo[]; corpo: string; cabecalho: string | null; rodape?: string | null };
 
 const PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
@@ -161,10 +162,11 @@ export function analisarModelo(components: ComponenteModelo[] | null | undefined
   for (const n of ns) campos.push({ chave: `corpo.${n}`, local: "corpo", indice: n, limite: 1024 });
   const rodape = cs.find(c => tipo(c) === "FOOTER");
   if (rodape && placeholders(String(rodape.text ?? "")).length) return falha("Rodapé com variável não é suportado.");
+  const textoRodape = rodape ? String(rodape.text ?? "").trim() || null : null;
   for (const b of cs.find(c => tipo(c) === "BUTTONS")?.buttons ?? []) {
     if (placeholders(`${b.url ?? ""} ${b.text ?? ""}`).length) return falha("Botão com variável não é suportado nesta tela.");
   }
-  return { compativel: true, motivo: null, campos, corpo, cabecalho };
+  return { compativel: true, motivo: null, campos, corpo, cabecalho, rodape: textoRodape };
 }
 
 /**
@@ -184,14 +186,58 @@ export function problemaDoParametro(valor: string, limite: number): string | nul
 const TLD_COMUNS = "com|net|org|br|io|me|co|info|biz|app|site|online|store|shop|link|ly|xyz|gov|edu|tv|us|uk|pt|top|club|live|page|digital";
 const DOMINIO_COM_TLD = new RegExp(`(?:^|[^a-z0-9@])[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:${TLD_COMUNS})(?![a-z0-9])`, "i");
 
+/** Caracteres que parecem ponto (U+2024, U+00B7, U+2027, U+2219, U+22C5, U+30FB, U+FF65, U+3002, U+FF61, U+FE52, U+0701…). */
+const PARECE_PONTO = "[\\u00B7\\u0387\\u06D4\\u0701\\u0702\\u2022\\u2024\\u2027\\u2219\\u22C5\\u2E31\\u3002\\u30FB\\uFE52\\uFF0E\\uFF61\\uFF65]";
+/** Colado entre dois caracteres ("exemplo·com") vira ponto; com espaço ("Piscina • Academia", lista com marcador) vira espaço. */
+const PONTO_COLADO = new RegExp(`(?<=\\S)${PARECE_PONTO}(?=\\S)`, "g");
+const PONTO_SOLTO = new RegExp(PARECE_PONTO, "g");
+// classes Unicode (\p{...}) pelo construtor: o alvo do TypeScript não aceita a flag "u" em literal
+const MARCAS = new RegExp("\\p{M}", "gu");
+const INVISIVEIS = new RegExp("\\p{Cf}", "gu");
+const DIGITOS = new RegExp("\\p{Nd}", "gu");
+const TRACOS = new RegExp("\\p{Pd}", "gu");
+
 /**
- * C7.1 (portão de QA, 21/11/2026): texto fixo de variável digitado por quem NÃO é admin (colaborador com o módulo WhatsApp) não leva
- * link (`http`, `https`, `www.`, domínio com terminação comum) nem telefone (8+ dígitos seguidos, aceitando espaço, ponto, hífen,
- * parênteses e "+"). O modelo foi aprovado pela Meta; a variável não pode virar um canal para mandar o cliente a outro lugar.
+ * C7.3: forma comparável do texto fixo — NFKC/NFKD (dígitos largos, "＠", ponto largo e "①" viram ASCII), sem marcas (acento,
+ * tecla de emoji), sem caracteres invisíveis, minúsculas, pontos e traços "parecidos" viram "." e "-", espaços colapsados e
+ * espaço ANTES do ponto removido ("exemplo . com" → "exemplo.com"; "frase. Depois" fica como está). Dígitos de outros alfabetos
+ * contam como dígito.
+ */
+export function textoFixoNormalizado(valor: string): string {
+  return String(valor ?? "").normalize("NFKC").normalize("NFKD")
+    .replace(MARCAS, "").replace(INVISIVEIS, "")
+    .replace(DIGITOS, ch => (/[0-9]/.test(ch) ? ch : "0"))
+    .toLowerCase()
+    .replace(PONTO_COLADO, ".").replace(PONTO_SOLTO, " ").replace(TRACOS, "-")
+    .replace(/\s+/g, " ").replace(/ +\. */g, ".").trim();
+}
+
+/** Link escrito por extenso: "ponto com", "ponto br", "arroba", "dot com"… */
+const LINK_POR_EXTENSO = /\b(?:ponto|dot)\s*-?\s*(?:com|br|net|org|me|io|ly|app|dev|ai|site|online|info|link|store|shop|xyz)\b|\barroba\b/;
+/** Qualquer `palavra.palavra` com 2+ letras depois do ponto (cobre terminações fora da lista: .dev, .ai, .app, .io…). */
+const PALAVRA_PONTO_PALAVRA = /[a-z0-9_-]\.[a-z]{2,}/;
+/**
+ * Retirados antes de contar dígitos, só quando SOZINHOS (sem outro grupo de dígitos colado por separador): data com dia e mês válidos
+ * (25/11/2026, 25-11-26, 25/11) e CEP (12345-678). Valor em R$ não precisa: a vírgula já separa e até 9.999.999 são 7 dígitos.
+ */
+const SEP = "[\\s().+/_-]";
+const DATA = new RegExp(`(?<!\\d${SEP}*)(?:0?[1-9]|[12]\\d|3[01])[/.-](?:0?[1-9]|1[0-2])(?:[/.-](?:(?:19|20)\\d{2}|\\d{2}))?(?!${SEP}*\\d)`, "g");
+const CEP = new RegExp(`(?<!\\d${SEP}*)\\d{5}-\\d{3}(?!${SEP}*\\d)`, "g");
+
+/**
+ * C7.1 (portão de QA, 21/11/2026) e C7.3 (rodada 2): texto fixo de variável digitado por quem NÃO é admin (colaborador com o módulo
+ * WhatsApp) não leva link nem telefone. Sobre a forma normalizada (`textoFixoNormalizado`): recusa `http`, `www.`, link por extenso
+ * ("ponto com", "arroba"), qualquer `palavra.palavra` (2+ letras depois do ponto), `@algo`, e 8+ dígitos somando os separados por
+ * espaço, traço, barra, ponto, parênteses, "+" ou "_" (data e CEP sozinhos não contam). O modelo foi aprovado pela Meta; a
+ * variável não pode virar um canal para mandar o cliente a outro lugar. Resta o número por extenso ("onze nove…"): engenharia social.
  */
 export function problemaDoTextoFixoDaEquipe(valor: string): string | null {
-  if (/https?:|www\./i.test(valor) || DOMINIO_COM_TLD.test(valor)) return "não pode ter link (só o administrador pode usar link em texto fixo)";
-  const corridas = valor.match(/[+(]?\d[\d\s().+-]*\d/g) ?? [];
+  const t = textoFixoNormalizado(valor);
+  if (/https?:|www\./.test(t) || DOMINIO_COM_TLD.test(t) || LINK_POR_EXTENSO.test(t) || PALAVRA_PONTO_PALAVRA.test(t) || /@\s*[a-z0-9_]/.test(t)) {
+    return "não pode ter link (só o administrador pode usar link em texto fixo)";
+  }
+  const semExcecoes = t.replace(DATA, " ").replace(CEP, " ");
+  const corridas = semExcecoes.match(/[+(]?\d[\d\s().+/_-]*\d/g) ?? [];
   if (corridas.some(c => c.replace(/\D/g, "").length >= 8)) return "não pode ter número de telefone (só o administrador pode usar telefone em texto fixo)";
   return null;
 }

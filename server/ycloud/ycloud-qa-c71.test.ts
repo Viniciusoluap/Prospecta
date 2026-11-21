@@ -22,7 +22,7 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { CHAVE_SEGREDO_WEBHOOK_YCLOUD, CHAVE_SEGREDO_YCLOUD, definirDependenciasYcloud } from "./config.js";
-import { AVISO_AJUSTE_ADMIN, expirarReservas, motivoParaEquipe, podeContinuarPausa } from "./campanhas.js";
+import { AVISO_AJUSTE_ADMIN, AVISO_NAO_CONCLUIDO, expirarReservas, motivoParaEquipe, podeContinuarPausa } from "./campanhas.js";
 import { detalheComPapel, separarPapel } from "./config.js";
 import { problemaDoTextoFixoDaEquipe } from "../../shared/whatsapp/ycloud.js";
 import { tratarWebhookYcloud, verificarAssinaturaYcloud } from "./webhook.js";
@@ -249,7 +249,8 @@ describe("QA C7.1 — o que o colaborador recebe", () => {
     expect(motivoParaEquipe("Limite de 150 destinatários em 24 h atingido. Clique em \"Continuar\" depois.")).toBe("Limite de destinatários em 24 h atingido. Clique em \"Continuar\" depois.");
     expect(motivoParaEquipe("Não enviada: já recebeu este modelo nos últimos 7 dia(s).")).toBe("Não enviada: já recebeu este modelo recentemente.");
     expect(motivoParaEquipe("O número da API não é o da empresa.")).toBe(AVISO_AJUSTE_ADMIN);
-    expect(motivoParaEquipe("falha com +5599900002222")).toBe(AVISO_AJUSTE_ADMIN);
+    // C7.3: número que não é problema da integração → frase neutra (sem o número)
+    expect(motivoParaEquipe("falha com +5599900002222")).toBe(AVISO_NAO_CONCLUIDO);
     expect(motivoParaEquipe("Cinco falhas seguidas: campanha pausada.")).toBe("Cinco falhas seguidas: campanha pausada.");
     expect(motivoParaEquipe(null)).toBeNull();
   });
