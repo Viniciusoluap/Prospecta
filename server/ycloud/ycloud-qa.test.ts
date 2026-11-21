@@ -342,7 +342,7 @@ describe("QA — dinheiro e proteção do número", () => {
     await configurarTudo();
     const p = await admin().whatsappOficial.previa(entrada([1, 2]));
     await pg.exec(`INSERT INTO ycloud_optout (telefone, chave_telefone, origem) VALUES ('+5599977772222', '5599977772222', 'painel')`);
-    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar })).rejects.toThrow(/contagem mudou/);
+    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao })).rejects.toThrow(/contagem mudou/);
   });
 });
 
