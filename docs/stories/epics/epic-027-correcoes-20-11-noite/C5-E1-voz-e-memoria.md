@@ -145,3 +145,8 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
   MAIÚSCULAS ou com dígito (`pareceCodigo`, conferido no replacer) — "pode aprovar venda do lote?", "não vou recusar ajuda",
   "não mexa no grupo nada" ficam inteiras; `semOsCodigos` troca só "[XXXXX]" (alfabeto da fila) e "(XXXX)" (alfabeto do grupo)
   e os códigos do comando em maiúsculas — "(2026)", "[CNPJ]" e "Nada mudou" ficam. tsc limpo; 8 arquivos, 207 testes verdes.
+- 21/11/2026 — @dev (Dex): rodada 3 do portão (CONCERNS baixo): a memória não adivinha mais código pelo formato — troca só os
+  códigos que EXISTEM (`codigosReais`: até 1.000 da fila e 2.000 dos grupos), em qualquer caixa, sem regex sobre o texto
+  (`semCodigosReais`); "grupo MCMV da Lucia", "código MCMV da obra", "grupo CNPJ", "aprovar TURMA" ficam e "pode aprovar khmnp?"
+  perde o código real. Se a consulta falhar, cai no filtro por formato (lado seguro). O filtro de voz da resposta ficou como
+  estava. tsc limpo; 8 arquivos, 210 testes verdes.
