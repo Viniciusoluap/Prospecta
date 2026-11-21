@@ -170,3 +170,9 @@ negócio, e não simplesmente ter programações". Decisões dele (CLAUDE.md, 21
   `epic027-c2-qa-seguranca`, `operacao-regras` e `server/integracoes-anthropic.test.ts` — todos verdes na última rodada de cada um
   (falhas intermediárias eram frases/fluxo antigos — execução direta da tarefa e quadro com código — ajustados ao comportamento
   novo). `npx tsc --noEmit` limpo. Sem mudança de tela (sem `vite build`). Não há script `lint`.
+- 21/11/2026 — @dev (Dex): correções do portão de QA (CONCERNS) A1–A4 + decisão do áudio (seção "Correções do portão de QA");
+  0145 ganhou `pergunta_enviada_em` e `adjacente` passou a nascer false (ainda não aplicada em lugar nenhum). Merge da `origin/main`
+  (C5-E1 #279, `trpc.ts` sem `dolores.grupos.definirTipo`, YCloud C7.1/C7.2, #282, EPIC-028 #283): 11 conflitos resolvidos trecho a
+  trecho com o lado da E2; `git diff origin/main` mostra só arquivos da E2. Testes depois do merge: `npx tsc --noEmit` limpo;
+  `vitest run server/dolores server/integracoes-anthropic.test.ts server/admin-permissions.test.ts --maxWorkers=2` → 65 arquivos,
+  1158 testes, todos verdes; `npx vite build` ok.
