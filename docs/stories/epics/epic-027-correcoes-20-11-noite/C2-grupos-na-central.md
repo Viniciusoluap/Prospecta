@@ -100,6 +100,9 @@ exatamente igual faz na conversa".
   registrada e desconectado; eco (fromMe, até com menção) não registra, não marca, não responde, não duplica — e a marcação real
   continua funcionando; estático do envio a grupo; assumir/devolver (cala e não liga nada); classificar pela Central com as travas
   do C3; 0142 aditiva e idempotente. `server/admin-permissions.test.ts` ajustado (lista de módulos).
+  Rodada completa em 21/11: `server/dolores` inteira + suítes do WhatsApp, permissões, consentimento, modelo por função, relatórios e
+  maquete — 62 arquivos, 1.102 testes, todos passando; `auth-session` + `imports-esm` (build da Vercel) passando; `npx tsc --noEmit`
+  limpo; `npx vite build` ok.
 - (b) manuais: pendentes (tela).
 - (c) em produção: pendentes — aplicar a 0142, abrir Conversas › Grupos como admin e como colaborador com e sem a permissão,
   escrever num grupo de teste e conferir o "equipe — Fulano" e que a Dolores não respondeu.

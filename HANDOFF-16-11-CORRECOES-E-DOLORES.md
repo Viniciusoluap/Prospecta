@@ -508,6 +508,6 @@ do `adb41c7`. 3. Quando houver computador: refazer a vinculação YCloud, religa
   "Assumir (humano)" por grupo. Story: `docs/stories/epics/epic-027-correcoes-20-11-noite/C2-grupos-na-central.md`.
 - Migração `drizzle/0142_grupos_na_central.sql` NÃO aplicada — aplicar no Neon ANTES de publicar o código (sem ela, o registro das
   mensagens de grupo falha e a Dolores fica calada nos grupos).
-- Testes: (a) automáticos — `server/dolores/c2-grupos-na-central.test.ts` 16/16 e as suítes de `server/dolores` + WhatsApp (ver o
-  relatório do @dev); `npx tsc --noEmit` limpo. (b) manuais — pendentes. (c) produção — pendentes.
+- Testes: (a) automáticos — `server/dolores/c2-grupos-na-central.test.ts` 16/16; rodada de 62 arquivos (1.102 testes: `server/dolores`
+  inteira + WhatsApp, permissões, consentimento) passando; `auth-session`/`imports-esm` ok; `npx tsc --noEmit` limpo; `vite build` ok. (b) manuais — pendentes. (c) produção — pendentes.
 - Próximo passo: portão de QA de segurança da C2 (@qa), junto com C3/C4/C6 do `epic027-d`; depois publicar (0142 antes).
