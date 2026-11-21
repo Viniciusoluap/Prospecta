@@ -306,3 +306,13 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   painel da campanha e auditoria; só administrador por papel. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026)
+
+A Central WhatsApp existe nos dois sistemas; a parte da Dolores (resposta quando marcada, classificar grupo, "Assumir" calando a
+Dolores) é exceção.
+- [ ] C2 — grupos do WhatsApp na Central (`0142`): acesso pelo módulo "WhatsApp" já existente (decisão do dono em 21/11: sem permissão separada;
+  admin sempre; corretor nunca), aba "Conversas | Grupos" com todos os grupos da conta da empresa (nome, tipo, nome de
+  quem escreveu, mídia como rótulo, paginação), escrita no grupo pelo número da empresa com quem enviou registrado ("equipe —
+  Fulano") e os tetos do envio manual (10/min, 200/dia). No Santa Fé, sem Dolores, a lista de grupos precisa de um registro de
+  grupos próprio (lá não existe `dolores_grupos`).
