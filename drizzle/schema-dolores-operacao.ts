@@ -1,7 +1,7 @@
 // 17/11/2026 — EPIC-025 (etapa 6): operação contínua — configuração, rondas, relatórios e eventos (migração
 // 0131_dolores_operacao.sql). Tabelas novas, em arquivo próprio: nenhuma tabela anterior foi alterada. Rondas, relatórios e
 // eventos são só inserção (gatilho no banco) e não têm chave estrangeira para "users".
-import { boolean, foreignKey, index, integer, jsonb, numeric, pgTable, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, numeric, pgTable, primaryKey, serial, smallint, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { users } from "./schema.js";
 
 export const doloresOperacaoConfig = pgTable("dolores_operacao_config", {
@@ -97,3 +97,26 @@ export const doloresCotacao = pgTable("dolores_cotacao", {
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
 });
+
+// 21/11/2026 — EPIC-027 C5-E5: gasto separado por função (migração 0148_dolores_gasto_por_funcao.sql). A parte de cada função no
+// limite mensal (linha única, só o admin muda pela tela) e o registro dos alertas de 80%/100% ao dono (um por mês, alvo e nível).
+// A coluna nova `dolores_consumo.funcao` NÃO entra no schema Drizzle de propósito: é lida e gravada por SQL em
+// server/dolores/consumo.ts só quando existe (antes da 0148 aplicada, o insert do Drizzle com a coluna quebraria o registro).
+export const doloresGastoPartes = pgTable("dolores_gasto_partes", {
+  id: integer("id").primaryKey().default(1),
+  conversaPct: smallint("conversa_pct").default(55).notNull(),
+  documentosPct: smallint("documentos_pct").default(20).notNull(),
+  gruposPct: smallint("grupos_pct").default(10).notNull(),
+  clientesPct: smallint("clientes_pct").default(10).notNull(),
+  avisosPct: smallint("avisos_pct").default(5).notNull(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+  atualizadoPor: integer("atualizado_por").references(() => users.id, { onDelete: "set null" }),
+});
+
+export const doloresGastoAlertas = pgTable("dolores_gasto_alertas", {
+  mes: varchar("mes", { length: 7 }).notNull(),
+  alvo: varchar("alvo", { length: 24 }).notNull(),
+  nivel: smallint("nivel").notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
+  enviadoEm: timestamp("enviado_em", { withTimezone: true }),
+}, t => [primaryKey({ columns: [t.mes, t.alvo, t.nivel] })]);

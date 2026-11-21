@@ -4,10 +4,10 @@
 import { eq, sql } from "drizzle-orm";
 import { doloresConsumo } from "../../drizzle/schema-dolores-whatsapp.js";
 import { doloresCotacao, doloresPrecosModelo } from "../../drizzle/schema-dolores-operacao.js";
-import { custoDoMes, type CustoDoMes, type FuncaoDoConsumo, type PrecoModelo, type PrecoReserva, type UsoDetalhado } from "../../shared/dolores/custo.js";
+import { FUNCOES_DO_GASTO, custoDoMes, type CustoDoMes, type FuncaoDoConsumo, type PrecoModelo, type PrecoReserva, type UsoDetalhado } from "../../shared/dolores/custo.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
-import { PARADA_CLIENTE, PARADA_GRUPO } from "./consumo.js";
+import { funcaoSql, temColunaFuncao } from "./consumo.js";
 import { FUNCOES_ANTHROPIC } from "../../shared/funcoes-anthropic.js";
 import { previsaoDoLimite } from "../../shared/dolores/precos-padrao.js";
 import { TETO_DONO_REAIS } from "../../shared/dolores/operacao.js";
@@ -36,14 +36,15 @@ export async function lerPrecos(): Promise<PrecosCadastrados> {
 }
 
 /**
- * Consumo do mês agrupado por modelo e função. A função sai do que `dolores_consumo` já grava: com mensagem do dono = conversa;
- * parada "grupo…" = resposta em grupo; o resto = classificação de documentos e leitura de notas (as duas gravam igual e não dá
- * para separar uma da outra).
+ * Consumo do mês agrupado por modelo e função. C5-E5: a função gravada em `dolores_consumo.funcao` (0148); em linha antiga, a do
+ * que já se gravava: com mensagem do dono = conversa; parada "grupo…" = resposta em grupo; "cliente…" = atendimento; o resto =
+ * classificação de documentos e leitura de notas (as duas são a mesma parte, "documentos").
  */
 // o padrão do LIKE vai como literal (constante do código, só letras): com parâmetro, o Postgres não reconhece a mesma expressão
 // no SELECT e no GROUP BY
 export async function consumoDoMesDetalhado(mes: string): Promise<Array<{ modelo: string; funcao: FuncaoDoConsumo; uso: UsoDetalhado }>> {
-  const funcao = sql<string>`CASE WHEN ${doloresConsumo.mensagemId} IS NOT NULL THEN 'conversa' WHEN ${doloresConsumo.parada} LIKE ${sql.raw(`'${PARADA_GRUPO.replace(/[^a-z_]/g, "")}%'`)} THEN 'grupos' WHEN ${doloresConsumo.parada} LIKE ${sql.raw(`'${PARADA_CLIENTE.replace(/[^a-z_]/g, "")}%'`)} THEN 'clientes' ELSE 'documentos_e_notas' END`;
+  // EPIC-027 C5-E5: a função gravada na coluna da 0148; linha antiga (ou banco sem a coluna) pela regra antiga — a MESMA das reservas
+  const funcao = funcaoSql(await temColunaFuncao());
   const linhas = await getDb().select({
     modelo: doloresConsumo.modelo, funcao,
     entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada}), 0)`.mapWith(Number),
@@ -52,7 +53,7 @@ export async function consumoDoMesDetalhado(mes: string): Promise<Array<{ modelo
     cacheLeitura: sql<number>`coalesce(sum(${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
   }).from(doloresConsumo).where(eq(doloresConsumo.mes, mes)).groupBy(doloresConsumo.modelo, funcao);
   return linhas.map(l => ({
-    modelo: l.modelo, funcao: (["conversa", "grupos", "clientes"].includes(l.funcao) ? l.funcao : "documentos_e_notas") as FuncaoDoConsumo,
+    modelo: l.modelo, funcao: ((FUNCOES_DO_GASTO as readonly string[]).includes(l.funcao) ? l.funcao : "documentos_e_notas") as FuncaoDoConsumo,
     uso: { entrada: Number(l.entrada), saida: Number(l.saida), cacheEscrita: Number(l.cacheEscrita), cacheLeitura: Number(l.cacheLeitura) },
   }));
 }

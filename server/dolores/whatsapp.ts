@@ -17,7 +17,7 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
-  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_LIMITE_DA_CONVERSA, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   formaDoEndereco, itensDoAviso, lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, normalizarEvento, partesDaResposta, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { RegistroDoAviso, type DestinoDoItem } from "../whatsapp-recebimento.js";
@@ -29,7 +29,7 @@ import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_DO_LACO_MS, FOLGA_FINAL_MS, FOLGA_POR_PARTE_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
-import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
+import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, parteDaFuncaoEsgotada, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
@@ -288,6 +288,9 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
+/** EPIC-027 C5-E5: a parte do gasto de cada função da Anthropic (documentos e notas dividem a mesma parte). */
+const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes" } as const;
+
 async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" | "dolores_cliente" = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
@@ -302,6 +305,8 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "d
   if (!modelo) return { motivo: "sem_modelo" };
   const limite = bloqueioDoLimite(await usoDoMes(mes), { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida });
   if (limite) return { motivo: limite };
+  // EPIC-027 C5-E5: a parte do mês DESTA função já acabou → só ela para (a trava de verdade é a reserva, em consumo.ts)
+  if (await parteDaFuncaoEsgotada(mes, PARTE_DA_FUNCAO[funcao], { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida })) return { motivo: "limite_da_funcao" };
   try {
     const autor = await usuarioDolores();
     return { motivo: null, apiKey: painel.apiKey, modelo, autor };
@@ -506,6 +511,8 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     let texto = voz.texto;
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
+    // EPIC-027 C5-E5: só a parte da conversa acabou — frase própria (os grupos e os documentos seguem)
+    if (r.parou === "limite_da_conversa" && r.voltas === 0) texto = FRASE_LIMITE_DA_CONVERSA;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
     // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.

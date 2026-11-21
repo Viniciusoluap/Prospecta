@@ -117,12 +117,14 @@ let clienteTeste: ClienteModelo | null = null;
 /** Só para testes: troca o cliente do modelo (sem argumento, volta ao SDK da Anthropic). */
 export function definirClienteModelo(c?: ClienteModelo) { clienteTeste = c ?? null; }
 
-export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa";
+export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "limite_da_conversa" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa";
 const ROTULO_PARADA: Record<MotivoParada, string> = {
   voltas: "limite de consultas por pedido",
   teto_tokens: "limite de tamanho por pedido",
   tempo: "o tempo de resposta acabou",
   limite_mensal: "o limite mensal de gasto com a IA foi atingido",
+  // EPIC-027 C5-E5: só a parte da conversa acabou (as outras funções seguem)
+  limite_da_conversa: "a parte do mês da nossa conversa com a IA acabou; os grupos e os documentos continuam funcionando",
   outro_pedido: "há outro pedido em andamento usando o que resta do limite do mês; tente de novo em um minuto",
   max_tokens: "a resposta ficou longa demais",
   erro_modelo: "a IA não respondeu",
@@ -246,7 +248,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     try {
       const b = await reservarChamada({ mes: p.mes, mensagemId: p.mensagemId, limites: p.limites, validadeMs: VALIDADE_RESERVA_MS,
         reserva: { entrada: Math.max(reservaInicial, ultimaEntrada), saida: saidaDaChamada } });
-      if (b) { parou = b === "outro_pedido" ? "outro_pedido" : "limite_mensal"; return false; }
+      if (b) { parou = b === "outro_pedido" ? "outro_pedido" : b === "orcamento_conversa" ? "limite_da_conversa" : "limite_mensal"; return false; }
       return true;
     } catch (e) {
       // sem conseguir reservar, não chama (falha fechada: o limite é a trava do gasto)
