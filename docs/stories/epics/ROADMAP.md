@@ -294,3 +294,13 @@ Grupo Santa Fé em espera por ordem do dono; portar quando ele retomar a paridad
 - [ ] C3 — saudação da campanha com imagem e áudio (publicada aqui em 20/11, PR #267, `0137`): mídia no banco, conferida pelos bytes, uma saudação por número, sem duplicata quando o envio fica sem confirmação.
 - [ ] C6 — botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central (publicado aqui em 20/11, PR #266, `0138`). A parte da Dolores é exceção; no Santa Fé só faz sentido se houver atendimento automático.
 - [ ] C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026)
+
+A Central WhatsApp existe nos dois sistemas; a parte da Dolores (resposta quando marcada, classificar grupo, "Assumir" calando a
+Dolores) é exceção.
+- [ ] C2 — grupos do WhatsApp na Central (`0142`): permissão própria "Grupos do WhatsApp" no cadastro do colaborador (desmarcada
+  por padrão; admin sempre; corretor nunca), aba "Conversas | Grupos" com todos os grupos da conta da empresa (nome, tipo, nome de
+  quem escreveu, mídia como rótulo, paginação), escrita no grupo pelo número da empresa com quem enviou registrado ("equipe —
+  Fulano") e os tetos do envio manual (10/min, 200/dia). No Santa Fé, sem Dolores, a lista de grupos precisa de um registro de
+  grupos próprio (lá não existe `dolores_grupos`).

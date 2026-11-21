@@ -500,3 +500,14 @@ liberar a vinculação.
 ## Próximo passo exato (20/11, 20:55 UTC)
 1. Dono: desconectar a YCloud no celular e religar o Prospecta pelo QR (está desconectado). 2. Conferir produção READY
 do `adb41c7`. 3. Quando houver computador: refazer a vinculação YCloud, religar o Prospecta e só então construir C1A/C1B.
+
+## EPIC-027 C2 — grupos do WhatsApp na Central (21/11/2026, ramo `epic027-c2`, criado de `epic027-d`)
+- Concluído (commits `[EPIC-027 C2]` no ramo, sem push): permissão "Grupos do WhatsApp" (`whatsappGrupos` em `ADMIN_MODULES`,
+  desmarcada por padrão), rotas `whatsappGrupos.*` (`server/whatsapp-grupos-central.ts`), aba "Conversas | Grupos"
+  (`client/src/components/whatsapp/GruposWhatsApp.tsx`), escrita no grupo com autor e tetos, "Definir tipo" pela rota do C3,
+  "Assumir (humano)" por grupo. Story: `docs/stories/epics/epic-027-correcoes-20-11-noite/C2-grupos-na-central.md`.
+- Migração `drizzle/0142_grupos_na_central.sql` NÃO aplicada — aplicar no Neon ANTES de publicar o código (sem ela, o registro das
+  mensagens de grupo falha e a Dolores fica calada nos grupos).
+- Testes: (a) automáticos — `server/dolores/c2-grupos-na-central.test.ts` 16/16 e as suítes de `server/dolores` + WhatsApp (ver o
+  relatório do @dev); `npx tsc --noEmit` limpo. (b) manuais — pendentes. (c) produção — pendentes.
+- Próximo passo: portão de QA de segurança da C2 (@qa), junto com C3/C4/C6 do `epic027-d`; depois publicar (0142 antes).
