@@ -23,10 +23,10 @@ confirmação do dono. Handoff: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
 - **Maquete:** manter o modelo escolhido pelo dono; não reduzir qualidade por conta própria.
 
 ## Correções (ordem autorizada: 4 → 3 → 2 → 5 → 1 → 6; a 7 entra na mesma atualização)
-- [ ] C4. Dolores não responde quando marcada no grupo. Evidência de produção: `dolores_marcacoes` com 0 linhas desde sempre;
+- [x] C4 (implementada, aguarda QA — `C4-dolores-nao-responde-quando-marcada.md`). Dolores não responde quando marcada no grupo. Evidência de produção: `dolores_marcacoes` com 0 linhas desde sempre;
   `dolores_marcacoes_config.lid_dolores` nulo; mensagens de grupo chegam (`grupo-registrada`). Hipótese: a menção vem com o
   identificador `@lid` e não é reconhecida. Conferir também o interruptor por grupo (`dolores_marcacoes_grupo`).
-- [ ] C3. Categorias dos grupos: mesma lista de 6 (cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros
+- [x] C3 (implementada, aguarda QA — `C3-categorias-dos-grupos.md`; migração 0139). Categorias dos grupos: mesma lista de 6 (cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros
   comerciais, engenharia) na tela, na pergunta da Dolores e no comando, com uma linha explicando o que cada uma permite;
   botão "Corrigir tipo ou vínculo" em todo grupo ACEITO, inclusive "não identificado · aguardando o dono"; pergunta da
   Dolores no WhatsApp com opções numeradas.
@@ -40,7 +40,7 @@ confirmação do dono. Handoff: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
   reserva gasta antes e não devolvida em tempo esgotado (`execucao-ia.ts:137-157`), tokens da falha não registrados. Correção:
   Batches API (envia e consulta), só a página da prancha, devolver a reserva quando não houve resultado, consumo real, tela
   com andamento.
-- [ ] C6. Texto do botão "Assumir (humano)" (parece dizer que a Dolores já está calada quando ela está atendendo).
+- [x] C6 (implementada, aguarda QA — `C6-texto-do-botao-assumir.md`). Texto do botão "Assumir (humano)" (parece dizer que a Dolores já está calada quando ela está atendendo).
 - [ ] C7. YCloud (era C1A/C1B do EPIC-026): número vinculado pelo dono em 20/11 (coexistência; conta "VFX Capital", limite
   inicial de 250 clientes/dia, empresa ainda não verificada). Construir: chave digitada pelo dono em Integrações; conferência
   do número; modelos (templates) aprovados; disparo de campanha por template; aviso de situação de entrega com assinatura
