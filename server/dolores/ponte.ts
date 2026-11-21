@@ -355,8 +355,8 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     // o resumo dos itens cita nomes do cadastro: contamina (QA R2 N2)
     return { contamina: true, ...responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
       aviso: acao.nivel === "direto"
-        ? "NADA foi feito: como este pedido já leu dados do sistema, a ação foi para a fila de aprovação do dono (regra fixa). O sistema anexa à sua resposta a lista com os códigos; só o dono aprova."
-        : "NADA foi feito ainda: os itens estão na fila de aprovação. O sistema anexa à sua resposta a lista com os códigos; só o dono aprova.", dados: valor }) };
+        ? "NADA foi feito: como esta conversa já leu dados do sistema, o registro ficou esperando a confirmação do dono (regra fixa). O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código."
+        : "NADA foi feito ainda: os itens ficaram esperando a confirmação do dono. O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código.", dados: valor }) };
   } catch (e) {
     if (e instanceof RecusaAcao) {
       const motivo = e.message.slice(0, 300);

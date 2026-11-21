@@ -1,6 +1,8 @@
 // EPIC-025 (Dolores, etapa 2) — configuração do WhatsApp da Dolores e consumo da IA (dolores_whatsapp_config,
 // dolores_consumo). O limite mensal é em tokens (entrada e saída separados, porque têm preços diferentes): o sistema não
-// sabe o preço do modelo e não o inventa; o admin converte o teto em reais para tokens (docs/dolores/como-ligar.md).
+// sabe o preço do modelo e não o inventa; o admin converte o teto em reais para tokens (docs/dolores/como-ligar.md). O cache
+// entra no limite pelo peso do preço — escrita 1,25×, leitura 0,1× (entradaNoLimiteSql); a classificação de documentos guarda no orçamento próprio
+// (dolores_grupos_consumo_mes) a entrada bruta, como antes — lá quase não há cache e a conta bruta é mais rígida.
 import { and, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresConsumo, doloresMensagens, doloresWhatsappConfig, type DoloresWhatsappConfig } from "../../drizzle/schema-dolores-whatsapp.js";
@@ -8,6 +10,7 @@ import { doloresGrupoMensagens, doloresGruposConsumoMes } from "../../drizzle/sc
 import { doloresMarcacoes } from "../../drizzle/schema-dolores-marcacoes.js";
 import { doloresAtendimentos } from "../../drizzle/schema-whatsapp-atendimento.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
+import { FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA } from "../../shared/dolores/custo.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
 
@@ -23,10 +26,24 @@ export async function lerPausa(): Promise<{ pausada: boolean; motivo: string | n
   return c ? { pausada: c.pausada, motivo: c.motivo } : null;
 }
 
-/** Tokens do mês. Entrada conta também a escrita e a leitura de cache (o que for cobrado como entrada). */
+/**
+ * QA C5-E1 r4 (achado 2) — a entrada que vale para o LIMITE MENSAL, somada no banco, pelo PESO DO PREÇO de cada tipo de token (a
+ * proposta da story E8): entrada cheia + escrita de cache × 1,25 + leitura de cache × 0,1, cada uma arredondada para cima — a mesma
+ * regra de shared/dolores/custo.ts (`entradaNoLimite`) e os mesmos fatores que a estimativa em dinheiro usa quando o preço do cache
+ * não foi informado. Coerente com a tabela da Anthropic (shared/dolores/precos-padrao.ts): escrita = 1,25× nos dois modelos;
+ * leitura = 0,1× no Haiku e 0,05× no Opus — então o peso nunca conta MENOS que o custo real. Antes a leitura contava como token
+ * cheio (a memória da conversa, que lê o histórico do cache, gastava a cota até 10× mais rápido que o dinheiro) e a escrita, como
+ * 1× (25% a menos que o preço). Os tokens BRUTOS continuam gravados por chamada em dolores_consumo (auditoria e tela); só a soma do
+ * limite usa o peso. Vale para o limite inteiro e para os orçamentos próprios que saem de dolores_consumo (respostas em grupo e a
+ * clientes).
+ */
+export const entradaNoLimiteSql = () =>
+  sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada}), 0) + ceil(coalesce(sum(${doloresConsumo.tokensCacheEscrita}), 0) * ${sql.raw(String(FATOR_CACHE_ESCRITA))}) + ceil(coalesce(sum(${doloresConsumo.tokensCacheLeitura}), 0) * ${sql.raw(String(FATOR_CACHE_LEITURA))})`.mapWith(Number);
+
+/** Tokens do mês que contam no limite (entrada pelo peso do cache, ver entradaNoLimiteSql; saída cheia). */
 export async function usoDoMes(mes: string): Promise<Uso> {
   const [r] = await getDb().select({
-    entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+    entrada: entradaNoLimiteSql(),
     saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
   }).from(doloresConsumo).where(eq(doloresConsumo.mes, mes));
   return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
@@ -72,7 +89,7 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
     const [usado] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const [reservado] = await tx.select({
@@ -174,7 +191,7 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
       .where(and(gt(doloresGrupoMensagens.reservaAte, agora), gt(doloresGrupoMensagens.reservaEntrada, 0), ne(doloresGrupoMensagens.id, p.mensagemGrupoId)));
     if (Number(andamento?.n ?? 0) > 0 || outras.entrada > 0 || outras.saida > 0) return "outra_classificacao";
     const [usado] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
@@ -272,7 +289,7 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
     const clientes = await reservasDosAtendimentos(tx, agora, null);
     if (classificacoes.entrada > 0 || classificacoes.saida > 0 || outras.entrada > 0 || outras.saida > 0 || clientes.entrada > 0 || clientes.saida > 0) return "outra_chamada";
     const [usado] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
@@ -288,7 +305,7 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
     };
     if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono";
     const [doGrupo] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_GRUPO + "%"}`));
     const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_MARCACAO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_MARCACAO_PCT) / 100) };
@@ -346,7 +363,7 @@ export async function reservarAtendimento(p: { mes: string; atendimentoId: numbe
     const outros = await reservasDosAtendimentos(tx, agora, p.atendimentoId);
     if ([classificacoes, marcacoes, outros].some(u => u.entrada > 0 || u.saida > 0)) return "outra_chamada";
     const [usado] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
@@ -359,7 +376,7 @@ export async function reservarAtendimento(p: { mes: string; atendimentoId: numbe
     if (Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada > teto.entrada
       || Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida > teto.saida) return "folga_do_dono";
     const [doCliente] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresConsumo.tokensEntrada} + ${doloresConsumo.tokensCacheEscrita} + ${doloresConsumo.tokensCacheLeitura}), 0)`.mapWith(Number),
+      entrada: entradaNoLimiteSql(),
       saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
     }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_CLIENTE + "%"}`));
     const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_ATENDIMENTO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_ATENDIMENTO_PCT) / 100) };

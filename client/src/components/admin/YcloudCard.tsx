@@ -21,6 +21,15 @@ const ROTULO_ACAO: Record<string, string> = {
   disparos_ligados: "Disparos ligados", disparos_desligados: "Disparos desligados", config_salva: "Tetos/preço salvos", campanha_criada: "Campanha disparada",
   campanha_concluida: "Campanha concluída", campanha_pausar: "Campanha pausada", campanha_continuar: "Campanha retomada", campanha_cancelar: "Campanha cancelada",
   optout_registrado: "\"Não enviar mais\" registrado", modelo_revisado: "Modelo revisado pela Meta",
+  modelo_padrao_enviado: "Modelo padrão enviado para aprovação", modelo_padrao_recusado: "Modelo padrão recusado pela YCloud",
+  modelo_padrao_dispensado: "Modelo padrão dispensado (já havia modelo de marketing)", modelo_enviado: "Template enviado para aprovação",
+  modelo_recusado: "Template recusado pela YCloud",
+};
+const SITUACAO_MODELO_PADRAO: Record<string, string> = {
+  criado: "enviado para aprovação da Meta (a situação aparece em Central WhatsApp › Templates)",
+  ja_existia: "não foi preciso: a conta já tinha modelo de marketing em português",
+  recusado: "a YCloud recusou", incerto: "a YCloud não respondeu a tempo; o sistema confere amanhã", falhou: "não consegui consultar a YCloud; o sistema tenta amanhã",
+  andamento: "em andamento",
 };
 
 export function YcloudCard() {
@@ -73,6 +82,10 @@ export function YcloudCard() {
               </div>
             );
           })()}
+          {/* C7.2: o modelo padrão é enviado pelo próprio servidor (o dono não usa o painel da YCloud) */}
+          <p className="text-xs text-gray-300">Modelo padrão "{s.modeloPadrao.nome}": {s.modeloPadrao.situacao
+            ? `${SITUACAO_MODELO_PADRAO[s.modeloPadrao.situacao] ?? s.modeloPadrao.situacao}${s.modeloPadrao.motivo ? ` — ${s.modeloPadrao.motivo}` : ""}${s.modeloPadrao.situacao === "recusado" || s.modeloPadrao.situacao === "incerto" || s.modeloPadrao.situacao === "falhou" ? ` (tentativa ${s.modeloPadrao.tentativas} de ${s.modeloPadrao.maxTentativas}${s.modeloPadrao.tentativas >= s.modeloPadrao.maxTentativas ? "; o sistema não tenta mais sozinho" : ""})` : ""}`
+            : "o sistema envia sozinho para aprovação quando a chave estiver salva e o número conferido."}</p>
           {testar.isPending && <p className="flex items-center gap-2 text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Testando na YCloud…</p>}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" className={botaoSec} disabled={!s.configurado || testar.isPending} onClick={() => testar.mutate()}>Testar</Button>

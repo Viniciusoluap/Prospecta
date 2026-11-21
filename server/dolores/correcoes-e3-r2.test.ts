@@ -320,8 +320,9 @@ describe("Etapa 2 final — prompt do WhatsApp nos dois modos mantém as instru�
     const [mascarado, liberado] = [promptSistemaWhatsapp(true), promptSistemaWhatsapp(false)];
     expect(mascarado).not.toBe(liberado);
     for (const p of [mascarado, liberado]) {
-      expect(p).toMatch(/etapa 3 — ações/);
-      expect(p).toMatch(/aprovar CÓDIGO/);
+      // EPIC-027 C5 (E1): o prompt novo não ensina mais "aprovar CÓDIGO" (o quadro do sistema mostra como confirmar)
+      expect(p).toMatch(/O que você resolve por aqui hoje/);
+      expect(p).not.toMatch(/aprovar CÓDIGO/);
       expect(p).toMatch(/Texto a gravar .* sem links e sem senha/);
     }
   });

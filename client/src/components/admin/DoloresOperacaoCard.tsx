@@ -85,7 +85,7 @@ export function DoloresOperacaoCard() {
             {/* Gasto do mês — Etapa 8: por modelo e por tipo de token */}
             <section className="space-y-2 rounded-lg border border-[#C9A961]/20 bg-[#1A2332] p-3 text-sm lg:col-span-2">
               <h3 className="text-sm font-semibold text-[#C9A961]">Gasto da IA em {d.gasto.mes}</h3>
-              <p className="text-xs text-gray-300">Limite mensal (a trava de segurança, em tokens). Ele conta o cache como entrada cheia — por isso o número de entrada fica bem maior que o custo real.</p>
+              <p className="text-xs text-gray-300">Limite mensal (a trava de segurança, em tokens). O cache conta pelo peso do preço: cada token de escrita de cache vale 1,25 e cada token de leitura de cache vale 0,1.</p>
               <p>Entrada contada no limite: {n(d.gasto.uso.entrada)} de {n(d.gasto.limites.entrada)} tokens ({pct(d.gasto.uso.entrada, d.gasto.limites.entrada)}%)
                 {d.gasto.custo && (d.gasto.custo.tokensNoLimite.entrada > 0) ? <span className="text-xs text-gray-400"> — sem cache: {n(d.gasto.custo.porModelo.reduce((s, m) => s + m.uso.entrada, 0))}; cache: {n(d.gasto.custo.porModelo.reduce((s, m) => s + m.uso.cacheEscrita + m.uso.cacheLeitura, 0))}</span> : null}</p>
               <p>Saída: {n(d.gasto.uso.saida)} de {n(d.gasto.limites.saida)} tokens ({pct(d.gasto.uso.saida, d.gasto.limites.saida)}%)</p>

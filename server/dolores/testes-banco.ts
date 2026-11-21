@@ -97,10 +97,15 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const c2Central = MIGRACAO_0142();
   await pg.exec(c2Central);
   await pg.exec(c2Central);
+  // EPIC-027 C5 (E1, memória curta da conversa do dono): migração 0143, também duas vezes.
+  const conversa = MIGRACAO_0143();
+  await pg.exec(conversa);
+  await pg.exec(conversa);
   return { pg, db: drizzle(pg) };
 }
 
 export const MIGRACAO_0142 = () => readFileSync(new URL("../../drizzle/0142_grupos_na_central.sql", import.meta.url), "utf8");
+export const MIGRACAO_0143 = () => readFileSync(new URL("../../drizzle/0143_dolores_conversa.sql", import.meta.url), "utf8");
 export const MIGRACAO_0144 = () => readFileSync(new URL("../../drizzle/0144_dolores_grupos_so_admin_classifica.sql", import.meta.url), "utf8");
 export const MIGRACAO_0139 = () => readFileSync(new URL("../../drizzle/0139_dolores_grupos_classificar_pela_tela.sql", import.meta.url), "utf8");
 

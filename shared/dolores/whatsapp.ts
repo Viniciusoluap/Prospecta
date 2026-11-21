@@ -220,7 +220,7 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
   switch (motivo) {
     case "pausada": return `Dolores: estou pausada${detalhe ? ` (${detalhe.slice(0, 120)})` : ""}.${fim}`;
     case "usuaria_desativada": return `Dolores: minha usuária está desativada em Usuários e acesso.${fim}`;
-    case "ia_desligada": return `Dolores: estou desligada. Para me ligar, um administrador ativa o interruptor em Integrações › Dolores.${fim}`;
+    case "ia_desligada": return `Dolores: estou desligada. Para me ligar, um administrador abre Configurações › Integrações › Dolores e toca em "Ligar a IA".${fim}`;
     case "sem_chave": return `Dolores: estou desligada — falta a chave da Anthropic em Integrações › Anthropic.${fim}`;
     case "sem_modelo": return `Dolores: estou desligada — falta escolher o modelo em Integrações › Anthropic (modelo preferencial).${fim}`;
     case "sem_limite": return `Dolores: estou desligada — falta definir o limite mensal de gasto em Integrações › Dolores.${fim}`;

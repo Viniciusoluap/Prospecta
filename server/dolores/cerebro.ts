@@ -12,6 +12,9 @@ import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../sh
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
+import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
+import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
 
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
 
@@ -36,6 +39,11 @@ export const MAX_FERRAMENTAS_POR_VOLTA = 6;
  * caracteres ≈ 3.500 tokens em português); 5.000 dá folga sem passar do que cabe no prazo (ver tokensDeSaidaNoPrazo).
  */
 export const MAX_TOKENS_SAIDA = 5000;
+/**
+ * EPIC-027 C5 (E1): na conversa normal a resposta é curta (1 a 4 frases); 1.500 tokens de teto. Quando o dono pede lista
+ * completa, relatório ou detalhe (`pedeDetalhe`, por código), vale o teto da etapa 8 (MAX_TOKENS_SAIDA).
+ */
+export const MAX_TOKENS_SAIDA_CONVERSA = 1500;
 /** Piso da saída de uma chamada (abaixo disso não vale chamar: MINIMO_PARA_CHAMAR_MS já barra antes). */
 export const MINIMO_TOKENS_SAIDA = 1000;
 /**
@@ -45,8 +53,8 @@ export const MINIMO_TOKENS_SAIDA = 1000;
  */
 export const TOKENS_POR_SEGUNDO_ESTIMADO = 100;
 /** Saída da próxima chamada: o que cabe no prazo restante (descontados 3 s de ida e volta), entre o piso e MAX_TOKENS_SAIDA. */
-export const tokensDeSaidaNoPrazo = (restanteMs: number) =>
-  Math.max(MINIMO_TOKENS_SAIDA, Math.min(MAX_TOKENS_SAIDA, Math.floor(((restanteMs - 3_000) / 1000) * TOKENS_POR_SEGUNDO_ESTIMADO)));
+export const tokensDeSaidaNoPrazo = (restanteMs: number, teto = MAX_TOKENS_SAIDA) =>
+  Math.max(MINIMO_TOKENS_SAIDA, Math.min(teto, Math.floor(((restanteMs - 3_000) / 1000) * TOKENS_POR_SEGUNDO_ESTIMADO)));
 /** Entrada acumulada por pedido (o contexto cresce a cada volta); passou, fecha com o que tem. */
 export const TETO_ENTRADA_POR_PEDIDO = 150_000;
 /** Não começa uma chamada ao modelo com menos que isso de prazo. */
@@ -59,12 +67,19 @@ export const FOLGA_POR_PARTE_MS = 1_500;
 export const FOLGA_DO_LACO_MS = FOLGA_FINAL_MS + (MAX_PARTES_RESPOSTA - 1) * FOLGA_POR_PARTE_MS;
 /** Prazo de uma consulta dentro do laço. */
 const PRAZO_CONSULTA_MS = 15_000;
-/** Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). */
-export const RESERVA_MINIMA_ENTRADA = 4_000;
+/**
+ * Reserva mínima de entrada por chamada (o contexto só cresce: a reserva é o maior entre isto e a entrada da última). QA C5-E1 r4
+ * (achado 3): cobre o prefixo FIXO de toda chamada — texto do sistema (~5,7 mil bytes) + ferramentas com as ações (~25 mil bytes)
+ * ≈ 10,3 mil tokens pela estimativa por cima (memoria.ts#tokensEstimadosDoTexto) + ~500 da própria API para ferramentas. Antes era
+ * 4.000, abaixo do prefixo real (~9 mil). O teste c5-e1-qa-r4 confere que o piso continua cobrindo o prefixo quando ele crescer.
+ */
+export const RESERVA_MINIMA_ENTRADA = 12_000;
+/** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
+export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
 const VALIDADE_RESERVA_MS = 90_000;
 
-type BlocoTexto = { type: "text"; text: string };
+type BlocoTexto = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
 type BlocoFerramenta = { type: "tool_use"; id: string; name: string; input: unknown };
 type Bloco = BlocoTexto | BlocoFerramenta | { type: string; [k: string]: unknown };
 type ResultadoFerramenta = { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
@@ -86,7 +101,9 @@ const clientePadrao: ClienteModelo = async p => {
   const r = await cliente.messages.create({
     model: p.modelo,
     max_tokens: p.maxTokens,
-    // o texto do sistema e as ferramentas se repetem em todas as voltas: cache reduz o custo
+    // o texto do sistema e as ferramentas se repetem em todas as voltas: cache reduz o custo. EPIC-027 C5 (E1): o histórico da
+    // conversa leva o próprio ponto de cache (memoria.ts#montarMensagens): lido do cache nas voltas seguintes do MESMO pedido e no
+    // pedido seguinte só se ele chegar dentro de ~5 min (prazo do cache) e a janela não tiver cortado o começo.
     system: [{ type: "text", text: p.sistema, cache_control: { type: "ephemeral" } }],
     tools: p.ferramentas as never,
     tool_choice: p.semFerramentas ? { type: "none" } : { type: "auto" },
@@ -117,6 +134,8 @@ export type ResultadoComando = {
   /** O comando leu dados antes de alguma ação (as ações diretas depois disso foram para a fila). */
   contaminado: boolean;
   tokens: { entrada: number; saida: number };
+  /** EPIC-027 C5 (E1): ids + nome curto das entidades que as consultas devolveram (por código), para a memória da conversa. */
+  referencias: ReferenciaConversa[];
 };
 
 export type PedidoComando = {
@@ -125,6 +144,11 @@ export type PedidoComando = {
   prazoFinal: number;
   /** Relógio do prazo (o mesmo do aviso inteiro); padrão Date.now. */
   relogio?: () => number;
+  /**
+   * EPIC-027 C5 (E1): a conversa recente do dono (memoria.ts#lerJanela). Entra antes do pedido, com a origem de cada item; com
+   * histórico, o pedido nasce CONTAMINADO (o histórico traz dado lido antes: ação direta vai para a confirmação do dono).
+   */
+  historico?: Historico;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -174,12 +198,20 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // dono, e sim do texto colado: toda ação vai para a fila, marcada.
   let contaminado = pareceColagem(p.comando);
   let motivoContaminacao: MotivoContaminacao | null = contaminado ? "colagem" : null;
+  // EPIC-027 C5 (E1): o histórico traz respostas e avisos montados com dado do sistema (e conteúdo encaminhado) — é leitura
+  // anterior: o pedido nasce contaminado, como depois de uma consulta.
+  const historico = p.historico ?? HISTORICO_VAZIO;
+  // QA C5-E1 (achado 2): as referências também trazem nome de terceiro (cliente, grupo) ao modelo — contaminam do mesmo jeito.
+  if (!contaminado && (historico.itens.some(i => i.papel !== "dono" || i.origem !== "mensagem") || historico.referencias.length > 0)) { contaminado = true; motivoContaminacao = "leitura"; }
+  const refsPorConsulta: ReferenciaConversa[][] = [];
+  const tetoDeSaida = pedeDetalhe(p.comando) ? MAX_TOKENS_SAIDA : MAX_TOKENS_SAIDA_CONVERSA;
   const codigosNaFila = new Set<string>();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
   // QA r7 A8: antes de ir à Anthropic, o comando passa só pelo filtro de SEGREDOS e dados bancários (senha, token, código,
   // chave de API, agência/conta/PIX). CPF, telefone e e-mail que o dono digita de propósito para a busca ficam.
   const comando = sanitizarTexto(p.comando, { mascararDadosPessoais: false });
-  const mensagens: MensagemModelo[] = [{ role: "user", content: [{ type: "text", text: comando }] }];
+  // EPIC-027 C5 (E1): o histórico (rotulado por origem) vem antes; sem histórico, é a mesma mensagem única de antes.
+  const mensagens: MensagemModelo[] = montarMensagens(historico, comando) as MensagemModelo[];
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -191,15 +223,18 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   /** QA E8 A2: a resposta cortada em max_tokens trazia um pedido de consulta/ação (cortado ou completo) que NÃO foi executado. */
   let ferramentaCortada = false;
 
+  // EPIC-027 C5 (E1): a 1ª reserva já conta o prefixo fixo (piso), o comando e o histórico (estimativas por cima, pelos bytes —
+  // QA C5-E1 r4, achado 3); depois, a entrada real da última chamada.
   let ultimaEntrada = 0;
+  const reservaInicial = RESERVA_MINIMA_ENTRADA + tokensEstimadosDoTexto(comando) + tokensEstimadosDoHistorico(historico);
   /** Saída da próxima chamada (fixada na reserva: a chamada nunca pede mais do que reservou). */
-  let saidaDaChamada = MAX_TOKENS_SAIDA;
+  let saidaDaChamada = tetoDeSaida;
   /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */
   const reservar = async (): Promise<boolean> => {
-    saidaDaChamada = tokensDeSaidaNoPrazo(restante());
+    saidaDaChamada = tokensDeSaidaNoPrazo(restante(), tetoDeSaida);
     try {
       const b = await reservarChamada({ mes: p.mes, mensagemId: p.mensagemId, limites: p.limites, validadeMs: VALIDADE_RESERVA_MS,
-        reserva: { entrada: Math.max(RESERVA_MINIMA_ENTRADA, ultimaEntrada), saida: saidaDaChamada } });
+        reserva: { entrada: Math.max(reservaInicial, ultimaEntrada), saida: saidaDaChamada } });
       if (b) { parou = b === "outro_pedido" ? "outro_pedido" : "limite_mensal"; return false; }
       return true;
     } catch (e) {
@@ -282,6 +317,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       // registro da função para respostas ok (na dúvida, contamina)
       const contamina = resp.contamina ?? (resp.body.ok === true && contaminaOComando(String(u.name)));
       if (contamina && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
+      // EPIC-027 C5 (E1): ids que a consulta devolveu do banco (por código) — para "ela", "esse grupo" no próximo pedido
+      if (resp.body.ok === true) refsPorConsulta.push(referenciasDoResultado(resp.body));
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
@@ -312,9 +349,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     // Etapa 8: o parcial vai ao dono (pelos mesmos filtros de saída, em whatsapp.ts), cortado na última linha completa
     texto = `${cortarNaUltimaLinhaCompleta(corpo)}\n\n${AVISO_RESPOSTA_CORTADA}${sobreAcoes}`;
   } else {
-    const consultou = consultas.length ? ` Consultei: ${Array.from(new Set(consultas)).join(", ")}.` : "";
+    // EPIC-027 C5 (E1): o que foi consultado em palavras de gente (nunca o nome interno da consulta)
+    const consultou = consultas.length ? ` Já olhei: ${rotulosDasConsultas(consultas)}.` : "";
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta) };
 }

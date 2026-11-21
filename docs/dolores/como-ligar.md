@@ -763,9 +763,10 @@ Aplicar `drizzle/0134_dolores_precos.sql` no Neon (só aditiva e idempotente: `d
    de cada modelo acima (a reserva deixa de ser usada para ele).
 O relatório do dono (diário e sob demanda) usa a mesma conta.
 
-**O limite mensal não mudou.** Ele continua em tokens e conta o cache (escrita e leitura) como entrada cheia — é conservador:
-para no limite antes do que o custo real faria. A tela mostra os dois números lado a lado ("entrada contada no limite" e o
-custo real estimado). Se quiser que o limite conte o cache pelo peso real, é uma decisão do dono (ver a story E8).
+**O limite mensal continua em tokens** e, desde a C5-E1 (EPIC-027, rodada 4 do portão), conta o cache pelo peso do preço:
+cada token de escrita de cache vale 1,25 e cada token de leitura de cache vale 0,1 (a proposta da story E8). Antes contava os dois
+como entrada cheia, o que fazia a memória da conversa (que lê o histórico do cache) gastar a cota muito mais rápido que o dinheiro.
+Os tokens brutos continuam gravados por chamada e a tela mostra "entrada contada no limite" ao lado do custo estimado.
 
 ## 4. Conferir
 - `dolores_precos_modelo` e `dolores_cotacao` (quem mudou fica em `atualizado_por`); `dolores_acoes` com `operacao_config`
