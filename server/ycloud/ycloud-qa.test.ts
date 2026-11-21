@@ -450,3 +450,31 @@ describe("QA — ordem dos middlewares (HTTP real com express)", () => {
     } finally { srv.close(); }
   });
 });
+
+describe("QA rodada 2 — duas prévias diferentes e janela 0", () => {
+  async function duasAbas() {
+    const [p1, p2] = await Promise.all([admin().whatsappOficial.previa(entrada([1, 2])), admin().whatsappOficial.previa(entrada([1, 2]))]);
+    expect(p1.chaveConfirmacao).not.toBe(p2.chaveConfirmacao);
+    const [a, b] = await Promise.all([
+      admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p1.contagem.aEnviar, chaveConfirmacao: p1.chaveConfirmacao }),
+      admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p2.contagem.aEnviar, chaveConfirmacao: p2.chaveConfirmacao }),
+    ]);
+    await Promise.all([admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId }), admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId })]);
+    await admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId });
+    await admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId });
+    return { a, b };
+  }
+  it("OK: duas abas, duas prévias (chaves diferentes) criadas ao mesmo tempo → duas campanhas, mas cada pessoa recebe UMA vez (o lote barra)", async () => {
+    await configurarTudo();
+    const { a, b } = await duasAbas();
+    expect(a.campanhaId).not.toBe(b.campanhaId);
+    expect(recebidosPor("+5599988881111")).toBe(1);
+    expect(recebidosPor("+5599977772222")).toBe(1);
+  });
+  it("ACHADO R2-1: com 'não repetir' = 0 dias, o mesmo cenário manda em DOBRO (proteção some sem aviso)", async () => {
+    await configurarTudo();
+    await admin().whatsappOficial.salvarConfig({ janelaRepeticaoDias: 0 });
+    await duasAbas();
+    expect(recebidosPor("+5599988881111")).toBe(2);
+  });
+});
