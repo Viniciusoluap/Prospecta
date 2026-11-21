@@ -12,7 +12,8 @@ export function AndamentoLeitura({ passos, trabalhando, usadas, teto, aoCancelar
   trabalhando: boolean;
   /** Contador da maquete (leituras + importações) e o teto das Configurações. */
   usadas: number; teto: number | null;
-  aoCancelar?: () => void; cancelando?: boolean;
+  /** Recebe a chave da prancha mostrada: o servidor só cancela se ela ainda for a que está na IA (QA C1, achado 4). */
+  aoCancelar?: (chave: string) => void; cancelando?: boolean;
 }) {
   const a = andamentoDaLeitura(passos);
   const naIA = a.atual?.estado === "executando";
@@ -38,7 +39,7 @@ export function AndamentoLeitura({ passos, trabalhando, usadas, teto, aoCancelar
           <p className="text-xs text-gray-400">Esta maquete já usou {usadas} de {teto ?? "—"} prancha(s) pela IA (a que está em andamento já conta; se a IA não entregar resultado, ela é devolvida).</p>
           {aoCancelar && a.atual.lote && a.atual.lote.situacao !== "cancelando" && (
             <Button size="sm" variant="outline" className="border-red-400/50 bg-transparent text-red-300" disabled={cancelando}
-              onClick={() => { if (window.confirm("Cancelar a leitura desta prancha pela IA? Se a IA ainda não começou a ler, nada é cobrado. Se ela já leu, a leitura (já paga) é aproveitada.")) aoCancelar(); }}>
+              onClick={() => { if (window.confirm(`Cancelar a leitura pela IA de "${a.atual!.rotulo.replace(/^Leitura pela IA — /, "")}"? Se a IA ainda não começou a ler, nada é cobrado. Se ela já leu, a leitura (já paga) é aproveitada.`)) aoCancelar(a.atual!.chave); }}>
               <X className="mr-1 h-4 w-4" />Cancelar leitura pela IA
             </Button>
           )}

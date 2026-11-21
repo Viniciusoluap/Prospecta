@@ -705,7 +705,7 @@ function Detalhe({ id }: { id: number }) {
               </>
             )}
             {d.status === "em_leitura" && <AndamentoLeitura passos={d.passos} trabalhando={lendo} usadas={d.ia.lidasNaMaquete} teto={d.ia.teto}
-              aoCancelar={() => cancelarIA.mutate({ id })} cancelando={cancelarIA.isPending} />}
+              aoCancelar={chave => cancelarIA.mutate({ id, chave })} cancelando={cancelarIA.isPending} />}
             {d.status === "em_leitura" && d.progresso.proximo?.estado === "erro" && d.progresso.proximo.tipo === "prancha_ia" && (
               <Button variant="outline" className={btnOutline} disabled={lendo || emCurso || pularIA.isPending}
                 onClick={() => { if (window.confirm("Seguir sem a IA? Essas pranchas ficam com o que o leitor próprio leu (pode ser nada); a planta pode ser desenhada na revisão.")) void decidirIA(false); }}>Continuar sem a IA</Button>

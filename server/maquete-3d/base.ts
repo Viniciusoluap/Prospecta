@@ -135,9 +135,19 @@ export type ResultadoDoLote =
 export type ClienteLote = {
   /** Cria o lote com UMA requisição (`idPedido` é o custom_id). Devolve o id do lote na Anthropic. */
   enviar: (p: PedidoIA & { credencial: CredencialIA; idPedido: string }) => Promise<{ id: string }>;
-  consultar: (id: string, idPedido: string, credencial: CredencialIA) => Promise<SituacaoDoLote>;
-  cancelar: (id: string, credencial: CredencialIA) => Promise<void>;
+  /** `prazoMs`: tempo que sobra no passo (a consulta nunca passa do limite da função). */
+  consultar: (id: string, idPedido: string, credencial: CredencialIA, prazoMs?: number) => Promise<SituacaoDoLote>;
+  cancelar: (id: string, credencial: CredencialIA, prazoMs?: number) => Promise<void>;
+  /**
+   * QA C1, achados 1 e 2: lotes de UMA requisição criados entre `desde` e `ate` (ISO), do mais novo para o mais velho,
+   * em no máximo 2 páginas. A API de listagem NÃO devolve o custom_id: quem chama confere o resto (lote já usado por
+   * outra maquete, mais de um candidato) e o custom_id é conferido nos resultados, quando o lote termina.
+   */
+  procurar: (desde: string, ate: string, credencial: CredencialIA, prazoMs?: number) => Promise<{ id: string; criadoEm: string }[]>;
 };
+
+/** O lote terminou, mas o resultado é de outro pedido (custom_id diferente): o lote não é desta prancha. */
+export class LoteDeOutroPedido extends Error {}
 
 /** O pedaço do SDK que o lote usa (substituível nos testes por uma API simulada). */
 export type SdkLote = {
@@ -145,6 +155,7 @@ export type SdkLote = {
     batches: {
       create: (p: { requests: { custom_id: string; params: ReturnType<typeof parametrosDaMensagem> }[] }) => Promise<{ id: string }>;
       retrieve: (id: string) => Promise<{ id: string; processing_status: "in_progress" | "canceling" | "ended" }>;
+      list: (q: { limit: number }) => Promise<PaginaDeLotes>;
       results: (id: string) => Promise<AsyncIterable<{ custom_id: string; result: LinhaDoResultado }>>;
       cancel: (id: string) => Promise<unknown>;
     };
@@ -154,12 +165,19 @@ type LinhaDoResultado =
   | { type: "succeeded"; message: Parameters<typeof mensagemDoSdk>[0] }
   | { type: "errored"; error: { error?: { type?: string; message?: string } } }
   | { type: "canceled" } | { type: "expired" };
+type PaginaDeLotes = {
+  data: { id: string; created_at: string; request_counts: { processing: number; succeeded: number; errored: number; canceled: number; expired: number } }[];
+  hasNextPage: () => boolean; getNextPage: () => Promise<PaginaDeLotes>;
+};
 export type CriarSdkLote = (apiKey: string, opcoes: { timeoutMs: number; maxRetries: number }) => Promise<SdkLote>;
 
 const sdkPadrao: CriarSdkLote = async (apiKey, { timeoutMs, maxRetries }) => {
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   return new Anthropic({ apiKey, timeout: timeoutMs, maxRetries }) as unknown as SdkLote;
 };
+
+/** Tempo de cada chamada curta ao lote: o que sobra no passo, entre 3 e 20 s. */
+const prazoDaConsulta = (prazoMs?: number) => Math.max(3_000, Math.min(20_000, prazoMs ?? 20_000));
 
 /** custom_id aceito pela API: letras, números, "_" e "-", até 64. */
 export const idDoPedidoNoLote = (t: string) => t.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
@@ -173,8 +191,9 @@ export function clienteLoteAnthropic(criar: CriarSdkLote = sdkPadrao): ClienteLo
       const r = await sdk.messages.batches.create({ requests: [{ custom_id: p.idPedido, params: parametrosDaMensagem(p, modelo) }] });
       return { id: r.id };
     },
-    async consultar(id, idPedido, credencial) {
-      const sdk = await criar(credencial.apiKey, { timeoutMs: 20_000, maxRetries: 2 });
+    async consultar(id, idPedido, credencial, prazoMs) {
+      // QA C1, achado 5: sem nova tentativa automática e com o prazo do passo — nunca passa do limite da função.
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
       const lote = await sdk.messages.batches.retrieve(id);
       if (lote.processing_status !== "ended") return { andamento: lote.processing_status === "canceling" ? "cancelando" : "em_andamento" };
       for await (const linha of await sdk.messages.batches.results(id)) {
@@ -187,11 +206,29 @@ export function clienteLoteAnthropic(criar: CriarSdkLote = sdkPadrao): ClienteLo
         }
         return { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: r.type } };
       }
-      throw new Error("O lote terminou, mas o resultado desta prancha não veio na resposta da IA.");
+      throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).");
     },
-    async cancelar(id, credencial) {
-      const sdk = await criar(credencial.apiKey, { timeoutMs: 20_000, maxRetries: 2 });
+    async cancelar(id, credencial, prazoMs) {
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
       await sdk.messages.batches.cancel(id);
+    },
+    async procurar(desde, ate, credencial, prazoMs) {
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
+      const ini = Date.parse(desde), fim = Date.parse(ate), achados: { id: string; criadoEm: string }[] = [];
+      let pagina = await sdk.messages.batches.list({ limit: 50 });
+      for (let n = 0; n < 2; n++) {
+        let passou = false;
+        for (const b of pagina.data) {
+          const t = Date.parse(b.created_at);
+          if (t < ini) { passou = true; continue; }
+          const c = b.request_counts, total = c.processing + c.succeeded + c.errored + c.canceled + c.expired;
+          if (t <= fim && total === 1) achados.push({ id: b.id, criadoEm: b.created_at });
+        }
+        // A lista vem do mais novo para o mais velho: passou do início da janela, não precisa de outra página.
+        if (passou || !pagina.hasNextPage()) break;
+        pagina = await pagina.getNextPage();
+      }
+      return achados;
     },
   };
 }

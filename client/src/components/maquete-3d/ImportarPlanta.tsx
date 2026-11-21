@@ -179,7 +179,7 @@ export function ImportarPlanta({ d, admin, sujo, aoMudar }: { d: Detalhe; admin:
         <>
           <ListaPassos passos={imp.passos} />
           <AndamentoLeitura passos={imp.passos} trabalhando={lendo} usadas={imp.ia.lidasNaMaquete} teto={imp.ia.teto}
-            aoCancelar={() => cancelarIA.mutate({ id })} cancelando={cancelarIA.isPending} />
+            aoCancelar={chave => cancelarIA.mutate({ id, chave })} cancelando={cancelarIA.isPending} />
           {aguardando && (
             <div className="space-y-2 rounded-lg border border-amber-400/30 p-3">
               {aguardando.aguardando === "confirmacao" ? (

@@ -67,6 +67,7 @@ let pedidos: PedidoIA[];
 let respostas: (unknown | Error)[];
 /** EPIC-027 C1: erros ao CRIAR o lote (a resposta, quando vem, sai de `respostas` ao terminar). */
 let errosNoEnvio: Error[];
+let relogio: Date;
 let credencial: CredencialIA | null;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
 const admin = () => comModeloDaTela(caller(1, "admin").maquete3d); // a confirmação leva o modelo que a tela mostrou
@@ -106,13 +107,14 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
                (1, 'arq2', 'pdf', 'escaneada.pdf', 'escaneada.pdf', 'application/pdf', 10, 1, 'd2', 'active'),
                (1, 'arq3', 'pdf', 'escaneada-2.pdf', 'escaneada-2.pdf', 'application/pdf', 10, 1, 'd3', 'active');
     `);
-    pedidos = []; respostas = []; errosNoEnvio = []; credencial = null;
+    pedidos = []; respostas = []; errosNoEnvio = []; credencial = null; relogio = new Date("2026-11-16T13:00:00Z");
     definirDependencias({
-      agora: () => new Date("2026-11-16T13:00:00Z"),
+      agora: () => relogio,
       lerPdf: async d => (d.nome.startsWith("escaneada") ? RASTER : VETORIAL),
       credencialIA: async () => credencial,
       ia: async () => { throw new Error("a leitura de prancha não usa mais a chamada direta"); },
       lote: loteSimulado({
+        agora: () => relogio,
         aoEnviar: p => { pedidos.push(p); const e = errosNoEnvio.shift(); if (e) throw e; },
         responder: p => {
           const r = respostas.shift() ?? RESPOSTA_IA;
@@ -257,7 +259,11 @@ describe("leitura híbrida — router com banco em memória e IA simulada", () =
     await admin().confirmarIA({ id });
     // Erros reais do SDK (QA rodada 2, N2: o SDK deixa `name === "Error"`; o tipo vem da classe).
     errosNoEnvio.push(new APIConnectionTimeoutError(), APIError.generate(529, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, undefined, new Headers()));
-    expect((await ler(id)).erro).toContain("O envio da prancha à IA não teve resposta a tempo");
+    // QA C1, achado 1: antes de dar como usada, o passo procura o lote na Anthropic (aqui, ele não chegou a ser criado).
+    let t = await ler(id);
+    expect(t.aguardando?.motivo).toBe("executando");
+    for (let i = 0; i < 5 && !t.erro; i++) { relogio = new Date(relogio.getTime() + 25_000); t = await ler(id); }
+    expect(t.erro).toContain("O envio da prancha à IA não teve resposta a tempo, e o lote não foi encontrado na Anthropic");
     // O lote pode ter sido criado e lido: a prancha autorizada foi usada e repetir pede nova confirmação.
     expect((await ler(id)).aguardando).toMatchObject({ motivo: "confirmacao" });
     expect(pedidos).toHaveLength(1);

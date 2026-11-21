@@ -107,6 +107,7 @@ describe("EPIC-027 C1 — leitura em segundo plano (router, banco em memória, l
     `);
     enviados = []; respostas = []; emAndamento = 0; falhaNaConsulta = null; relogio = new Date("2026-11-20T21:00:00Z");
     sim = loteSimulado({
+      agora: () => relogio,
       aoEnviar: p => { enviados.push(p); },
       consultasAteTerminar: () => emAndamento,
       falhaNaConsulta: () => falhaNaConsulta,
@@ -129,14 +130,14 @@ describe("EPIC-027 C1 — leitura em segundo plano (router, banco em memória, l
     const enviado = await colaborador().avancarLeitura({ id });
     expect(enviado).toMatchObject({ erro: null, aguardando: { motivo: "lote", mensagem: expect.stringContaining("pode fechar esta página") } });
     expect(enviados).toHaveLength(1);
-    expect(enviados[0]).toMatchObject({ credencial: PAINEL, idPedido: `leitura-${id}-ia-0-1`, anexos: [{ tipo: "imagem" }] });
+    expect(enviados[0]).toMatchObject({ credencial: PAINEL, idPedido: `leitura-${id}-ia-0-1-mwpgqao0`, anexos: [{ tipo: "imagem" }] });
     // A reserva foi feita no envio: a confirmação e o contador mostram 1 de 8, coerentes, já durante a leitura.
     let d = await admin().detalhe({ id });
     expect(d.ia).toMatchObject({ emCurso: true, usadas: 1, lidasNaMaquete: 1, teto: 8 });
     const passo = d.passos.find(p => p.tipo === "prancha_ia")!;
     expect(passo).toMatchObject({ estado: "executando", lote: { situacao: "em_andamento", enviadoEm: relogio.toISOString() }, modelo: "claude-fable-5-2" });
     expect(JSON.stringify(d.passos)).not.toContain("msgbatch_"); // o painel não precisa do id do lote
-    expect((await gravado(id)).passos.find(p => p.tipo === "prancha_ia")!.lote).toMatchObject({ id: "msgbatch_simulado_1", pedido: `leitura-${id}-ia-0-1` });
+    expect((await gravado(id)).passos.find(p => p.tipo === "prancha_ia")!.lote).toMatchObject({ id: "msgbatch_simulado_1", pedido: `leitura-${id}-ia-0-1-mwpgqao0` }); // único por tentativa (passo + hora da reserva)
     // Consultas enquanto a Anthropic não termina: nada muda e nada é gravado.
     const antes = (await banco.pg.query<{ leitura: string }>(`SELECT leitura FROM maquetes_3d WHERE id = $1`, [id])).rows[0].leitura;
     expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("lote");
@@ -220,16 +221,16 @@ describe("EPIC-027 C1 — leitura em segundo plano (router, banco em memória, l
     emAndamento = 5;
     await colaborador().avancarLeitura({ id });
     await expect(colaborador().pularIA({ id })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("ou cancele a leitura pela IA") });
-    await colaborador().cancelarLeituraIA({ id });
+    await colaborador().cancelarLeituraIA({ id, chave: "ia:0:1" });
     expect(sim.cancelamentos).toEqual(["msgbatch_simulado_1"]);
     expect((await admin().detalhe({ id })).passos.find(p => p.tipo === "prancha_ia")!.lote).toMatchObject({ situacao: "cancelando" });
-    await colaborador().cancelarLeituraIA({ id }); // de novo: não pede outra vez
+    await colaborador().cancelarLeituraIA({ id, chave: "ia:0:1" }); // de novo: não pede outra vez
     expect(sim.cancelamentos).toHaveLength(1);
     const r = await colaborador().avancarLeitura({ id });
     expect(r.erro).toContain("cancelada antes de a IA começar a ler: nada foi cobrado");
     expect(await contador(id)).toBe(0);
     // Sem lote em curso, não há o que cancelar; e dá para seguir sem a IA.
-    await expect(colaborador().cancelarLeituraIA({ id })).rejects.toThrow("Não há leitura pela IA em andamento");
+    await expect(colaborador().cancelarLeituraIA({ id, chave: "ia:0:1" })).rejects.toThrow("Não há leitura pela IA em andamento");
     await colaborador().pularIA({ id });
     expect((await admin().detalhe({ id })).passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ estado: "feito", motor: "pulada" });
     expect(enviados).toHaveLength(1);
@@ -286,10 +287,10 @@ describe("EPIC-027 C1 — leitura em segundo plano (router, banco em memória, l
     await admin().confirmarIAImportacao({ id });
     emAndamento = 3;
     expect((await colaborador().avancarImportacao({ id })).aguardando?.motivo).toBe("lote");
-    expect(enviados[0].idPedido).toBe(`importacao-${id}-ia-0-1`);
+    expect(enviados[0].idPedido).toBe(`importacao-${id}-ia-0-1-mwpgqao0`);
     const imp = (await admin().detalhe({ id })).importacao!;
     expect(imp.passos.find(p => p.tipo === "prancha_ia")!.lote).toMatchObject({ situacao: "em_andamento" });
-    await colaborador().cancelarLeituraIAImportacao({ id });
+    await colaborador().cancelarLeituraIAImportacao({ id, chave: "ia:0:1" });
     expect(sim.cancelamentos).toEqual(["msgbatch_simulado_1"]);
     expect((await colaborador().avancarImportacao({ id })).erro).toContain("nada foi cobrado");
     expect(await contador(id)).toBe(0);

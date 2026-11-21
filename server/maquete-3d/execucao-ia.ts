@@ -182,7 +182,7 @@ export const TOLERANCIA_RELOGIO_MS = 5_000;
  */
 export function reservaVencida(passo: PassoLeitura): boolean {
   // EPIC-027 C1: com o lote criado, a leitura corre na Anthropic (até 24 h) e cada "avançar" consulta; não vence pelo relógio.
-  if (passo.lote?.id) return false;
+  if (passo.lote?.id || passo.loteAProcurar) return false;
   const em = passo.reservadoEm ? Date.parse(passo.reservadoEm) : NaN;
   const decorrido = agora().getTime() - em;
   return !Number.isFinite(em) || decorrido > LIMITE_RESERVA_MS || decorrido < -TOLERANCIA_RELOGIO_MS;

@@ -1,5 +1,6 @@
 // QA (Quinn) — portão independente da EPIC-027 C1: provas de dinheiro, lote órfão, cancelamento, chave e PDF degenerado.
-// Nada sai para a rede nem toca banco real; a chave é falsa e injetada. Testes "ACHADO" documentam o comportamento atual.
+// Nada sai para a rede nem toca banco real; a chave é falsa e injetada. Os testes "ACHADO" do portão foram invertidos
+// pelo @dev ao corrigir (marcados "corrigido"): provam que o defeito não volta.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
@@ -15,11 +16,11 @@ import * as schema from "../drizzle/schema.js";
 import { getDb } from "./db.js";
 import { definirDependencias, type ClienteLote, type CredencialIA } from "./maquete-3d/base.js";
 import { ExecucaoConcorrente } from "./maquete-3d/execucao-ia.js";
-import { MAX_FALHAS_CONSULTA } from "./maquete-3d/leitura.js";
+import { ESPERA_PARA_PROCURAR_MS, MAX_FALHAS_CONSULTA, MAX_PROCURAS, anexoDaPagina } from "./maquete-3d/leitura.js";
 import { lerEstadoLeitura } from "../shared/maquete-3d/regras.js";
 
 
-import { ladosDoJpeg, pdfDaPagina, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
+import { MAX_DESCOMPACTADO, ladosDoJpeg, pdfDaPagina, pdfDeUmJpeg } from "./maquete-3d/pdf-pagina.js";
 import { appRouter } from "./routers.js";
 import { comModeloDaTela } from "./fixtures/maquete-3d/confirmacao-da-tela.js";
 import { loteSimulado, type RespostaDoLote } from "./fixtures/maquete-3d/lote-simulado.js";
@@ -69,6 +70,7 @@ let enviados: Parameters<ReturnType<typeof loteSimulado>["cliente"]["enviar"]>[0
 let respostas: RespostaDoLote[];
 let emAndamento: number;
 let falhaNaConsulta: Error | null;
+let falhaNoCancelamento: Error | null;
 let relogio: Date;
 const caller = (id: number, role: string, permissions = "[]") => appRouter.createCaller({ user: { id, role, permissions, active: true, name: "x" }, req: {}, res: {} } as never);
 const admin = () => comModeloDaTela(caller(1, "admin").maquete3d);
@@ -108,8 +110,10 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
                (1, 'a2', 'pdf', 'escaneada.pdf', 'escaneada.pdf', 'application/pdf', 10, 1, 'd2', 'active'),
                (1, 'a3', 'pdf', 'escaneada-2.pdf', 'escaneada-2.pdf', 'application/pdf', 10, 1, 'd3', 'active');
     `);
-    enviados = []; respostas = []; emAndamento = 0; falhaNaConsulta = null; relogio = new Date("2026-11-20T21:00:00Z");
+    enviados = []; respostas = []; emAndamento = 0; falhaNaConsulta = null; falhaNoCancelamento = null; relogio = new Date("2026-11-20T21:00:00Z");
     sim = loteSimulado({
+      agora: () => relogio,
+      falhaNoCancelamento: () => falhaNoCancelamento,
       aoEnviar: p => { enviados.push(p); },
       consultasAteTerminar: () => emAndamento,
       falhaNaConsulta: () => falhaNaConsulta,
@@ -129,57 +133,136 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
   const IMG2 = { fonte: "projeto" as const, id: 3, nome: "escaneada-2.pdf" };
   const passoIA = async (id: number) => (await gravado(id)).passos.find(p => p.tipo === "prancha_ia")!;
 
-  it("QA-1 ACHADO: envio que CRIA o lote mas estoura o tempo — conta como usado (certo), mas o lote fica órfão (nunca consultado nem cancelado) e repetir cria e paga um segundo", async () => {
+  const avancar = (id: number) => colaborador().avancarLeitura({ id });
+  const passar = (ms: number) => { relogio = new Date(relogio.getTime() + ms); };
+  /** Envio que estoura o tempo; `cria`: o lote chega a ser criado na Anthropic antes do estouro. */
+  const comTempoEsgotado = (cria: boolean): ClienteLote => ({ ...sim.cliente, enviar: async p => { if (cria) await sim.cliente.enviar(p); else enviados.push(p); throw new APIConnectionTimeoutError(); } });
+
+  it("QA-1 (corrigido): envio que CRIA o lote mas estoura o tempo — o passo procura o lote, adota e segue; nada de segundo lote pago", async () => {
     const id = await prontoParaIA();
-    const comTempoEsgotado: ClienteLote = { ...sim.cliente, enviar: async p => { await sim.cliente.enviar(p); throw new APIConnectionTimeoutError(); } };
-    definirDependencias({ lote: comTempoEsgotado });
-    const r = await colaborador().avancarLeitura({ id });
-    expect(r.erro).toContain("O envio da prancha à IA não teve resposta a tempo");
+    definirDependencias({ lote: comTempoEsgotado(true) });
+    const r = await avancar(id);
+    expect(r).toMatchObject({ erro: null, aguardando: { motivo: "executando" } }); // a tela continua consultando
     expect(await contador(id)).toBe(1);
-    expect((await passoIA(id)).lote ?? null).toBeNull(); // o id do lote criado se perdeu
-    // Repetir pede nova confirmação (teto e confirmação respeitados) e, confirmado, cria OUTRO lote.
-    expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("confirmacao");
+    expect(await passoIA(id)).toMatchObject({ estado: "executando", loteAProcurar: { tentativas: 0, pedido: enviados[0].idPedido } });
+    expect((await admin().detalhe({ id })).passos.find(p => p.tipo === "prancha_ia")).toMatchObject({ procurandoLote: true, lote: null });
     definirDependencias({ lote: sim.cliente });
-    await admin().confirmarIA({ id });
-    await colaborador().avancarLeitura({ id });
-    expect(await colaborador().avancarLeitura({ id })).toMatchObject({ erro: null, proximo: { tipo: "montagem" } });
-    expect(sim.lotes.size).toBe(2); // dois lotes na Anthropic (os dois seriam lidos e cobrados)
-    expect(sim.consultas.every(c => c === "msgbatch_simulado_2")).toBe(true); // o 1º nunca é consultado
-    expect(sim.cancelamentos).toEqual([]); // nem cancelado
-    expect(await contador(id)).toBe(2); // mas os dois contam no teto: sem gasto fora do teto
+    // Logo depois do envio, não procura (quem criou um lote nesse meio tempo ainda pode estar gravando o id).
+    expect((await avancar(id)).aguardando?.motivo).toBe("executando");
+    expect(sim.procuras).toEqual([]);
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    expect((await avancar(id)).aguardando?.motivo).toBe("lote");
+    expect(await passoIA(id)).toMatchObject({ loteAProcurar: null, lote: { id: "msgbatch_simulado_1", adotado: true, pedido: enviados[0].idPedido } });
+    expect(await avancar(id)).toMatchObject({ erro: null, proximo: { tipo: "montagem" } });
+    expect(sim.lotes.size).toBe(1);
+    expect(sim.consultas).toEqual(["msgbatch_simulado_1"]);
+    expect(await contador(id)).toBe(1);
+    expect((await gravado(id)).tokensEntrada).toBe(31_234);
   });
 
-  it("QA-2 ACHADO: a função cai entre criar o lote e gravar o id — vira 'interrompida' depois de 75 s, conta como usada, e o lote some do sistema (não dá para cancelar)", async () => {
+  it("QA-1 (corrigido): sem lote criado, depois de algumas procuras conta como usada (como antes), sem laço", async () => {
+    const id = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(id);
+    definirDependencias({ lote: sim.cliente });
+    let r = await avancar(id);
+    for (let i = 0; i < MAX_PROCURAS + 2 && !r.erro; i++) { passar(ESPERA_PARA_PROCURAR_MS + 1_000); r = await avancar(id); }
+    expect(r.erro).toContain("o lote não foi encontrado na Anthropic");
+    expect(r.erro).toContain("conta como usada");
+    expect(sim.procuras).toHaveLength(MAX_PROCURAS);
+    expect(await contador(id)).toBe(1);
+    expect(sim.lotes.size).toBe(0);
+  });
+
+  it("QA-1 (corrigido): nunca adota o lote de outra maquete; lote sem dono com o pedido de outro não tem o resultado usado; dois candidatos sem dono: não adota nenhum", async () => {
+    // Maquete A estoura o tempo sem criar; a B envia normalmente na mesma janela (o lote dela está gravado na B).
+    const a = await prontoParaIA();
+    const b = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(a);
+    definirDependencias({ lote: sim.cliente });
+    await avancar(b);
+    let r = await avancar(a);
+    for (let i = 0; i < MAX_PROCURAS + 2 && !r.erro; i++) { passar(ESPERA_PARA_PROCURAR_MS + 1_000); r = await avancar(a); }
+    expect(r.erro).toContain("o lote não foi encontrado");
+    expect((await passoIA(b)).lote).toMatchObject({ id: "msgbatch_simulado_1" });
+    expect(sim.cancelamentos).toEqual([]);
+
+    // Um lote sem dono na janela, mas de outro pedido (custom_id): é adotado, e o custom_id é conferido no fim — o resultado não é usado.
+    const c = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(c);
+    await sim.cliente.enviar({ ...enviados.at(-1)!, idPedido: "outro-sistema-qualquer" });
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    expect((await avancar(c)).aguardando?.motivo).toBe("lote");
+    const fim = await avancar(c);
+    expect(fim.erro).toContain("não era o desta prancha");
+    expect((await gravado(c)).tokensEntrada).toBe(0);
+    expect(await contador(c)).toBe(1);
+
+    // Dois lotes sem dono na janela: não dá para saber qual é o dela — nenhum é adotado.
+    const e = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(true) });
+    await avancar(e);
+    await sim.cliente.enviar({ ...enviados.at(-1)!, idPedido: "outro-sistema-2" });
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    expect((await avancar(e)).erro).toContain("mais de um lote recente");
+    expect(await contador(e)).toBe(1);
+  });
+
+  it("QA-2 (corrigido): a função cai entre criar o lote e gravar o id — com a reserva vencida, o passo procura o lote, adota e segue consultando", async () => {
     const id = await prontoParaIA();
     // ExecucaoConcorrente depois do envio = o pedido termina sem gravar nada (mesmo efeito de a função ser encerrada).
     definirDependencias({ lote: { ...sim.cliente, enviar: async p => { await sim.cliente.enviar(p); throw new ExecucaoConcorrente("queda simulada"); } } });
-    await colaborador().avancarLeitura({ id });
+    await avancar(id);
     expect(await passoIA(id)).toMatchObject({ estado: "executando" });
     expect((await passoIA(id)).lote ?? null).toBeNull();
-    await expect(colaborador().cancelarLeituraIA({ id })).rejects.toThrow("ainda está sendo enviada");
+    await expect(colaborador().cancelarLeituraIA({ id, chave: "ia:0:1" })).rejects.toThrow("ainda está sendo enviada");
     definirDependencias({ lote: sim.cliente });
-    relogio = new Date(relogio.getTime() + 80_000);
-    const r = await colaborador().avancarLeitura({ id });
-    expect(r.erro).toContain("interrompida");
-    expect(await contador(id)).toBe(1);
+    passar(80_000);
+    const r = await avancar(id);
+    expect(r).toMatchObject({ erro: null, aguardando: { motivo: "lote" } });
+    expect(await passoIA(id)).toMatchObject({ estado: "executando", lote: { id: "msgbatch_simulado_1", adotado: true } });
+    expect(await avancar(id)).toMatchObject({ erro: null, proximo: { tipo: "montagem" } });
     expect(sim.lotes.size).toBe(1);
-    expect(sim.consultas).toEqual([]);
-    expect(sim.cancelamentos).toEqual([]);
-    expect(JSON.stringify(await gravado(id))).not.toContain("msgbatch_simulado_1");
+    expect(await contador(id)).toBe(1);
+    // Sem lote achado, continua como antes: "interrompida", conta como usada.
+    const outro = await prontoParaIA();
+    definirDependencias({ lote: { ...sim.cliente, enviar: async () => { throw new ExecucaoConcorrente("queda antes de criar"); } } });
+    await avancar(outro);
+    definirDependencias({ lote: sim.cliente });
+    passar(80_000);
+    expect((await avancar(outro)).erro).toContain("interrompida");
+    expect(await contador(outro)).toBe(1);
   });
 
-  it(`QA-3 ACHADO: ${MAX_FALHAS_CONSULTA} consultas com falha abandonam o lote SEM pedir o cancelamento; a chave não vaza`, async () => {
+  it(`QA-3 (corrigido): ${MAX_FALHAS_CONSULTA} consultas com falha — antes de deixar o lote, pede o cancelamento e registra se foi aceito; a chave não vaza`, async () => {
     const id = await prontoParaIA();
     emAndamento = 1_000;
-    await colaborador().avancarLeitura({ id });
+    await avancar(id);
     falhaNaConsulta = new Error(`rede caiu ${CHAVE}`);
-    let r = await colaborador().avancarLeitura({ id });
-    for (let i = 1; i < MAX_FALHAS_CONSULTA && !r.erro; i++) r = await colaborador().avancarLeitura({ id });
+    let r = await avancar(id);
+    for (let i = 1; i < MAX_FALHAS_CONSULTA && !r.erro; i++) r = await avancar(id);
     expect(r.erro).toContain("conta como usada");
+    expect(r.erro).toContain("O cancelamento do lote foi pedido à Anthropic e aceito");
     expect(JSON.stringify([r, await gravado(id), await admin().detalhe({ id })])).not.toContain(CHAVE);
     expect(await contador(id)).toBe(1);
-    expect(sim.cancelamentos).toEqual([]); // o lote continua na Anthropic e ainda pode ser lido e cobrado
-    expect(sim.lotes.get("msgbatch_simulado_1")!.cancelado).toBe(false);
+    expect(sim.cancelamentos).toEqual(["msgbatch_simulado_1"]);
+    expect(sim.lotes.get("msgbatch_simulado_1")!.cancelado).toBe(true);
+    expect(await passoIA(id)).toMatchObject({ estado: "erro", loteAbandonado: { id: "msgbatch_simulado_1", cancelamento: "aceito" } });
+  });
+
+  it("QA-3 (corrigido): chave revogada — o cancelamento é tentado, não é aceito, e isso fica registrado (sem travar)", async () => {
+    const id = await prontoParaIA();
+    emAndamento = 1_000;
+    await avancar(id);
+    falhaNaConsulta = Object.assign(new Error("invalid x-api-key"), { status: 401 });
+    falhaNoCancelamento = Object.assign(new Error("invalid x-api-key"), { status: 401 });
+    const r = await avancar(id);
+    expect(r.erro).toContain("O cancelamento do lote foi pedido à Anthropic, mas não foi aceito agora");
+    expect(await passoIA(id)).toMatchObject({ loteAbandonado: { id: "msgbatch_simulado_1", cancelamento: "recusado" } });
   });
 
   it("QA-4: a consulta periódica (6 s na tela) só CONSULTA — 40 'avançar' com o lote em andamento não reenviam nada", async () => {
@@ -199,26 +282,27 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     await colaborador().avancarLeitura({ id: a });
     await colaborador().avancarLeitura({ id: b });
     for (const papel of ["corretor", "cliente", "user"]) {
-      await expect(caller(9, papel).maquete3d.cancelarLeituraIA({ id: a })).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await expect(caller(9, papel).maquete3d.cancelarLeituraIAImportacao({ id: a })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller(9, papel).maquete3d.cancelarLeituraIA({ id: a, chave: "ia:0:1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller(9, papel).maquete3d.cancelarLeituraIAImportacao({ id: a, chave: "ia:0:1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     expect(sim.cancelamentos).toEqual([]);
-    await colaborador().cancelarLeituraIA({ id: b });
+    await colaborador().cancelarLeituraIA({ id: b, chave: "ia:0:1" });
     expect(sim.cancelamentos).toEqual(["msgbatch_simulado_2"]);
     expect((await passoIA(a)).lote).toMatchObject({ id: "msgbatch_simulado_1", situacao: "em_andamento" });
     // Id inexistente: erro claro, nada cancelado.
-    await expect(colaborador().cancelarLeituraIA({ id: 999 })).rejects.toBeTruthy();
+    await expect(colaborador().cancelarLeituraIA({ id: 999, chave: "ia:0:1" })).rejects.toBeTruthy();
     expect(sim.cancelamentos).toHaveLength(1);
   });
 
-  it("QA-6 ACHADO (baixo): o cancelamento não diz QUAL prancha — com a tela atrasada, cancela a prancha seguinte que acabou de ser enviada", async () => {
+  it("QA-6 (corrigido): o cancelamento diz QUAL prancha — com a tela atrasada (mostrando a prancha 1), nada é cancelado e a tela pede para atualizar", async () => {
     const id = await prontoParaIA([IMG, IMG2]);
-    await colaborador().avancarLeitura({ id }); // envia a prancha 1
-    expect(await colaborador().avancarLeitura({ id })).toMatchObject({ erro: null }); // prancha 1 lida
+    await avancar(id); // envia a prancha 1
+    expect(await avancar(id)).toMatchObject({ erro: null }); // prancha 1 lida
     emAndamento = 5;
-    expect((await colaborador().avancarLeitura({ id })).aguardando?.motivo).toBe("lote"); // prancha 2 enviada
-    // A pessoa clicou "Cancelar" vendo ainda a prancha 1: o servidor cancela a 2.
-    await colaborador().cancelarLeituraIA({ id });
+    expect((await avancar(id)).aguardando?.motivo).toBe("lote"); // prancha 2 enviada
+    await expect(colaborador().cancelarLeituraIA({ id, chave: "ia:0:1" })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Atualize a página") });
+    expect(sim.cancelamentos).toEqual([]);
+    await colaborador().cancelarLeituraIA({ id, chave: "ia:1:1" });
     expect(sim.cancelamentos).toEqual(["msgbatch_simulado_2"]);
   });
 
@@ -277,18 +361,29 @@ describe("QA C1 — pdfDaPagina com PDFs degenerados (tempo, memória, vazamento
     expect(texto).toContain("PAGINA-DOIS-SEGREDO"); // vai junto, embora a página 1 não desenhe
   });
 
-  it("ACHADO (baixo, pré-existente e ampliado): fluxo de objetos comprimido é descompactado sem limite de tamanho (bomba de compressão)", () => {
-    const bruto = Buffer.alloc(48 * 1024 * 1024, 0x20);
+  it("(corrigido) bomba de compressão: fluxo que passa do teto não é descompactado; a página não é achada e a prancha vai inteira, com o motivo", () => {
+    // Os dicionários das páginas estão SÓ dentro do fluxo de objetos, que descompactado passaria de 64 MB.
+    const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1] >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1] >>"];
+    let corpo = "", cab = "";
+    objs.forEach((o, i) => { cab += `${i + 1} ${corpo.length} `; corpo += `${o}\n`; });
+    const bruto = Buffer.concat([Buffer.from(cab + corpo, "latin1"), Buffer.alloc(MAX_DESCOMPACTADO + (4 << 20), 0x20)]);
     const stm = deflateSync(bruto, { level: 9 });
-    expect(stm.length).toBeLessThan(200_000); // ~50 KB que viram 48 MB na memória
+    expect(stm.length).toBeLessThan(400_000);
     const pdf = Buffer.concat([
-      Buffer.from("%PDF-1.5\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /MediaBox [0 0 1 1] >>\nendobj\n", "latin1"),
-      Buffer.from(`9 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${stm.length} >>\nstream\n`, "latin1"), stm, Buffer.from("\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n", "latin1"),
+      Buffer.from(`%PDF-1.5\n9 0 obj\n<< /Type /ObjStm /N 4 /First ${cab.length} /Filter /FlateDecode /Length ${stm.length} >>\nstream\n`, "latin1"), stm,
+      Buffer.from("\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n", "latin1"),
     ]);
     const inicio = Date.now();
-    const r = pdfDaPagina(pdf, 1);
-    // eslint-disable-next-line no-console
-    console.info(`[QA] bomba ~50 KB → 48 MB descompactados: ${Date.now() - inicio} ms, resultado: ${"pdf" in r ? "pdf" : r.motivo}`);
-    expect(r).toBeTruthy(); // não há maxOutputLength no inflateSync (pdf-pagina.ts, decodificar)
+    expect(pdfDaPagina(pdf, 1)).toMatchObject({ motivo: expect.stringContaining("não foi encontrada") });
+    const r = anexoDaPagina(pdf, "bomba.pdf", 1, 2);
+    expect(r).toMatchObject({ envio: "pdf_original", motivo: expect.stringContaining("não foi encontrada") });
+    expect(Date.now() - inicio).toBeLessThan(5_000);
+    // Abaixo do teto, o mesmo arquivo (sem o enchimento) continua sendo lido.
+    const pequeno = deflateSync(Buffer.from(cab + corpo, "latin1"));
+    const ok = Buffer.concat([
+      Buffer.from(`%PDF-1.5\n9 0 obj\n<< /Type /ObjStm /N 4 /First ${cab.length} /Filter /FlateDecode /Length ${pequeno.length} >>\nstream\n`, "latin1"), pequeno,
+      Buffer.from("\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n", "latin1"),
+    ]);
+    expect(pdfDaPagina(ok, 2)).toHaveProperty("pdf");
   });
 });

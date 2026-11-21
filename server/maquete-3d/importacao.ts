@@ -10,7 +10,7 @@ import { lerModelo, modeloSchema, modeloVazio, type ModeloMaquete, type TipoMaqu
 import { lerEstadoLeitura, leituraVazia, type DocumentoMaquete, type EstadoLeitura, type StatusMaquete } from "../../shared/maquete-3d/regras.js";
 import { LeituraIndisponivel, agora, carregarConfig, db, erroSeguro } from "./base.js";
 import { ExecucaoConcorrente, MENSAGEM_INTERROMPIDA, execucaoDe, exigirSemPassoEmCurso, gravarSeIgual, gravarSobreOAtual, novaConfirmacao, modeloDaConfirmacao, pularPassosIA, reservaVencida, type Execucao } from "./execucao-ia.js";
-import { cancelarLoteIA, documentoDoPasso, lerDocumentos, montarModelo, motorDaLeitura, parciaisDasPranchas, passoPrancha, passoPranchaIA, passosDasPranchas, pranchasParaMontagem } from "./leitura.js";
+import { adotarAntesDeInterromper, cancelarLoteIA, documentoDoPasso, lerDocumentos, montarModelo, motorDaLeitura, parciaisDasPranchas, passoPrancha, passoPranchaIA, passosDasPranchas, pranchasParaMontagem } from "./leitura.js";
 import { gravarModelo } from "./revisoes.js";
 
 /** Situações em que se pode importar e aplicar. Validada e publicada voltam para revisão ao aplicar. */
@@ -86,8 +86,10 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
   if (!passo) return imp;
   const x = execucaoDaImportacao(m, imp, inicio);
   const atualGravada = async () => lerImportacao((await buscar(id)).importacao) ?? imp;
-  if (passo.estado === "executando" && !passo.lote?.id) {
+  if (passo.estado === "executando" && !passo.lote?.id && !passo.loteAProcurar) {
     if (!reservaVencida(passo)) return imp;
+    // QA C1, achado 2: antes de dar como interrompido, procura o lote que o envio pode ter criado.
+    if (await adotarAntesDeInterromper(estado, passo, x)) return (await gravarSeIgual(x, x.serializar(estado))) ? imp : atualGravada();
     Object.assign(passo, { estado: "erro", erro: MENSAGEM_INTERROMPIDA, reservadoEm: null });
     return (await gravarSeIgual(x, x.serializar(estado))) ? imp : atualGravada();
   }
@@ -119,7 +121,7 @@ export async function avancarImportacao(id: number): Promise<Importacao> {
     if (!aguardando) Object.assign(passo, { estado: "feito", erro: null, aguardando: null, reservadoEm: null });
   } catch (e) {
     if (e instanceof ExecucaoConcorrente) return atualGravada();
-    Object.assign(passo, { estado: "erro", erro: erroSeguro(e), reservadoEm: null, lote: null });
+    Object.assign(passo, { estado: "erro", erro: erroSeguro(e), reservadoEm: null, lote: null, loteAProcurar: null });
   }
   if (!(await gravarSeIgual(x, x.serializar(estado), { deltaIA: -x.devolver }))) {
     // Segunda barreira do N1: a importação mudou durante a chamada paga; se o passo continua reservado por este
@@ -156,9 +158,9 @@ export async function confirmarIAImportacao(id: number, userId: number, alemDoTe
 }
 
 /** Cancela, na Anthropic, a leitura pela IA em andamento nesta importação (o resultado chega na próxima consulta). */
-export async function cancelarLeituraIAImportacao(id: number): Promise<Importacao> {
+export async function cancelarLeituraIAImportacao(id: number, chave: string): Promise<Importacao> {
   const { m, imp } = await importacaoAberta(id);
-  if (await cancelarLoteIA(imp.estado)) await gravarSeIgual(execucaoDaImportacao(m, imp), JSON.stringify(imp));
+  if (await cancelarLoteIA(imp.estado, chave)) await gravarSeIgual(execucaoDaImportacao(m, imp), JSON.stringify(imp));
   return imp;
 }
 

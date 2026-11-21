@@ -65,6 +65,34 @@ alguma coisa que a gente veja que o processo está andando".
   continuam recusados (QA N1): a pessoa espera ou cancela.
 - Tokens: `input_tokens`/`output_tokens` do `usage`, como antes (sem cache). Lote cobra 50% do preço normal (documentação).
 
+## Portão de QA (21/11) — CONCERNS, achados 1 a 6 corrigidos
+Provas em `server/maquete-3d-lote-qa.test.ts` (commit do QA `8c387d5`); os testes "ACHADO" foram invertidos ("corrigido").
+1. **Envio que cria o lote e estoura o tempo** → o passo NÃO vira erro: fica "executando" com `loteAProcurar` e, depois de
+   20 s (para quem criou um lote nesse meio tempo já ter gravado o id), procura na Anthropic (`messages.batches.list`, até
+   2 páginas de 50, janela da reserva −10 s até +75 s, prazo do passo, sem nova tentativa automática). Adota só se houver
+   UM candidato de uma requisição que não esteja gravado em nenhuma maquete (leitura ou importação). Até 3 procuras; sem
+   achar → conta como usada (como antes); mais de um candidato → não adota nenhum. A espera entre procuras é o ciclo da tela.
+2. **Função cai entre criar o lote e gravar o id** → com a reserva vencida, antes de "interrompida" faz uma procura; achou,
+   adota e segue consultando.
+   - `custom_id` agora é único por tentativa: `<leitura|importacao>-<maquete>-<passo>-<hora da reserva em base 36>`.
+   - **Limite da API:** a listagem não devolve o `custom_id`; ele é conferido nos resultados, quando o lote termina. Lote
+     adotado com o resultado de outro pedido: o resultado NÃO é usado, a tentativa conta como usada e a tela diz isso.
+3. **Lote deixado de lado** (30 falhas de consulta, chave revogada, sem permissão, não encontrado) → antes, pede o
+   cancelamento à Anthropic (melhor esforço, até 8 s) e registra em `passo.loteAbandonado` se foi aceito; a mensagem diz.
+4. **Cancelar** recebe a `chave` da prancha mostrada; o servidor só cancela se ela for a que está na IA (senão, CONFLICT
+   pedindo para atualizar a página; nada é cancelado).
+5. **Consulta, cancelamento e procura** com `maxRetries: 0` e prazo = o que sobra do passo (entre 3 e 20 s): nunca passam
+   dos 60 s; consulta que estoura conta como falha e a tela consulta no ciclo seguinte.
+6. **Bomba de compressão**: `inflateSync(…, { maxOutputLength: 64 MB })` nos fluxos de objetos e no JPEG comprimido; passou
+   do teto, o fluxo é ignorado, a página não é achada e a prancha vai inteira, com o motivo gravado no passo.
+
+## Limitações registradas (não corrigidas nesta story)
+- **QA-7:** lote que termina "expired" (ou com erro/cancelado) devolve a confirmação, mas não reenvia sozinho: a pessoa clica
+  "Tentar de novo este passo" (a tela não reenvia depois de erro, de propósito, para não gastar sem alguém ver).
+- **QA (baixo):** recursos compartilhados no nó "Pages" (ex.: imagens de outras páginas declaradas para todas) vão junto na
+  página separada — o PDF fica maior, mas só a página pedida é desenhada; ainda é menor que o arquivo inteiro.
+- O `custom_id` do lote adotado só é conferido no fim (limite da API de listagem, ver 2).
+
 ## Confirmado na documentação / SDK
 - Documentação oficial (docs.claude.com, "Batch processing", lida em 20/11/2026): resultados `succeeded`, `errored`,
   `canceled`, `expired`; "You aren't billed" para errored/canceled/expired; lote expira em 24 h; resultados por 29 dias;
@@ -78,7 +106,8 @@ alguma coisa que a gente veja que o processo está andando".
 
 ## Testes
 (a) Automáticos — `npx vitest run server/maquete-3d*.test.ts server/integracoes-anthropic.test.ts --maxWorkers=2 --minWorkers=1`
-e `npx tsc --noEmit` (20/11/2026): **tsc sem erros; 11 arquivos, 286 testes, todos passando** (16 novos). Novos em `server/maquete-3d-lote.test.ts`:
+e `npx tsc --noEmit` (20/11/2026): **tsc sem erros; 11 arquivos, 286 testes, todos passando** (16 novos). Depois das correções do portão de QA (21/11): **tsc sem erros; 12
+arquivos, 299 testes, todos passando** (com `server/maquete-3d-lote-qa.test.ts`). Novos em `server/maquete-3d-lote.test.ts`:
 envio → consultas → sucesso com tokens reais; parâmetros no lote (modelo, esforço, esquema, `maxRetries: 0`);
 expired/errored/canceled devolvem; cortada conta e guarda tokens; cancelar; duas abas (1 lote, 1 gravação); retomada depois
 de "recarregar" 3 h depois; falha de consulta e chave revogada (sem vazar a chave); importação com cancelamento; página
@@ -105,5 +134,5 @@ planta lida); cancelar um lote real; reabrir a página no meio da leitura.
 - `shared/maquete-3d/regras.ts` — `LoteDoPasso`, `envioMotivo` no passo.
 - `client/src/components/maquete-3d/AndamentoLeitura.tsx` (novo), `client/src/components/maquete-3d/rotulos-leitura.ts`,
   `client/src/components/maquete-3d/ImportarPlanta.tsx`, `client/src/pages/admin/AdminMaquete3D.tsx`.
-- `server/fixtures/maquete-3d/lote-simulado.ts` (novo), `server/maquete-3d-lote.test.ts` (novo),
+- `server/fixtures/maquete-3d/lote-simulado.ts` (novo), `server/maquete-3d-lote.test.ts` (novo), `server/maquete-3d-lote-qa.test.ts` (QA, invertido),
   `server/maquete-3d-hibrida.test.ts`, `server/maquete-3d-qa-s03-s05.test.ts`, `server/maquete-3d-importacao.test.ts`.

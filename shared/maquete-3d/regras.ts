@@ -133,12 +133,21 @@ export type PassoLeitura = {
    * só consulta. Sobrevive a recarregar e a fechar a página. O id do lote não é segredo (a chave nunca fica aqui).
    */
   lote?: LoteDoPasso | null;
+  /**
+   * QA C1, achados 1 e 2: o envio pode ter criado o lote sem que o id voltasse (tempo esgotado, função encerrada). O
+   * passo fica "executando" e procura o lote pela janela de criação antes de dar a tentativa como usada.
+   * `pedido`: o custom_id desta tentativa (único: passo + hora da reserva), conferido quando o lote terminar.
+   */
+  loteAProcurar?: { pedido: string; desde: string; tentativas: number; imagem?: boolean } | null;
+  /** QA C1, achado 3: lote deixado de lado (consulta impossível) e se o cancelamento pedido à Anthropic foi aceito. */
+  loteAbandonado?: { id: string; cancelamento: "aceito" | "recusado" } | null;
 };
 
 /** "em_andamento": a API não separa "na fila" de "sendo lida". "cancelando": o cancelamento foi pedido. */
 export type SituacaoLote = "em_andamento" | "cancelando";
 /** `imagem`: a prancha foi como imagem (a resposta é conferida como leitura de imagem, sem cotas confirmadas por traço). */
-export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number };
+/** `adotado`: achado pela procura (achados 1 e 2), ainda sem o custom_id conferido (a conferência vem nos resultados). */
+export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number; adotado?: boolean };
 
 /**
  * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta

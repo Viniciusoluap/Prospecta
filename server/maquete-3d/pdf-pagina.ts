@@ -6,6 +6,12 @@
 // estrutura que este leitor não entende: devolve null e quem chama manda o PDF original com a instrução da página.
 import { inflateSync } from "node:zlib";
 
+/**
+ * QA C1, achado 6: teto de cada fluxo descompactado (bomba de compressão: poucos KB que viram centenas de MB). Passou
+ * dele, o fluxo é ignorado — a página pode não ser achada e a leitura cai para o arquivo inteiro, com o motivo gravado.
+ */
+export const MAX_DESCOMPACTADO = 64 << 20;
+
 type Ref = { ref: number };
 /** Texto literal "(...)" e hexadecimal "<...>" ficam marcados (com os bytes como estão) para poderem ser reescritos. */
 type Valor = number | string | boolean | null | Ref | Valor[] | Dic | { nome: string } | { texto: string } | { hex: string };
@@ -162,7 +168,7 @@ class LeitorPdf {
   decodificar(d: Dic, fluxo: Buffer): Buffer | null {
     const f = filtros(this, d);
     if (!f.length) return fluxo;
-    if (f.length === 1 && f[0] === "FlateDecode") return inflateSync(fluxo);
+    if (f.length === 1 && f[0] === "FlateDecode") return inflateSync(fluxo, { maxOutputLength: MAX_DESCOMPACTADO });
     return null;
   }
 
@@ -252,7 +258,7 @@ export function jpegDaPagina(dados: Buffer, pagina: number): ImagemDaPagina | nu
         if (sub !== "Image" || !o.fluxo) continue;
         const f = filtros(l, o.valor);
         if (f[f.length - 1] !== "DCTDecode" || f.slice(0, -1).some(x => x !== "FlateDecode")) continue;
-        const jpeg = f.length > 1 ? inflateSync(o.fluxo) : Buffer.from(o.fluxo);
+        const jpeg = f.length > 1 ? inflateSync(o.fluxo, { maxOutputLength: MAX_DESCOMPACTADO }) : Buffer.from(o.fluxo);
         const lados = ladosDoJpeg(jpeg);
         if (!lados) continue;
         if (!melhor || lados.largura * lados.altura > melhor.largura * melhor.altura) melhor = { jpeg, ...lados };

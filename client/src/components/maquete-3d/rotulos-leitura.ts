@@ -26,7 +26,9 @@ export function perguntaAlemDoTeto(pendentes: number, teto: number | null | unde
 
 /** O mínimo de um passo para mostrar o andamento (o que o servidor manda em `passos`). */
 export type PassoDoAndamento = {
-  rotulo: string; tipo: string; estado: string;
+  chave: string; rotulo: string; tipo: string; estado: string;
+  /** O envio não confirmou o lote e o servidor o procura na Anthropic (QA C1, achados 1 e 2). */
+  procurandoLote?: boolean;
   lote: { situacao: "em_andamento" | "cancelando"; enviadoEm: string } | null;
   enviandoDesde?: string | null;
 };
@@ -35,10 +37,10 @@ export type PassoDoAndamento = {
  * Situação da prancha na IA em linguagem simples. A Anthropic não informa se a requisição ainda está na fila ou já
  * está sendo lida (os dois são "em andamento"): a tela diz os dois, sem inventar.
  */
-export function rotuloDoLote(p: Pick<PassoDoAndamento, "estado" | "lote" | "enviandoDesde">): string | null {
+export function rotuloDoLote(p: Pick<PassoDoAndamento, "estado" | "lote" | "enviandoDesde" | "procurandoLote">): string | null {
   if (p.estado === "feito") return "Lida";
   if (p.estado !== "executando") return null;
-  if (!p.lote) return "Enviando à IA…";
+  if (!p.lote) return p.procurandoLote ? "Conferindo na IA se a prancha chegou…" : "Enviando à IA…";
   return p.lote.situacao === "cancelando" ? "Cancelando a leitura na IA…" : "Enviada à IA — na fila ou sendo lida";
 }
 
