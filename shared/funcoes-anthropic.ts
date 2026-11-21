@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas", "dolores_cliente"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas", "dolores_cliente", "incorporacao_logotipo"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -51,6 +51,17 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     descricao: "Lê as notas fiscais e recibos que chegam nos grupos de OBRA cadastrados (emitente, CPF/CNPJ, número, data, valor, itens) e monta o rascunho para o dono conferir. Só gasta com o interruptor da IA da Dolores, a classificação de documentos e a leitura de notas ligados, uma nota por vez, dentro dos tetos diários e do orçamento dos documentos no limite mensal do cartão da Dolores.",
     recomendacao: "Um modelo que leia bem imagem e PDF com números; valores e CPF/CNPJ são conferidos pelo sistema, e o que tiver confiança baixa vira \"confira\".",
   },
+  incorporacao_logotipo: {
+    id: "incorporacao_logotipo",
+    rotulo: "Logotipo da incorporação",
+    descricao: "Desenha uma proposta de logotipo (em SVG) a partir do nome, da cidade e do tipo do empreendimento. Só gasta quando alguém da Incorporação clica em \"Gerar logotipo com IA\", uma proposta por clique, até 5 por empreendimento e 5 por pessoa a cada dia. A proposta só substitui o logotipo atual depois de aprovada.",
+    recomendacao: "Um modelo intermediário (ex.: Sonnet) equilibra a qualidade do desenho e o tempo de resposta; um modelo maior pode passar do tempo limite.",
+  },
+};
+
+/** Modelo usado pela função quando nem ela nem o preferencial do painel têm modelo escolhido. Só nomes de modelo. */
+export const MODELO_PADRAO_DA_FUNCAO: Partial<Record<FuncaoAnthropic, string>> = {
+  incorporacao_logotipo: "claude-sonnet-5",
 };
 
 export const ehFuncaoAnthropic = (v: unknown): v is FuncaoAnthropic =>

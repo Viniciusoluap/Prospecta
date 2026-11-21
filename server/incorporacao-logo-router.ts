@@ -12,13 +12,18 @@ import { getDb, getIncorporationStudyById } from "./db.js";
 import { clearUpload, readUpload } from "./document-upload-chunks.js";
 import { incorporationStudyLogos } from "../drizzle/schema-incorporacao-logos.js";
 import {
-  LADO_EXIBICAO, LIMITE_EXIBICAO_BYTES, LIMITE_LOGO_BYTES, dimensoesDoPng, ehPng, promptLogotipo, tipoDoLogo, tipoPelaExtensao,
+  LADO_EXIBICAO, LIMITE_EXIBICAO_BYTES, LIMITE_LOGO_BYTES, TETO_LOGO_IA_POR_DIA, dimensoesDoPng, ehPng, tipoDoLogo, tipoPelaExtensao,
 } from "../shared/incorporacao/logotipo.js";
+import { SvgRecusado, sanitizarSvg } from "./incorporacao-logo-svg.js";
+import {
+  MENSAGEM_SEM_CHAVE_LOGO, gerarSvgDoLogotipo, logotipoIaDisponivel, reservarGeracaoLogo, resolverCredencialLogotipo,
+} from "./incorporacao-logo-ia.js";
 
 /** Trava (por estudo) da troca do logotipo: uma troca por vez. */
 const TRAVA_LOGO = 24_02;
 export const escopoEnvioLogo = (studyId: number) => `incorporacao-logo:${studyId}`;
-export const PROVEDOR_IMAGEM = "Manus Forge (gerador de imagem já existente no sistema)";
+/** EPIC-027 C8: a proposta de logotipo é desenhada em SVG pela IA da chave do painel (função "Logotipo da incorporação"). */
+export const PROVEDOR_IMAGEM = "IA da Anthropic (chave de Configurações › Integrações › Anthropic)";
 const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const nomeSeguro = (nome: string) => nome.replace(/[\u0000-\u001f\\/:*?"<>|]+/g, "_").slice(0, 200) || "logotipo";
 
@@ -79,13 +84,22 @@ export const incorporationLogoRouter = router({
   })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     await exigirEstudo(input.studyId);
-    const original = await readUpload(input.uploadId, ctx.user.id, escopoEnvioLogo(input.studyId), input.nome);
+    let original: Buffer = await readUpload(input.uploadId, ctx.user.id, escopoEnvioLogo(input.studyId), input.nome);
     await clearUpload(input.uploadId, ctx.user.id).catch(() => undefined);
     if (original.length > LIMITE_LOGO_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: "Logotipo acima de 10 MB." });
     const mime = tipoDoLogo(original);
     if (!mime) throw new TRPCError({ code: "BAD_REQUEST", message: "O arquivo não é PNG, JPG, SVG ou PDF válido." });
     const esperado = tipoPelaExtensao(input.nome);
     if (esperado && esperado !== mime) throw new TRPCError({ code: "BAD_REQUEST", message: "O conteúdo do arquivo não corresponde à extensão." });
+    // EPIC-027 C8: SVG enviado ou desenhado pela IA passa pela mesma limpeza antes de ser guardado como original
+    if (mime === "image/svg+xml") {
+      try {
+        original = sanitizarSvg(original, LIMITE_LOGO_BYTES);
+      } catch (e) {
+        if (e instanceof SvgRecusado) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        throw e;
+      }
+    }
     const exibicao = Buffer.from(input.exibicaoBase64, "base64");
     // As medidas valem as do próprio PNG (cabeçalho IHDR), não as que o navegador declarou.
     const medidas = exibicao.length <= LIMITE_EXIBICAO_BYTES ? dimensoesDoPng(exibicao) : null;
@@ -113,37 +127,27 @@ export const incorporationLogoRouter = router({
     return { success: true };
   }),
 
-  /** Gerador de imagem disponível? Diz qual provedor e qual chave falta — nunca finge. */
+  /** IA do logotipo disponível? Só diz SE há chave no painel (nunca a chave) e o teto do dia. */
   iaDisponivel: protectedProcedure.query(async ({ ctx }) => {
     requireModule(ctx, "incorporacao");
-    const { faltandoParaGerarImagem } = await import("./_core/imageGeneration.js");
-    const faltando = faltandoParaGerarImagem();
-    return { disponivel: faltando.length === 0, provedor: PROVEDOR_IMAGEM, faltando };
+    const disponivel = await logotipoIaDisponivel();
+    return { disponivel, provedor: PROVEDOR_IMAGEM, motivo: disponivel ? null : MENSAGEM_SEM_CHAVE_LOGO, tetoPorDia: TETO_LOGO_IA_POR_DIA };
   }),
 
-  /** Proposta de logotipo pela IA a partir do nome; só volta para a tela aprovar (não grava). */
+  /**
+   * Proposta de logotipo em SVG pela IA (chave do painel), já limpa; só volta para a tela pré-visualizar e aprovar —
+   * não grava nada. Mesma permissão de quem envia o logotipo.
+   */
   gerarIa: protectedProcedure.input(studyInput).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
     const estudo = await getIncorporationStudyById(input.studyId);
     if (!estudo) throw new TRPCError({ code: "NOT_FOUND", message: "Estudo não encontrado." });
-    const { faltandoParaGerarImagem, generateImageBytes } = await import("./_core/imageGeneration.js");
-    const faltando = faltandoParaGerarImagem();
-    if (faltando.length) {
-      return {
-        ok: false as const, faltando,
-        motivo: `Geração de imagem não configurada: o ${PROVEDOR_IMAGEM} precisa de ${faltando.join(" e ")} no servidor. Envie o logotipo pelo botão "Enviar logotipo".`,
-      };
-    }
-    let imagem;
-    try {
-      imagem = await generateImageBytes({ prompt: promptLogotipo({ ...estudo, name: estudo.name ?? "" }) });
-    } catch (e) {
-      console.error("[logotipo-ia]", e instanceof Error ? e.message : e);
-      return { ok: false as const, faltando: [], motivo: "O gerador de imagem não respondeu. Tente de novo mais tarde." };
-    }
-    const mime = tipoDoLogo(imagem.data);
-    if (mime !== "image/png" && mime !== "image/jpeg") return { ok: false as const, faltando: [], motivo: "O gerador devolveu uma imagem em formato inesperado." };
-    if (imagem.data.length > 3 * 1024 * 1024) return { ok: false as const, faltando: [], motivo: "O gerador devolveu uma imagem grande demais." };
-    return { ok: true as const, mime, base64: imagem.data.toString("base64") };
+    const credencial = await resolverCredencialLogotipo();
+    if (!credencial) return { ok: false as const, motivo: MENSAGEM_SEM_CHAVE_LOGO };
+    const reserva = await reservarGeracaoLogo(input.studyId, ctx.user.id);
+    if (!reserva.ok) return { ok: false as const, motivo: reserva.motivo };
+    const r = await gerarSvgDoLogotipo(estudo, credencial);
+    if (!r.ok) return { ok: false as const, motivo: r.motivo };
+    return { ok: true as const, mime: "image/svg+xml" as const, base64: r.svg.toString("base64"), restantes: reserva.restantes };
   }),
 });

@@ -306,3 +306,12 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   painel da campanha e auditoria; só administrador por papel. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C8 — registrada em 21/11/2026)
+
+A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar ao Santa Fé (na stack de lá).
+- [ ] C8 — "Gerar logotipo com IA" pela chave da Anthropic do painel (Integrações › Anthropic): proposta em SVG desenhada pelo
+  modelo, com linha própria em "Modelo por função" ("Logotipo da incorporação", padrão `claude-sonnet-5`), dados do empreendimento
+  enviados como dado delimitado, prazo de 40 s, teto de 5 propostas/dia por empreendimento e por pessoa, limpeza do SVG (lista de
+  permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
+  Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.
