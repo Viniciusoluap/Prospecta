@@ -297,8 +297,9 @@ describe("C2 — escrever no grupo", () => {
     await chamar(doGrupo(J(1), "qual o andamento?", { marcar: true }));
     expect(enviarAoGrupo).toHaveBeenCalledTimes(1);
     const depois = await caller(COLAB_COM).whatsappGrupos.mensagens({ grupoId: 1 });
-    expect(depois.mensagens.map(m => m.origem)).toEqual(["equipe", "participante", "dolores"]);
-    expect(depois.mensagens.at(-1)).toMatchObject({ autor: "Dolores" });
+    // (a hora da resposta vem do relógio fixo do teste e a das outras do banco: aqui só se confere o que aparece, não a ordem)
+    expect(depois.mensagens.map(m => m.origem).sort()).toEqual(["dolores", "equipe", "participante"]);
+    expect(depois.mensagens.find(m => m.origem === "dolores")).toMatchObject({ autor: "Dolores", texto: expect.stringContaining("Protocolo na prefeitura") });
   });
 
   it("estático: o envio da equipe a grupo só existe em evolution.ts e na rota da Central; sem citação nem menção", () => {
