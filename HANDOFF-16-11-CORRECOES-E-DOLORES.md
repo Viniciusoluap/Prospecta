@@ -544,3 +544,78 @@ correções definidas até aqui que não pare até concluir tudo" — registrada
 Receber os três @dev, reenviar ao @qa só o commit novo de cada um, e publicar na ordem C5-E1 (aplicar 0143 antes do merge) →
 C7.1 → C8, cada uma com `tsc`, vitest (`--maxWorkers=2 --minWorkers=1`), `vite build`, prévia READY e produção READY. Depois,
 abrir as stories das etapas E2–E5 e memória de longo prazo a partir de `C5-PLANO-dolores-jarvis.md`.
+
+---
+
+## PLANO B — "Agente Claude" (alternativa guardada a pedido do dono em 21/11/2026)
+
+Palavras do dono: "eu quero que você salve no Handoff o agente Claude para um plano alternativo caso eu não goste do resultado
+da Dolores, para que ele já fique salvo e a gente saiba o que fazer se eu te falar sobre ele".
+
+**Quando usar:** só se o dono testar a Dolores atual (depois das etapas do plano de 21/11) e disser que não gostou, citando o
+"agente Claude" / "plano B". Até lá NÃO construir nada disto. Antes de começar, apresentar a estrutura e esperar o "autorizo".
+
+**O que é:** hoje a Dolores roda dentro do servidor do Prospecta (laço próprio em `server/dolores/cerebro.ts`, chave do painel,
+travas no código — decisão do dono de 17/11). O plano B troca o LUGAR onde ela pensa: um agente hospedado pela Anthropic
+(Claude Agent SDK / Managed Agents), que conversa com liberdade e usa o Prospecta por ferramentas.
+
+**O que se ganha:** conversa e raciocínio mais soltos, tarefas abertas (ler arquivos, pesquisar, encadear muitos passos),
+memória em arquivos do próprio agente. **O que se perde ou precisa ser refeito:** as travas hoje garantidas no servidor
+(só o número do dono comanda; escopo por tipo de grupo; cliente só vê o próprio caso; teto de gasto; fila de aprovação;
+auditoria) teriam de ser expostas como FERRAMENTAS do Prospecta — o agente nunca fala direto com o banco; gasto menos
+previsível; os dados passam por mais um lugar (entra no termo de consentimento / jurídico).
+
+**Como fazer, sem jogar fora o que existe (ordem):**
+1. Adaptador de runtime: isolar em `server/dolores/` a interface "recebe mensagem do dono → devolve resposta + pedidos de
+   ferramenta", para o laço atual e o agente hospedado serem trocáveis por um interruptor (desligado por padrão).
+2. Ferramentas: reaproveitar o registro atual (`server/dolores/funcoes.ts`, `acoes/registro.ts`, `leitura/*`) atrás da ponte
+   HTTP (`/api/dolores/ponte`, hoje só leitura, token próprio, dados pessoais mascarados por padrão). Escrita só pelas ações
+   já listadas, com "pode"/"confirmo" reconhecidos por código no servidor — nunca decididos pelo agente.
+3. WhatsApp: continua pela conexão única (Evolution); o servidor entrega ao agente só as mensagens do número do dono. Grupos e
+   clientes continuam no laço atual, com o escopo travado no servidor (o plano B vale só para a conversa do dono).
+4. Custo: mesma contabilidade (`dolores_consumo`), teto de R$ 1.621/mês, bloqueio em 100% e alerta em 80%.
+5. Portão de QA de segurança completo antes de ligar; teste lado a lado (mesmas perguntas nos dois) para o dono comparar.
+6. Depende do dono: créditos e criação do agente no Claude Console (chave digitada por ele no painel; nunca em chat).
+
+**Alternativa ainda mais leve, a testar antes do plano B:** trocar só o MODELO da função "conversa da Dolores" em
+Integrações › Anthropic (ex.: de Haiku para um modelo maior) — muda muito a naturalidade sem mexer em arquitetura.
+
+**Não confundir com:** OpenClaw (assistente pessoal genérico; avaliar só se o dono pedir, e só pela ponte de leitura).
+
+## Atualização de 21/11/2026 ~17:30 UTC
+
+### Em produção hoje (além do registrado acima)
+| Frente | PR | Migração |
+|---|---|---|
+| C8 logotipo por IA (chave do painel, SVG) | #277 | — |
+| C7.1 colaborador opera campanha YCloud | #278 | — |
+| C5-E1 Dolores: voz natural e memória (100 msgs / 6 h; cota pelo peso do cache) | #279 | `0143` aplicada |
+
+YCloud em produção (conferido no banco): chave salva, número confere (VFX Capital, CONNECTED), avisos ativos, disparos LIGADOS,
+teto 200/dia; falta só modelo aprovado pela Meta.
+
+### Em andamento
+- **C7.2 modelos da YCloud pelo sistema** — PR #280 (branch `claude/epic027-c72`), testes 213/213 e build ok; aguardando o
+  portão de QA. Sem migração. Depois de publicar: conferir se `novidades_prospecta` foi criado sozinho (cron 07–14h BRT).
+- **C5-E2 "pode / confirmo"** — worktree `epic027-c5e2` (@dev); migração `0145` se houver; depois QA e publicar.
+- **EPIC-028 maquete fiel à planta + editor** — branch `feat/maquete-3d-editor` (no GitHub). Etapa 0 (plano) e Etapa 1 (JSON
+  `data/plantas/lote4-qd18.json` + validações, 31 testes) prontas; Etapa 2 (gerador web + screenshots) com o @dev. Custo zero
+  (Higgsfield 10 créditos, intocados). O dono mandou seguir as etapas sem parar; PUBLICAÇÃO da maquete em produção ainda
+  depende da resposta dele (o prompt dela diz PR sem merge e migração só em branch do Neon). PDF da planta fica fora do repo.
+  Pendências do dono: telhado 20% × 25% e platibanda 1,15 × 1,60; altura do balcão (1,10 estimada); folha fixa da P2.
+
+### Plano novo da Dolores (apresentado em 21/11; AGUARDANDO o "aprovo" do dono — não pôr na fila antes)
+1 pode/confirmo (em construção) · 2 anotar a partir do grupo · 3 gasto por função + alerta 80% · 4 memória de longo prazo
+com tela · 5 ler o CARAXES (Obsidian no Drive) como base de conhecimento, só leitura (falta ele dizer a pasta) · 6 proatividade
+· 7 análise de regularização com roteiro REURB · 8 tarefa demorada sem travar · 9 "criadora de mesas" (ele quer) · 10 mesa
+comercial/maquete · 11 três achados baixos da YCloud + `ycloud-qa-c71-r2.test.ts`. Fora: Kapso/n8n, agente hospedado (plano B
+acima), escritório 3D, MCP de escrita, vídeo por IA.
+
+### Regra do dono reforçada em 21/11
+Ele não quer mais tarefa manual: o que o sistema puder fazer com o que já tem (chaves guardadas no servidor), o sistema faz.
+Botão novo só se nenhum existente servir.
+
+### Próximo passo exato
+Receber o QA da C7.2 → publicar #280; receber a E2 da Dolores → QA → `0145` → publicar; receber a Etapa 2 da maquete → conferir
+os screenshots → Etapa 3 (editor + tabelas em branch do Neon). Perguntas abertas ao dono: aprovar o plano da Dolores; pasta do
+CARAXES; se a maquete pode ser publicada a cada etapa.
