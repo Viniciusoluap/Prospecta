@@ -9,7 +9,7 @@
 // altura das aberturas medidos a partir da `base` da parede.
 import { z } from "zod";
 import { TIPOS_MOVEL } from "./mobilia.js";
-import { areaPoligono, type Ponto } from "./modelo.js";
+import { FUNCOES_COMODO, areaPoligono, type Ponto } from "./modelo.js";
 
 // ── Formato ──
 
@@ -70,6 +70,20 @@ export const aberturaFonteSchema = z.object({
 });
 export type AberturaFonte = z.infer<typeof aberturaFonteSchema>;
 
+/** Acabamento do piso desenhado pelo gerador (Etapa 2). Ausente = deduzido do nome e de `interno` (`acabamentoDoAmbiente`). */
+export const ACABAMENTOS_PISO = ["porcelanato", "ceramica", "cimentado", "concreto", "grama"] as const;
+export type AcabamentoPiso = (typeof ACABAMENTOS_PISO)[number];
+
+/** Ponto de vista do tour (Etapa 2): onde a pessoa fica em planta e para onde olha. A altura dos olhos não vem
+ *  daqui: é sempre o piso do ambiente + 1,60 m (`ALTURA_OLHOS_TOUR`). */
+export const cameraFonteSchema = z.object({
+  x: m, z: m,
+  /** Ponto olhado [x, y, z]; y em metros acima da rua. */
+  alvo: z.tuple([m, m, m]),
+  ...marcas,
+});
+export type CameraFonte = z.infer<typeof cameraFonteSchema>;
+
 export const ambienteFonteSchema = z.object({
   nome: texto(80),
   /** Vértices [x, z] em ordem, sem repetir o primeiro. */
@@ -81,6 +95,10 @@ export const ambienteFonteSchema = z.object({
   piso: m,
   /** Fica dentro da casa (coberto). */
   interno: z.boolean(),
+  /** Opcionais (Etapa 2): acabamento do piso, função do cômodo no modelo 3D e ponto de vista do tour. */
+  acabamento: z.enum(ACABAMENTOS_PISO).optional(),
+  funcao: z.enum(FUNCOES_COMODO).optional(),
+  camera: cameraFonteSchema.optional(),
   ...marcas,
 });
 export type AmbienteFonte = z.infer<typeof ambienteFonteSchema>;
@@ -131,6 +149,8 @@ export const fonteSchema = z.object({
   nome: texto(120),
   lote: z.object({ w: m.positive(), d: m.positive(), ...marcas }),
   niveis: z.record(z.string().max(40), cotaSchema),
+  /** Opcional (Etapa 2): direção do norte para a planta 2D, em graus a partir de +z (frente), girando para +x. */
+  norte: z.object({ angulo: m, ...marcas }).optional(),
   estrutura: z.object({
     casa: z.object({
       w: m.positive(), d: m.positive(),

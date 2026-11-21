@@ -53,7 +53,9 @@ describe("JSON-fonte do Lote 4 Qd 18", () => {
     expect(+Math.min(...zs).toFixed(3)).toBe(3.65); // face da cozinha na linha 3,65
     expect(Math.max(...zs)).toBeGreaterThan(3.8); // o tampo avança para o lado da sala
     expect(b.alt).toBeLessThan(TOLERANCIAS.balcaoAlturaMax);
-    expect(b.estimado).toBe(true);
+    // Altura 1,10 aprovada pelo dono em 21/11/2026 (deixou de ser estimada).
+    expect(b.estimado).toBe(false);
+    expect(b.fonte).toBe("dono");
   });
 
   it("toda medida marcada como estimada diz a fonte", () => {

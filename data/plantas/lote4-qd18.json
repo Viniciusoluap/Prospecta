@@ -39,6 +39,12 @@
       "nota": "Pé-direito 2,80 (cortes A e B), forro de gesso."
     }
   },
+  "norte": {
+    "angulo": 0,
+    "fonte": "fachada norte",
+    "estimado": true,
+    "nota": "A fachada da rua é a fachada norte da prancha; a prancha não traz o ângulo exato."
+  },
   "estrutura": {
     "casa": {
       "w": 5,
@@ -497,7 +503,17 @@
         "piso": 0.4,
         "interno": true,
         "fonte": "planta",
-        "nota": "2,56 × 3,50 pelas cotas. O quadro (9,07 m²; 12,20 m) corresponde a ≈ 2,57 × 3,53."
+        "nota": "2,56 × 3,50 pelas cotas. O quadro (9,07 m²; 12,20 m) corresponde a ≈ 2,57 × 3,53.",
+        "camera": {
+          "x": 2.55,
+          "z": 3.5,
+          "alvo": [
+            4.1,
+            1.0,
+            0.9
+          ],
+          "fonte": "protótipo"
+        }
       },
       {
         "nome": "Quarto 2",
@@ -524,7 +540,17 @@
         "piso": 0.4,
         "interno": true,
         "fonte": "planta",
-        "nota": "2,56 × 3,50 pelas cotas."
+        "nota": "2,56 × 3,50 pelas cotas.",
+        "camera": {
+          "x": 2.6,
+          "z": 6.05,
+          "alvo": [
+            4.2,
+            1.0,
+            8.6
+          ],
+          "fonte": "protótipo"
+        }
       },
       {
         "nome": "Cozinha",
@@ -559,7 +585,17 @@
         "piso": 0.4,
         "interno": true,
         "fonte": "planta",
-        "nota": "1,99 × 2,64 mais a passagem de 0,80 para a sala. A faixa sob o balcão (1,19 × 0,15) fica fora do quadro, como na prancha."
+        "nota": "1,99 × 2,64 mais a passagem de 0,80 para a sala. A faixa sob o balcão (1,19 × 0,15) fica fora do quadro, como na prancha.",
+        "camera": {
+          "x": 0.55,
+          "z": 3.55,
+          "alvo": [
+            1.7,
+            1.3,
+            1.3
+          ],
+          "fonte": "protótipo"
+        }
       },
       {
         "nome": "Divisa cozinha/sala",
@@ -612,7 +648,17 @@
         "piso": 0.4,
         "interno": true,
         "fonte": "planta",
-        "nota": "Sala de estar/jantar, 1,99 × 4,15 (cadeia da prancha: 4,14)."
+        "nota": "Sala de estar/jantar, 1,99 × 4,15 (cadeia da prancha: 4,14).",
+        "camera": {
+          "x": 1.2,
+          "z": 7.75,
+          "alvo": [
+            1.25,
+            1.5,
+            3.6
+          ],
+          "fonte": "protótipo"
+        }
       },
       {
         "nome": "Hall",
@@ -667,7 +713,18 @@
         "piso": 0.39,
         "interno": true,
         "fonte": "planta",
-        "nota": "1,50 × 1,85. Piso +0,39; box +0,38."
+        "nota": "1,50 × 1,85. Piso +0,39; box +0,38.",
+        "camera": {
+          "x": 3.42,
+          "z": 5.5,
+          "alvo": [
+            4.5,
+            0.9,
+            4.1
+          ],
+          "fonte": "protótipo",
+          "nota": "Protótipo: x 3,30 (dentro da parede do hall); movido para 3,42, logo após a porta."
+        }
       },
       {
         "nome": "Área de serviço",
@@ -695,7 +752,18 @@
         "interno": false,
         "fonte": "quadro de ambientes",
         "estimado": true,
-        "nota": "Descoberta, atrás da cozinha. Largura 1,99 (cota); profundidade 1,33 tirada do perímetro do quadro (6,64 m): vai da calçada de fundo (z −0,47) à parede da cozinha (z 0,86). Protótipo: z −0,45."
+        "nota": "Descoberta, atrás da cozinha. Largura 1,99 (cota); profundidade 1,33 tirada do perímetro do quadro (6,64 m): vai da calçada de fundo (z −0,47) à parede da cozinha (z 0,86). Protótipo: z −0,45.",
+        "camera": {
+          "x": 1.15,
+          "z": -2.6,
+          "alvo": [
+            1.15,
+            1.0,
+            0.5
+          ],
+          "fonte": "protótipo",
+          "nota": "Vista a partir do quintal, como no protótipo."
+        }
       },
       {
         "nome": "Varanda",
@@ -747,7 +815,18 @@
         "piso": 0.2,
         "interno": false,
         "fonte": "planta",
-        "nota": "Recuo frontal de 10,25 m; nível +0,20 da prancha. Inclui a faixa em frente à varanda."
+        "nota": "Recuo frontal de 10,25 m; nível +0,20 da prancha. Inclui a faixa em frente à varanda.",
+        "camera": {
+          "x": 2.5,
+          "z": 19.4,
+          "alvo": [
+            2.4,
+            1.4,
+            9.0
+          ],
+          "fonte": "protótipo",
+          "nota": "Vista a partir do portão, olhando para a casa."
+        }
       },
       {
         "nome": "Quintal",
@@ -874,17 +953,17 @@
       "material": "granito",
       "cor": "#e9e4da",
       "editavel": true,
-      "fonte": "estimado",
+      "fonte": "dono",
       "alcanca": [
         "Divisa cozinha/sala",
         "Sala"
       ],
-      "estimado": true,
+      "estimado": false,
       "opcoes": {
         "base_prof": 0.15,
         "tampo_prof": 0.4
       },
-      "nota": "Balcão americano no lugar da \"mureta\" de 1,19 m: base de 0,15 na linha z 3,65–3,80 e tampo de 0,40 avançando 0,25 para a sala. Altura 1,10 sem cota na prancha (o corte A desenha o elemento até o forro)."
+      "nota": "Balcão americano no lugar da \"mureta\" de 1,19 m: base de 0,15 na linha z 3,65–3,80 e tampo de 0,40 avançando 0,25 para a sala. Altura 1,10 aprovada pelo dono em 21/11/2026 (a prancha não traz cota; o corte A desenha o elemento até o forro)."
     },
     {
       "id": "mesa-jantar",

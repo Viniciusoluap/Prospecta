@@ -48,7 +48,7 @@ export function conferirAreas(f: FontePlanta): AreaConferida[] {
 }
 
 /** Lado da parede (+1 = normal de `eixoDaParede`, −1 = oposto) em que fica o ambiente, testando perto do vão. */
-function ladoDoAmbiente(w: ParedeFonte, s: number, amb: AmbienteFonte): 1 | -1 | null {
+export function ladoDoAmbiente(w: ParedeFonte, s: number, amb: AmbienteFonte): 1 | -1 | null {
   const { ux, uz, nx, nz } = eixoDaParede(w);
   const pol = poligonoDoAmbiente(amb);
   for (const lado of [1, -1] as const) {
