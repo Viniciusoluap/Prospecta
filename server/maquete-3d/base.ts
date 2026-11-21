@@ -72,31 +72,170 @@ export async function resolverCredencialIA(
  */
 export const modeloDaLeitura = (c: CredencialIA | null | undefined, config: ConfigMaquete) => (c?.origem === "painel" && c.modelo) || config.modeloIA;
 
+/**
+ * Parâmetros da mensagem à IA — os MESMOS na chamada direta (motor "IA em tudo") e no lote (leitura de prancha):
+ * modelo escolhido pelo dono, saída em JSON pelo esquema, esforço das configurações, anexos da página.
+ */
+export function parametrosDaMensagem(p: Pick<PedidoIA, "sistema" | "pedido" | "pdfs" | "anexos" | "esquema" | "config">, modelo: string) {
+  const blocos = p.anexos
+    ? p.anexos.map(a => a.tipo === "imagem"
+      ? { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: a.base64 } }
+      : { type: "document" as const, title: a.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: a.base64 } })
+    : p.pdfs.map(d => ({ type: "document" as const, title: d.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: d.base64 } }));
+  return {
+    model: modelo,
+    max_tokens: 16000,
+    system: p.sistema,
+    output_config: { effort: p.config.esforcoIA, format: { type: "json_schema" as const, schema: p.esquema } },
+    messages: [{ role: "user" as const, content: [...blocos, { type: "text" as const, text: p.pedido }] }],
+  };
+}
+
+/** A mensagem devolvida pela IA, no mínimo que a leitura usa (chamada direta ou resultado do lote). */
+export type MensagemIA = { stopReason: string | null; texto: string; entrada: number; saida: number; modelo: string };
+const mensagemDoSdk = (r: { stop_reason?: string | null; content: { type: string; text?: string }[]; usage?: { input_tokens?: number | null; output_tokens?: number | null } | null; model?: string }, modelo: string): MensagemIA => ({
+  stopReason: r.stop_reason ?? null,
+  texto: r.content.map(b => (b.type === "text" ? b.text ?? "" : "")).join(""),
+  entrada: r.usage?.input_tokens ?? 0, saida: r.usage?.output_tokens ?? 0, modelo: r.model || modelo,
+});
+
+/** O que a resposta diz: o JSON lido, ou por que não há resultado aproveitável (os tokens foram gastos mesmo assim). */
+export function interpretarMensagem(m: MensagemIA): { ok: true; json: unknown } | { ok: false; motivo: "recusada" | "cortada" | "ilegivel" } {
+  if (m.stopReason === "refusal") return { ok: false, motivo: "recusada" };
+  if (m.stopReason === "max_tokens") return { ok: false, motivo: "cortada" };
+  try { return { ok: true, json: JSON.parse(m.texto) }; } catch { return { ok: false, motivo: "ilegivel" }; }
+}
+
 const iaPadrao: ClienteIA = async ({ sistema, pedido, pdfs, anexos, esquema, config, credencial, prazoMs }) => {
   const c = credencial ?? (await resolverCredencialIA());
   if (!c) throw new LeituraIndisponivel("Chave da IA não configurada: cadastre-a em Integrações → Anthropic.");
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const cliente = new Anthropic({ apiKey: c.apiKey, timeout: Math.max(5_000, Math.min(LIMITE_PASSO_MS, prazoMs ?? LIMITE_PASSO_MS)), maxRetries: 0 });
   const modelo = modeloDaLeitura(c, config);
-  const blocos = anexos
-    ? anexos.map(a => a.tipo === "imagem"
-      ? { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: a.base64 } }
-      : { type: "document" as const, title: a.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: a.base64 } })
-    : pdfs.map(p => ({ type: "document" as const, title: p.nome, source: { type: "base64" as const, media_type: "application/pdf" as const, data: p.base64 } }));
-  const r = await cliente.messages.create({
-    model: modelo,
-    max_tokens: 16000,
-    system: sistema,
-    output_config: { effort: config.esforcoIA, format: { type: "json_schema", schema: esquema } },
-    messages: [{ role: "user", content: [...blocos, { type: "text" as const, text: pedido }] }],
-  });
-  if (r.stop_reason === "refusal") throw new LeituraIndisponivel("A IA recusou a leitura deste arquivo.");
-  if (r.stop_reason === "max_tokens") throw new Error("A resposta da IA foi cortada (prancha com elementos demais para um passo).");
-  const texto = r.content.map(b => (b.type === "text" ? b.text : "")).join("");
-  let json: unknown;
-  try { json = JSON.parse(texto); } catch { throw new Error("A IA devolveu uma resposta que não pôde ser lida."); }
-  return { json, entrada: r.usage?.input_tokens ?? 0, saida: r.usage?.output_tokens ?? 0, modelo: r.model || modelo };
+  const m = mensagemDoSdk(await cliente.messages.create(parametrosDaMensagem({ sistema, pedido, pdfs, anexos, esquema, config }, modelo)), modelo);
+  const r = interpretarMensagem(m);
+  if (!r.ok && r.motivo === "recusada") throw new LeituraIndisponivel("A IA recusou a leitura deste arquivo.");
+  if (!r.ok && r.motivo === "cortada") throw new Error("A resposta da IA foi cortada (prancha com elementos demais para um passo).");
+  if (!r.ok) throw new Error("A IA devolveu uma resposta que não pôde ser lida.");
+  return { json: r.json, entrada: m.entrada, saida: m.saida, modelo: m.modelo };
 };
+
+// ── Leitura em segundo plano (EPIC-027 C1): Message Batches API da Anthropic ──
+// A prancha vai num lote de UMA requisição. Enviar e consultar são chamadas curtas (cabem folgadas no limite da
+// função); a leitura em si corre na Anthropic, sem limite de 60 s, e o resultado fica disponível por 29 dias.
+// Pela documentação oficial, requisição com resultado "errored", "canceled" ou "expired" não é cobrada.
+
+/** Andamento do lote como a API informa. A API não separa "na fila" de "sendo lida": os dois são "em_andamento". */
+export type SituacaoDoLote =
+  | { andamento: "em_andamento" | "cancelando" }
+  | { andamento: "terminado"; resultado: ResultadoDoLote };
+export type ResultadoDoLote =
+  | { tipo: "respondido"; mensagem: MensagemIA }
+  | { tipo: "nao_entregue"; motivo: "errored" | "canceled" | "expired"; erro?: string };
+export type ClienteLote = {
+  /** Cria o lote com UMA requisição (`idPedido` é o custom_id). Devolve o id do lote na Anthropic. */
+  enviar: (p: PedidoIA & { credencial: CredencialIA; idPedido: string }) => Promise<{ id: string }>;
+  /** `prazoMs`: tempo que sobra no passo (a consulta nunca passa do limite da função). */
+  consultar: (id: string, idPedido: string, credencial: CredencialIA, prazoMs?: number) => Promise<SituacaoDoLote>;
+  cancelar: (id: string, credencial: CredencialIA, prazoMs?: number) => Promise<void>;
+  /**
+   * QA C1, achados 1 e 2: lotes de UMA requisição criados entre `desde` e `ate` (ISO), do mais novo para o mais velho,
+   * em no máximo 2 páginas. A API de listagem NÃO devolve o custom_id: quem chama confere o resto (lote já usado por
+   * outra maquete, mais de um candidato) e o custom_id é conferido nos resultados, quando o lote termina.
+   */
+  procurar: (desde: string, ate: string, credencial: CredencialIA, prazoMs?: number) => Promise<{ id: string; criadoEm: string }[]>;
+};
+
+/** O lote terminou, mas o resultado é de outro pedido (custom_id diferente): o lote não é desta prancha. */
+export class LoteDeOutroPedido extends Error {
+  /** Os custom_id que vieram no resultado (QA C1 R2-2: o lote pode ser de outro passo que o procura). */
+  constructor(message: string, readonly pedidos: string[] = []) { super(message); }
+}
+
+/** O pedaço do SDK que o lote usa (substituível nos testes por uma API simulada). */
+export type SdkLote = {
+  messages: {
+    batches: {
+      create: (p: { requests: { custom_id: string; params: ReturnType<typeof parametrosDaMensagem> }[] }) => Promise<{ id: string }>;
+      retrieve: (id: string) => Promise<{ id: string; processing_status: "in_progress" | "canceling" | "ended" }>;
+      list: (q: { limit: number }) => Promise<PaginaDeLotes>;
+      results: (id: string) => Promise<AsyncIterable<{ custom_id: string; result: LinhaDoResultado }>>;
+      cancel: (id: string) => Promise<unknown>;
+    };
+  };
+};
+type LinhaDoResultado =
+  | { type: "succeeded"; message: Parameters<typeof mensagemDoSdk>[0] }
+  | { type: "errored"; error: { error?: { type?: string; message?: string } } }
+  | { type: "canceled" } | { type: "expired" };
+type PaginaDeLotes = {
+  data: { id: string; created_at: string; request_counts: { processing: number; succeeded: number; errored: number; canceled: number; expired: number } }[];
+  hasNextPage: () => boolean; getNextPage: () => Promise<PaginaDeLotes>;
+};
+export type CriarSdkLote = (apiKey: string, opcoes: { timeoutMs: number; maxRetries: number }) => Promise<SdkLote>;
+
+const sdkPadrao: CriarSdkLote = async (apiKey, { timeoutMs, maxRetries }) => {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  return new Anthropic({ apiKey, timeout: timeoutMs, maxRetries }) as unknown as SdkLote;
+};
+
+/** Tempo de cada chamada curta ao lote: o que sobra no passo, entre 3 e 20 s. */
+const prazoDaConsulta = (prazoMs?: number) => Math.max(3_000, Math.min(20_000, prazoMs ?? 20_000));
+
+/** custom_id aceito pela API: letras, números, "_" e "-", até 64. */
+export const idDoPedidoNoLote = (t: string) => t.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
+
+export function clienteLoteAnthropic(criar: CriarSdkLote = sdkPadrao): ClienteLote {
+  return {
+    async enviar(p) {
+      const modelo = modeloDaLeitura(p.credencial, p.config);
+      // Sem nova tentativa automática no envio: repetir um envio que talvez tenha chegado criaria um segundo lote pago.
+      const sdk = await criar(p.credencial.apiKey, { timeoutMs: Math.max(5_000, Math.min(LIMITE_PASSO_MS, p.prazoMs ?? LIMITE_PASSO_MS)), maxRetries: 0 });
+      const r = await sdk.messages.batches.create({ requests: [{ custom_id: p.idPedido, params: parametrosDaMensagem(p, modelo) }] });
+      return { id: r.id };
+    },
+    async consultar(id, idPedido, credencial, prazoMs) {
+      // QA C1, achado 5: sem nova tentativa automática e com o prazo do passo — nunca passa do limite da função.
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
+      const lote = await sdk.messages.batches.retrieve(id);
+      if (lote.processing_status !== "ended") return { andamento: lote.processing_status === "canceling" ? "cancelando" : "em_andamento" };
+      const vistos: string[] = [];
+      for await (const linha of await sdk.messages.batches.results(id)) {
+        if (linha.custom_id !== idPedido) { if (vistos.length < 5) vistos.push(linha.custom_id); continue; }
+        const r = linha.result;
+        if (r.type === "succeeded") return { andamento: "terminado", resultado: { tipo: "respondido", mensagem: mensagemDoSdk(r.message, "") } };
+        if (r.type === "errored") {
+          const motivo = r.error?.error?.message;
+          return { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: "errored", ...(typeof motivo === "string" && motivo.trim() ? { erro: semChave(motivo.trim()).slice(0, 200) } : {}) } };
+        }
+        return { andamento: "terminado", resultado: { tipo: "nao_entregue", motivo: r.type } };
+      }
+      throw new LoteDeOutroPedido("O lote terminou, mas o resultado desta prancha não veio na resposta da IA (o lote é de outro pedido).", vistos);
+    },
+    async cancelar(id, credencial, prazoMs) {
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
+      await sdk.messages.batches.cancel(id);
+    },
+    async procurar(desde, ate, credencial, prazoMs) {
+      const sdk = await criar(credencial.apiKey, { timeoutMs: prazoDaConsulta(prazoMs), maxRetries: 0 });
+      const ini = Date.parse(desde), fim = Date.parse(ate), achados: { id: string; criadoEm: string }[] = [];
+      let pagina = await sdk.messages.batches.list({ limit: 50 });
+      for (let n = 0; n < 2; n++) {
+        let passou = false;
+        for (const b of pagina.data) {
+          const t = Date.parse(b.created_at);
+          if (t < ini) { passou = true; continue; }
+          const c = b.request_counts, total = c.processing + c.succeeded + c.errored + c.canceled + c.expired;
+          if (t <= fim && total === 1) achados.push({ id: b.id, criadoEm: b.created_at });
+        }
+        // A lista vem do mais novo para o mais velho: passou do início da janela, não precisa de outra página.
+        if (passou || !pagina.hasNextPage()) break;
+        pagina = await pagina.getNextPage();
+      }
+      return achados;
+    },
+  };
+}
 
 const leitorPadrao: LeitorPdf = async (d, alvoId) => {
   if (d.fonte === "avulso") {
@@ -161,8 +300,8 @@ const carteiroPadrao: Carteiro = async ({ para, nome, assunto, html, maqueteId, 
 
 /** Abre um PDF para o leitor geométrico (injetável nos testes). */
 export type AbridorPdf = (dados: Buffer) => Promise<PdfAberto>;
-type Dependencias = { ia: ClienteIA; credencialIA: () => Promise<CredencialIA | null>; abrirPdf: AbridorPdf; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
-const padrao: Dependencias = { ia: iaPadrao, credencialIA: () => resolverCredencialIA(), abrirPdf: dados => abrirPdf(dados), lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
+type Dependencias = { ia: ClienteIA; lote: ClienteLote; credencialIA: () => Promise<CredencialIA | null>; abrirPdf: AbridorPdf; lerPdf: LeitorPdf; agora: () => Date; cobrador: Cobrador; carteiro: Carteiro };
+const padrao: Dependencias = { ia: iaPadrao, lote: clienteLoteAnthropic(), credencialIA: () => resolverCredencialIA(), abrirPdf: dados => abrirPdf(dados), lerPdf: leitorPadrao, agora: () => new Date(), cobrador: cobradorPadrao, carteiro: carteiroPadrao };
 let deps: Dependencias = { ...padrao };
 
 /** Só para testes: troca IA/arquivos/relógio. Sem argumento, volta ao padrão. */

@@ -125,7 +125,30 @@ export type PassoLeitura = {
   envio?: "imagem" | "pdf_pagina" | "pdf_original" | null;
   /** Vezes seguidas em que o passo devolveu o controle sem chamar a IA por falta de tempo na função (QA rodada 2, N7). */
   adiado?: number;
+  /** Por que a prancha foi inteira para a IA (quando não deu para separar só a página): fica registrado no passo. */
+  envioMotivo?: string | null;
+  /**
+   * EPIC-027 C1 — leitura em segundo plano: o lote da Anthropic com a requisição desta prancha. Gravado logo depois
+   * de criado; enquanto houver lote, o passo fica "executando" (a reserva não vence pelo tempo) e cada "avançar"
+   * só consulta. Sobrevive a recarregar e a fechar a página. O id do lote não é segredo (a chave nunca fica aqui).
+   */
+  lote?: LoteDoPasso | null;
+  /**
+   * QA C1, achados 1 e 2: o envio pode ter criado o lote sem que o id voltasse (tempo esgotado, função encerrada). O
+   * passo fica "executando" e procura o lote pela janela de criação antes de dar a tentativa como usada.
+   * `pedido`: o custom_id desta tentativa (único: passo + hora da reserva), conferido quando o lote terminar.
+   */
+  loteAProcurar?: { pedido: string; desde: string; tentativas: number; imagem?: boolean } | null;
+  /** QA C1, achado 3: lote deixado de lado (consulta impossível) e se o cancelamento pedido à Anthropic foi aceito. */
+  /** "nao_pedido": lote ADOTADO (sem o custom_id conferido) — nunca é cancelado, só solto do passo (QA C1 R2-1). */
+  loteAbandonado?: { id: string; cancelamento: "aceito" | "recusado" | "nao_pedido" } | null;
 };
+
+/** "em_andamento": a API não separa "na fila" de "sendo lida". "cancelando": o cancelamento foi pedido. */
+export type SituacaoLote = "em_andamento" | "cancelando";
+/** `imagem`: a prancha foi como imagem (a resposta é conferida como leitura de imagem, sem cotas confirmadas por traço). */
+/** `adotado`: achado pela procura (achados 1 e 2), ainda sem o custom_id conferido (a conferência vem nos resultados). */
+export type LoteDoPasso = { id: string; pedido: string; situacao: SituacaoLote; enviadoEm: string; imagem?: boolean; falhasDeConsulta?: number; adotado?: boolean; adotadoEm?: string };
 
 /**
  * Confirmação do custo da IA (EPIC-024, correção do QA): vale só para a execução atual (esta leitura ou esta
