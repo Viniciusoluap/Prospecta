@@ -500,3 +500,47 @@ liberar a vinculação.
 ## Próximo passo exato (20/11, 20:55 UTC)
 1. Dono: desconectar a YCloud no celular e religar o Prospecta pelo QR (está desconectado). 2. Conferir produção READY
 do `adb41c7`. 3. Quando houver computador: refazer a vinculação YCloud, religar o Prospecta e só então construir C1A/C1B.
+
+---
+
+## Atualização de 21/11/2026 ~14:00 UTC — EPIC-027 (correções de 20/11 à noite)
+
+**Autorização do dono (21/11):** "Tudo autorizado pode fazer a migração e na sequência fazer a produção de todos e todas as
+correções definidas até aqui que não pare até concluir tudo" — registrada no `CLAUDE.md` (#274), junto com as respostas dele.
+
+### Concluído e em produção
+| Frente | PR | Migração no Neon |
+|---|---|---|
+| C1 leitura da maquete em segundo plano (lotes) | #269 | — |
+| C7 YCloud (API oficial, coexistência) | #270 | `0141` aplicada |
+| C3/C4/C6 Dolores responde quando marcada, categorias, só o admin classifica | #272 (`6b16f00`) | `0139` e `0144` aplicadas (0144 logo após a publicação) |
+| C2 grupos do WhatsApp na Central (módulo WhatsApp; corretor não vê) | #275 (`e43a047`) | `0142` aplicada antes do merge |
+| Regras e respostas do dono | #271, #273, #274 | — |
+
+### Em andamento (código pronto, fechando achados do portão de QA)
+- **C5-E1 voz e memória** (worktree `epic027-c5`, espelho `claude/wip-epic027-c5`): QA r4 = CONCERNS só de custo (cache não acerta
+  com a janela cheia; cota conta cache lido como cheio). @dev corrigindo (janela em blocos, peso do cache, piso da reserva).
+  Migração `0143_dolores_conversa.sql` NÃO aplicada.
+- **C7.1 colaborador opera campanha** (worktree `epic027-y2`, espelho `claude/wip-epic027-y2`): QA = CONCERNS baixos (prévia
+  mostra tier/tetos/número mascarado ao colaborador; colaborador continua campanha pausada pelo admin). @dev corrigindo e ligando
+  `ehEcoDeCampanhaOficial` no roteamento. Sem migração prevista.
+- **C8 logotipo por IA** (worktree `epic027-logo`, espelho `claude/wip-epic027-logo`): QA = CONCERNS (aninhamento profundo estoura
+  a pilha da limpeza de SVG; escapes de CSS; bomba de `<use>`). @dev corrigindo. Sem migração.
+
+### Pendente (ainda não começado)
+- C5 etapas seguintes: E2 resolver ("pode"/"confirmo"), E3 registrar a partir do grupo (só o dono), E5 gasto por função
+  (55/20/10/10/5), E4 proatividade (07–20h seg–sáb, 6/dia), memória de longo prazo com tela. Próximo número de migração livre: 0145.
+- Paridade Santa Fé (ROADMAP): C2 e C7/C7.1 da Central; C8 logotipo.
+
+### Testes
+- (a) Automáticos: #272 — 62 arquivos / 1.126 testes; #275 — 65 arquivos / 1.168 testes + r3 do QA (54); `tsc` e `vite build` limpos;
+  portões de QA: C3/C4/C6 PASS (5 rodadas), C2 PASS (3 rodadas).
+- (b) Manuais: nenhum nesta data.
+- (c) Pendentes de validação em produção pelo dono: marcar a Dolores num grupo aceito; aba Grupos da Central (ver, escrever,
+  Assumir/Devolver) com admin e com colaborador que tem WhatsApp; leitura real de planta da maquete pela IA; chave da YCloud e
+  primeiro envio; saudação em áudio; relatório diário.
+
+### Próximo passo exato
+Receber os três @dev, reenviar ao @qa só o commit novo de cada um, e publicar na ordem C5-E1 (aplicar 0143 antes do merge) →
+C7.1 → C8, cada uma com `tsc`, vitest (`--maxWorkers=2 --minWorkers=1`), `vite build`, prévia READY e produção READY. Depois,
+abrir as stories das etapas E2–E5 e memória de longo prazo a partir de `C5-PLANO-dolores-jarvis.md`.
