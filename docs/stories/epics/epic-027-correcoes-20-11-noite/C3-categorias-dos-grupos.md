@@ -56,8 +56,12 @@ na publicação).
       (com o nº) ou engenharia de uma obra; trocar ou tirar vínculo existente é do admin (rota e gatilho). Matriz completa testada.
 - [x] Rodada 2 — R2-3 (BAIXO): no gatilho, fora de 'whatsapp:%', tipo de admin (antes ou depois) exige 'tela:<id de admin ativo>';
       'tela:x', 'fila:1', vazio ou id fora do formato são barrados.
-- Risco registrado: se o CRM excluir a obra de um grupo de engenharia, o ON DELETE SET NULL deixa o grupo como engenharia geral sem
-  decisão (o gatilho deixa a exclusão passar); a obra excluída é ação do admin.
+- [x] Rodada 3 — R3-1 (IMPORTANTE): excluir a obra no CRM (ON DELETE SET NULL) não vira mais "engenharia geral": o gatilho da
+      0139 grava o grupo como "não identificado", aguardando o dono, com `obra_excluida_em` (a exclusão da obra continua passando);
+      a tela e o relatório diário mostram "obra excluída: reclassifique". Defesa em profundidade: `escopoDoGrupo` só trata
+      engenharia sem obra como geral quando o dono (WhatsApp), um admin (tela) ou a entrada pelo nome a definiu; senão, silêncio.
+- [x] Rodada 3 — R3-2 (MÉDIO): o aviso ao dono diz o vínculo ("ligado ao cliente «Nome» (nº N)" / "ligado a obra «Título» (nº N)");
+      o colaborador é barrado quando o nome do grupo bate com UM cliente do CRM diferente do que ele está ligando (só o admin).
 - Achado 5: registrado aqui, sem mudança de código nesta rodada (conforme o portão).
 - Provas: `server/dolores/epic027-d-qa.test.ts` (os 3 testes "ACHADO" invertidos para "CORRIGIDO", mais o do teto de aviso).
 
