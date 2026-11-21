@@ -142,7 +142,8 @@ ANTES dos filtros atuais e só ao texto do MODELO (nunca aos quadros do sistema)
   entidades que apareceram nos argumentos/resultados das ferramentas daquele turno (`leadId`, `grupoId`, `obraId`,
   `processoId`, `tarefaId`, `notaId`) e dos avisos (aviso de grupo novo → `grupoId`). Função `referenciasDoTurno(consultas)`
   em `server/dolores/memoria.ts`.
-- Janela: últimas **10 mensagens** (5 pares) das **últimas 6 horas**, teto de **6.000 caracteres** (~1,8 mil tokens),
+- Janela (ATUALIZADO 21/11 por decisão do dono: "as últimas 100 mensagens por 6h00"): últimas **100 mensagens** das **últimas 6
+  horas**, teto de **40.000 caracteres** (~13 mil tokens; antes: 10 mensagens / 6.000 caracteres),
   cortando as mais antigas inteiras; + bloco "Referências recentes (do sistema)" com até 12 entidades das últimas 24 h
   (uma linha cada: "cliente Lúcia Brena — ref c456"). Sem resumo rolante por IA nesta etapa (custo e risco de "memória
   envenenada" persistente); pode entrar depois com orçamento próprio.
@@ -356,7 +357,7 @@ pode responder "cria uma tarefa para isso" e ela sabe do que se trata).
   `server/dolores/rondas.ts` (limpeza > 90 dias da tabela nova).
 - **Migração 0143** `0143_dolores_conversa.sql`: `CREATE TABLE IF NOT EXISTS dolores_conversa (...)` + índice `(criado_em)`.
 - **Testes:** `voz.test.ts` (o exemplo real "[listar_grupos; ler_grupo_cliente]" some; "[senha omitida]" e "[link
-  removido]" ficam; nome solto vira rótulo; "aprovar K7M2P" do modelo some); `memoria.test.ts` (janela 10 msgs/6 h/6.000
+  removido]" ficam; nome solto vira rótulo; "aprovar K7M2P" do modelo some); `memoria.test.ts` (janela 100 msgs/6 h/40.000
   car.; ordem user/assistant; referências só de ids conferidos; "esquece" zera; dado pessoal mascarado no gravado; aviso do
   sistema entra); `cerebro` com cliente falso: o pedido 2 recebe o histórico do pedido 1; prompt sem "Cite a fonte" e sem
   "aprovar CÓDIGO" (teste que trava regressão); atualizar `whatsapp.test.ts:283,401`, `acoes-whatsapp.test.ts`,
@@ -504,7 +505,7 @@ Medido no worktree: prompt 8.823 caracteres (~2,6 mil tokens); ferramentas 23.59
 | | Hoje | Depois (E1+E2) |
 |---|---|---|
 | Prefixo fixo (ferramentas + sistema) | ~7–9 mil tokens, 2 variantes de cache (com/sem ações) | ~1,2 mil (sistema) + ~7,5 mil (25 + 6 ferramentas, descrições enxutas) ≈ 8,5–9 mil, **1 variante** |
-| Histórico | 0 | ~1–2 mil (10 msgs, teto 6.000 car.) + refs ~200 |
+| Histórico | 0 | típico ~2–4 mil; pior caso ~17 mil (100 msgs, teto 40.000 car.) + refs ~200 |
 | Pedido típico (2–3 voltas) — entrada | ~20–30 mil tokens, dos quais ~60% leitura de cache | ~22–33 mil, com ~70% em cache (2º ponto de cache no histórico) |
 | Saída | 500–3.000 (sem teto de estilo) | 100–400 (respostas curtas; 1.500 teto) |
 | "pode"/"não"/"esquece" | — ("aprovar X" já era sem IA) | **0** (código) |

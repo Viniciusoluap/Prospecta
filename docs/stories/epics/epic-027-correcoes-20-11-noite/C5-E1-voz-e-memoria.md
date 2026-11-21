@@ -35,8 +35,9 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
       ação). `fraseDeBloqueio("ia_desligada")`: "abre Configurações › Integrações › Dolores e toca em "Ligar a IA"" (sem
       "interruptor"). O aviso que a porta devolve ao modelo quando uma ação fica esperando o dono não fala mais em fila/códigos.
 - [x] AC4 — Memória (`server/dolores/memoria.ts`, tabela `dolores_conversa`): grava a mensagem do dono, a resposta enviada a ele e
-      os avisos do sistema enviados a ele (grupo novo, relatório). Janela ao modelo: últimas 10 mensagens das últimas 6 h, até
-      6.000 caracteres (as mais antigas saem inteiras; uma só é cortada em 3.000) + até 12 referências das últimas 24 h.
+      os avisos do sistema enviados a ele (grupo novo, relatório). Janela ao modelo (decisão do dono de 21/11: "as últimas 100 mensagens por
+      6h00"): últimas 100 mensagens das últimas 6 h, até 40.000 caracteres (as mais antigas saem inteiras; uma só é cortada em
+      3.000) + até 12 referências das últimas 24 h. Leitura com duas consultas pelo índice, teto de 100 linhas cada.
 - [x] AC5 — Referências por CÓDIGO: ids + nome curto (`limparNomeDeTerceiro`, 40 car., filtro do registro) tirados do RESULTADO
       das consultas (ok: true) — nunca do texto do modelo; aviso de grupo ganha a ref do grupo lida do banco. Vão ao modelo como
       "cliente «Lúcia Brena» (leadId 456)", com a ordem de usar o id só nas consultas e nunca mostrá-lo. A ref é conveniência:
@@ -105,7 +106,7 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
 
 ## Testes
 - (a) Automáticos: `server/dolores/c5-e1-voz.test.ts` (filtro, rótulos, "esquece", `pedeDetalhe`, prompt) e
-  `server/dolores/c5-e1-memoria.test.ts` (migração idempotente e CHECKs, janela 10/6 h/6.000, refs, montagem e cache, "Lucia
+  `server/dolores/c5-e1-memoria.test.ts` (migração idempotente e CHECKs, janela 100/6 h/40.000, refs, montagem e cache, "Lucia
   brena" → "vincular ela ao grupo dela" com IA simulada, "esquece", só o dono, mascaramento ao gravar, encaminhada como dado e
   contaminação, aviso de grupo com ref e sem código, retenção, reserva com histórico, saída curta/longa). Ajustados:
   `whatsapp.test.ts` (frase "Consultei:" e o colchete da resposta de aceite) e `correcoes-e3-r2.test.ts` (prompt sem "aprovar
@@ -150,3 +151,11 @@ grupo **dela**" depois de "Lucia brena" virava "não entendi a quem você se ref
   (`semCodigosReais`); "grupo MCMV da Lucia", "código MCMV da obra", "grupo CNPJ", "aprovar TURMA" ficam e "pode aprovar khmnp?"
   perde o código real. Se a consulta falhar, cai no filtro por formato (lado seguro). O filtro de voz da resposta ficou como
   estava. tsc limpo; 8 arquivos, 210 testes verdes.
+- 21/11/2026 — @dev (Dex): decisão do dono "ela lembra das últimas 100 mensagens por 6h00": janela 10 → 100 mensagens, teto
+  6.000 → 40.000 caracteres (comporta 100 mensagens típicas de ~400 caracteres), mensagem individual cortada em 3.000, as mais
+  antigas saem primeiro; leitura em duas consultas com teto de 100 linhas (janela de 6 h; refs de 24 h). Reserva do limite:
+  estimativa do histórico com ~130 caracteres de rótulo por item (≈ caracteres/3), pior caso ≈ 17 mil tokens na 1ª reserva.
+  Custo de entrada por chamada: típico (20–30 mensagens curtas) ≈ 9 mil (ferramentas+sistema) + 2–4 mil de histórico; pior caso
+  (100 mensagens, 40 mil caracteres) ≈ 9 mil + ~17 mil ≈ 26 mil tokens, a maior parte lida do cache (10% do preço) entre
+  mensagens seguidas; quando a janela desliza, aquele pedido paga a escrita do histórico de novo (1,25×). Pedido com várias
+  consultas no pior caso pode parar no teto de 150 mil tokens por pedido (TETO_ENTRADA_POR_PEDIDO, inalterado).

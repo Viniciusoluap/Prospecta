@@ -1,4 +1,4 @@
-// EPIC-027 C5 (E1) — memória curta da conversa do dono (dolores_conversa, migração 0143): janela (10 mensagens, 6 h, 6.000
+// EPIC-027 C5 (E1) — memória curta da conversa do dono (dolores_conversa, migração 0143): janela (100 mensagens, 6 h, 40.000
 // caracteres), referências por código, "esquece", só o dono, mascaramento ao gravar, conteúdo encaminhado como dado e a
 // montagem do contexto para a IA (simulada). Banco em memória (PGlite); o modelo e o envio são falsos: nada sai para a rede.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -122,6 +122,34 @@ describe("QA C5-E1 rodada 3 — a memória troca só os códigos que EXISTEM (fi
   });
 });
 
+describe("leitura da janela no banco (decisão do dono: 100 mensagens / 6 h)", () => {
+  it("lê no máximo 100 mensagens das últimas 6 h e as referências das últimas 24 h numa leitura própria", async () => {
+    const valores = Array.from({ length: 120 }, (_, i) => `('${new Date(AGORA.getTime() - (i + 1) * 60_000).toISOString()}', '${i % 2 ? "dolores" : "dono"}', '${i % 2 ? "resposta" : "mensagem"}', 'm${i}', '[]')`);
+    const antiga = new Date(AGORA.getTime() - 10 * 3_600_000).toISOString();
+    await banco.pg.exec(`INSERT INTO dolores_conversa (criado_em, papel, origem, texto, referencias) VALUES ${valores.join(",")},
+      ('${antiga}', 'dolores', 'resposta', 'de manhã', '[{"tipo":"cliente","id":5,"rotulo":"Lúcia Brena"}]')`);
+    const h = await lerJanela(AGORA);
+    expect(h.itens).toHaveLength(100);
+    expect(h.itens.at(-1)!.texto).toBe("m0");
+    expect(h.itens.map(i => i.texto)).not.toContain("de manhã");
+    expect(h.referencias).toEqual([{ tipo: "cliente", id: 5, rotulo: "Lúcia Brena" }]);
+    // montagem: alterna papéis e o ponto de cache fica só no último bloco do histórico
+    const m = montarMensagens(h, "ok");
+    const comCache = m.flatMap(x => x.content).filter(c => c.cache_control);
+    expect(comCache).toHaveLength(1);
+    // o último item do histórico (m0, do dono) fica na mesma mensagem do pedido atual: o ponto de cache é ele, logo antes do pedido
+    expect(comCache[0].text).toMatch(/\nm0$/);
+    expect(m.at(-1)!.content.at(-2)).toBe(comCache[0]);
+  });
+  it("cache: de uma mensagem para a seguinte, o histórico novo começa IGUAL ao anterior (prefixo reaproveitado)", () => {
+    const base = Array.from({ length: 10 }, (_, i) => item(i + 2, i % 2 ? "dolores" : "dono", `m${i}`));
+    const antes = montarMensagens(janelaDe(base, AGORA), "a");
+    const depois = montarMensagens(janelaDe([item(0, "dolores", "nova resposta"), item(1, "dono", "a"), ...base], AGORA), "b");
+    const semCache = (x: unknown) => JSON.stringify(x).replace(/,"cache_control":\{"type":"ephemeral"\}/g, "");
+    expect(semCache(depois.slice(0, antes.length - 1))).toBe(semCache(antes.slice(0, -1)));
+  });
+});
+
 describe("migração 0143", () => {
   it("é aditiva e idempotente (aplicada de novo sobre o banco com a tabela, sem erro) e recusa papel/origem fora da lista", async () => {
     await banco.pg.exec(MIGRACAO_0143());
@@ -131,17 +159,26 @@ describe("migração 0143", () => {
 });
 
 describe("janela da conversa (regra pura)", () => {
-  it("só as últimas 10 mensagens das últimas 6 horas, da mais antiga para a mais nova", () => {
-    const linhas = Array.from({ length: 15 }, (_, i) => item(i, i % 2 ? "dolores" : "dono", `m${i}`)); // m0 é a mais nova
+  it("decisão do dono: só as últimas 100 mensagens das últimas 6 horas, da mais antiga para a mais nova", () => {
+    expect(JANELA_MENSAGENS).toBe(100);
+    const linhas = Array.from({ length: 130 }, (_, i) => item(i * 2, i % 2 ? "dolores" : "dono", `m${i}`)); // m0 é a mais nova; 130 em 4h20
     const h = janelaDe([...linhas, item(7 * 60, "dono", "velha")], AGORA);
-    expect(h.itens).toHaveLength(JANELA_MENSAGENS);
-    expect(h.itens.map(i => i.texto)).toEqual(["m9", "m8", "m7", "m6", "m5", "m4", "m3", "m2", "m1", "m0"]);
+    expect(h.itens).toHaveLength(100);
+    expect(h.itens[0].texto).toBe("m99");
+    expect(h.itens[99].texto).toBe("m0");
     expect(janelaDe([item(6 * 60 + 1, "dono", "passou de 6 h")], AGORA).itens).toEqual([]);
   });
-  it("teto de 6.000 caracteres: as mais antigas saem INTEIRAS; uma mensagem sozinha é cortada em 3.000", () => {
+  it("100 mensagens típicas de WhatsApp (400 caracteres) cabem inteiras no teto de 40.000", () => {
+    expect(JANELA_CARACTERES).toBe(40_000);
+    const h = janelaDe(Array.from({ length: 100 }, (_, i) => item(i, i % 2 ? "dolores" : "dono", "t".repeat(400))), AGORA);
+    expect(h.itens).toHaveLength(100);
+  });
+  it("teto de 40.000 caracteres: as mais antigas saem INTEIRAS; uma mensagem sozinha é cortada em 3.000", () => {
     const grande = "x".repeat(2_500);
-    const h = janelaDe([item(1, "dolores", grande), item(2, "dono", grande), item(3, "dolores", grande)], AGORA);
-    expect(h.itens).toHaveLength(2);
+    const h = janelaDe(Array.from({ length: 20 }, (_, i) => item(i, i % 2 ? "dolores" : "dono", `${i}`.padEnd(2_500, "x"))), AGORA);
+    expect(h.itens).toHaveLength(16); // 16 × 2.500 = 40.000
+    expect(h.itens[0].texto.startsWith("15")).toBe(true); // as 4 mais antigas (16 a 19) saíram inteiras
+    expect(grande).toHaveLength(2_500);
     expect(h.itens.reduce((s, i) => s + i.texto.length, 0)).toBeLessThanOrEqual(JANELA_CARACTERES);
     expect(janelaDe([item(1, "dolores", "y".repeat(3_900))], AGORA).itens[0].texto).toHaveLength(3_000);
   });
@@ -180,6 +217,11 @@ describe("montagem para a IA (pura)", () => {
   it("a estimativa de tokens da reserva cresce com o histórico", () => {
     expect(tokensEstimadosDoHistorico(HISTORICO_VAZIO)).toBe(0);
     expect(tokensEstimadosDoHistorico(janelaDe([item(1, "dolores", "z".repeat(3_000))], AGORA))).toBeGreaterThan(1_000);
+    // pior caso (janela cheia: 40.000 caracteres em 100 mensagens + rótulos) — a reserva fica na casa de 17 mil tokens
+    const cheia = janelaDe(Array.from({ length: 100 }, (_, i) => item(i, i % 2 ? "dolores" : "dono", "w".repeat(400))), AGORA);
+    const est = tokensEstimadosDoHistorico(cheia);
+    expect(est).toBeGreaterThan(40_000 / 3);
+    expect(est).toBeLessThan(20_000);
   });
 });
 

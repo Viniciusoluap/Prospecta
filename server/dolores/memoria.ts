@@ -5,12 +5,18 @@
 // O que é gravado: o texto pelo FILTRO DO REGISTRO (senhas, tokens, chaves, códigos de acesso, dados bancários e dados
 // pessoais sempre mascarados), sem códigos de aprovação/grupo e sem os quadros do sistema; e as referências (ids + nome curto)
 // que as CONSULTAS devolveram, extraídas por código do resultado (nunca do texto do modelo).
-// Janela que vai ao modelo: as últimas 10 mensagens das últimas 6 horas, até 6.000 caracteres (as mais antigas saem
-// inteiras), mais até 12 referências das últimas 24 horas. Sem resumo por IA (custo e "memória envenenada").
+// Janela que vai ao modelo (decisão do dono de 21/11: "as últimas 100 mensagens por 6h00"): as últimas 100 mensagens das últimas
+// 6 horas, até 40.000 caracteres (as mais antigas saem inteiras), mais até 12 referências das últimas 24 horas. Sem resumo por IA
+// (custo e "memória envenenada").
+// Cache: o histórico vai em ordem cronológica com o ponto de cache no ÚLTIMO bloco; o rótulo de cada item só depende do próprio
+// item (hora fixa), então, de uma mensagem do dono para a seguinte, o histórico novo COMEÇA igual ao anterior e o prefixo já
+// escrito é lido do cache (dentro dos ~5 min do cache da Anthropic). Quando a janela desliza (101ª mensagem, 6 h ou teto de
+// caracteres), sai a mais antiga: o começo muda e aquele pedido paga a escrita do histórico de novo (as ferramentas e o texto
+// do sistema continuam no cache próprio); os seguintes voltam a ler do cache.
 // Retenção: linhas com mais de 24 h são apagadas a cada gravação (barato, pelo índice de criado_em; sem cron novo);
 // "esquece" apaga todas. Falha aqui nunca derruba a resposta: sem memória, ela responde como antes. Nada daqui vai para log
 // (só a causa do erro, sem o texto) nem para tela.
-import { and, desc, gte, lt, ne, or, isNull, isNotNull, eq } from "drizzle-orm";
+import { and, desc, gte, lt, ne, or, isNull, isNotNull, eq, sql } from "drizzle-orm";
 import { doloresConversa, type OrigemConversa, type PapelConversa, type ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
@@ -21,9 +27,16 @@ import { getDb } from "../db.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 
-export const JANELA_MENSAGENS = 10;
+/**
+ * Decisão do dono (21/11/2026): "ela lembra das últimas 100 mensagens por 6h00". O teto de caracteres acompanha: 40.000 no total
+ * (~13 mil tokens) comporta 100 mensagens típicas de WhatsApp (~400 caracteres em média); acima disso, as mais antigas saem
+ * inteiras. Uma mensagem sozinha é cortada em MAX_CARACTERES_POR_ITEM.
+ */
+export const JANELA_MENSAGENS = 100;
 export const JANELA_HORAS = 6;
-export const JANELA_CARACTERES = 6_000;
+export const JANELA_CARACTERES = 40_000;
+/** Linhas lidas para as referências (24 h, só as que têm referência). */
+export const MAX_LINHAS_REFERENCIAS = 100;
 /** Uma mensagem sozinha não ocupa a janela inteira (o fim dela é cortado com "…"). */
 export const MAX_CARACTERES_POR_ITEM = 3_000;
 export const REFERENCIAS_HORAS = 24;
@@ -113,16 +126,23 @@ export async function lerJanela(agora: Date, excetoMensagemId?: number | null): 
     // mesmo sem gravação nova). Falha ao apagar não impede a leitura (o filtro de data abaixo já ignora o que venceu).
     await getDb().delete(doloresConversa).where(lt(doloresConversa.criadoEm, horasAntes(agora, RETENCAO_HORAS)))
       .catch(e => console.error("[dolores/memoria] falha ao apagar a conversa vencida", erroParaLog(e)));
-    const linhas = await getDb().select({
-      papel: doloresConversa.papel, origem: doloresConversa.origem, criadoEm: doloresConversa.criadoEm, texto: doloresConversa.texto,
-      referencias: doloresConversa.referencias, id: doloresConversa.id,
-    }).from(doloresConversa)
-      .where(and(
-        gte(doloresConversa.criadoEm, horasAntes(agora, REFERENCIAS_HORAS)),
-        excetoMensagemId ? or(isNull(doloresConversa.mensagemId), ne(doloresConversa.mensagemId, excetoMensagemId), ne(doloresConversa.papel, "dono")) : undefined,
-      ))
-      .orderBy(desc(doloresConversa.criadoEm), desc(doloresConversa.id)).limit(60);
-    return janelaDe(linhas, agora);
+    // Duas leituras pequenas, pelo índice de criado_em e com teto de linhas: as mensagens da janela (6 h, até 100) e as linhas
+    // com referência das últimas 24 h (até 100).
+    const [linhas, comRefs] = await Promise.all([
+      getDb().select({
+        papel: doloresConversa.papel, origem: doloresConversa.origem, criadoEm: doloresConversa.criadoEm, texto: doloresConversa.texto,
+        referencias: doloresConversa.referencias, id: doloresConversa.id,
+      }).from(doloresConversa)
+        .where(and(
+          gte(doloresConversa.criadoEm, horasAntes(agora, JANELA_HORAS)),
+          excetoMensagemId ? or(isNull(doloresConversa.mensagemId), ne(doloresConversa.mensagemId, excetoMensagemId), ne(doloresConversa.papel, "dono")) : undefined,
+        ))
+        .orderBy(desc(doloresConversa.criadoEm), desc(doloresConversa.id)).limit(JANELA_MENSAGENS),
+      getDb().select({ criadoEm: doloresConversa.criadoEm, referencias: doloresConversa.referencias }).from(doloresConversa)
+        .where(and(gte(doloresConversa.criadoEm, horasAntes(agora, REFERENCIAS_HORAS)), sql`${doloresConversa.referencias} <> '[]'::jsonb`))
+        .orderBy(desc(doloresConversa.criadoEm), desc(doloresConversa.id)).limit(MAX_LINHAS_REFERENCIAS),
+    ]);
+    return janelaDe(linhas, agora, comRefs);
   } catch (e) {
     console.error("[dolores/memoria] falha ao ler a conversa", erroParaLog(e));
     return HISTORICO_VAZIO;
@@ -130,7 +150,8 @@ export async function lerJanela(agora: Date, excetoMensagemId?: number | null): 
 }
 
 /** Regra pura da janela (linhas da mais nova para a mais antiga). */
-export function janelaDe(linhas: ReadonlyArray<ItemDaConversa & { referencias?: ReferenciaConversa[] | null }>, agora: Date): Historico {
+export function janelaDe(linhas: ReadonlyArray<ItemDaConversa & { referencias?: ReferenciaConversa[] | null }>, agora: Date,
+  linhasDasRefs: ReadonlyArray<{ referencias?: ReferenciaConversa[] | null }> = linhas): Historico {
   const corte = horasAntes(agora, JANELA_HORAS).getTime();
   const recentes = linhas.filter(l => l.criadoEm.getTime() >= corte && l.criadoEm.getTime() <= agora.getTime() + 60_000).slice(0, JANELA_MENSAGENS);
   const itens: ItemDaConversa[] = [];
@@ -144,7 +165,7 @@ export function janelaDe(linhas: ReadonlyArray<ItemDaConversa & { referencias?: 
   itens.reverse(); // da mais antiga para a mais nova
   const vistas = new Set<string>();
   const referencias: ReferenciaConversa[] = [];
-  for (const l of linhas) {
+  for (const l of linhasDasRefs) {
     for (const r of l.referencias ?? []) {
       const k = `${r.tipo}:${r.id}`;
       if (vistas.has(k) || !Number.isInteger(r.id) || r.id <= 0) continue;
@@ -280,6 +301,6 @@ export function montarMensagens(h: Historico, comando: string): MensagemDoHistor
 }
 
 /** Tamanho do histórico em caracteres (para a reserva do limite mensal: a 1ª chamada já leva o histórico). */
-export const caracteresDoHistorico = (h: Historico) => h.itens.reduce((s, i) => s + i.texto.length + 80, 0) + h.referencias.length * 60 + (h.itens.length || h.referencias.length ? 400 : 0);
+export const caracteresDoHistorico = (h: Historico) => h.itens.reduce((s, i) => s + i.texto.length + 130, 0) + h.referencias.length * 60 + (h.itens.length || h.referencias.length ? 400 : 0);
 /** Estimativa por baixo de tokens do histórico (português: ~3 caracteres por token). */
 export const tokensEstimadosDoHistorico = (h: Historico) => Math.ceil(caracteresDoHistorico(h) / 3);
