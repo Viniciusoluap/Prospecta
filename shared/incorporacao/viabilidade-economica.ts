@@ -11,6 +11,7 @@
 // de duplicados.
 
 import { calcularMix, type ItemMixProduto, type ResultadoMix } from "./mix-produtos.js";
+import { capacidadeTerrenoMix } from "./ocupacao-mix.js";
 
 export type { ItemMixProduto, ResultadoMix };
 export { calcularMix };
@@ -351,9 +352,7 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
   const mix = unidadesPermuta > 0 ? calcularMix(mixVendavel(p.itensMix, unidadesPermuta)) : mixCompleto;
   const vgvGross = mix.vgv;
   // custos de infraestrutura/obra incidem sobre TODAS as unidades (as da permuta física também são construídas)
-  const areaMediaPonderada = mixCompleto.totalUnidades > 0 ? mixCompleto.areaVendidaM2 / mixCompleto.totalUnidades : 0;
-  const capacidadeEstimadaUnidades =
-    areaMediaPonderada > 0 ? Math.floor(urb.areaVendavelM2 / areaMediaPonderada) : 0;
+  const capacidadeEstimadaUnidades = capacidadeTerrenoMix(p.itensMix, urb.areaVendavelM2);
 
   const vgvNet = vgvGross * (1 - p.comissaoPctVgv - p.despesasGeraisPctVgv - p.impostosPctVgv);
 
