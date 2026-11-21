@@ -299,7 +299,7 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
 type GrupoDaTela = {
   id: number; nome: string; ativo: boolean; leadId: number | null; obraId: number | null; cliente: string | null; obra: string | null;
   tipo: TipoGrupo; origem: string; situacaoConfirmacao: SituacaoConfirmacao; nomeWhatsapp: string | null; codigo: string | null;
-  criadoEm: string | Date; mensagens: number; adicionadoPor: AdicionadoPor | null; provaAdicao: ProvaAdicao | null;
+  criadoEm: string | Date; mensagens: number; adicionadoPor: AdicionadoPor | null; provaAdicao: ProvaAdicao | null; obraExcluidaEm?: string | Date | null;
   documentos: { aClassificar: number; classificados: number; confira: number; salvos: number; naoBaixados: number };
 };
 type ConfigEntrada = { entradaAutomaticaLigada: boolean; tetoGruposNovosDia: number; tetoAvisosGruposDia: number } | undefined;
@@ -387,6 +387,9 @@ function GruposSecao(p: {
                 {g.leadId ? ` · cliente nº ${g.leadId}${g.cliente ? ` — ${g.cliente}` : ""}` : g.obraId ? ` · obra nº ${g.obraId}${g.obra ? ` — ${g.obra}` : ""}` : ""}
                 {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : g.situacaoConfirmacao === "recusado" ? "text-red-300" : "text-gray-300"}>{autoriaPendente(g) ? ROTULO_AUTORIA_PENDENTE : ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
               </p>
+              {g.obraExcluidaEm && g.tipo === "indefinido" && (
+                <p role="status" className="mt-1 text-xs text-yellow-200">Obra excluída no CRM em {quando(g.obraExcluidaEm)}: ela ficou calada neste grupo. Reclassifique.</p>
+              )}
               <p className="mt-1 text-xs text-gray-300">
                 Adicionada por: {g.adicionadoPor === "dono" ? "dono" : g.adicionadoPor === "outra_pessoa" || g.adicionadoPor === "desconhecido"
                   ? `${g.adicionadoPor === "outra_pessoa" ? "outra pessoa" : "não ficou provado quem"} — ${g.provaAdicao === "aceito_pelo_dono" ? "aceito pelo dono" : g.situacaoConfirmacao === "recusado" ? "recusado (não lê nem fala lá)" : "só observa até o dono aceitar"}`

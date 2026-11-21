@@ -15,8 +15,8 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
-import { FRASE_ENGENHARIA_COM_OBRA, FRASE_TIPOS_DO_ADMIN, LIMITES_ENTRADA, colaboradorPodeClassificar, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
-import { avisarClassificacaoPelaTela, entrarNoGrupo } from "./grupos-entrada.js";
+import { FRASE_ENGENHARIA_COM_OBRA, FRASE_NOME_DE_OUTRO_CLIENTE, FRASE_TIPOS_DO_ADMIN, LIMITES_ENTRADA, descobrirTipoDoGrupo, colaboradorPodeClassificar, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { avisarClassificacaoPelaTela, clientesDoCrm, entrarNoGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
 import { INSTANCIA_DOLORES } from "../../shared/dolores/whatsapp.js";
@@ -166,7 +166,7 @@ export const gruposRouter = router({
     const agora = new Date();
     await db.update(doloresGrupos).set({
       ...(input.nome !== undefined ? { nome: input.nome } : {}), ...(input.ativo !== undefined ? { ativo: input.ativo } : {}),
-      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
+      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}`, obraExcluidaEm: null } : {}),
       atualizadoEm: agora, atualizadoPorUserId: ctx.user.id,
     }).where(eq(doloresGrupos.id, g.id));
     await auditar(ctx.user.id, "atualizar_grupo", g.id, { ativo: input.ativo ?? g.ativo, leadId, obraId, rotuloMudou: input.nome !== undefined });
@@ -223,6 +223,16 @@ export const gruposRouter = router({
       await registrarAcao({ funcao: "grupo_decisao", resultado: "recusada", motivo: "colaborador tentou classificação que só o administrador faz", autorUserId: null, canal: "tela",
         pedidoId: `tela:grupos:${antes.id}`, resumo: { grupoId: antes.id, pedido: tipo, atual: tipoEfetivo(antes), comVinculo: !!(antes.leadId || antes.obraId), porUserId: ctx.user.id } });
       throw new TRPCError({ code: "FORBIDDEN", message: tipo === "engenharia" && !input.numero ? FRASE_ENGENHARIA_COM_OBRA : FRASE_TIPOS_DO_ADMIN });
+    }
+    // QA-SEG EPIC-027 (R3-2): o nome do grupo bate com UM cliente do CRM diferente do que o colaborador está ligando → só o admin
+    if (ctx.user.role !== "admin" && (tipo === "cliente" || tipo === "pos_atendimento" || tipo === "engenharia")) {
+      const nome = antes.nomeWhatsapp ?? antes.nome;
+      const pelo = nome ? descobrirTipoDoGrupo(nome, await clientesDoCrm()) : null;
+      if (pelo?.leadId && (tipo === "engenharia" || pelo.leadId !== input.numero)) {
+        await registrarAcao({ funcao: "grupo_decisao", resultado: "recusada", motivo: "colaborador tentou ligar o grupo a cliente/obra diferente do cliente cujo nome o grupo tem", autorUserId: null, canal: "tela",
+          pedidoId: `tela:grupos:${antes.id}`, resumo: { grupoId: antes.id, pedido: tipo, numero: input.numero ?? null, peloNome: pelo.leadId, porUserId: ctx.user.id } });
+        throw new TRPCError({ code: "FORBIDDEN", message: FRASE_NOME_DE_OUTRO_CLIENTE(pelo.leadId) });
+      }
     }
     const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });

@@ -125,7 +125,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
     await db.transaction(async tx => {
       // definir o tipo de um grupo recusado (ou sem prova de quem colocou a Dolores) também o aceita — é a decisão do dono no
       // WhatsApp (pela tela, recusado acima)
-      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor,
+      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor, obraExcluidaEm: null,
         ...(semProva ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
         atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
       // grupo confirmado nasce com o interruptor LIGADO (se ninguém mexeu nele antes); nada fala com o interruptor geral desligado

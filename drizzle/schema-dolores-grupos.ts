@@ -36,6 +36,8 @@ export const doloresGrupos = pgTable("dolores_grupos", {
   perguntaTipoEm: timestamp("pergunta_tipo_em", { withTimezone: true }),
   /** EPIC-027 C3 (0139): classificação pela tela cujo aviso ao dono não saiu (teto do dia ou falha) — entra no relatório diário. */
   avisoClassificacaoPendenteEm: timestamp("aviso_classificacao_pendente_em", { withTimezone: true }),
+  /** EPIC-027 (0139, QA R3-1): a obra deste grupo de engenharia foi excluída no CRM — calado até reclassificar. */
+  obraExcluidaEm: timestamp("obra_excluida_em", { withTimezone: true }),
 }, t => [
   uniqueIndex("dolores_grupos_jid_unico").on(t.instancia, t.grupoJid),
   index("dolores_grupos_lead_idx").on(t.leadId),

@@ -67,6 +67,8 @@ export function colaboradorPodeClassificar(atual: { tipo: TipoGrupo; leadId: num
   return (novo === "cliente" || novo === "pos_atendimento" || novo === "engenharia") && !!numero && numero > 0;
 }
 export const FRASE_TIPOS_DO_ADMIN = "Administrativo (sócios), jurídico, parceiros comerciais e engenharia geral (sem obra) só o administrador define ou tira, porque liberam mais informação no grupo. Corrigir um grupo que já tem cliente ou obra também é do administrador.";
+export const FRASE_NOME_DE_OUTRO_CLIENTE = (leadId: number) =>
+  `O nome deste grupo bate com outro cliente do CRM (nº ${leadId}). Ligar o grupo a um cliente ou obra diferente desse só o administrador faz.`;
 export const FRASE_ENGENHARIA_COM_OBRA = "Para você, engenharia é sempre de uma obra: informe o nº da obra (engenharia geral, sem obra, é do administrador).";
 
 /** Quem colocou a Dolores no grupo: provado o dono, provado outra pessoa, ou não provado (QA-SEG E7). Vazio = cadastro à mão. */
@@ -279,9 +281,12 @@ export const textoDaConfirmacaoDoTipo = (nomeDoGrupo: string | null, codigo: str
  * QA-SEG EPIC-027 (achado 1b): aviso ao dono de classificação feita pela TELA (texto fixo, sem IA): grupo, tipo antes → depois,
  * quem mudou e quando. `quem` é nome de usuário do sistema (limpo); `quando` já formatado por quem chama.
  */
-export function textoDoAvisoDeClassificacaoPelaTela(p: { nomeDoGrupo: string | null; codigo: string | null; antes: TipoGrupo; depois: TipoGrupo; quem: string | null; quando: string }): string {
+export function textoDoAvisoDeClassificacaoPelaTela(p: { nomeDoGrupo: string | null; codigo: string | null; antes: TipoGrupo; depois: TipoGrupo; quem: string | null; quando: string;
+  vinculo?: { tipo: "cliente" | "obra"; id: number; nome: string | null } | null }): string {
   const quem = limparNomeDeTerceiro(p.quem) || "um usuário do sistema";
-  return `Dolores: o grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}${p.codigo ? ` (código ${p.codigo})` : ""} foi classificado pela tela: de «${ROTULO_TIPO_GRUPO[p.antes]}» para «${ROTULO_TIPO_GRUPO[p.depois]}», por ${quem}, em ${p.quando}.${p.codigo ? ` Se não foi combinado, responda «grupo ${p.codigo} <número da opção>» ou «grupo ${p.codigo} ignorar».` : ""}`;
+  // QA-SEG EPIC-027 (R3-2): o vínculo ligado, para o dono notar um cliente/obra errado
+  const vinculo = p.vinculo ? `, ligado a${p.vinculo.tipo === "cliente" ? "o cliente" : " obra"} ${entreAspas(p.vinculo.nome, "(sem nome)")} (nº ${p.vinculo.id})` : "";
+  return `Dolores: o grupo ${entreAspas(p.nomeDoGrupo, "(sem nome)")}${p.codigo ? ` (código ${p.codigo})` : ""} foi classificado pela tela: de «${ROTULO_TIPO_GRUPO[p.antes]}» para «${ROTULO_TIPO_GRUPO[p.depois]}»${vinculo}, por ${quem}, em ${p.quando}.${p.codigo ? ` Se não foi combinado, responda «grupo ${p.codigo} <número da opção>» ou «grupo ${p.codigo} ignorar».` : ""}`;
 }
 
 /** As opções numeradas, uma por linha, com a explicação (o texto do sistema; nada de terceiro). */

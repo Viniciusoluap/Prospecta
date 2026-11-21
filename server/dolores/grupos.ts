@@ -194,7 +194,7 @@ export async function listarGruposParaTela() {
     id: doloresGrupos.id, grupoJid: doloresGrupos.grupoJid, nome: doloresGrupos.nome, ativo: doloresGrupos.ativo, leadId: doloresGrupos.leadId,
     obraId: doloresGrupos.obraId, criadoEm: doloresGrupos.criadoEm, cliente: leads.name, obra: constructionProjects.title,
     tipo: doloresGrupos.tipo, origem: doloresGrupos.origem, situacaoConfirmacao: doloresGrupos.situacaoConfirmacao, nomeWhatsapp: doloresGrupos.nomeWhatsapp,
-    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao,
+    codigo: doloresGrupos.codigo, decididoEm: doloresGrupos.decididoEm, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao, obraExcluidaEm: doloresGrupos.obraExcluidaEm,
   }).from(doloresGrupos).leftJoin(leads, eq(leads.id, doloresGrupos.leadId)).leftJoin(constructionProjects, eq(constructionProjects.id, doloresGrupos.obraId))
     .orderBy(desc(doloresGrupos.ativo), asc(doloresGrupos.nome)).limit(200);
   const ids = grupos.map(g => g.id);

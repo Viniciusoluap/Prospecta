@@ -29,7 +29,7 @@
 //   mensagens do mesmo grupo novo: uma só entrada por vez por grupo nesta instância (uma consulta à Evolution, uma vaga).
 import { randomInt } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { leads, users } from "../../drizzle/schema.js";
+import { constructionProjects, leads, users } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesContagem, doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import { diaDeImperatriz, jidDeGrupoValido } from "../../shared/dolores/grupos.js";
@@ -103,7 +103,7 @@ export const nomeDoWhatsappParaGravar = (s: string | null | undefined) => {
 };
 
 /** Clientes ativos do CRM (id e nome) para comparar com o nome do grupo. */
-async function clientesDoCrm(): Promise<ClienteParaTipo[]> {
+export async function clientesDoCrm(): Promise<ClienteParaTipo[]> {
   const linhas = await getDb().select({ id: leads.id, nome: leads.name }).from(leads).where(isNull(leads.deletedAt)).limit(MAX_CLIENTES_PARA_TIPO);
   return linhas;
 }
@@ -450,7 +450,16 @@ export async function avisarClassificacaoPelaTela(p: { grupo: DoloresGrupo; ante
   // quem mudou: o NOME do cadastro (só leitura do nome), nunca o que a sessão disser
   const [u] = await getDb().select({ nome: users.name }).from(users).where(eq(users.id, p.userId)).limit(1).catch(() => []);
   const quando = p.agora.toLocaleString("pt-BR", { timeZone: "America/Fortaleza", dateStyle: "short", timeStyle: "short" });
-  const texto = textoDoAvisoDeClassificacaoPelaTela({ nomeDoGrupo: p.grupo.nomeWhatsapp ?? p.grupo.nome, codigo: p.grupo.codigo, antes: p.antes, depois: p.depois, quem: u?.nome ?? null, quando });
+  // QA-SEG EPIC-027 (R3-2): o aviso diz QUAL cliente/obra foi ligado (nome do cadastro, limpo, e o nº)
+  let vinculo: { tipo: "cliente" | "obra"; id: number; nome: string | null } | null = null;
+  if (p.grupo.leadId) {
+    const [l] = await getDb().select({ nome: leads.name }).from(leads).where(eq(leads.id, p.grupo.leadId)).limit(1).catch(() => []);
+    vinculo = { tipo: "cliente", id: p.grupo.leadId, nome: l?.nome ?? null };
+  } else if (p.grupo.obraId) {
+    const [o] = await getDb().select({ nome: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, p.grupo.obraId)).limit(1).catch(() => []);
+    vinculo = { tipo: "obra", id: p.grupo.obraId, nome: o?.nome ?? null };
+  }
+  const texto = textoDoAvisoDeClassificacaoPelaTela({ nomeDoGrupo: p.grupo.nomeWhatsapp ?? p.grupo.nome, codigo: p.grupo.codigo, antes: p.antes, depois: p.depois, quem: u?.nome ?? null, quando, vinculo });
   let ok = false;
   try {
     const config = await lerConfigGrupos();
