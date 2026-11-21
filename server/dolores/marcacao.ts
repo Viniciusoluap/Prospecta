@@ -453,6 +453,18 @@ export async function parceiroDoRemetente(numero: string | null): Promise<number
   return achados.length === 1 ? achados[0].id : null;
 }
 
+/** A "engenharia geral" (sem obra) deste grupo foi decidida por quem pode? Ver `escopoDoGrupo`. Erro ao conferir → não. */
+export async function engenhariaGeralValida(g: Pick<DoloresGrupo, "decididoPor" | "origem" | "obraExcluidaEm">): Promise<boolean> {
+  if (g.obraExcluidaEm) return false;
+  const por = g.decididoPor ?? "";
+  if (!por) return g.origem === "automatico"; // entrou sozinha pelo nome do grupo (o dono foi avisado do que ela entendeu)
+  if (por.startsWith("whatsapp:")) return true;
+  const m = /^tela:(\d{1,9})$/.exec(por);
+  if (!m) return false;
+  const [u] = await getDb().select({ role: users.role }).from(users).where(eq(users.id, Number(m[1]))).limit(1).catch(() => []);
+  return u?.role === "admin";
+}
+
 export type EscopoDoGrupo = {
   tipo: TipoGrupo;
   ferramentas: () => FerramentaDoGrupo[];
@@ -472,6 +484,10 @@ export async function escopoDoGrupo(grupo: DoloresGrupo, m: { participante: stri
   const tipo = tipoEfetivo(grupo);
   if (grupo.situacaoConfirmacao === "recusado") return { silencio: "grupo recusado (outra pessoa colocou a Dolores)" };
   if (grupo.situacaoConfirmacao === "aguardando_dono" || tipo === "indefinido") return { silencio: "grupo aguardando o dono definir o tipo: só observa" };
+  // QA-SEG EPIC-027 (rodada 3, R3-1, defesa em profundidade): engenharia SEM obra só vale como "engenharia geral" (escopo interno)
+  // quando foi DEFINIDA assim pelo dono (WhatsApp), por um administrador (tela) ou entrou sozinha pelo nome; obra excluída,
+  // decisão de colaborador, da fila ou de origem desconhecida → silêncio.
+  if (tipo === "engenharia" && !grupo.obraId && !(await engenhariaGeralValida(grupo))) return { silencio: "engenharia sem obra que não foi definida como geral pelo dono ou por um administrador: só observa" };
   const url = urlDoSistemaParaLinks();
   const base = { agora, grupoId: grupo.id };
   if (tipo === "cliente" || tipo === "pos_atendimento" || (tipo === "engenharia" && grupo.obraId)) {

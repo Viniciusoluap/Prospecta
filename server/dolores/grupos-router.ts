@@ -15,7 +15,7 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
 import { jidDeGrupoValido } from "../../shared/dolores/grupos.js";
-import { FRASE_ENGENHARIA_COM_OBRA, FRASE_TIPOS_DO_ADMIN, LIMITES_ENTRADA, colaboradorPodeClassificar, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { LIMITES_ENTRADA, gerarCodigoDeGrupo, ligadoPorPadrao, precisaDoAceiteDoDono, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { avisarClassificacaoPelaTela, entrarNoGrupo } from "./grupos-entrada.js";
 import { decidirGrupo } from "./grupos-decisao.js";
 import { textoDeDado, umaLinha } from "../../shared/dolores/fila.js";
@@ -37,15 +37,6 @@ import { credencialDaClassificacao, enviarAvisoAoDono } from "./whatsapp.js";
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador cadastra os grupos da Dolores." });
-  return next();
-});
-
-/**
- * EPIC-027 C3 — classificar grupo (tipo e vínculo): admin, ou colaborador com o módulo WhatsApp (o adminProcedure confere o módulo
- * pelo mapa de procedimentos; aqui, o PAPEL). Corretor e os demais: barrados. Aceitar grupo recusado/sem prova nunca passa pela tela.
- */
-const podeClassificar = adminProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin" && ctx.user.role !== "colaborador") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador ou colaborador com o módulo WhatsApp classifica os grupos da Dolores." });
   return next();
 });
 
@@ -166,7 +157,7 @@ export const gruposRouter = router({
     const agora = new Date();
     await db.update(doloresGrupos).set({
       ...(input.nome !== undefined ? { nome: input.nome } : {}), ...(input.ativo !== undefined ? { ativo: input.ativo } : {}),
-      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}` } : {}),
+      ...(mudaVinculo ? { leadId, obraId, tipo, situacaoConfirmacao: "confirmado" as const, decididoEm: agora, decididoPor: `tela:${ctx.user.id}`, obraExcluidaEm: null } : {}),
       atualizadoEm: agora, atualizadoPorUserId: ctx.user.id,
     }).where(eq(doloresGrupos.id, g.id));
     await auditar(ctx.user.id, "atualizar_grupo", g.id, { ativo: input.ativo ?? g.ativo, leadId, obraId, rotuloMudou: input.nome !== undefined });
@@ -203,30 +194,22 @@ export const gruposRouter = router({
    * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
    * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
    */
-  definirTipo: podeClassificar.input(z.object({
+  // regra do dono (21/11): classificar é SÓ do administrador pela tela (e do dono pelo WhatsApp); colaborador nunca classifica
+  definirTipo: soAdmin.input(z.object({
     grupoId: id32,
     tipo: z.enum(["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia", "ignorar", "aceitar"]),
     numero: id32.nullable().optional(),
   }).strict()).mutation(async ({ ctx, input }) => {
     const tipo = input.tipo;
-    // colaborador classifica; desativar ("ignorar") e o resto da configuração continuam do admin
-    if (ctx.user.role !== "admin" && (tipo === "ignorar" || tipo === "aceitar")) throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador desativa grupo da Dolores." });
     if ((tipo === "cliente" || tipo === "pos_atendimento") && !input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o nº do cliente no CRM." });
     if (tipo !== "cliente" && tipo !== "pos_atendimento" && tipo !== "engenharia" && input.numero) throw new TRPCError({ code: "BAD_REQUEST", message: "Esse tipo de grupo não leva número." });
     const db = getDb();
-    const [antes] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, input.grupoId)).limit(1).catch(semMigracao);
+    const instancia = await instanciaDaDolores();
+    const [antes] = await db.select().from(doloresGrupos).where(and(eq(doloresGrupos.id, input.grupoId), eq(doloresGrupos.instancia, instancia))).limit(1).catch(semMigracao);
     if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: `Grupo ${input.grupoId} não cadastrado.` });
-    // QA-SEG EPIC-027 (achado 1, importante): o colaborador só põe/tira cliente, pós-atendimento e engenharia (o gatilho da 0139 confere de novo)
-    // rodada 2 (R2-1/R2-2): só grupo sem vínculo/não identificado, e só cliente, pós ou engenharia DE UMA OBRA
-    if (ctx.user.role !== "admin" && tipo !== "ignorar" && tipo !== "aceitar"
-      && !colaboradorPodeClassificar({ tipo: tipoEfetivo(antes), leadId: antes.leadId, obraId: antes.obraId }, tipo, input.numero ?? null)) {
-      await registrarAcao({ funcao: "grupo_decisao", resultado: "recusada", motivo: "colaborador tentou classificação que só o administrador faz", autorUserId: null, canal: "tela",
-        pedidoId: `tela:grupos:${antes.id}`, resumo: { grupoId: antes.id, pedido: tipo, atual: tipoEfetivo(antes), comVinculo: !!(antes.leadId || antes.obraId), porUserId: ctx.user.id } });
-      throw new TRPCError({ code: "FORBIDDEN", message: tipo === "engenharia" && !input.numero ? FRASE_ENGENHARIA_COM_OBRA : FRASE_TIPOS_DO_ADMIN });
-    }
-    const r = await decidirGrupo({ grupoId: input.grupoId }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
+    const r = await decidirGrupo({ grupoId: input.grupoId, instancia }, tipo === "ignorar" || tipo === "aceitar" ? { tipo, numero: null } : { tipo, numero: input.numero ?? null }, { via: "tela", userId: ctx.user.id });
     if (!r.ok) throw new TRPCError({ code: r.grupoId ? "BAD_REQUEST" : "NOT_FOUND", message: r.texto.replace(/^Dolores: /, "") });
-    // QA-SEG EPIC-027 (achado 1b): toda classificação pela tela vira aviso ao dono (tipo ou vínculo mudou)
+    // QA-SEG EPIC-027 (achado 1b): toda classificação pela tela vira aviso ao dono (útil com mais de um administrador)
     let aviso: "avisado" | "pendente" | null = null;
     if (tipo !== "ignorar" && tipo !== "aceitar") {
       const [depois] = await db.select().from(doloresGrupos).where(eq(doloresGrupos.id, antes.id)).limit(1);

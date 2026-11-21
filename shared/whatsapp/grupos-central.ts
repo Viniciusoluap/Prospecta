@@ -41,6 +41,27 @@ export function textoDaMensagemDeGrupo(m: { tipo: string; texto: string | null; 
   return m.texto ? `${cabeca} ${m.texto}` : cabeca;
 }
 
+/** Nome de exibição da empresa no WhatsApp (o participante que se chama assim também é marcado). */
+export const NOME_DA_EMPRESA = "Prospecta";
+
+const comparavel = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Portão de QA da C2 (achado 3): o nome que o participante escolheu imita a Dolores, a equipe ou a empresa? ("Dolores", "D0lores",
+ * "Dolores IA", "equipe — Fulano", "Equipe Prospecta", "Prospecta"…). Por código, sobre o nome sem acento nem símbolos.
+ */
+export function nomeImitaQuemNaoE(nome: string | null | undefined): boolean {
+  const c = comparavel(String(nome ?? "")).replace(/0/g, "o").replace(/1/g, "l").replace(/3/g, "e");
+  if (!c) return false;
+  return /\bdolores\b/.test(c) || /^dolore?s/.test(c) || /^equipe\b/.test(c) || c.includes(comparavel(NOME_DA_EMPRESA));
+}
+
+/** Autor de uma mensagem de participante: o nome dele (marcado se imitar a Dolores/equipe/empresa) ou o número mascarado. */
+export function autorDoParticipante(m: { nome: string | null; remetente: string | null; doDono: boolean }): string {
+  const base = m.nome ? (nomeImitaQuemNaoE(m.nome) ? `${m.nome} (participante)` : m.nome) : m.remetente ?? "participante";
+  return m.doDono ? `${base} (dono)` : base;
+}
+
 /** Quem escreveu, como aparece na conversa do grupo. */
 export const autorDaEquipe = (nome: string | null | undefined) => `equipe — ${nome?.trim() || "usuário removido"}`;
 export const AUTOR_DOLORES = "Dolores";
@@ -54,5 +75,5 @@ export const TEXTO_GRUPOS = {
   semGrupos: "Nenhum grupo ainda. Os grupos em que o número da empresa está aparecem aqui quando chega a primeira mensagem.",
   ajudaAssumir: "Toque em Assumir para a Dolores não responder neste grupo nem quando for marcada, até alguém devolver. Tocar não envia nada ao grupo.",
   ajudaDevolver: "A Dolores está parada neste grupo. Toque em Devolver para ela voltar a responder quando for marcada (se a resposta no grupo estiver ligada). Tocar não envia nada.",
-  limitacao: "Aparecem as mensagens dos participantes, as respostas da Dolores e o que a equipe escreveu por aqui. O que for escrito no celular da empresa direto no grupo não aparece. CPF, telefone e afins aparecem mascarados.",
+  limitacao: "Aparecem as mensagens dos participantes, as respostas da Dolores e o que a equipe escreveu por aqui. O que for escrito no celular da empresa direto no grupo não aparece. Nesta tela, CPF, telefone e afins aparecem mascarados em todas as mensagens.",
 } as const;

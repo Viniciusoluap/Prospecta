@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { CATEGORIAS_GRUPO, FRASE_ENGENHARIA_COM_OBRA, FRASE_TIPOS_DO_ADMIN, categoriaDoTipo, colaboradorPodeClassificar, type TipoGrupo } from "@shared/dolores/grupos-tipo";
+import { CATEGORIAS_GRUPO, categoriaDoTipo, type TipoGrupo } from "@shared/dolores/grupos-tipo";
 import { TEXTO_GRUPOS } from "@shared/whatsapp/grupos-central";
 import { TEXTO_MODO } from "@shared/dolores/modo-conversa";
 
@@ -20,13 +20,11 @@ type TipoDaTela = (typeof CATEGORIAS_GRUPO)[number]["tipo"];
 type GrupoDaLista = { id: number; nome: string; tipo: TipoGrupo; leadId: number | null; obraId: number | null; semProvaDoDono: boolean };
 
 /**
- * "Definir tipo" dentro da Central: a mesma lista de categorias e a mesma rota do cartão da Dolores em Integrações, com as mesmas
- * travas (o colaborador só vê as opções que pode usar; o servidor confere de novo; o dono recebe aviso no WhatsApp).
+ * "Definir tipo" dentro da Central — SÓ para o administrador (regra do dono de 21/11/2026: o colaborador com "Grupos do WhatsApp"
+ * vê e escreve, mas não classifica). A mesma lista de categorias e a mesma rota do cartão da Dolores em Integrações; o servidor
+ * confere de novo (só admin) e o dono recebe aviso no WhatsApp.
  */
 function DefinirTipo({ g, onFeito }: { g: GrupoDaLista; onFeito: () => void }) {
-  const { user } = useAuth();
-  const ehAdmin = user?.role === "admin";
-  const opcoes = CATEGORIAS_GRUPO.filter(c => ehAdmin || colaboradorPodeClassificar(g, c.tipo, 1));
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState<string>("");
   const [numero, setNumero] = useState("");
@@ -40,12 +38,11 @@ function DefinirTipo({ g, onFeito }: { g: GrupoDaLista; onFeito: () => void }) {
   });
   // grupo em que o dono ainda não provou quem colocou a empresa: só o dono aceita, pelo WhatsApp (a tela nunca aceita)
   if (g.semProvaDoDono) return null;
-  if (!opcoes.length) return <p className="w-full text-[11px] text-gray-400">{FRASE_TIPOS_DO_ADMIN}</p>;
   const precisaNumero = tipo === "cliente" || tipo === "pos_atendimento";
   if (!aberto) {
     return (
       <Button size="sm" variant="outline" className={botaoSec} onClick={() => {
-        setTipo(g.tipo !== "indefinido" && opcoes.some(c => c.tipo === g.tipo) ? g.tipo : opcoes[0].tipo);
+        setTipo(g.tipo !== "indefinido" && CATEGORIAS_GRUPO.some(c => c.tipo === g.tipo) ? g.tipo : CATEGORIAS_GRUPO[0].tipo);
         setNumero(String(g.leadId ?? g.obraId ?? "")); setAberto(true);
       }}>Definir tipo</Button>
     );
@@ -55,18 +52,16 @@ function DefinirTipo({ g, onFeito }: { g: GrupoDaLista; onFeito: () => void }) {
       <div><Label htmlFor={`tipo-central-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
         <select id={`tipo-central-${g.id}`} value={tipo} onChange={e => setTipo(e.target.value)}
           className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
-          {opcoes.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
+          {CATEGORIAS_GRUPO.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
         </select>
         <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(tipo)?.explica ?? ""}</p>
-        {!ehAdmin && <p className="mt-1 max-w-xs text-[11px] text-yellow-200">{FRASE_TIPOS_DO_ADMIN}</p>}
         <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
       {(precisaNumero || tipo === "engenharia") && (
-        <div><Label htmlFor={`numero-central-${g.id}`} className="text-xs text-gray-300">{precisaNumero ? "Nº do cliente no CRM" : ehAdmin ? "Nº da obra (opcional)" : "Nº da obra (obrigatório)"}</Label>
-          {!ehAdmin && tipo === "engenharia" && <p className="max-w-xs text-[11px] text-yellow-200">{FRASE_ENGENHARIA_COM_OBRA}</p>}
+        <div><Label htmlFor={`numero-central-${g.id}`} className="text-xs text-gray-300">{precisaNumero ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
           <Input id={`numero-central-${g.id}`} inputMode="numeric" value={numero} onChange={e => setNumero(e.target.value.replace(/\D/g, ""))} className="mt-1 h-8 w-32 bg-[#1A2332] border-[#C9A961]/30 text-white" /></div>
       )}
       <Button size="sm" className="h-7 bg-[#C9A961] text-xs font-bold text-[#1A2332] hover:bg-[#B8985A]"
-        disabled={definir.isPending || ((precisaNumero || (!ehAdmin && tipo === "engenharia")) && !numero)}
+        disabled={definir.isPending || (precisaNumero && !numero)}
         onClick={() => definir.mutate({ grupoId: g.id, tipo: tipo as TipoDaTela, numero: numero ? Number(numero) : null })}>Salvar</Button>
       <Button size="sm" variant="outline" className={botaoSec} onClick={() => setAberto(false)}>Cancelar</Button>
     </div>
@@ -100,6 +95,8 @@ function AtendimentoDoGrupo({ grupoId }: { grupoId: number }) {
 
 export function GruposWhatsApp() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const ehAdmin = user?.role === "admin";
   const [grupoId, setGrupoId] = useState<number | null>(null);
   const [texto, setTexto] = useState("");
   const [busca, setBusca] = useState("");
@@ -175,7 +172,7 @@ export function GruposWhatsApp() {
                   {atual.aguardandoDono ? ` · ${TEXTO_GRUPOS.aguardando}` : ""}
                 </p>
               </div>
-              <DefinirTipo key={atual.id} g={atual} onFeito={() => utils.whatsappGrupos.listar.invalidate()} />
+              {ehAdmin && <DefinirTipo key={atual.id} g={atual} onFeito={() => utils.whatsappGrupos.listar.invalidate()} />}
               <AtendimentoDoGrupo grupoId={atual.id} />
               <p className="w-full text-[11px] text-gray-400">{TEXTO_GRUPOS.limitacao}</p>
             </div>
@@ -188,7 +185,10 @@ export function GruposWhatsApp() {
               {todas.map(m => (
                 <div key={m.chave} className={`flex ${m.origem === "participante" ? "justify-start" : "justify-end"}`}>
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.origem === "equipe" ? "bg-green-800 text-white" : m.origem === "dolores" ? "bg-[#3B4A5E] text-white" : "bg-[#1A2332] text-gray-100"}`}>
-                    <p className="text-[11px] font-bold text-[#C9A961]">{m.autor}</p>
+                    <p className={`text-[11px] font-bold ${m.origem === "participante" ? "text-gray-300" : "text-[#C9A961]"}`}>
+                      {m.origem === "dolores" ? <Bot className="mr-1 inline h-3 w-3" /> : m.origem === "equipe" ? <Hand className="mr-1 inline h-3 w-3" /> : null}
+                      {m.autor}{m.origem === "participante" ? " · participante" : ""}
+                    </p>
                     {m.texto}
                     <div className="text-[10px] text-gray-300 mt-1 text-right">{hora(m.quando)}{m.situacao ? ` • ${m.situacao}` : ""}</div>
                   </div>

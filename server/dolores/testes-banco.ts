@@ -88,6 +88,10 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
     const c3 = MIGRACAO_0139();
     await pg.exec(c3);
     await pg.exec(c3);
+    // EPIC-027 C3 (regra do dono de 21/11: só o administrador classifica pela tela): migração 0144, também duas vezes.
+    const soAdmin = MIGRACAO_0144();
+    await pg.exec(soAdmin);
+    await pg.exec(soAdmin);
   }
   // EPIC-027 C2 (grupos do WhatsApp na Central): migração 0142, também duas vezes.
   const c2Central = MIGRACAO_0142();
@@ -97,7 +101,7 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
 }
 
 export const MIGRACAO_0142 = () => readFileSync(new URL("../../drizzle/0142_grupos_na_central.sql", import.meta.url), "utf8");
-
+export const MIGRACAO_0144 = () => readFileSync(new URL("../../drizzle/0144_dolores_grupos_so_admin_classifica.sql", import.meta.url), "utf8");
 export const MIGRACAO_0139 = () => readFileSync(new URL("../../drizzle/0139_dolores_grupos_classificar_pela_tela.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0138 = () => readFileSync(new URL("../../drizzle/0138_atendimento_modo_conversa.sql", import.meta.url), "utf8");

@@ -16,12 +16,15 @@
 --     ativo>" (outro formato é barrado); e, pela tela, quem não é administrador só classifica grupo ainda sem vínculo (cliente/obra).
 -- Colunas novas em "dolores_grupos" (ADD COLUMN IF NOT EXISTS, sem padrão: não dispara o gatilho nem altera linha):
 --   - "pergunta_tipo_em": quando a Dolores perguntou ao dono o tipo do grupo (a resposta só com o número vale por 30 min);
---   - "aviso_classificacao_pendente_em": classificação feita pela tela cujo aviso ao dono não saiu (teto do dia) — relatório diário.
+--   - "aviso_classificacao_pendente_em": classificação feita pela tela cujo aviso ao dono não saiu (teto do dia) — relatório diário;
+--   - "obra_excluida_em": a obra do grupo de engenharia foi excluída no CRM e o gatilho o deixou "não identificado" (calado) até
+--     alguém reclassificar (rodada 3 do QA, R3-1).
 -- Somente aditiva e idempotente: função trocada (CREATE OR REPLACE) e duas colunas novas anuláveis; nenhuma linha é alterada.
 -- Reversão: reexecutar a função da 0133_dolores_grupos_tipo.sql (as colunas novas não atrapalham o código anterior).
 
 ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "pergunta_tipo_em" timestamp with time zone;
 ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "aviso_classificacao_pendente_em" timestamp with time zone;
+ALTER TABLE "dolores_grupos" ADD COLUMN IF NOT EXISTS "obra_excluida_em" timestamp with time zone;
 
 CREATE OR REPLACE FUNCTION dolores_grupos_guarda() RETURNS trigger AS $$
 DECLARE
@@ -33,6 +36,7 @@ DECLARE
   admin_antes boolean;
   admin_depois boolean;
   eh_admin boolean;
+  obra_excluida boolean;
 BEGIN
   IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_SEM_EXCLUSAO: grupo cadastrado não é apagado (desative)';
@@ -48,6 +52,17 @@ BEGIN
     RAISE EXCEPTION 'DOLORES_GRUPOS_IMUTAVEL: o nome visto na entrada, o código e a origem do grupo não mudam';
   END IF;
   decidiu := NEW."decidido_em" IS NOT NULL AND NEW."decidido_em" IS DISTINCT FROM OLD."decidido_em";
+  -- QA-SEG EPIC-027 (rodada 3, R3-1): a obra foi EXCLUÍDA no CRM (ON DELETE SET NULL, sem decisão de ninguém) num grupo de
+  -- engenharia: o grupo NÃO vira "engenharia geral" (escopo interno). Fica "não identificado", aguardando reclassificação (calado),
+  -- com a marca "obra_excluida_em" (tela e relatório: "obra excluída: reclassifique"). Recusado continua recusado. Nunca barra a
+  -- exclusão da obra.
+  obra_excluida := OLD."obra_id" IS NOT NULL AND NEW."obra_id" IS NULL AND NOT decidiu
+    AND coalesce(OLD."tipo", 'engenharia') = 'engenharia' AND NEW."tipo" IS NOT DISTINCT FROM OLD."tipo";
+  IF obra_excluida THEN
+    NEW."tipo" := 'indefinido';
+    NEW."situacao_confirmacao" := CASE WHEN OLD."situacao_confirmacao" = 'recusado' THEN 'recusado' ELSE 'aguardando_dono' END;
+    NEW."obra_excluida_em" := now();
+  END IF;
   -- Etapa 7: tipo e vínculo só mudam por decisão do dono (decidido_em gravado na mesma operação), nas linhas da etapa 7. O
   -- vínculo pode VIRAR NULL sem decisão: é o ON DELETE SET NULL do Postgres quando o CRM exclui o cliente ou a obra. Linha
   -- manual antiga (origem 'manual' e tipo vazio antes e depois): regra antiga (o código anterior à etapa 7 continua valendo).
@@ -55,7 +70,7 @@ BEGIN
      AND (NEW."tipo" IS DISTINCT FROM OLD."tipo"
       OR (NEW."lead_id" IS DISTINCT FROM OLD."lead_id" AND NEW."lead_id" IS NOT NULL)
       OR (NEW."obra_id" IS DISTINCT FROM OLD."obra_id" AND NEW."obra_id" IS NOT NULL))
-     AND NOT decidiu THEN
+     AND NOT decidiu AND NOT obra_excluida THEN
     RAISE EXCEPTION 'DOLORES_GRUPOS_DECISAO: tipo e vínculo do grupo só mudam por decisão do dono';
   END IF;
   -- EPIC-027 C3: automático "aguardando o dono" que o próprio dono adicionou ou aceitou (só falta o tipo)

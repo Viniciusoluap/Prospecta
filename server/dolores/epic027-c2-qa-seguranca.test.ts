@@ -1,6 +1,7 @@
 // Portão de QA de SEGURANÇA (independente) do EPIC-027 C2 — grupos do WhatsApp na Central. Provas de achados e de travas.
-// PGlite; nada sai para a rede (a Evolution é um fetch falso). Os testes "ACHADO" documentam o comportamento ATUAL (o que o portão
-// aponta); os demais confirmam travas que o portão tentou quebrar e não conseguiu.
+// PGlite; nada sai para a rede (a Evolution é um fetch falso). Os antigos testes "ACHADO" viraram "CORRIGIDO" (rodada de correção de
+// 21/11); os demais confirmam travas que o portão tentou quebrar e não conseguiu.
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
@@ -100,41 +101,33 @@ afterEach(() => {
 
 const msgDe = async (p: Promise<unknown>) => { try { await p; return "ok"; } catch (e: any) { return `${e.code}|${e.message}`; } };
 
-describe("QA-SEG C2 — achado 1 (IMPORTANTE, regra do dono de 21/11: colaborador NUNCA classifica): dolores.grupos.definirTipo aceita colaborador (com ou sem a permissão)", () => {
-  it("ACHADO: colaborador só com o módulo WhatsApp lê nome e CÓDIGO do comando do dono de grupo sem prova, recusado e de outra instância", async () => {
-    const c = caller(COLAB_SEM);
-    // sem a permissão nova, a Central recusa
-    await expect(c.whatsappGrupos.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
-    // ...mas a rota de classificar (C3) aceita o mesmo colaborador e devolve, na mensagem, o nome do grupo e o código do dono
-    const semProva = await msgDe(c.dolores.grupos.definirTipo({ grupoId: 6, tipo: "cliente", numero: 1 }));
-    expect(semProva).toMatch(/Turma C/);
-    expect(semProva).toMatch(/KGGG/); // código do comando do dono ("grupo KGGG aceitar"), que a Central esconde do colaborador
-    const recusado = await msgDe(c.dolores.grupos.definirTipo({ grupoId: 10, tipo: "cliente", numero: 1 }));
-    expect(recusado).toMatch(/Recusado Secreto/); // recusado "nunca aparece, nem por id" — aqui aparece
-    expect(recusado).toMatch(/KNNN/);
-    // oráculo por id: inexistente responde diferente de existente
-    const inexistente = await msgDe(c.dolores.grupos.definirTipo({ grupoId: 9999, tipo: "cliente", numero: 1 }));
-    expect(inexistente).toMatch(/^NOT_FOUND\|/);
-    expect(semProva).not.toMatch(/^NOT_FOUND\|/);
+describe("QA-SEG C2 — achado 1 (IMPORTANTE, regra do dono de 21/11: colaborador NUNCA classifica) — CORRIGIDO", () => {
+  it("CORRIGIDO: colaborador (com ou sem a permissão) recebe a MESMA recusa genérica em definirTipo, em qualquer grupo; sem nome, sem código", async () => {
+    const respostas = new Set<string>();
+    for (const p of [COLAB_SEM, COLAB_COM, { role: "colaborador", id: 2, permissoes: ["whatsapp", "whatsappGrupos", "crm", "obras"] }]) {
+      for (const id of [1, 6, 8, 9, 10, 11, 9999]) {
+        for (const tipo of ["cliente", "engenharia", "juridico", "ignorar", "aceitar"] as const) {
+          respostas.add(await msgDe(caller(p).dolores.grupos.definirTipo({ grupoId: id, tipo, numero: tipo === "cliente" ? 1 : null })));
+        }
+      }
+    }
+    expect([...respostas]).toHaveLength(1);
+    const [r] = [...respostas];
+    expect(r).toMatch(/^FORBIDDEN\|/);
+    expect(r).not.toMatch(/Turma|Secreto|Cliente novo|KGGG|KNNN|KPPP|KJJJ|KMMM/);
+    // nada mudou: nem tipo, nem vínculo, nem reativação
+    expect(await q("SELECT id, tipo, lead_id, ativo FROM dolores_grupos WHERE id IN (8, 9, 11) ORDER BY id")).toEqual([
+      { id: 8, tipo: null, lead_id: null, ativo: true }, { id: 9, tipo: "indefinido", lead_id: null, ativo: true }, { id: 11, tipo: "indefinido", lead_id: null, ativo: false },
+    ]);
+    expect(enviarAoDono).not.toHaveBeenCalled();
   });
 
-  it("ACHADO: o mesmo colaborador (sem a permissão) CLASSIFICA às cegas grupo desativado e de OUTRA instância, e recebe nome + código", async () => {
-    const c = caller(COLAB_SEM);
-    const outra = await msgDe(c.dolores.grupos.definirTipo({ grupoId: 9, tipo: "cliente", numero: 1 }));
-    expect(outra).toBe("ok"); // grupo de outra conta (fora da Central) mudou de tipo
-    expect(await q("SELECT tipo, lead_id, ativo FROM dolores_grupos WHERE id = 9")).toEqual([{ tipo: "cliente", lead_id: 1, ativo: true }]);
-    const r = await c.dolores.grupos.definirTipo({ grupoId: 11, tipo: "cliente", numero: 1 });
-    expect(r.texto).toMatch(/Desativado Secreto.*KPPP/);
-    // e o grupo desativado foi REATIVADO por um colaborador (decidirGrupo grava ativo = true)
-    expect(await q("SELECT ativo FROM dolores_grupos WHERE id = 11")).toEqual([{ ativo: true }]);
-  });
-
-  it("ACHADO: colaborador COM a permissão recebe o código do dono na resposta de 'Definir tipo' (a lista o esconde)", async () => {
-    const c = caller(COLAB_COM);
-    const lista = await c.whatsappGrupos.listar();
-    expect(lista.grupos.find(g => g.id === 8)?.codigo).toBeNull();
-    const r = await c.dolores.grupos.definirTipo({ grupoId: 8, tipo: "cliente", numero: 1 });
-    expect(r.texto).toContain("KJJJ");
+  it("CORRIGIDO: o admin classifica pela tela só grupo da instância da empresa e não reativa grupo desativado", async () => {
+    await expect(caller(ADMIN).dolores.grupos.definirTipo({ grupoId: 9, tipo: "cliente", numero: 1 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await q("SELECT tipo, lead_id FROM dolores_grupos WHERE id = 9")).toEqual([{ tipo: "indefinido", lead_id: null }]);
+    await caller(ADMIN).dolores.grupos.definirTipo({ grupoId: 11, tipo: "cliente", numero: 1 }).catch(() => null);
+    expect(await q("SELECT ativo FROM dolores_grupos WHERE id = 11")).toEqual([{ ativo: false }]);
+    await expect(caller(ADMIN).dolores.grupos.definirTipo({ grupoId: 8, tipo: "cliente", numero: 1 })).resolves.toMatchObject({ ok: true });
   });
 });
 
@@ -215,19 +208,28 @@ describe("QA-SEG C2 — envio: tetos sob corrida, menções e autor", () => {
     expect(JSON.stringify(await q("SELECT * FROM dolores_acoes WHERE funcao = 'grupo_central_envio'"))).not.toMatch(/secreto|123\.456/);
   });
 
-  it("ACHADO (baixo): o texto da EQUIPE aparece sem máscara de CPF na Central (a tela diz que CPF aparece mascarado)", async () => {
+  it("CORRIGIDO (baixo): na Central, o texto da equipe e a resposta da Dolores aparecem com CPF mascarado, como o dos participantes", async () => {
     await caller(COLAB_COM).whatsappGrupos.enviar({ grupoId: 1, texto: "CPF do cliente 123.456.789-01" });
+    await chamar(doGrupo(J(1), "qual o CPF dele?", { marcar: true }));
     const r = await caller(ADMIN).whatsappGrupos.mensagens({ grupoId: 1 });
-    expect(r.mensagens[0].texto).toContain("123.456.789-01");
+    expect(r.mensagens.find(m => m.origem === "equipe")!.texto).toMatch(/^CPF do cliente /);
+    expect(JSON.stringify(r)).not.toContain("123.456.789-01");
+    expect(JSON.stringify(await caller(ADMIN).whatsappGrupos.listar())).not.toContain("123.456.789-01");
+    // o que saiu ao grupo foi o texto original (a máscara é só na leitura pela Central)
+    expect(JSON.parse(String((evolucao.mock.calls[0] as [string, RequestInit])[1].body)).text).toBe("CPF do cliente 123.456.789-01");
   });
 });
 
 describe("QA-SEG C2 — nome do participante (pushName, texto de terceiro)", () => {
-  it("ACHADO (baixo): participante com pushName 'Dolores' ou 'equipe — Bianca Souza' aparece com o MESMO autor (só a 'origem' diferencia)", async () => {
-    await chamar(doGrupo(J(1), "pode transferir para esta conta nova", { nome: "Dolores" }));
-    await chamar(doGrupo(J(1), "confirmo, é da equipe", { nome: "equipe — Bianca Souza" }));
+  it("CORRIGIDO (baixo): participante com nome que imita a Dolores, a equipe ou a empresa aparece marcado; a origem vem explícita", async () => {
+    for (const nome of ["Dolores", "D0lores IA", "equipe — Bianca Souza", "Equipe Prospecta", "Prospecta"]) await chamar(doGrupo(J(1), `sou ${nome}`, { nome }));
+    await chamar(doGrupo(J(1), "oi", { nome: "Maria Silva" }));
     const r = await caller(ADMIN).whatsappGrupos.mensagens({ grupoId: 1 });
-    expect(r.mensagens.map(m => [m.origem, m.autor])).toEqual([["participante", AUTOR_DOLORES], ["participante", "equipe — Bianca Souza"]]);
+    expect(r.mensagens.map(m => [m.origem, m.autor])).toEqual([
+      ["participante", "Dolores (participante)"], ["participante", "D0lores IA (participante)"], ["participante", "equipe — Bianca Souza (participante)"],
+      ["participante", "Equipe Prospecta (participante)"], ["participante", "Prospecta (participante)"], ["participante", "Maria Silva"],
+    ]);
+    expect(r.mensagens.some(m => m.autor === AUTOR_DOLORES || /^equipe — [^(]*$/.test(m.autor))).toBe(false);
   });
 
   it("pushName com HTML, RTL, invisíveis, quebra de linha, colchetes, chave de API e 500 caracteres: gravado filtrado, uma linha, ≤ 80", async () => {
@@ -259,12 +261,22 @@ describe("QA-SEG C2 — devolver nunca liga; ordem da migração", () => {
     expect(enviarAoGrupo).not.toHaveBeenCalled();
   });
 
-  it("ACHADO (médio, ordem de publicação): sem a 0142, a mensagem de grupo não é registrada e a Dolores cala em todos os grupos", async () => {
-    await banco.pg.exec(`DROP TABLE whatsapp_grupo_atendimento; ALTER TABLE dolores_grupo_mensagens DROP COLUMN nome_remetente CASCADE;`);
-    await chamar(doGrupo(J(1), "documento chegando"));
-    expect(await n("SELECT count(*)::int AS n FROM dolores_grupo_mensagens")).toBe(0); // registro perdido (grupo-erro)
+  it("CORRIGIDO (médio, ordem de publicação): sem a 0142, a mensagem de grupo é registrada (sem o nome) e a Dolores continua respondendo", async () => {
+    // o banco como está hoje em produção: sem as tabelas novas, sem a coluna e com a guarda da 0126
+    await banco.pg.exec(`DROP TABLE whatsapp_grupo_atendimento; DROP TABLE whatsapp_grupo_envios; ALTER TABLE dolores_grupo_mensagens DROP COLUMN nome_remetente CASCADE;`);
+    await banco.pg.exec(readFileSync(new URL("../../drizzle/0126_dolores_grupos.sql", import.meta.url), "utf8").match(/CREATE OR REPLACE FUNCTION dolores_grupo_mensagens_guarda[\s\S]*?\$\$ LANGUAGE plpgsql;/)![0]);
+    await chamar(doGrupo(J(1), "documento chegando", { nome: "Maria Silva" }));
+    expect(await n("SELECT count(*)::int AS n FROM dolores_grupo_mensagens")).toBe(1);
     await chamar(doGrupo(J(1), "qual o andamento?", { marcar: true }));
-    expect(enviarAoGrupo).not.toHaveBeenCalled(); // falha fechada: calada
+    expect(enviarAoGrupo).toHaveBeenCalledTimes(1);
+    // a Central lê sem a coluna (autor = número mascarado) e sem as tabelas novas; escrever e assumir esperam a 0142 (nada sai)
+    const r = await caller(ADMIN).whatsappGrupos.mensagens({ grupoId: 1 });
+    expect(r.mensagens.find(m => m.origem === "participante" && m.texto === "documento chegando")?.autor).not.toBe("Maria Silva");
+    await expect(caller(ADMIN).whatsappGrupos.listar()).resolves.toBeTruthy();
+    expect(await caller(ADMIN).whatsappGrupos.atendimento({ grupoId: 1 })).toMatchObject({ estado: "dolores" });
+    await expect(caller(ADMIN).whatsappGrupos.enviar({ grupoId: 1, texto: "oi" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(caller(ADMIN).whatsappGrupos.mudarAtendimento({ grupoId: 1, acao: "assumir" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(evolucao).not.toHaveBeenCalled();
   });
 });
 

@@ -26,12 +26,16 @@ import { whatsappGrupoAtendimento, whatsappGrupoEnvios } from "../drizzle/schema
 import { textoDeDado } from "../shared/dolores/fila.js";
 import { ROTULO_TIPO_GRUPO, semProvaDoDono, tipoEfetivo } from "../shared/dolores/grupos-tipo.js";
 import {
-  AUTOR_DOLORES, LIMITE_MENSAGENS_GRUPO, TEXTO_GRUPOS, autorDaEquipe, grupoVisivelNaCentral, podeVerGruposNaCentral, textoDaMensagemDeGrupo,
+  AUTOR_DOLORES, LIMITE_MENSAGENS_GRUPO, TEXTO_GRUPOS, autorDaEquipe, autorDoParticipante, grupoVisivelNaCentral, podeVerGruposNaCentral, textoDaMensagemDeGrupo,
 } from "../shared/whatsapp/grupos-central.js";
 import { enviarTextoDaEquipeAoGrupoEvolution } from "./_core/evolution.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { registrarAcao } from "./dolores/auditoria.js";
+import { FILTRO_DO_REGISTRO } from "./dolores/dados-pessoais.js";
+import { nomesDosRemetentes } from "./dolores/grupo-mensagens-nome.js";
+import { ehTabelaInexistente } from "./dolores/erro-de-banco.js";
+import { sanitizarTexto } from "../shared/dolores/sanitizar.js";
 import { reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
 import { conexaoDaEmpresa } from "./whatsapp-conexao-empresa.js";
 
@@ -64,11 +68,15 @@ async function grupoDaCentral(role: string, grupoId: number): Promise<{ g: Dolor
 
 const nomeDoGrupo = (g: { nomeWhatsapp: string | null; nome: string }) => textoDeDado(g.nomeWhatsapp ?? g.nome, 120);
 
-/** Autor de uma mensagem de participante: o nome no WhatsApp (gravado a partir do C2) ou o número mascarado. */
-function autorDoParticipante(m: { nomeRemetente: string | null; remetente: string | null; doDono: boolean }) {
-  const base = m.nomeRemetente ? textoDeDado(m.nomeRemetente, 80) : m.remetente ?? "participante";
-  return m.doDono ? `${base} (dono)` : base;
-}
+/**
+ * Portão de QA da C2 (achado 4): na LEITURA pela Central, todo texto (participante, equipe e Dolores) passa pelo mesmo filtro do
+ * registro — CPF, telefone e afins mascarados; senhas, tokens e dados bancários sempre.
+ */
+const mascarado = (s: string | null | undefined) => sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO);
+
+/** Portão de QA (achado 2): sem a 0142, as tabelas novas não existem — a leitura segue sem elas (nada enviado, ninguém assumiu). */
+const semTabelaNova = <T>(e: unknown): T[] => { if (ehTabelaInexistente(e)) return []; throw e; };
+const SEM_0142 = "Escrever e assumir grupo pela Central ficam disponíveis depois da migração 0142.";
 
 type ItemDoGrupo = {
   chave: string; origem: "participante" | "equipe" | "dolores"; autor: string; texto: string; quando: Date;
@@ -79,7 +87,7 @@ type ItemDoGrupo = {
 async function estadoDoAtendimento(grupoId: number) {
   const [l] = await getDb().select({ modo: whatsappGrupoAtendimento.modo, em: whatsappGrupoAtendimento.alteradoEm, nome: users.name })
     .from(whatsappGrupoAtendimento).leftJoin(users, eq(users.id, whatsappGrupoAtendimento.alteradoPor))
-    .where(eq(whatsappGrupoAtendimento.grupoId, grupoId)).limit(1);
+    .where(eq(whatsappGrupoAtendimento.grupoId, grupoId)).limit(1).catch(e => semTabelaNova<{ modo: string; em: Date; nome: string | null }>(e));
   return { estado: l?.modo === "humano" ? "assumida" as const : "dolores" as const, alteradoEm: l?.em ?? null, alteradoPor: l?.nome ?? null };
 }
 
@@ -106,7 +114,8 @@ export const whatsappGruposRouter = router({
         criadoEm: doloresGrupoMensagens.criadoEm, enviadaEm: doloresGrupoMensagens.enviadaEm,
       }).from(doloresGrupoMensagens).where(inArray(doloresGrupoMensagens.grupoId, ids)).orderBy(doloresGrupoMensagens.grupoId, desc(doloresGrupoMensagens.criadoEm)),
       db.selectDistinctOn([whatsappGrupoEnvios.grupoId], { grupoId: whatsappGrupoEnvios.grupoId, texto: whatsappGrupoEnvios.texto, criadoEm: whatsappGrupoEnvios.criadoEm })
-        .from(whatsappGrupoEnvios).where(inArray(whatsappGrupoEnvios.grupoId, ids)).orderBy(whatsappGrupoEnvios.grupoId, desc(whatsappGrupoEnvios.criadoEm)),
+        .from(whatsappGrupoEnvios).where(inArray(whatsappGrupoEnvios.grupoId, ids)).orderBy(whatsappGrupoEnvios.grupoId, desc(whatsappGrupoEnvios.criadoEm))
+        .catch(e => semTabelaNova<{ grupoId: number; texto: string; criadoEm: Date }>(e)),
       db.selectDistinctOn([doloresMarcacoes.grupoId], { grupoId: doloresMarcacoes.grupoId, texto: doloresMarcacoes.resposta, criadoEm: doloresMarcacoes.respondidaEm })
         .from(doloresMarcacoes).where(and(inArray(doloresMarcacoes.grupoId, ids), eq(doloresMarcacoes.situacao, "respondida"), isNotNull(doloresMarcacoes.respondidaEm), isNotNull(doloresMarcacoes.resposta)))
         .orderBy(doloresMarcacoes.grupoId, desc(doloresMarcacoes.respondidaEm)),
@@ -114,9 +123,9 @@ export const whatsappGruposRouter = router({
     const conectada = conn?.status === "conectado";
     const grupos = visiveis.map(g => {
       const candidatas = [
-        ...entradas.filter(m => m.grupoId === g.id).map(m => ({ texto: textoDaMensagemDeGrupo(m), quando: m.enviadaEm ?? m.criadoEm, ordem: m.criadoEm })),
-        ...envios.filter(m => m.grupoId === g.id).map(m => ({ texto: `Equipe: ${m.texto}`, quando: m.criadoEm, ordem: m.criadoEm })),
-        ...respostas.filter(m => m.grupoId === g.id && m.criadoEm).map(m => ({ texto: `${AUTOR_DOLORES}: ${m.texto ?? ""}`, quando: m.criadoEm!, ordem: m.criadoEm! })),
+        ...entradas.filter(m => m.grupoId === g.id).map(m => ({ texto: mascarado(textoDaMensagemDeGrupo(m)), quando: m.enviadaEm ?? m.criadoEm, ordem: m.criadoEm })),
+        ...envios.filter(m => m.grupoId === g.id).map(m => ({ texto: `Equipe: ${mascarado(m.texto)}`, quando: m.criadoEm, ordem: m.criadoEm })),
+        ...respostas.filter(m => m.grupoId === g.id && m.criadoEm).map(m => ({ texto: `${AUTOR_DOLORES}: ${mascarado(m.texto)}`, quando: m.criadoEm!, ordem: m.criadoEm! })),
       ].sort((a, b) => b.ordem.getTime() - a.ordem.getTime());
       const ultima = candidatas[0] ?? null;
       const tipo = tipoEfetivo(g);
@@ -149,24 +158,27 @@ export const whatsappGruposRouter = router({
         .orderBy(desc(doloresGrupoMensagens.criadoEm), desc(doloresGrupoMensagens.id)).limit(lim),
       db.select().from(whatsappGrupoEnvios)
         .where(and(eq(whatsappGrupoEnvios.grupoId, g.id), input.antes ? lt(whatsappGrupoEnvios.criadoEm, input.antes) : undefined))
-        .orderBy(desc(whatsappGrupoEnvios.criadoEm), desc(whatsappGrupoEnvios.id)).limit(lim),
+        .orderBy(desc(whatsappGrupoEnvios.criadoEm), desc(whatsappGrupoEnvios.id)).limit(lim).catch(e => semTabelaNova<typeof whatsappGrupoEnvios.$inferSelect>(e)),
       db.select({ id: doloresMarcacoes.id, resposta: doloresMarcacoes.resposta, respondidaEm: doloresMarcacoes.respondidaEm }).from(doloresMarcacoes)
         .where(and(eq(doloresMarcacoes.grupoId, g.id), eq(doloresMarcacoes.situacao, "respondida"), isNotNull(doloresMarcacoes.respondidaEm), isNotNull(doloresMarcacoes.resposta),
           input.antes ? lt(doloresMarcacoes.respondidaEm, input.antes) : undefined))
         .orderBy(desc(doloresMarcacoes.respondidaEm)).limit(lim),
     ]);
     // o eco de um envio da equipe nunca aparece duas vezes (hoje ele nem é registrado: é mensagem da própria conta)
+    const nomes = await nomesDosRemetentes(entradas.map(m => m.id));
     const ecos = new Set(envios.map(e => e.externalId).filter((x): x is string => !!x));
     const itens: ItemDoGrupo[] = [
       ...entradas.filter(m => !ecos.has(m.externalId)).map(m => ({
-        chave: `m${m.id}`, origem: "participante" as const, autor: autorDoParticipante(m), texto: textoDaMensagemDeGrupo(m),
+        chave: `m${m.id}`, origem: "participante" as const,
+        autor: autorDoParticipante({ nome: nomes.has(m.id) ? textoDeDado(nomes.get(m.id), 80) : null, remetente: m.remetente, doDono: m.doDono }),
+        texto: mascarado(textoDaMensagemDeGrupo(m)),
         quando: m.enviadaEm ?? m.criadoEm, ordem: m.criadoEm, situacao: null,
       })),
       ...envios.map(e => ({
-        chave: `e${e.id}`, origem: "equipe" as const, autor: autorDaEquipe(e.enviadoPorNome), texto: e.texto, quando: e.criadoEm, ordem: e.criadoEm, situacao: e.situacao,
+        chave: `e${e.id}`, origem: "equipe" as const, autor: autorDaEquipe(e.enviadoPorNome), texto: mascarado(e.texto), quando: e.criadoEm, ordem: e.criadoEm, situacao: e.situacao,
       })),
       ...respostas.map(r => ({
-        chave: `d${r.id}`, origem: "dolores" as const, autor: AUTOR_DOLORES, texto: r.resposta ?? "", quando: r.respondidaEm!, ordem: r.respondidaEm!, situacao: null,
+        chave: `d${r.id}`, origem: "dolores" as const, autor: AUTOR_DOLORES, texto: mascarado(r.resposta), quando: r.respondidaEm!, ordem: r.respondidaEm!, situacao: null,
       })),
     ].sort((a, b) => b.ordem.getTime() - a.ordem.getTime());
     const pagina = itens.slice(0, LIMITE_MENSAGENS_GRUPO);
@@ -189,6 +201,11 @@ export const whatsappGruposRouter = router({
     const { configEvolution } = await import("./whatsapp-router.js");
     const configurada = await configEvolution();
     if (!configurada) throw new TRPCError({ code: "BAD_REQUEST", message: "Servidor do WhatsApp não configurado: Configurações › Integrações." });
+    // sem a 0142 nada sai (senão a mensagem iria ao grupo sem registro de quem enviou)
+    await getDb().select({ id: whatsappGrupoEnvios.id }).from(whatsappGrupoEnvios).limit(1).catch(e => {
+      if (ehTabelaInexistente(e)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_0142 });
+      throw e;
+    });
     // QA-SEG E9 achado 5: o mesmo ritmo do número da empresa (por minuto e por dia), no servidor, antes do envio
     const teto = await reservarEnvioManualDaEmpresa();
     if (teto) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: teto });
@@ -228,7 +245,8 @@ export const whatsappGruposRouter = router({
     const modo = input.acao === "assumir" ? "humano" as const : "dolores" as const;
     const agora = new Date();
     await getDb().insert(whatsappGrupoAtendimento).values({ grupoId: g.id, modo, alteradoEm: agora, alteradoPor: ctx.user.id })
-      .onConflictDoUpdate({ target: whatsappGrupoAtendimento.grupoId, set: { modo, alteradoEm: agora, alteradoPor: ctx.user.id } });
+      .onConflictDoUpdate({ target: whatsappGrupoAtendimento.grupoId, set: { modo, alteradoEm: agora, alteradoPor: ctx.user.id } })
+      .catch(e => { if (ehTabelaInexistente(e)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: SEM_0142 }); throw e; });
     await registrarAcao({
       funcao: "grupo_central_atendimento", resultado: "ok", autorUserId: null, canal: "tela", pedidoId: `central:grupo:${g.id}:atendimento`,
       motivo: input.acao === "assumir" ? "grupo assumido pela equipe (Dolores calada nele até devolverem)" : "grupo devolvido para a Dolores (valem os interruptores de sempre)",

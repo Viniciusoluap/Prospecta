@@ -4,7 +4,7 @@ Status: InReview (ramo `epic027-c2`, criado de `epic027-d`; implementada, aguard
 Epic: EPIC-027 — Correções de 20/11/2026 (noite) (`EPIC.md`).
 Paridade: a Central WhatsApp existe no Grupo Santa Fé — pendência registrada no ROADMAP (seção EPIC-027). A parte da Dolores
 (resposta quando marcada, classificar grupo, "Assumir" calando a Dolores) é exceção.
-Migração: `drizzle/0142_grupos_na_central.sql` (aditiva e idempotente; NÃO aplicada — aplicar no Neon ANTES de publicar o código).
+Migração: `drizzle/0142_grupos_na_central.sql` (aditiva e idempotente; NÃO aplicada). Depois da rodada de 21/11 a ordem não importa: o código tolera o banco sem ela. Convive com a `0144` do `epic027-d` (o banco de teste aplica 0139 → 0144 → 0142, cada uma duas vezes).
 
 ## Pedido do dono (20/11/2026, noite)
 "Aqui nas mensagens do WhatsApp também deve aparecer as mensagens do grupo para que o humano possa intervir". Respostas dele:
@@ -119,3 +119,25 @@ exatamente igual faz na conversa".
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementada no ramo `epic027-c2`.
+
+## Rodada de correção de 21/11 (mudança de regra do dono + portão de QA)
+- **Regra nova do dono (21/11):** "eu disse que o colaborador pode ter acesso às mensagens do grupo assim como as mensagens dos
+  clientes, mas em nenhum momento eu falei que ele iria classificar". O colaborador com "Grupos do WhatsApp" VÊ, ESCREVE e usa
+  Assumir/Devolver; classificar grupo é SÓ do admin (tela) e do dono (WhatsApp). `epic027-d` mesclado (rota `definirTipo` só admin
+  com recusa genérica, filtro por instância, sem reativar desativado, `0144`); na Central o "Definir tipo" só aparece para
+  `role === "admin"`; `colaboradorPodeClassificar` não é mais usado. Isto substitui o AC7 e a decisão sobre classificação acima.
+- Achado 2 (médio, ordem da 0142) — corrigido: a coluna `nome_remetente` saiu da definição principal da tabela (os `select()`
+  completos não quebram sem ela) e é gravada logo depois do registro, em separado, por `server/dolores/grupo-mensagens-nome.ts`
+  (coluna ausente, 42703 → registra sem o nome); a guarda da 0142 deixa preencher o nome UMA vez e nunca trocar.
+  `grupo-assumido.ts`: tabela ausente (42P01) = "não assumido". A Central lê sem as tabelas novas; escrever e assumir respondem
+  PRECONDITION_FAILED antes de enviar qualquer coisa.
+- Achado 3 (baixo) — corrigido: nome de participante que imita a Dolores, a equipe ou a empresa ("Dolores", "D0lores", "equipe …",
+  "Prospecta") volta marcado "Fulano (participante)" (`nomeImitaQuemNaoE`, `autorDoParticipante`); a origem vai explícita no retorno
+  e a tela diferencia por ela (ícone, cor, "· participante"), não pelo nome.
+- Achado 4 (baixo) — corrigido: na leitura pela Central TODO texto (participante, equipe, Dolores; lista e conversa) passa pelo filtro
+  do registro; o que sai ao grupo é o texto original. A frase da tela diz "em todas as mensagens".
+- Achado 5 (baixo) — corrigido: gatilho de imutabilidade em `whatsapp_grupo_envios` (na 0142): sem DELETE/TRUNCATE e sem UPDATE; só
+  `enviado_por` pode virar NULL (usuário excluído; o nome daquele momento fica).
+- Engenheiro com a permissão NÃO vê grupos (mantido de propósito: só admin e colaborador).
+- Testes: `c2-grupos-na-central.test.ts` (colaborador FORBIDDEN em `definirTipo` em qualquer caso; guardas da 0142) e
+  `epic027-c2-qa-seguranca.test.ts` (os "ACHADO" invertidos para "CORRIGIDO").

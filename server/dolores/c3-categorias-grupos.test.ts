@@ -1,7 +1,7 @@
 // EPIC-027 C3 — categorias dos grupos iguais e explicadas em todo lugar; pergunta da Dolores com opções numeradas (o dono responde
 // só com o número); "Corrigir/Definir tipo ou vínculo" pela tela em TODO grupo aceito, inclusive "não identificado · aguardando o
-// dono"; classificar = admin e colaborador com o módulo WhatsApp (appRouter); ACEITAR grupo recusado / sem prova continua só do
-// dono pelo WhatsApp — a tela nunca vira atalho (rota e gatilho da 0139). PGlite; nada sai para a rede.
+// dono"; classificar pela tela = SÓ o administrador (regra do dono de 21/11; o colaborador nunca classifica); ACEITAR grupo
+// recusado / sem prova continua só do dono pelo WhatsApp — a tela nunca vira atalho (rota e gatilhos 0139/0144). PGlite.
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -154,23 +154,23 @@ describe("C3 — resposta só com o número, pelo WhatsApp (só o dono)", () => 
   });
 });
 
-describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceitar continua só do dono", () => {
+describe("C3 — classificar pela tela (só o administrador); aceitar continua só do dono", () => {
   beforeEach(async () => { await banco.pg.exec(GRUPOS); });
 
   it("grupo aceito com tipo pendente (aceito pelo dono e adicionado pelo dono): a tela define; nasce com o interruptor do grupo ligado", async () => {
     await caller("admin").dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia" });
     expect(await grupo(1)).toMatchObject({ tipo: "engenharia", situacao_confirmacao: "confirmado", decidido_por: "tela:1", prova_adicao: "aceito_pelo_dono", adicionado_por: "desconhecido" });
-    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 2, tipo: "cliente", numero: 1 });
-    expect(await grupo(2)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado", decidido_por: "tela:2", prova_adicao: "evento_add", adicionado_por: "dono" });
+    await caller("admin").dolores.grupos.definirTipo({ grupoId: 2, tipo: "cliente", numero: 1 });
+    expect(await grupo(2)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado", decidido_por: "tela:1", prova_adicao: "evento_add", adicionado_por: "dono" });
     expect(await q("SELECT grupo_id, responder_ligado FROM dolores_marcacoes_grupo ORDER BY grupo_id")).toEqual([{ grupo_id: 1, responder_ligado: true }, { grupo_id: 2, responder_ligado: true }]);
-    // corrigir depois é do admin (rodada 2 do QA): o colaborador não mexe em grupo já vinculado nem em engenharia geral
+    // o colaborador (com o módulo WhatsApp) nunca classifica
     await expect(caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 2, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await caller("admin").dolores.grupos.definirTipo({ grupoId: 5, tipo: "pos_atendimento", numero: 1 });
     expect(await grupo(5)).toMatchObject({ tipo: "pos_atendimento", decidido_por: "tela:1" });
   });
 
-  it("quem pode: colaborador sem o módulo WhatsApp, corretor e cliente são barrados; colaborador não desativa nem aceita", async () => {
+  it("quem pode: só o admin — colaborador (com ou sem o módulo WhatsApp), corretor e cliente são barrados", async () => {
     const semWhatsapp = ADMIN_MODULES.filter(m => m !== "whatsapp");
     await expect(caller("colaborador", semWhatsapp).dolores.grupos.definirTipo({ grupoId: 1, tipo: "juridico" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("corretor", [...ADMIN_MODULES]).dolores.grupos.definirTipo({ grupoId: 1, tipo: "juridico" })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -187,11 +187,10 @@ describe("C3 — classificar pela tela (admin e colaborador com WhatsApp); aceit
   });
 
   it("a tela NUNCA aceita grupo recusado ou sem prova: nem aceitar, nem definir tipo (que aceitaria), nem pelo gatilho", async () => {
-    for (const quem of [caller("admin"), caller("colaborador", ["whatsapp"], 2)]) {
+    for (const quem of [caller("admin")]) {
       for (const id of [3, 4]) {
-        // o colaborador já é barrado antes por ser tipo do admin; os dois são recusas
-        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "juridico" })).rejects.toThrow(/só o dono aceita|só o administrador/);
-        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "engenharia", numero: 1 })).rejects.toThrow(/só o dono aceita|só o administrador/);
+        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "juridico" })).rejects.toThrow(/só o dono aceita/);
+        await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "engenharia", numero: 1 })).rejects.toThrow(/só o dono aceita/);
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "cliente", numero: 1 })).rejects.toThrow();
         await expect(quem.dolores.grupos.definirTipo({ grupoId: id, tipo: "aceitar" })).rejects.toThrow();
       }

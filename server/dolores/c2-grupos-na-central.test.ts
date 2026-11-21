@@ -342,28 +342,28 @@ describe("C2 — Assumir (humano) / Devolver para a Dolores no grupo", () => {
   });
 });
 
-describe("C2 — classificar pela Central segue as travas do C3 (rota dolores.grupos.definirTipo)", () => {
-  it("colaborador com a permissão: só grupo sem vínculo, como cliente/pós/engenharia de obra; nunca administrativo, jurídico, parceiros, ignorar ou aceitar", async () => {
+describe("C2 — classificar é SÓ do admin (tela) e do dono (WhatsApp) — regra do dono de 21/11", () => {
+  it("colaborador com a permissão recebe FORBIDDEN em definirTipo em QUALQUER caso; o admin classifica; aceitar recusado/sem prova nem o admin", async () => {
     const c = caller(COLAB_COM);
-    for (const tipo of ["administrativo", "juridico", "parceiros"] as const) await expect(c.dolores.grupos.definirTipo({ grupoId: 8, tipo })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(c.dolores.grupos.definirTipo({ grupoId: 8, tipo: "aceitar" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(c.dolores.grupos.definirTipo({ grupoId: 8, tipo: "ignorar" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(c.dolores.grupos.definirTipo({ grupoId: 1, tipo: "pos_atendimento", numero: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" }); // já tem cliente
-    await expect(c.dolores.grupos.definirTipo({ grupoId: 2, tipo: "cliente", numero: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" }); // o dos sócios
-    await expect(c.dolores.grupos.definirTipo({ grupoId: 8, tipo: "cliente", numero: 3 })).resolves.toMatchObject({ ok: true });
+    for (const id of [1, 2, 3, 8])
+      for (const tipo of ["cliente", "pos_atendimento", "engenharia", "administrativo", "juridico", "parceiros", "ignorar", "aceitar"] as const)
+        await expect(c.dolores.grupos.definirTipo({ grupoId: id, tipo, numero: tipo === "cliente" || tipo === "pos_atendimento" ? 3 : null }), `${id} ${tipo}`).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await q("SELECT tipo, lead_id FROM dolores_grupos WHERE id = 8")).toEqual([{ tipo: null, lead_id: null }]);
+    expect(enviarAoDono).not.toHaveBeenCalled();
+    await expect(caller(ADMIN).dolores.grupos.definirTipo({ grupoId: 8, tipo: "cliente", numero: 3 })).resolves.toMatchObject({ ok: true });
     expect(await q("SELECT tipo, lead_id FROM dolores_grupos WHERE id = 8")).toEqual([{ tipo: "cliente", lead_id: 3 }]);
-    // o dono recebe o aviso no WhatsApp
-    expect(enviarAoDono).toHaveBeenCalled();
-    // aceitar recusado / sem prova continua só do dono no WhatsApp: nem o admin pela tela
+    expect(enviarAoDono).toHaveBeenCalled(); // o dono recebe o aviso no WhatsApp
     for (const id of [4, 6]) await expect(caller(ADMIN).dolores.grupos.definirTipo({ grupoId: id, tipo: "aceitar" })).rejects.toThrow();
     expect(await q("SELECT situacao_confirmacao FROM dolores_grupos WHERE id IN (4, 6) ORDER BY id")).toEqual([{ situacao_confirmacao: "recusado" }, { situacao_confirmacao: "aguardando_dono" }]);
   });
 
-  it("estático: a tela da Central usa a MESMA rota e a MESMA lista de categorias; não tem 'aceitar' nem lista própria", () => {
+  it("estático: 'Definir tipo' na Central só existe para o admin, com a MESMA rota e a MESMA lista; sem 'aceitar' e sem regra de colaborador", () => {
     const tela = readFileSync(new URL("../../client/src/components/whatsapp/GruposWhatsApp.tsx", import.meta.url), "utf8");
     expect(tela).toContain("trpc.dolores.grupos.definirTipo");
     expect(tela).toContain("CATEGORIAS_GRUPO");
-    expect(tela).toContain("colaboradorPodeClassificar");
+    expect(tela).toMatch(/\{ehAdmin && <DefinirTipo /);
+    expect(tela).toContain('user?.role === "admin"');
+    expect(tela).not.toContain("colaboradorPodeClassificar");
     expect(tela).not.toMatch(/"aceitar"|"ignorar"/);
     expect(tela).not.toMatch(/\["cliente", "pos_atendimento", "juridico"/);
     const conversas = readFileSync(new URL("../../client/src/components/whatsapp/ConversasWhatsApp.tsx", import.meta.url), "utf8");
@@ -383,6 +383,18 @@ describe("migração 0142", () => {
     await banco.pg.exec(`INSERT INTO dolores_grupo_mensagens (grupo_id, instancia, external_id, tipo, texto) VALUES (1, 'prospecta-dolores', 'X1', 'texto', 'a')`);
     await expect(banco.pg.exec("DELETE FROM dolores_grupo_mensagens")).rejects.toThrow(/SEM_EXCLUSAO/);
     await expect(banco.pg.exec("UPDATE dolores_grupo_mensagens SET texto = 'b'")).rejects.toThrow(/IMUTAVEL/);
+    // o nome é preenchido uma vez (de vazio para o valor) e não muda mais
+    await banco.pg.exec("UPDATE dolores_grupo_mensagens SET nome_remetente = 'Fulano'");
+    await expect(banco.pg.exec("UPDATE dolores_grupo_mensagens SET nome_remetente = 'Outro'")).rejects.toThrow(/IMUTAVEL/);
+    await expect(banco.pg.exec("UPDATE dolores_grupo_mensagens SET nome_remetente = NULL")).rejects.toThrow(/IMUTAVEL/);
+    // achado 5: o envio da equipe não muda nem some; só "enviado_por" pode virar NULL (usuário excluído)
+    await banco.pg.exec(`INSERT INTO whatsapp_grupo_envios (grupo_id, instancia, external_id, texto, situacao, enviado_por, enviado_por_nome) VALUES (1, 'prospecta-dolores', 'E1', 'oi', 'enviada', 2, 'Bianca Souza')`);
+    for (const u of ["texto = 'trocado'", "enviado_por = 1", "enviado_por_nome = 'Outro'", "situacao = 'falhou'", "external_id = 'E2'"])
+      await expect(banco.pg.exec(`UPDATE whatsapp_grupo_envios SET ${u}`), u).rejects.toThrow(/WHATSAPP_GRUPO_ENVIOS_IMUTAVEL/);
+    await expect(banco.pg.exec("DELETE FROM whatsapp_grupo_envios")).rejects.toThrow(/SEM_EXCLUSAO/);
+    await expect(banco.pg.exec("TRUNCATE whatsapp_grupo_envios")).rejects.toThrow(/SEM_EXCLUSAO/);
+    await banco.pg.exec("UPDATE whatsapp_grupo_envios SET enviado_por = NULL");
+    expect(await q("SELECT enviado_por, enviado_por_nome FROM whatsapp_grupo_envios")).toEqual([{ enviado_por: null, enviado_por_nome: "Bianca Souza" }]);
     await expect(banco.pg.exec("INSERT INTO whatsapp_grupo_atendimento (grupo_id, modo) VALUES (1, 'outro')")).rejects.toThrow();
   });
 });
