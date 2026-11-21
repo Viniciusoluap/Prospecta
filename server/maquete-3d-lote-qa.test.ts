@@ -315,6 +315,55 @@ describe("QA C1 — dinheiro, lote órfão, cancelamento e chave (router, banco 
     expect(enviados).toHaveLength(1);
     expect(await contador(id)).toBe(0);
   });
+
+  it("QA-R2-1 ACHADO: lote ALHEIO (outra ferramenta com a mesma chave) adotado e ainda não conferido é CANCELADO pelo botão e pelo abandono", async () => {
+    emAndamento = 100;
+    const c = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(c);
+    await sim.cliente.enviar({ ...enviados.at(-1)!, idPedido: "outra-ferramenta-do-dono" }); // msgbatch_simulado_1: não é da maquete
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    expect((await avancar(c)).aguardando?.motivo).toBe("lote");
+    expect(await passoIA(c)).toMatchObject({ lote: { id: "msgbatch_simulado_1", adotado: true } });
+    await colaborador().cancelarLeituraIA({ id: c, chave: "ia:0:1" });
+    expect(sim.cancelamentos).toEqual(["msgbatch_simulado_1"]); // cancelou trabalho de outro sistema
+
+    // Abandono (30 falhas de consulta) também cancela o lote adotado sem conferência.
+    const d = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(d);
+    await sim.cliente.enviar({ ...enviados.at(-1)!, idPedido: "outra-ferramenta-2" });
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    await avancar(d);
+    const alheio = (await passoIA(d)).lote!.id;
+    falhaNaConsulta = new Error("rede");
+    let r = await avancar(d);
+    for (let i = 1; i < MAX_FALHAS_CONSULTA && !r.erro; i++) r = await avancar(d);
+    expect(r.erro).toContain("conta como usada");
+    expect(sim.cancelamentos).toContain(alheio);
+  });
+
+  it("QA-R2-2 ACHADO (baixo): A (lote não criado) adota o lote órfão da B na mesma janela; a B fica sem o dela e o resultado pago da B não é usado por ninguém", async () => {
+    const a = await prontoParaIA();
+    const b = await prontoParaIA();
+    definirDependencias({ lote: comTempoEsgotado(false) });
+    await avancar(a);                                 // A: tempo esgotado, nenhum lote
+    definirDependencias({ lote: comTempoEsgotado(true) });
+    await avancar(b);                                 // B: tempo esgotado, lote criado (órfão)
+    definirDependencias({ lote: sim.cliente });
+    passar(ESPERA_PARA_PROCURAR_MS + 1_000);
+    expect((await avancar(a)).aguardando?.motivo).toBe("lote"); // A adota o lote da B
+    expect(await passoIA(a)).toMatchObject({ lote: { id: "msgbatch_simulado_1", adotado: true } });
+    let rb = await avancar(b);
+    for (let i = 0; i < MAX_PROCURAS + 2 && !rb.erro; i++) { passar(ESPERA_PARA_PROCURAR_MS + 1_000); rb = await avancar(b); }
+    expect(rb.erro).toContain("não foi encontrado"); // a dona perdeu o lote
+    const ra = await avancar(a);
+    expect(ra.erro).toContain("não era o desta prancha"); // e a A descarta o resultado (correto: nunca grava planta alheia)
+    expect([(await gravado(a)).tokensEntrada, (await gravado(b)).tokensEntrada]).toEqual([0, 0]);
+    expect([await contador(a), await contador(b)]).toEqual([1, 1]); // dentro do teto
+  });
 });
 
 describe("QA C1 — pdfDaPagina com PDFs degenerados (tempo, memória, vazamento)", () => {
