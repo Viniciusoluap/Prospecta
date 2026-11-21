@@ -7,6 +7,8 @@
 // - POST /whatsapp/messages (fila; 200 = aceito; 400/404/422 não se repete): https://docs.ycloud.com/api-reference/whatsapp-messages/enqueue-a-message.md
 // - POST /webhookEndpoints (devolve `secret`): https://docs.ycloud.com/en/api-reference/guides/api-fundamentals/configure-webhooks.md
 // - POST /unsubscribers: https://docs.ycloud.com/en/api-reference/guides/customer-data-and-operations/manage-unsubscribers.md
+// - POST /whatsapp/templates (C7.2, conferido em 21/11/2026): https://docs.ycloud.com/api-reference/whatsapp-templates/create-a-template.md
+//   obrigatórios wabaId, name, language, category, components (BODY obrigatório; example.body_text = [[valores]] quando há variável).
 // Segurança: a URL base é FIXA (nenhuma URL vinda da tela é chamada); a chave só vai no cabeçalho; mensagens de erro saem montadas
 // pelo código (status + código da YCloud), nunca com o texto da resposta, e passam por `semSegredo`.
 
@@ -16,7 +18,9 @@ const TEMPO_LIMITE_MS = 15_000;
 export type FetchLike = typeof fetch;
 
 export class ErroYcloud extends Error {
-  constructor(message: string, readonly status: number | null, readonly codigo: string | null, readonly retryAfterS: number | null = null) {
+  constructor(message: string, readonly status: number | null, readonly codigo: string | null, readonly retryAfterS: number | null = null,
+    /** C7.2: explicação da Meta (`whatsappApiError.error_user_msg`), limpa (sem segredo, sem números longos, curta). Só modelos a usam. */
+    readonly explicacaoMeta: string | null = null) {
     super(message);
     this.name = "ErroYcloud";
   }
@@ -58,6 +62,13 @@ const MENSAGEM_POR_CODIGO: Record<string, string> = {
   SERVICE_UNAVAILABLE: "YCloud temporariamente indisponível",
 };
 
+/** Texto da Meta para quem configura (ex.: "o modelo tem variáveis demais"): sem a chave, sem sequências de dígitos, sem controle, curto. */
+function explicacaoSegura(v: unknown, apiKey: string): string | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const t = semSegredo(v, apiKey).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\d{6,}/g, "…").replace(/\s+/g, " ").trim().slice(0, 200);
+  return t || null;
+}
+
 function codigoSeguro(v: unknown): string | null {
   return typeof v === "string" && /^[A-Z0-9_]{2,60}$/.test(v) ? v : null;
 }
@@ -83,8 +94,9 @@ async function chamar<T>(c: ChamadaYcloud, metodo: "GET" | "POST", caminho: stri
   const codigo = codigoSeguro(dados?.error?.code);
   const ra = Number(resp.headers.get("Retry-After"));
   const explicacao = (codigo && MENSAGEM_POR_CODIGO[codigo]) || "erro sem detalhe";
+  const meta = dados?.error?.whatsappApiError;
   throw new ErroYcloud(semSegredo(`A YCloud respondeu HTTP ${resp.status}${codigo ? ` (${codigo})` : ""}: ${explicacao}.`, c.apiKey), resp.status, codigo,
-    Number.isFinite(ra) && ra >= 0 ? ra : null);
+    Number.isFinite(ra) && ra >= 0 ? ra : null, explicacaoSegura(meta?.error_user_msg ?? meta?.error_user_title, c.apiKey));
 }
 
 // ── Números ──
@@ -120,6 +132,17 @@ export async function listarModelosYcloud(c: ChamadaYcloud, wabaId: string | nul
     if (itens.length < 100) break;
   }
   return out;
+}
+
+/** Corpo de POST /whatsapp/templates (só os campos que o Prospecta usa: BODY com exemplo e FOOTER opcional). */
+export type PedidoCriarModelo = {
+  wabaId: string; name: string; language: string; category: "MARKETING" | "UTILITY";
+  components: Array<{ type: "BODY"; text: string; example?: { body_text: string[][] } } | { type: "FOOTER"; text: string }>;
+};
+
+/** C7.2 — envia um modelo para aprovação da Meta. 200 = criado (normalmente `status: PENDING`). */
+export async function criarModeloYcloud(c: ChamadaYcloud, p: PedidoCriarModelo): Promise<ModeloYcloud> {
+  return chamar<ModeloYcloud>(c, "POST", "/whatsapp/templates", p);
 }
 
 // ── Envio (fila) ──

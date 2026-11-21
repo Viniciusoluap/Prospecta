@@ -63,12 +63,14 @@ export async function conferirNumeroYcloud(apiKey?: string): Promise<Conferencia
 export type ModeloNaTela = {
   nome: string; idioma: string; categoria: string | null; status: string | null; motivoRecusa: string | null; qualidade: string | null;
   analise: AnaliseModelo;
+  /** C7.2: o modelo veio de um template da Central — posição (1..n) → variável da Central ({{nome}}, {{corretor}}…) */
+  variaveisDoTemplate?: string[] | null;
 };
 
 export function modeloParaTela(m: ModeloYcloud): ModeloNaTela {
   return {
     nome: String(m.name ?? ""), idioma: String(m.language ?? ""), categoria: m.category ?? null, status: m.status ?? null,
-    motivoRecusa: m.reason ? String(m.reason).slice(0, 300) : null, qualidade: m.qualityRating ?? null,
+    motivoRecusa: m.reason && m.reason !== "NONE" ? String(m.reason).slice(0, 300) : null, qualidade: m.qualityRating ?? null,
     analise: analisarModelo(m.components),
   };
 }
@@ -80,6 +82,11 @@ export async function modelosDaConta(): Promise<ModeloNaTela[]> {
   const { lerConfigYcloud } = await import("./config.js");
   const cfg = await lerConfigYcloud();
   const lista = await listarModelosYcloud({ apiKey: chave, fetchImpl: d.fetch }, cfg.wabaId);
-  return lista.filter(m => m.name && m.language).map(modeloParaTela)
+  // C7.2: listar também garante o modelo padrão (uma vez; se a conta não tem modelo de marketing em pt_BR). Nunca lança.
+  const { garantirModeloPadrao, vinculosDosTemplates } = await import("./modelos.js");
+  const padrao = await garantirModeloPadrao({ origem: "listagem", lista });
+  if (padrao.r === "criado" && padrao.modelo) lista.push(padrao.modelo);
+  const porNome = new Map(Array.from((await vinculosDosTemplates().catch(() => new Map())).values()).map(v => [v.n, v.v] as const));
+  return lista.filter(m => m.name && m.language).map(m => ({ ...modeloParaTela(m), variaveisDoTemplate: m.language === "pt_BR" ? porNome.get(String(m.name)) ?? null : null }))
     .sort((a, b) => Number(b.status === "APPROVED") - Number(a.status === "APPROVED") || a.nome.localeCompare(b.nome));
 }

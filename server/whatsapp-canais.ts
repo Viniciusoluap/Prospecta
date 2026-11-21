@@ -7,8 +7,9 @@ import { LOTE_ENVIO_WHATSAPP } from "../shared/whatsapp/conversas.js";
 /** Coexistência com a API oficial no número principal — NÃO implementada (fase separada). Não ligar sem a fase própria. */
 export const API_OFICIAL_PARA_CAMPANHAS = false as const;
 
+// EPIC-027 C7.2 (21/11/2026): a coexistência já existe (YCloud, C7) — o disparo em massa é a "Campanha pela API oficial".
 export const AVISO_DISPARO_BLOQUEADO =
-  "Disparo em massa pelo número principal da empresa está bloqueado até a coexistência com a API oficial do WhatsApp (fase separada). Envie para um contato por vez.";
+  "Pelo WhatsApp Web, o número da empresa envia para um contato por vez. Disparo em massa: use a \"Campanha pela API oficial\" (modelo aprovado pela Meta), em Enviar mensagem.";
 
 export type CanalDeDisparo = { canal: "evolution" | "api_oficial"; maxDestinatarios: number; aviso: string | null };
 

@@ -63,6 +63,44 @@ Critérios:
       UPDATE SKIP LOCKED)` reavaliava o subselect. Agora os ids são escolhidos numa consulta separada e o UPDATE confere "na_fila"
       (um lote por vez continua garantido por `travarLote`). Teste: com teto 1, o lote envia 1.
 
+## C7.2 — modelos criados pelo próprio sistema (pedido do dono em 21/11/2026)
+
+Pedido: o dono cadastrou a chave e parou na tela "Add template" da YCloud — "se nós já temos isso tudo no sistema… eu quero que
+você faça". Correção do dono no meio (viu a aba Templates): "Não precisa criar botão novo […] coloque a função dentro de um deles".
+Documentação conferida em 21/11/2026: https://docs.ycloud.com/api-reference/whatsapp-templates/create-a-template.md
+(`POST /v2/whatsapp/templates`; obrigatórios `wabaId`, `name`, `language`, `category`, `components`; BODY até 1024 caracteres com
+`example.body_text` = [[um valor por variável]]; FOOTER até 60). A página de regras da Meta (developers.facebook.com) não abriu
+daqui: as regras de variável (sequência, não começar/terminar com variável, não colar duas) seguem o guia de modelos da Meta; "no
+máximo uma linha em branco seguida" e "cada variável uma vez" são precaução nossa.
+
+- [x] C7.2-AC1: modelo padrão `novidades_prospecta` (MARKETING, pt_BR, corpo do pedido, exemplo "Maria") enviado pelo SERVIDOR uma
+      única vez quando há chave, número conferido e WABA conhecida e a conta não tem modelo de marketing em pt_BR (qualquer situação
+      menos apagado, ou um modelo com esse nome). `server/ycloud/modelos.ts` (`garantirModeloPadrao`). Dispara em: cron
+      `/api/cron/dolores/*` (de hora em hora, 07h–14h de Brasília, só com o CRON_SECRET), cron `/api/cron/lead-card-due` (08h) e a
+      listagem `whatsappOficial.modelos` (botão "Carregar/Atualizar modelos" e a campanha ao abrir). Estado em `dashboard_settings`
+      (`ycloud.modelo_padrao`, JSON curto) reservado por compare-and-set (duas chamadas → um POST); no máximo 1 tentativa por dia
+      (dia de Brasília) e 3 no total; recusa grava o motivo (código da YCloud + explicação da Meta limpa, sem chave nem números
+      longos); tempo esgotado → no dia seguinte confere a lista antes. Auditoria `modelo_padrao_*` com autor "sistema" (`usuario_id`
+      nulo, "papel=sistema"). O cartão de Integrações mostra o que foi feito. Sem migração.
+- [x] C7.2-AC2: sem botão novo — no formulário que já abre em "+ Novo template" e "Editar" (Central › Templates), SÓ para admin, a
+      opção "Usar também em campanha pela API oficial (enviar para aprovação da Meta)" com a categoria (Marketing/Utilidade). Ao
+      salvar: o servidor confere antes (nada é salvo se o texto não puder virar modelo, com a mensagem do que ajustar), salva,
+      converte {{nome}}, {{corretor}}… em {{1}}, {{2}}… na ordem, gera os exemplos (nome→Maria, corretor→João, dia→25/11,
+      horario→14h, servicos/servico→financiamento, outros→exemplo) e envia. Nome na YCloud a partir do nome do template
+      ("Follow-up 48h" → `follow_up_48h`). Vínculo (nome, categoria, posição→variável, resumo do texto, versão) em
+      `dashboard_settings` (`ycloud.template.<id>`, sem migração). Mesmo texto → não reenvia; texto mudou → nova versão `_v2`.
+      Clique duplo → um POST (compare-and-set). Colaborador e corretor: FORBIDDEN (o `salvarTemplate` já era só do admin).
+- [x] C7.2-AC3: o cartão do template mostra a situação (em análise / aprovado / recusado + motivo) e avisa quando o texto mudou
+      depois do envio; o editor avisa que mudar o texto de um já enviado exige reenviar (`whatsappOficial.situacaoDosTemplates`,
+      só admin). O webhook `whatsapp.template.reviewed` já era assinado (fica na auditoria); a situação é lida da YCloud ao abrir a
+      aba e no "Atualizar modelos".
+- [x] C7.2-AC4: na campanha, modelo que veio de template da Central já preenche as variáveis: {{nome}} → primeiro nome do contato;
+      o resto fica como "Texto fixo" para preencher.
+- [x] C7.2-AC5: textos atualizados — cartão "Modelos da API oficial (YCloud)" ("enviados para aprovação da Meta daqui mesmo…") e
+      o aviso da Central (pelo WhatsApp Web, um contato por vez; disparo em massa pela "Campanha pela API oficial").
+- [x] C7.2-AC6: a chave continua lida só por `chaveYcloud()` e vai só no cabeçalho; nunca em estado, auditoria, erro, log ou tela
+      (testes procuram a chave no banco, na auditoria, nas respostas e no `console.error`).
+
 ## Pedido do dono (20/11/2026)
 O WhatsApp da empresa é ligado pela Evolution (WhatsApp Web): por ela entra TUDO (conversas, grupos, Dolores) e saem as mensagens
 comuns. O dono criou conta gratuita na YCloud (provedor oficial da Meta) e vinculou o MESMO número em coexistência (WhatsApp Business
@@ -198,6 +236,9 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - (a') portão da C7.1 (21/11): `npx vitest run server/ycloud server/admin-permissions.test.ts server/dolores/roteamento-eco-campanha.test.ts
   server/dolores/e9-conexao-unica.test.ts server/dolores/c3-qa-seguranca.test.ts --maxWorkers=2 --minWorkers=1` → 7 arquivos, 171/171;
   `npx tsc --noEmit` → 0 erros.
+- (a'') C7.2 (21/11): `npx vitest run server/ycloud server/admin-permissions.test.ts --maxWorkers=2 --minWorkers=1` → 5 arquivos,
+  111/111 (17 novos em `ycloud-c72.test.ts`); `e9-conexao-unica`, `e9-qa-seg`, `roteamento-eco-campanha`, `imports-esm`,
+  `api-rotas-producao` → 50/50; `npx tsc --noEmit` → 0 erros; `npx vite build` ok.
 - (b) manuais: nenhum (sem acesso à conta).
 - (c) pendentes em produção: aplicar 0141; salvar a chave; Testar; Ativar avisos; campanha de 1 destinatário (o próprio celular de
   teste) para conferir entrega, preço registrado, aviso assinado e o eco na Central.
@@ -214,11 +255,17 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - C7.1: `shared/whatsapp/ycloud.ts`, `server/ycloud/{router,config,campanhas}.ts`, `server/ycloud/ycloud.test.ts`,
   `server/ycloud/ycloud-qa.test.ts`, `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `client/src/components/admin/YcloudCard.tsx`,
   `client/src/pages/admin/AdminWhatsApp.tsx`
+- C7.2: `server/ycloud/modelos.ts` (novo), `server/ycloud/ycloud-c72.test.ts` (novo), `server/_core/ycloud.ts`,
+  `server/ycloud/{conta,router}.ts`, `server/ycloud/ycloud.test.ts`, `server/whatsapp-router.ts`, `server/whatsapp-canais.ts`,
+  `shared/whatsapp/ycloud.ts`, `api/index.ts`, `client/src/pages/admin/AdminWhatsApp.tsx`,
+  `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `client/src/components/admin/YcloudCard.tsx`, `docs/stories/epics/ROADMAP.md`
 - Portão da C7.1: `server/ycloud/{campanhas,router,config,webhook}.ts`, `shared/whatsapp/ycloud.ts`, `server/dolores/roteamento.ts`,
   `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `server/ycloud/ycloud-qa-c71.test.ts`, `server/ycloud/ycloud.test.ts`,
   `server/dolores/roteamento-eco-campanha.test.ts` (novo)
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): C7.2 — modelo padrão pelo servidor e template da Central enviado para aprovação (sem botão novo, pela
+  correção do dono); sem migração. Testes em `server/ycloud/ycloud-c72.test.ts`.
 - 21/11/2026 — @dev (Dex): correções do portão de QA da C7.1 (F1, F2, F3, texto fixo, webhook, eco no roteamento, limite do dia no
   lote); sem migração. Testes em `server/ycloud/ycloud-qa-c71.test.ts` (F1/F2/F3 invertidos para o corrigido) e
   `server/dolores/roteamento-eco-campanha.test.ts` (novo).
