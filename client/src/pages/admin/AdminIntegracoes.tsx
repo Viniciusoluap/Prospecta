@@ -21,6 +21,7 @@ import { DoloresFilaCard } from "@/components/admin/DoloresFilaCard";
 import { DoloresGruposCard } from "@/components/admin/DoloresGruposCard";
 import { DoloresNotasCard } from "@/components/admin/DoloresNotasCard";
 import { DoloresOperacaoCard } from "@/components/admin/DoloresOperacaoCard";
+import { DoloresMemoriaCard } from "@/components/admin/DoloresMemoriaCard";
 import { YcloudCard } from "@/components/admin/YcloudCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
@@ -209,6 +210,8 @@ export default function AdminIntegracoes() {
           <DoloresCard />
           <AtendimentoEmpresaCard />
           <DoloresOperacaoCard />
+          {/* EPIC-027 C5: memória de longo prazo da Dolores (só admin, junto da operação dela) */}
+          <DoloresMemoriaCard />
           <DoloresFilaCard />
           <DoloresGruposCard />
           <DoloresNotasCard />
