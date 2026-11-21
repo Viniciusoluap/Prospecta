@@ -11,6 +11,7 @@ import { doloresAprovacoes, doloresAutoria, doloresFilaConfig, type DoloresAprov
 import {
   EXECUCAO_VENCIDA_MS, ROTULO_SITUACAO, VALIDADE_PADRAO_HORAS, codigoValido, gerarCodigo, textoDeDado, type SituacaoItem,
 } from "../../shared/dolores/fila.js";
+import { exigeConfirmoNoCodigo, fraseFaltaConfirmoNoCodigo, motivoDoSerio } from "../../shared/dolores/confirmacao.js";
 import { limitarResposta } from "../../shared/dolores/formato.js";
 import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { getDb } from "../db.js";
@@ -107,7 +108,12 @@ export type ResultadoDecisao = { codigo: string; ok: boolean; situacao: Situacao
 
 export type Decisor = { via: Via; userId: number | null; agora: Date; motivo?: string | null;
   /** Prazo (ms do `relogio`) até quando ainda dá para executar mais um item (WhatsApp: 60 s da Vercel). */
-  prazoFinal?: number; relogio?: () => number; mensagemId?: number | null };
+  prazoFinal?: number; relogio?: () => number; mensagemId?: number | null;
+  /**
+   * EPIC-027 C5-E2 (QA A4): o dono confirmou POR ESCRITO ("confirmo" à proposta, ou "confirmo CÓDIGO"). Sem isso, item sério de
+   * GRUPO decidido pelo WhatsApp não executa (continua aguardando e o dono recebe a frase exata para confirmar).
+   */
+  confirmado?: boolean };
 
 /** Tempo mínimo restante para COMEÇAR a executar um item (WhatsApp: prazo da Vercel). Ações leves: 6 s. */
 const MINIMO_PARA_EXECUTAR_MS = 6_000;
@@ -217,11 +223,11 @@ async function aprovarUm(codigo: string, d: Decisor, autor: number): Promise<Res
   return { codigo, ok: true, situacao: "executada", texto: `[${codigo}] aprovado e feito: ${feitos.join("; ")}.${extra}`, natural: `${feitos.join("; ")}.${extra}` };
 }
 
-/** Função de um item ainda aguardando (null se não existe ou já saiu de "aguardando": aprovarUm explica). */
-async function funcaoAguardando(codigo: string): Promise<string | null> {
-  const [i] = await getDb().select({ funcao: doloresAprovacoes.funcao }).from(doloresAprovacoes)
+/** Função e argumentos de um item ainda aguardando (null se não existe ou já saiu de "aguardando": aprovarUm explica). */
+async function itemAguardando(codigo: string): Promise<{ funcao: string; argumentos: unknown } | null> {
+  const [i] = await getDb().select({ funcao: doloresAprovacoes.funcao, argumentos: doloresAprovacoes.argumentos }).from(doloresAprovacoes)
     .where(and(eq(doloresAprovacoes.codigo, codigo), eq(doloresAprovacoes.situacao, "aguardando"))).limit(1);
-  return i?.funcao ?? null;
+  return i ?? null;
 }
 
 /** Texto extra devolvido ao dono (a cobrança preparada, para ele mesmo encaminhar se quiser). */
@@ -262,7 +268,14 @@ export async function decidir(codigos: readonly string[], decisao: "aprovar" | "
   for (const codigo of codigos) {
     if (decisao === "aprovar") {
       // orçamento de tempo por função (achado 4 do QA): sem o mínimo da função, o item NÃO começa
-      const funcao = await funcaoAguardando(codigo);
+      const aguardando = await itemAguardando(codigo);
+      const funcao = aguardando?.funcao ?? null;
+      // QA C5-E2 (A4): item sério de grupo pelo WhatsApp só com a confirmação por escrito (o "aprovar CÓDIGO" sozinho não basta)
+      if (aguardando && d.via === "whatsapp" && !d.confirmado && exigeConfirmoNoCodigo(aguardando.funcao, aguardando.argumentos)) {
+        const texto = fraseFaltaConfirmoNoCodigo(codigo, aguardando);
+        resultados.push({ codigo, ok: false, situacao: "aguardando", texto, natural: `Isso precisa da sua confirmação por escrito, porque ${motivoDoSerio([aguardando])}. Nada foi feito.` });
+        continue;
+      }
       if (funcao && PESADAS.has(funcao) && pesadas >= 1) {
         resultados.push({ codigo, ok: false, situacao: "aguardando", texto: `[${codigo}] continua aguardando: gero no máximo uma PCI por mensagem (leva tempo). Mande "aprovar ${codigo}" em outra mensagem.` });
         continue;

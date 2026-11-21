@@ -59,7 +59,7 @@ import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
-import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, tratarConfirmacao } from "./pendencia.js";
+import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -219,6 +219,9 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
     if (ultimaPossivel) { completa = false; break; }
   }
   if (ctx.envio) ctx.envio.enviadas = enviadas.length;
+  // QA C5-E2 (A1): a proposta só passa a aceitar o "pode" DEPOIS que a pergunta chegou ao dono — grava a hora do envio (o "pode"
+  // escrito antes dela não confirma). A pergunta nos quadros vai na 1ª mensagem; quando ela é o próprio texto, só com tudo enviado.
+  if (ctx.pendenciaId && (ctx.quadros ? enviadas.length > 0 : completa && enviadas.length > 0)) await marcarPerguntaEnviada(ctx.pendenciaId, deps.agora());
   // QA E8 A1: quais partes saíram fica na auditoria (sem texto nem número)
   if (!completa && partes.length > 1) {
     await auditar("erro", "resposta incompleta: faltou parte", { partesPrevistas: partes.length, partesEnviadas: enviadas, avisoDeFalta: avisou, ...ctx.resumo });
@@ -376,7 +379,9 @@ export function semOsCodigos(texto: string, codigos: readonly string[]): string 
   return t;
 }
 
-async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean }, prazoFinal: number, autorInicial: number | null) {
+async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean;
+  /** Hora em que o dono ESCREVEU a mensagem (messageTimestamp do WhatsApp); null = desconhecida. QA C5-E2 (A1). */
+  enviadaEm: Date | null }, prazoFinal: number, autorInicial: number | null) {
   const agora = deps.agora();
   const mes = mesFortaleza(agora);
   let autor = autorInicial;
@@ -411,7 +416,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   if (decisao) {
     let texto: string;
     try {
-      const r = await decidir(decisao.codigos, decisao.decisao, { via: "whatsapp", userId: null, agora: deps.agora(), prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms, mensagemId: msg.id });
+      const r = await decidir(decisao.codigos, decisao.decisao, { via: "whatsapp", userId: null, agora: deps.agora(), prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms, mensagemId: msg.id, confirmado: decisao.confirmado === true });
       texto = `Dolores:\n${r.map(x => x.texto).join("\n")}`;
     } catch (e) {
       console.error("[dolores/whatsapp] falha ao decidir itens da fila", erroCurto(e));
@@ -450,7 +455,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   // Sem proposta a que ela responda, segue o caminho comum (a IA, com a memória, no máximo propõe de novo). Não chama a IA.
   const confirmacao = msg.temMidia ? null : lerConfirmacao(msg.texto);
   if (confirmacao) {
-    const r = await tratarConfirmacao(confirmacao, { mensagemId: msg.id, agora: deps.agora(), autor, prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms })
+    const r = await tratarConfirmacao(confirmacao, { mensagemId: msg.id, enviadaEm: msg.enviadaEm, agora: deps.agora(), autor, prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms })
       .catch(e => { console.error("[dolores/whatsapp] falha na confirmação da proposta", erroCurto(e)); return { texto: FRASE_ERRO_CONFIRMACAO, pendenciaId: null, situacao: "erro" as const, codigos: [] as string[] }; });
     if (r) {
       await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { confirmacao: confirmacao.tipo, situacao: r.situacao }, prazoFinal, pendenciaId: r.pendenciaId, memoria: { codigos: r.codigos } });
@@ -1003,7 +1008,7 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
       await atualizarMensagem(id, { situacao: "bloqueada", motivo: "sem tempo no prazo do aviso", respondidaEm: deps.agora() });
       contar("sem-tempo"); fimDoDono("sem-tempo"); continue;
     }
-    const rc = await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada }, prazoFinal, autor);
+    const rc = await tratarComando(cfg, { id, numero: m.numero!, texto: m.texto, temMidia: m.temMidia, encaminhada: m.encaminhada, enviadaEm: m.enviadaEm }, prazoFinal, autor);
     contar(rc);
     fimDoDono(rc);
   }

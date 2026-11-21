@@ -15,7 +15,10 @@ export const doloresConversaPendencia = pgTable("dolores_conversa_pendencia", {
   aprovacaoIds: integer("aprovacao_ids").array().notNull(),
   nivel: varchar("nivel", { length: 10 }).$type<NivelConfirmacao>().notNull(),
   situacao: varchar("situacao", { length: 12 }).$type<SituacaoPendencia>().default("aberta").notNull(),
-  adjacente: boolean("adjacente").default(true).notNull(),
+  /** QA C5-E2 (A1): nasce false; vira true só depois que a pergunta foi enviada ao dono (e qualquer outra mensagem a ele desliga). */
+  adjacente: boolean("adjacente").default(false).notNull(),
+  /** QA C5-E2 (A1): hora em que a pergunta (ou a repetição dela) foi enviada; a resposta só vale se escrita depois. */
+  perguntaEnviadaEm: timestamp("pergunta_enviada_em", { withTimezone: true }),
   decididaEm: timestamp("decidida_em", { withTimezone: true }),
   decididaMensagemId: integer("decidida_mensagem_id").references(() => doloresMensagens.id, { onDelete: "set null" }),
 }, t => [index("dolores_conversa_pendencia_criado_em_idx").on(t.criadoEm)]);

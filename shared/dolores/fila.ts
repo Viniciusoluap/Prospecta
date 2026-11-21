@@ -31,22 +31,25 @@ export const MAX_ACOES_POR_COMANDO = 10;
 /** Códigos por mensagem de decisão. */
 export const MAX_CODIGOS_POR_DECISAO = 10;
 
-export type Decisao = { decisao: "aprovar" | "recusar"; codigos: string[] };
+export type Decisao = { decisao: "aprovar" | "recusar"; codigos: string[];
+  /** EPIC-027 C5-E2 (QA A4): "confirmo CÓDIGO" — aprovação por escrito, exigida nos itens sérios de grupo. Só presente quando true. */
+  confirmado?: true };
 
 /**
  * Decisão do dono, reconhecida por CÓDIGO (nunca pelo modelo): a mensagem INTEIRA precisa ser o verbo + um ou mais
  * códigos, e nada mais. "aprovar K7M2P", "Recusar K7M2P, AC3DE", "aprovo k7m2p." Qualquer outra coisa (frase, pedido
  * misturado, código que não existe no alfabeto) → null: a mensagem segue como comando comum, e o modelo não tem
- * ferramenta para aprovar nada.
+ * ferramenta para aprovar nada. "confirmo K7M2P" (QA C5-E2, A4) aprova COM a confirmação por escrito (`confirmado`).
  */
 export function lerDecisaoDoDono(texto: string | null | undefined): Decisao | null {
   const t = String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().replace(/[.!]+$/, "").trim();
   if (!t || t.length > 120) return null;
-  const m = /^(aprovar|aprovo|recusar|recuso)\s+(.+)$/i.exec(t);
+  const m = /^(aprovar|aprovo|confirmo|confirmar|recusar|recuso)\s+(.+)$/i.exec(t);
   if (!m) return null;
   const partes = m[2].split(/\s*(?:,|\s+e\s+|\s+)\s*/i).map(p => p.trim().toUpperCase()).filter(Boolean);
   if (!partes.length || partes.length > MAX_CODIGOS_POR_DECISAO || !partes.every(codigoValido)) return null;
-  return { decisao: /^aprov/i.test(m[1]) ? "aprovar" : "recusar", codigos: Array.from(new Set(partes)) };
+  const confirmo = /^confirm/i.test(m[1]);
+  return { decisao: /^(?:aprov|confirm)/i.test(m[1]) ? "aprovar" : "recusar", codigos: Array.from(new Set(partes)), ...(confirmo ? { confirmado: true as const } : {}) };
 }
 
 /**

@@ -6,6 +6,8 @@
 --   proposta; guarda só ids dos itens de "dolores_aprovacoes" (o que executa é o item gravado e conferido por hash, nunca uma
 --   reinterpretação da IA), o nível ('registro' → "pode"; 'serio' → "confirmo"), a validade curta (15 / 10 min), se a pergunta
 --   ainda é a ÚLTIMA coisa que ele recebeu ("adjacente": qualquer outra mensagem enviada a ele depois desliga) e a decisão.
+--   QA C5-E2 (A1): a proposta nasce NÃO confirmável ("adjacente" = false); só depois que a pergunta foi enviada ela passa a
+--   aceitar resposta, com a hora do envio em "pergunta_enviada_em" — e só vale resposta que o dono escreveu depois dessa hora.
 --   Nenhum texto, nome ou dado pessoal nesta tabela. NO MÁXIMO UMA aberta (índice único parcial): proposta nova substitui a
 --   anterior, e a troca fica registrada ('substituida').
 --
@@ -20,7 +22,8 @@ CREATE TABLE IF NOT EXISTS "dolores_conversa_pendencia" (
   "aprovacao_ids" integer[] NOT NULL CHECK (cardinality("aprovacao_ids") BETWEEN 1 AND 10),
   "nivel" varchar(10) NOT NULL CHECK ("nivel" IN ('registro', 'serio')),
   "situacao" varchar(12) NOT NULL DEFAULT 'aberta' CHECK ("situacao" IN ('aberta', 'confirmada', 'recusada', 'vencida', 'substituida')),
-  "adjacente" boolean NOT NULL DEFAULT true,
+  "adjacente" boolean NOT NULL DEFAULT false,
+  "pergunta_enviada_em" timestamp with time zone,
   "decidida_em" timestamp with time zone,
   "decidida_mensagem_id" integer REFERENCES "dolores_mensagens"("id") ON DELETE SET NULL
 );

@@ -6,7 +6,10 @@
 //  (a) só existe UMA proposta aberta (índice único parcial da 0145); proposta nova substitui a anterior, e isso fica registrado;
 //  (b) o "pode" só vale se a pergunta for a ÚLTIMA coisa que o dono recebeu ("adjacente"): qualquer outra mensagem enviada a ele
 //      depois (resposta de outro pedido, aviso de grupo, relatório) desliga — aí o sistema mostra de novo o que espera e pede o
-//      "pode" de novo;
+//      "pode" de novo. QA C5-E2 (A1): a proposta NASCE não confirmável (adjacente = false); só passa a aceitar resposta quando a
+//      pergunta foi de fato enviada (`marcarPerguntaEnviada`, com a hora do envio), e a resposta só vale se o dono a ESCREVEU depois
+//      dessa hora (messageTimestamp, em segundos, estritamente maior) — um "pode" atrasado, escrito para a proposta anterior, nunca
+//      confirma a nova;
 //  (c) vence em 15 min (registro) ou 10 min (séria) e é de uso único (UPDATE condicional aberta → confirmada);
 //  (d) o que executa é o item gravado na fila e conferido por hash (`decidir`), nunca uma reinterpretação do modelo;
 //  (e) a séria exige "confirmo"; o nível é recalculado pelo código na hora (função + argumentos guardados);
@@ -51,6 +54,7 @@ async function itens(ids: readonly number[]): Promise<ItemDaPendencia[]> {
     .from(doloresAprovacoes).where(inArray(doloresAprovacoes.id, ids.slice(0, MAX_ITENS_PENDENCIA))).orderBy(doloresAprovacoes.id);
 }
 
+const paraMotivo = (i: ItemDaPendencia) => ({ funcao: i.funcao, argumentos: i.argumentos });
 const nivelDosItens = (l: readonly ItemDaPendencia[]) => nivelDoConjunto(l.map(i => nivelDoItem(i.funcao, i.argumentos)));
 const resumoMostrado = (i: ItemDaPendencia) => textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER);
 
@@ -64,7 +68,8 @@ async function gravar(p: { ids: number[]; nivel: NivelConfirmacao; venceEm: Date
       return await getDb().transaction(async tx => {
         const velhas = await tx.update(doloresConversaPendencia).set({ situacao: "substituida", decididaEm: p.agora })
           .where(eq(doloresConversaPendencia.situacao, "aberta")).returning({ id: doloresConversaPendencia.id });
-        const [nova] = await tx.insert(doloresConversaPendencia).values({ venceEm: p.venceEm, mensagemId: p.mensagemId, aprovacaoIds: p.ids, nivel: p.nivel, criadoEm: p.agora })
+        // QA C5-E2 (A1): nasce NÃO confirmável — só depois que a pergunta sai (marcarPerguntaEnviada)
+        const [nova] = await tx.insert(doloresConversaPendencia).values({ venceEm: p.venceEm, mensagemId: p.mensagemId, aprovacaoIds: p.ids, nivel: p.nivel, criadoEm: p.agora, adjacente: false, perguntaEnviadaEm: null })
           .returning({ id: doloresConversaPendencia.id });
         return { id: nova.id, substituidas: velhas.length };
       });
@@ -97,15 +102,16 @@ async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: num
   const escolhidos: ItemDaPendencia[] = [];
   for (const i of candidatos.slice(0, MAX_ITENS_PENDENCIA)) {
     const teste = [...escolhidos, i];
-    if (perguntaDaPendencia(teste.map(resumoMostrado), nivelDosItens(teste), teste.map(x => x.funcao), candidatos.length - teste.length).length > MAX_CARACTERES_PERGUNTA) break;
+    if (perguntaDaPendencia(teste.map(resumoMostrado), nivelDosItens(teste), teste.map(paraMotivo), candidatos.length - teste.length).length > MAX_CARACTERES_PERGUNTA) break;
     escolhidos.push(i);
   }
   if (!escolhidos.length) return null;
   const nivel = nivelDosItens(escolhidos);
+  const itensMotivo = escolhidos.map(paraMotivo);
   const venceEm = p.venceEm ?? new Date(p.agora.getTime() + VALIDADE_PENDENCIA_MS[nivel]);
   const { id, substituidas } = await gravar({ ids: escolhidos.map(i => i.id), nivel, venceEm, mensagemId: p.mensagemId, agora: p.agora });
   const fora = candidatos.length - escolhidos.length + p.restantesFora;
-  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, escolhidos.map(i => i.funcao), fora);
+  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, itensMotivo, fora);
   await auditar("ok", "proposta aberta: espera a resposta do dono", { pendenciaId: id, itens: escolhidos.length, nivel, substituidas, foraDaPergunta: fora }, p);
   const memoria = `(O sistema perguntou ao dono se pode fazer${nivel === "serio" ? ", pedindo \"confirmo\"" : ""}: ${escolhidos.slice(0, 3).map(i => resumoMostrado(i).slice(0, 200)).join("; ")}${escolhidos.length > 3 ? "; …" : ""})`;
   return { id, pergunta: substituidas ? `(A proposta anterior ficou de lado.)\n${pergunta}` : pergunta, memoria, nivel, itens: escolhidos.length };
@@ -120,6 +126,28 @@ export async function marcarForaDeOrdem(excetoId: number | null): Promise<void> 
     await getDb().update(doloresConversaPendencia).set({ adjacente: false })
       .where(and(eq(doloresConversaPendencia.situacao, "aberta"), eq(doloresConversaPendencia.adjacente, true), ...(excetoId ? [ne(doloresConversaPendencia.id, excetoId)] : [])));
   } catch (e) { console.error("[dolores/pendencia] falha ao marcar a proposta fora de ordem", erroParaLog(e)); }
+}
+
+/**
+ * QA C5-E2 (A1): a pergunta (ou a repetição dela) desta proposta CHEGOU ao dono: a partir de agora ela aceita resposta, e só
+ * resposta escrita depois desta hora. Nunca lança (falha vai só para o log; sem a marca, o "pode" só faz mostrar a proposta de novo).
+ */
+export async function marcarPerguntaEnviada(id: number, agora: Date): Promise<void> {
+  try {
+    await getDb().update(doloresConversaPendencia).set({ adjacente: true, perguntaEnviadaEm: agora })
+      .where(and(eq(doloresConversaPendencia.id, id), eq(doloresConversaPendencia.situacao, "aberta")));
+  } catch (e) { console.error("[dolores/pendencia] falha ao marcar a pergunta como enviada", erroParaLog(e)); }
+}
+
+/** Segundo inteiro (o messageTimestamp do WhatsApp vem em segundos). */
+const segundo = (d: Date) => Math.floor(d.getTime() / 1000);
+/**
+ * QA C5-E2 (A1): a resposta vale para ESTA proposta? Só se a pergunta ainda é a última coisa que ele recebeu, já foi enviada, e a
+ * mensagem dele foi escrita num segundo POSTERIOR ao do envio (sem hora da mensagem → não vale: lado seguro).
+ */
+export function respostaDepoisDaPergunta(p: Pick<DoloresConversaPendencia, "adjacente" | "perguntaEnviadaEm">, enviadaEm: Date | null | undefined): boolean {
+  if (!p.adjacente || !p.perguntaEnviadaEm || !enviadaEm || Number.isNaN(enviadaEm.getTime())) return false;
+  return segundo(enviadaEm) > segundo(p.perguntaEnviadaEm);
 }
 
 /** A pergunta não chegou ao dono (envio falhou): a proposta não vale (nada fica esperando um "pode" que ele não viu). */
@@ -139,7 +167,9 @@ export type RespostaDaConfirmacao = {
   codigos: string[];
 };
 
-type Contexto = { mensagemId: number; agora: Date; autor: number | null; prazoFinal?: number; relogio?: () => number };
+type Contexto = { mensagemId: number; agora: Date; autor: number | null; prazoFinal?: number; relogio?: () => number;
+  /** QA C5-E2 (A1): hora em que o dono escreveu a resposta (messageTimestamp). */
+  enviadaEm?: Date | null };
 
 /**
  * A resposta curta do dono ("pode", "sim", "confirmo", "não"), já reconhecida por código (`lerConfirmacao`). null = não há
@@ -173,13 +203,14 @@ export async function tratarConfirmacao(c: Confirmacao, ctx: Contexto): Promise<
   }
   const lista = await itens(p.aprovacaoIds);
   const nivel = nivelDoConjunto([p.nivel, nivelDosItens(lista)]);
-  const funcoes = lista.map(i => i.funcao);
+  const funcoes = lista.map(paraMotivo);
+  const valida = respostaDepoisDaPergunta(p, ctx.enviadaEm);
   const resumos = lista.map(resumoMostrado);
   const codigos = lista.map(i => i.codigo);
 
   if (c.tipo === "nao") {
     // "não" solto depois de outra mensagem: pode ser resposta a outra coisa — segue como conversa comum (recusar não é urgente)
-    if (!p.adjacente) return null;
+    if (!valida) return null;
     const [r] = await getDb().update(doloresConversaPendencia).set({ situacao: "recusada", decididaEm: ctx.agora, decididaMensagemId: ctx.mensagemId })
       .where(and(eq(doloresConversaPendencia.id, p.id), eq(doloresConversaPendencia.situacao, "aberta"))).returning({ id: doloresConversaPendencia.id });
     if (!r) return { ...base, texto: FRASE_JA_FEITO, situacao: "ja_feita" };
@@ -188,11 +219,11 @@ export async function tratarConfirmacao(c: Confirmacao, ctx: Contexto): Promise<
     await auditar("ok", "o dono recusou a proposta", { pendenciaId: p.id, itens: lista.length }, ctx);
     return { ...base, codigos, texto: FRASE_RECUSADA, situacao: "recusada" };
   }
-  // a pergunta não é mais a última coisa que ele recebeu: mostra de novo o que espera (vira a pergunta) e pede a resposta de novo
-  if (!p.adjacente) {
-    await getDb().update(doloresConversaPendencia).set({ adjacente: true })
-      .where(and(eq(doloresConversaPendencia.id, p.id), eq(doloresConversaPendencia.situacao, "aberta")));
-    await auditar("recusada", "resposta solta depois de outra mensagem: o sistema mostrou de novo a proposta; nada foi feito", { pendenciaId: p.id }, ctx);
+  // a pergunta não é mais a última coisa que ele recebeu, ainda não tinha saído, ou a resposta foi escrita ANTES dela (QA A1):
+  // mostra de novo o que espera (vira a pergunta; a marca de "enviada" é gravada depois do envio) e pede a resposta de novo
+  if (!valida) {
+    await auditar("recusada", p.adjacente ? "resposta escrita antes da pergunta (ou sem hora): o sistema mostrou de novo a proposta; nada foi feito"
+      : "resposta solta depois de outra mensagem: o sistema mostrou de novo a proposta; nada foi feito", { pendenciaId: p.id }, ctx);
     return { pendenciaId: p.id, codigos, texto: fraseForaDeOrdem(resumos, nivel), situacao: "fora_de_ordem" };
   }
   if (nivel === "serio" && c.tipo !== "confirmo") {
@@ -201,11 +232,17 @@ export async function tratarConfirmacao(c: Confirmacao, ctx: Contexto): Promise<
   }
   // uso ÚNICO: só uma resposta passa daqui (duas ao mesmo tempo: a outra recebe "já fiz")
   const [dono] = await getDb().update(doloresConversaPendencia).set({ situacao: "confirmada", decididaEm: ctx.agora, decididaMensagemId: ctx.mensagemId })
-    .where(and(eq(doloresConversaPendencia.id, p.id), eq(doloresConversaPendencia.situacao, "aberta"), sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`))
+    .where(and(eq(doloresConversaPendencia.id, p.id), eq(doloresConversaPendencia.situacao, "aberta"), sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`,
+      // QA C5-E2 (A1): ainda "na ordem" e com a MESMA hora de envio que foi conferida acima (outra mensagem no meio → não vale)
+      eq(doloresConversaPendencia.adjacente, true), eq(doloresConversaPendencia.perguntaEnviadaEm, p.perguntaEnviadaEm!)))
     .returning({ id: doloresConversaPendencia.id });
-  if (!dono) return { ...base, texto: FRASE_JA_FEITO, situacao: "ja_feita" };
+  if (!dono) {
+    const [agoraP] = await getDb().select({ situacao: doloresConversaPendencia.situacao }).from(doloresConversaPendencia).where(eq(doloresConversaPendencia.id, p.id)).limit(1);
+    if (agoraP?.situacao === "aberta") return { pendenciaId: p.id, codigos, texto: fraseForaDeOrdem(resumos, nivel), situacao: "fora_de_ordem" };
+    return { ...base, texto: FRASE_JA_FEITO, situacao: "ja_feita" };
+  }
   await auditar("ok", `o dono respondeu "${c.tipo === "confirmo" ? "confirmo" : "pode"}": executando a proposta`, { pendenciaId: p.id, itens: lista.length, nivel }, ctx);
-  const resultados = await decidir(codigos, "aprovar", { via: "whatsapp", userId: null, agora: ctx.agora, mensagemId: ctx.mensagemId, prazoFinal: ctx.prazoFinal, relogio: ctx.relogio });
+  const resultados = await decidir(codigos, "aprovar", { via: "whatsapp", userId: null, agora: ctx.agora, mensagemId: ctx.mensagemId, prazoFinal: ctx.prazoFinal, relogio: ctx.relogio, confirmado: c.tipo === "confirmo" });
   const r = await respostaDoResultado(lista, resultados, { ...ctx, venceEm: p.venceEm });
   return { pendenciaId: r.novaId, codigos, texto: r.texto, situacao: "confirmada" };
 }

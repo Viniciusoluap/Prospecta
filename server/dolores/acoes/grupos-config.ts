@@ -6,8 +6,9 @@
 // `decidirGrupo` (mesmas regras, mesmo gatilho 0133, mesma auditoria "grupo_decisao") e `definirRespostaDoGrupo`.
 //
 // | função                 | nível ("pode" / "confirmo")                                    | por quê                                           |
-// | classificar_grupo      | registro (cliente, pós, engenharia); sério (sócios, jurídico,   | o tipo decide o que ela pode dizer no grupo        |
-// |                        | parceiros)                                                       |                                                   |
+// | classificar_grupo      | registro (1ª classificação: cliente, pós, engenharia); sério     | o tipo decide o que ela pode dizer no grupo        |
+// |                        | (sócios, jurídico, parceiros) e TODA troca de tipo/vínculo já    | (QA C5-E2, A2: trocar o cliente de um grupo        |
+// |                        | definido (o resumo mostra "hoje: … → passa a ser: …")            | levaria a conversa de um cliente a outro)         |
 // | aceitar_grupo          | sério                                                            | outra pessoa (ou não se sabe quem) a colocou lá    |
 // | ignorar_grupo          | registro                                                         | só a deixa calada e sem ler (reversível)          |
 // | ligar_resposta_grupo   | desligar: registro; ligar: registro, ou sério nos tipos internos | ligar amplia o que ela fala                        |
@@ -43,7 +44,12 @@ export const entradaLigarResposta = z.object({
 }).strict();
 
 /** Argumentos guardados no item (validados de novo na execução). `frase`: o que vai ao dono depois de feito (montada pelo sistema). */
-export const entradaClassificarAprovado = z.object({ grupoId: id32, tipo: z.enum(TIPOS_CLASSIFICAVEIS), numero: id32.nullable(), frase: z.string().max(400) }).strict();
+/**
+ * QA C5-E2 (A2): `antes` = o tipo e o vínculo do grupo NA HORA da proposta (conferidos de novo na execução: mudou → nada muda);
+ * `troca` = a proposta altera um tipo/vínculo que já estava definido (→ "confirmo"). Os dois são montados pelo servidor.
+ */
+export const entradaClassificarAprovado = z.object({ grupoId: id32, tipo: z.enum(TIPOS_CLASSIFICAVEIS), numero: id32.nullable(),
+  antes: z.object({ tipo: z.string().max(20), numero: id32.nullable() }).strict(), troca: z.boolean(), frase: z.string().max(400) }).strict();
 export const entradaGrupoAprovado = z.object({ grupoId: id32, frase: z.string().max(400) }).strict();
 export const entradaLigarAprovado = z.object({ grupoId: id32, ligado: z.boolean(), tipo: z.string().max(20), frase: z.string().max(400) }).strict();
 
@@ -65,6 +71,31 @@ async function grupoDaEmpresa(grupoId: number): Promise<DoloresGrupo> {
 
 const soPeloWhatsapp = (ctx: ContextoAcao) => { if (ctx.via !== "whatsapp") throw new RecusaAcao(FRASE_SO_PELO_WHATSAPP); };
 const mensagemDaDecisao = (ctx: ContextoAcao) => ctx.decisaoMensagemId ?? ctx.mensagemId ?? 0;
+
+/**
+ * QA C5-E2 (A2): o tipo e o vínculo que o grupo tem HOJE. Grupo sem tipo gravado e sem cliente/obra = "indefinido" (ainda não
+ * classificado); sem tipo mas com cliente/obra (cadastro antigo) = o tipo que o vínculo indica.
+ */
+function situacaoAtual(g: Pick<DoloresGrupo, "tipo" | "leadId" | "obraId">): { tipo: string; numero: number | null } {
+  const tipo = g.tipo ? tipoEfetivo(g) : g.obraId ? "engenharia" : g.leadId ? "cliente" : "indefinido";
+  const numero = tipo === "cliente" || tipo === "pos_atendimento" ? g.leadId ?? null : tipo === "engenharia" ? g.obraId ?? null : null;
+  return { tipo, numero };
+}
+
+/** " de «Fulano» (cliente nº 1)" / " da obra «X» (obra nº 2)" / "" — lido agora, só leitura (cliente excluído: só o número). */
+async function textoDoVinculo(tipo: string, numero: number | null): Promise<string> {
+  if (!numero) return "";
+  if (tipo === "cliente" || tipo === "pos_atendimento") {
+    const [l] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ id: leads.id, nome: leads.name }).from(leads).where(eq(leads.id, numero)).limit(1));
+    return l ? ` de «${mostrar(l.nome, 60, `cliente ${l.id}`)}» (cliente nº ${l.id})` : ` do cliente nº ${numero}`;
+  }
+  if (tipo === "engenharia") {
+    const [o] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ id: constructionProjects.id, titulo: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, numero)).limit(1));
+    return o ? ` da obra «${mostrar(o.titulo, 60, `obra ${o.id}`)}» (obra nº ${o.id})` : ` da obra nº ${numero}`;
+  }
+  return "";
+}
+const rotuloDoTipo = (t: string) => (ROTULO_TIPO_GRUPO as Record<string, string>)[t] ?? "não identificado";
 
 export async function prepararClassificarGrupo(args: z.infer<typeof entradaClassificarGrupo>, ctx: ContextoAcao): Promise<Preparo> {
   const g = await grupoDaEmpresa(args.grupoId);
@@ -95,15 +126,26 @@ export async function prepararClassificarGrupo(args: z.infer<typeof entradaClass
   if (tipoEfetivo(g) === tipo && mesmoVinculo && g.situacaoConfirmacao === "confirmado" && g.ativo) {
     throw new RecusaAcao(`O grupo ${nomeDoGrupo(g)} já é do tipo ${ROTULO_TIPO_GRUPO[tipo]}${vinculo}; nada a mudar.`, { comDados: true });
   }
+  // QA C5-E2 (A2): já tinha tipo/vínculo e a proposta muda isso → troca (séria, "confirmo"), e o resumo mostra o de hoje e o novo
+  const antes = situacaoAtual(g);
+  const troca = antes.tipo !== "indefinido" && (antes.tipo !== tipo || antes.numero !== numero);
   const frase = `o grupo ${nomeDoGrupo(g)} agora é do tipo ${cat.rotulo}${vinculo}`;
-  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}ligar o grupo ${nomeDoGrupo(g)} como do tipo ${cat.rotulo}${vinculo} — o que eu respondo lá quando me marcam: ${cat.explica}${g.ativo ? "" : " (o grupo estava desativado e volta a valer)"}.`);
-  return { itens: [{ alvo: `grupo:${g.id}:tipo`, resumo, argumentos: { grupoId: g.id, tipo, numero, frase } }], recusados: [] };
+  const explica = ` — o que eu respondo lá quando me marcam: ${cat.explica}${g.ativo ? "" : " (o grupo estava desativado e volta a valer)"}.`;
+  const resumo = resumoDaFila(troca
+    ? `${prefixoDaFila(ctx.motivoContaminacao)}TROCAR o grupo ${nomeDoGrupo(g)} — hoje: tipo ${rotuloDoTipo(antes.tipo)}${await textoDoVinculo(antes.tipo, antes.numero)} → passa a ser: tipo ${cat.rotulo}${vinculo}${explica}`
+    : `${prefixoDaFila(ctx.motivoContaminacao)}ligar o grupo ${nomeDoGrupo(g)} como do tipo ${cat.rotulo}${vinculo}${explica}`);
+  return { itens: [{ alvo: `grupo:${g.id}:tipo`, resumo, argumentos: { grupoId: g.id, tipo, numero, antes, troca, frase } }], recusados: [] };
 }
 
 export async function executarClassificarAprovado(args: z.infer<typeof entradaClassificarAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
   soPeloWhatsapp(ctx);
   const g = await grupoDaEmpresa(args.grupoId);
   if (semProvaDoDono(g)) throw new RecusaAcao("Esse grupo passou a esperar o seu aceite; nada mudou. Peça para eu aceitar o grupo antes.");
+  // QA C5-E2 (A2): o nível ("pode"/"confirmo") e o "hoje: …" do resumo valem para o grupo como estava: mudou → nada muda
+  const agoraEsta = situacaoAtual(g);
+  if (agoraEsta.tipo !== args.antes.tipo || agoraEsta.numero !== args.antes.numero) {
+    throw new RecusaAcao("O tipo ou o vínculo do grupo mudou depois da proposta; nada mudou. Peça de novo.");
+  }
   const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: args.tipo, numero: args.numero }, { via: "whatsapp", autor: ctx.autorId, mensagemId: mensagemDaDecisao(ctx), agora: ctx.agora });
   if (!r.ok) throw new RecusaAcao(semCodigoDoGrupo(r.texto));
   return { dados: { grupoId: g.id, tipo: args.tipo }, resumo: { grupoId: g.id, tipo: args.tipo, comVinculo: args.numero !== null }, feitos: [args.frase] };
