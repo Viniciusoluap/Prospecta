@@ -39,8 +39,8 @@ export const JANELA_VENCIDA_MS = 60 * 60_000;
 
 type ItemDaPendencia = { id: number; codigo: string; funcao: string; argumentos: unknown; resumo: string; situacao: string; venceEm: Date };
 
-const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number; autor: number | null }) =>
-  registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
+const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number | null; autor: number | null; pedidoId?: string }) =>
+  registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: c.pedidoId ?? `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
 
 const CODIGO_ENTRE_COLCHETES = new RegExp(`\\[[${ALFABETO_CODIGO}]{5}\\]\\s*`, "g");
 const PEDIDO_COM_CODIGO = new RegExp(`"?(?:aprovar|recusar) [${ALFABETO_CODIGO}]{5}"?`, "gi");
@@ -62,7 +62,7 @@ const resumoMostrado = (i: ItemDaPendencia) => textoDeDado(i.resumo, Number.MAX_
  * Grava a proposta (substituindo a que estava aberta). Duas abertas ao mesmo tempo o banco não deixa (índice único): uma
  * segunda tentativa resolve a corrida entre dois pedidos simultâneos.
  */
-async function gravar(p: { ids: number[]; nivel: NivelConfirmacao; venceEm: Date; mensagemId: number; agora: Date }): Promise<{ id: number; substituidas: number }> {
+async function gravar(p: { ids: number[]; nivel: NivelConfirmacao; venceEm: Date; mensagemId: number | null; agora: Date }): Promise<{ id: number; substituidas: number }> {
   for (let tentativa = 0; ; tentativa++) {
     try {
       return await getDb().transaction(async tx => {
@@ -97,7 +97,7 @@ export async function abrirPendencia(p: { mensagemId: number; codigos: readonly 
   return abrirComItens(candidatos, { ...p, restantesFora: 0 });
 }
 
-async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: number; agora: Date; autor: number | null; venceEm?: Date; restantesFora: number }): Promise<PendenciaAberta | null> {
+async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: number | null; agora: Date; autor: number | null; venceEm?: Date; restantesFora: number; pedidoId?: string }): Promise<PendenciaAberta | null> {
   // entram itens INTEIROS enquanto a pergunta couber (nível e funções recalculados a cada item: a frase muda com o nível)
   const escolhidos: ItemDaPendencia[] = [];
   for (const i of candidatos.slice(0, MAX_ITENS_PENDENCIA)) {
@@ -115,6 +115,22 @@ async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: num
   await auditar("ok", "proposta aberta: espera a resposta do dono", { pendenciaId: id, itens: escolhidos.length, nivel, substituidas, foraDaPergunta: fora }, p);
   const memoria = `(O sistema perguntou ao dono se pode fazer${nivel === "serio" ? ", pedindo \"confirmo\"" : ""}: ${escolhidos.slice(0, 3).map(i => resumoMostrado(i).slice(0, 200)).join("; ")}${escolhidos.length > 3 ? "; …" : ""})`;
   return { id, pergunta: substituidas ? `(A proposta anterior ficou de lado.)\n${pergunta}` : pergunta, memoria, nivel, itens: escolhidos.length };
+}
+
+/**
+ * EPIC-027 C5 (E3): o pedido de REGISTRO que o dono fez dentro de um grupo vira a mesma proposta, mas pelos códigos dos itens (não há
+ * mensagem da conversa direta: `mensagem_id` fica vazio). A pergunta vai a ele no privado (`enviarAvisoAoDono` com o id da proposta);
+ * só o "pode" dele na conversa direta confirma — nunca uma mensagem de grupo.
+ */
+export async function abrirPendenciaDosCodigos(p: { codigos: readonly string[]; agora: Date; autor: number | null; pedidoId: string }): Promise<PendenciaAberta | null> {
+  const codigos = p.codigos.slice(0, MAX_ITENS_PENDENCIA);
+  if (!codigos.length) return null;
+  const candidatos = await getDb().select({ id: doloresAprovacoes.id, codigo: doloresAprovacoes.codigo, funcao: doloresAprovacoes.funcao, argumentos: doloresAprovacoes.argumentos,
+    resumo: doloresAprovacoes.resumo, situacao: doloresAprovacoes.situacao, venceEm: doloresAprovacoes.venceEm })
+    .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.situacao, "aguardando"), sql`${doloresAprovacoes.venceEm} > ${p.agora}`, inArray(doloresAprovacoes.codigo, codigos)))
+    .orderBy(doloresAprovacoes.id).limit(MAX_ITENS_PENDENCIA);
+  if (!candidatos.length) return null;
+  return abrirComItens(candidatos, { mensagemId: null, agora: p.agora, autor: p.autor, restantesFora: 0, pedidoId: p.pedidoId });
 }
 
 /**
