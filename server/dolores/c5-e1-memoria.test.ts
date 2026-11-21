@@ -188,7 +188,7 @@ describe("conversa pelo WhatsApp com memória (IA simulada)", () => {
     await chamar(aviso({ texto: "Quero apenas vincular ela ao grupo dela" }));
     const p2 = pedidos[pedidos.length - 1];
     const ctx = textoDasMensagens(p2);
-    expect(ctx).toContain("[Mensagem anterior do dono, 16/11 08:59");
+    expect(ctx).toContain("[Mensagem anterior do dono, 16/11 09:00");
     expect(ctx).toContain("Lucia brena");
     expect(ctx).toContain("[Sua resposta anterior");
     expect(ctx).toContain(`cliente «Lúcia Brena» (leadId ${lead.id})`);

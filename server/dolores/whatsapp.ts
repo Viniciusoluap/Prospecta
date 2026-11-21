@@ -346,12 +346,6 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   let autor = autorInicial;
   await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "ok", motivo: "comando do dono", autorUserId: autor, canal: "whatsapp", pedidoId: `wa:${msg.id}`,
     resumo: { caracteres: msg.texto.length, midia: msg.temMidia, encaminhada: msg.encaminhada } });
-  // QA achado 6: texto encaminhado é de terceiro — não vira ordem, nem quando vem do dono
-  if (msg.encaminhada) {
-    await responderAoDono(cfg, msg.numero, FRASE_ENCAMINHADA, { mensagemId: msg.id, autor, resumo: { bloqueio: "encaminhada" }, prazoFinal });
-    await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "mensagem encaminhada", respondidaEm: deps.agora() });
-    return "encaminhada";
-  }
   // EPIC-027 C5 (E1): "esquece" / "limpa a conversa" (a mensagem INTEIRA, por código, sem IA) apaga a memória da conversa.
   if (!msg.encaminhada && !msg.temMidia && ehPedidoDeEsquecer(msg.texto)) {
     const ok = await esquecerConversa();
@@ -361,6 +355,12 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   }
   // EPIC-027 C5 (E1): a mensagem do dono entra na memória da conversa, marcada pela origem (encaminhada e anexo são dado).
   if (msg.texto) await gravarNaConversa({ papel: "dono", origem: msg.encaminhada ? "encaminhada" : msg.temMidia ? "com_midia" : "mensagem", texto: msg.texto, agora: deps.agora(), mensagemId: msg.id });
+  // QA achado 6: texto encaminhado é de terceiro — não vira ordem, nem quando vem do dono
+  if (msg.encaminhada) {
+    await responderAoDono(cfg, msg.numero, FRASE_ENCAMINHADA, { mensagemId: msg.id, autor, resumo: { bloqueio: "encaminhada" }, prazoFinal });
+    await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "mensagem encaminhada", respondidaEm: deps.agora() });
+    return "encaminhada";
+  }
   if (!msg.texto) {
     await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });

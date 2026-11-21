@@ -276,7 +276,8 @@ describe("caso real — 2ª volta parou em max_tokens", () => {
     const { texto, numero } = enviar.mock.calls[0][0];
     expect(numero).toBe(DONO);
     expect(texto).not.toMatch(/não consegui concluir/);
-    expect(texto).toContain("*Plano até 30/11* — total 2 [plano_de_atrasos]\n- 16/11 (seg): 1. Maria Trello — 6 d");
+    // EPIC-027 C5 (E1): o nome da consulta entre colchetes sai pelo filtro de voz; o resto do parcial fica
+    expect(texto).toContain("*Plano até 30/11* — total 2\n- 16/11 (seg): 1. Maria Trello — 6 d");
     expect(texto).not.toContain("João Atr"); // a linha cortada no meio sai
     expect(texto).toContain(AVISO_RESPOSTA_CORTADA);
     // a ferramenta da conta foi oferecida e o pedido de saída respeita o novo teto (e o prazo)
@@ -300,7 +301,7 @@ describe("caso real — 2ª volta parou em max_tokens", () => {
     const a = await q<any>("SELECT funcao FROM dolores_acoes WHERE funcao = 'listar_atrasos'");
     expect(a).toEqual([]);
     // QA E8 A2: o resumo veio sem a consulta cortada — o dono fica sabendo (e que nada foi alterado: só houve leitura)
-    expect(enviar.mock.calls[0][0].texto).toBe("Total 2: 16/11 Maria; 17/11 João [plano_de_atrasos].\n\n(A consulta/ação que eu ia fazer foi cortada e NÃO foi executada. Nada foi alterado no sistema.)");
+    expect(enviar.mock.calls[0][0].texto).toBe("Total 2: 16/11 Maria; 17/11 João.\n\n(A consulta/ação que eu ia fazer foi cortada e NÃO foi executada. Nada foi alterado no sistema.)");
   });
 });
 
