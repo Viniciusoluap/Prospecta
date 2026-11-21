@@ -17,7 +17,7 @@ import { centralVendasLeads } from "../../drizzle/schema-central-vendas.js";
 import { ehNumeroDoDono, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import {
   INTERVALO_MINIMO_ENVIO_MS, LOTE_ENVIO_YCLOUD, MAX_DESTINATARIOS_CAMPANHA, ORCAMENTO_LOTE_MS, RESERVA_EXPIRADA_MS, chaveCanonicaTelefone,
-  nomeSeguroParaVariavel, preencherPosicionais, problemaDoParametro, situacaoConvergente, statusNaCentral, telefoneMascarado, telefoneE164,
+  nomeSeguroParaVariavel, preencherPosicionais, problemaDoParametro, problemaDoTextoFixoDaEquipe, situacaoConvergente, statusNaCentral, telefoneMascarado, telefoneE164,
   textoComparavel, type FonteVariavel,
 } from "../../shared/whatsapp/ycloud.js";
 import { ErroYcloud, criarDescadastroYcloud, enfileirarModeloYcloud } from "../_core/ycloud.js";
@@ -27,6 +27,47 @@ import { conferirNumeroYcloud, modelosDaConta, type ConferenciaNumero, type Mode
 
 export class RecusaYcloud extends Error {
   constructor(message: string) { super(message); this.name = "RecusaYcloud"; }
+}
+
+// ── O que quem NÃO é admin lê (C7.1, portão de QA de 21/11/2026) ──
+
+/** Quem opera e não é admin (colaborador com o módulo WhatsApp): vê o essencial, sem tier, tetos do painel, janela nem números. */
+export const ehAdminYcloud = (papel: string | null | undefined) => papel === "admin";
+
+/** Texto ÚNICO que o colaborador lê quando a integração (número, conta, cadastro do número da empresa) precisa do administrador. */
+export const AVISO_AJUSTE_ADMIN = "A integração precisa de ajuste do administrador.";
+
+/**
+ * Traduz um motivo (recusa, pausa, falha de envio) para quem não é admin: problema de NÚMERO da integração vira o aviso genérico (sem
+ * números, nem mascarados); o limite do dia sai sem o valor (o tier e o teto do painel são do admin); a janela de repetição sai sem os
+ * dias. O admin sempre recebe o texto original. Qualquer sequência longa de dígitos ou "••••" também vira o genérico (na dúvida, nada).
+ */
+export function motivoParaEquipe(m: string): string;
+export function motivoParaEquipe(m: string | null): string | null;
+export function motivoParaEquipe(m: string | null): string | null {
+  if (!m) return m;
+  if (/n[ãa]o [ée] o (n[úu]mero )?da empresa|n[úu]mero da empresa ainda n[ãa]o est[áa] cadastrado|nenhum n[úu]mero de whatsapp conectado|••••|\d{6,}/i.test(m)) return AVISO_AJUSTE_ADMIN;
+  return m
+    .replace(/Limite de \d+ destinat[áa]rios em 24 h/g, "Limite de destinatários em 24 h")
+    .replace(/nos [úu]ltimos \d+ dia\(s\)/g, "recentemente");
+}
+
+// ── Quem pausou (C7.1): derivado do motivo gravado pelo servidor, sem coluna nova ──
+
+export const MOTIVO_PAUSA_ADMIN = "Pausada pelo administrador.";
+export const MOTIVO_PAUSA_EQUIPE = "Pausada pela equipe (colaborador).";
+const PREFIXO_PAUSA_LIMITE_DIA = "Limite de ";
+
+/**
+ * Quem pode CONTINUAR uma campanha pausada. Admin: sempre. Colaborador: só a que um colaborador pausou ("Pausada pela equipe") ou a
+ * que parou no limite do dia (o limite é conferido de novo em cada lote: continuar não o contorna). Pausada pelo admin ou por qualquer
+ * outra trava do sistema (disparos desligados, número divergente, qualidade, conta, cinco falhas, conferência que falhou) → só admin.
+ * O motivo só é escrito pelo servidor (`pausarCampanha`); a tela nunca o define.
+ */
+export function podeContinuarPausa(motivoPausa: string | null | undefined, papel: string): boolean {
+  if (ehAdminYcloud(papel)) return true;
+  const m = motivoPausa ?? "";
+  return m === MOTIVO_PAUSA_EQUIPE || m.startsWith(PREFIXO_PAUSA_LIMITE_DIA);
 }
 
 // ── Situação para disparar ──
@@ -138,7 +179,11 @@ async function precoMedioRegistrado(): Promise<{ preco: number; moeda: string } 
   return { preco: mesmas.reduce((s, l) => s + Number(l.preco), 0) / mesmas.length, moeda };
 }
 
-/** Texto fixo vem do administrador; nome vem do cadastro e só entra LIMPO (`nomeSeguroParaVariavel`). null = sem valor. */
+/**
+ * Texto fixo vem de quem opera a campanha (admin ou colaborador com o módulo WhatsApp) e já foi conferido em `prepararCampanha`
+ * (`problemaDoParametro`; para o colaborador, também `problemaDoTextoFixoDaEquipe`: sem link nem telefone); nome vem do cadastro e só
+ * entra LIMPO (`nomeSeguroParaVariavel`). null = sem valor.
+ */
 function valorDaVariavel(f: FonteVariavel | undefined, nomeLimpo: string | null): string | null {
   if (!f) return null;
   if (f.fonte === "fixo") return f.texto;
@@ -146,7 +191,7 @@ function valorDaVariavel(f: FonteVariavel | undefined, nomeLimpo: string | null)
   return f.fonte === "primeiro_nome" ? nomeLimpo.split(" ")[0] : nomeLimpo;
 }
 
-export async function prepararCampanha(entrada: EntradaCampanha, situacao: SituacaoDisparo): Promise<Preparo> {
+export async function prepararCampanha(entrada: EntradaCampanha, situacao: SituacaoDisparo, papel: string): Promise<Preparo> {
   const d = depsYcloud();
   const modelos = await modelosDaConta();
   const modelo = modelos.find(m => m.nome === entrada.modelo.nome && m.idioma === entrada.modelo.idioma);
@@ -160,7 +205,7 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
     const f = entrada.variaveis[c.chave];
     if (!f) throw new RecusaYcloud(`Escolha o valor da variável {{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"}.`);
     if (f.fonte === "fixo") {
-      const p = problemaDoParametro(f.texto, c.limite);
+      const p = problemaDoParametro(f.texto, c.limite) ?? (ehAdminYcloud(papel) ? null : problemaDoTextoFixoDaEquipe(f.texto));
       if (p) throw new RecusaYcloud(`O texto fixo da variável {{${c.indice}}} ${p}.`);
     }
   }
@@ -225,15 +270,34 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
   };
 }
 
-/** O que a tela recebe da prévia: contagens, custo e até 5 exemplos (nome + texto). Telefones não saem. */
-export function previaParaTela(p: Preparo, chaveConfirmacao: string) {
-  return {
+/** Prévia na tela: os campos a mais (tier, teto do dia, usados, janela, preço unitário e base) só existem para o admin. */
+export type PreviaNaTela = {
+  modelo: { nome: string; idioma: string; categoria: string | null };
+  contagem: Preparo["contagem"];
+  vagas: { restante: number; tetoCampanha: number; limiteDiario?: number | null; tetoDia?: number; usados24h?: number };
+  custo: { estimado: number | null; moeda: string; precoUnitario?: number | null; base?: Preparo["custo"]["base"] };
+  janelaRepeticaoDias?: number;
+  exemplos: Array<{ nome: string | null; texto: string }>;
+  chaveConfirmacao: string;
+};
+
+/**
+ * O que a tela recebe da prévia: contagens, custo e até 5 exemplos (nome + texto). Telefones não saem. Quem NÃO é admin (C7.1, achado
+ * F1) recebe só `vagas = {restante, tetoCampanha}` e `custo = {estimado, moeda}`: sem tier, teto do dia, usados em 24 h, janela de
+ * repetição, preço unitário nem a base do preço (configuração do admin). O total estimado pode revelar o unitário; o dono aceitou.
+ */
+export function previaParaTela(p: Preparo, chaveConfirmacao: string, papel: string): PreviaNaTela {
+  const base = {
     modelo: { nome: p.modelo.nome, idioma: p.modelo.idioma, categoria: p.modelo.categoria },
-    contagem: p.contagem, vagas: p.vagas, custo: p.custo, janelaRepeticaoDias: p.janelaRepeticaoDias,
+    contagem: p.contagem,
     exemplos: p.destinos.slice(0, 5).map(x => ({ nome: x.nome, texto: x.textoCompleto })),
     /** Exigida na confirmação: a mesma chave duas vezes = UMA campanha. */
     chaveConfirmacao,
   };
+  if (!ehAdminYcloud(papel)) {
+    return { ...base, vagas: { restante: p.vagas.restante, tetoCampanha: p.vagas.tetoCampanha }, custo: { estimado: p.custo.estimado, moeda: p.custo.moeda } };
+  }
+  return { ...base, vagas: { ...p.vagas }, custo: { ...p.custo }, janelaRepeticaoDias: p.janelaRepeticaoDias };
 }
 
 // ── Criação (confirmada pela contagem) ──
@@ -249,7 +313,7 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
   if (ja) return ja;
   const situacao = await situacaoParaDisparo();
   if (!situacao.ok) throw new RecusaYcloud(situacao.motivo ?? "Disparo indisponível.");
-  const p = await prepararCampanha(entrada, situacao);
+  const p = await prepararCampanha(entrada, situacao, autor.papel);
   if (p.contagem.aEnviar === 0) throw new RecusaYcloud("Nenhum destinatário pode receber agora (confira opt-out, telefones e o limite do dia).");
   if (p.contagem.aEnviar !== confirmarQuantidade) {
     throw new RecusaYcloud(`A contagem mudou: agora são ${p.contagem.aEnviar} destinatário(s), não ${confirmarQuantidade}. Revise a prévia e confirme de novo.`);
@@ -294,9 +358,13 @@ async function contarRestantes(campanhaId: number) {
   return { fila: Number(r?.fila ?? 0), enviando: Number(r?.enviando ?? 0) };
 }
 
-async function pausarCampanha(campanhaId: number, motivo: string) {
+/**
+ * Pausa (só se estiver enviando). `sobrepor`: o ADMIN pausando uma campanha já pausada troca o motivo para "pelo administrador" — assim
+ * o colaborador não continua uma campanha que o admin quis segurar. A pausa do colaborador nunca troca o motivo de outra pausa.
+ */
+async function pausarCampanha(campanhaId: number, motivo: string, o: { sobrepor?: boolean } = {}) {
   await getDb().update(ycloudCampanhas).set({ status: "pausada", motivoPausa: motivo.slice(0, 300), atualizadoEm: depsYcloud().agora() })
-    .where(and(eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "enviando")));
+    .where(and(eq(ycloudCampanhas.id, campanhaId), o.sobrepor ? inArray(ycloudCampanhas.status, ["enviando", "pausada"]) : eq(ycloudCampanhas.status, "enviando")));
 }
 
 /** Reserva expirada (a função encerrou entre o POST e a resposta): "incerto" — nunca volta para a fila sozinho. */
@@ -417,11 +485,14 @@ async function enviarLoteTravado(campanhaId: number, autor: AutorYcloud): Promis
     return fim();
   }
   // reserva atômica (um lote por vez por linha; duas abas não pegam o mesmo envio)
-  const sub = db.select({ id: ycloudEnvios.id }).from(ycloudEnvios)
+  // C7.1: os ids são escolhidos ANTES (consulta separada). Com o subselect `IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` dentro do
+  // UPDATE, o banco pode reavaliar o subselect e reservar MAIS que `n` — o lote passava do limite do dia (pego pelo teste do F3).
+  // Um lote por vez já é garantido por `travarLote`; o UPDATE confere de novo "na_fila" (nada é reservado duas vezes).
+  const escolhidos = (await db.select({ id: ycloudEnvios.id }).from(ycloudEnvios)
     .where(and(eq(ycloudEnvios.campanhaId, campanhaId), eq(ycloudEnvios.status, "na_fila"))).orderBy(ycloudEnvios.id)
-    .limit(Math.min(LOTE_ENVIO_YCLOUD, vagas.restante)).for("update", { skipLocked: true });
-  const reservados = await db.update(ycloudEnvios).set({ status: "enviando", reservadoEm: d.agora(), tentativas: sql`${ycloudEnvios.tentativas} + 1`, atualizadoEm: d.agora() })
-    .where(and(inArray(ycloudEnvios.id, sub), eq(ycloudEnvios.status, "na_fila"))).returning();
+    .limit(Math.min(LOTE_ENVIO_YCLOUD, vagas.restante))).map(r => r.id);
+  const reservados = escolhidos.length ? await db.update(ycloudEnvios).set({ status: "enviando", reservadoEm: d.agora(), tentativas: sql`${ycloudEnvios.tentativas} + 1`, atualizadoEm: d.agora() })
+    .where(and(inArray(ycloudEnvios.id, escolhidos), eq(ycloudEnvios.status, "na_fila"))).returning() : [];
   reservados.sort((a, b) => a.id - b.id);
 
   // opt-out (API e Central de Vendas) e repetição do mesmo modelo conferidos de novo na hora do envio
@@ -532,9 +603,20 @@ export async function mudarCampanha(campanhaId: number, acao: "pausar" | "contin
   const [c] = await db.select().from(ycloudCampanhas).where(eq(ycloudCampanhas.id, campanhaId)).limit(1);
   if (!c) throw new RecusaYcloud("Campanha não encontrada.");
   if (c.status === "concluida" || c.status === "cancelada") throw new RecusaYcloud("Campanha já encerrada.");
-  if (acao === "pausar") await pausarCampanha(campanhaId, autor.papel === "admin" ? "Pausada pelo administrador." : "Pausada pela equipe (colaborador).");
-  if (acao === "continuar") {
-    await db.update(ycloudCampanhas).set({ status: "enviando", motivoPausa: null, atualizadoEm: d.agora() }).where(and(eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "pausada")));
+  if (acao === "pausar") {
+    if (ehAdminYcloud(autor.papel)) await pausarCampanha(campanhaId, MOTIVO_PAUSA_ADMIN, { sobrepor: true });
+    else await pausarCampanha(campanhaId, MOTIVO_PAUSA_EQUIPE);
+  }
+  if (acao === "continuar" && c.status === "pausada") {
+    // C7.1 (achado F3): pausa do admin ou trava do sistema só o admin continua. O UPDATE confere o MESMO motivo lido (se o admin pausou
+    // de novo entre a leitura e a gravação, nada muda).
+    if (!podeContinuarPausa(c.motivoPausa, autor.papel)) {
+      throw new RecusaYcloud("Esta campanha foi pausada pelo administrador ou por uma trava de segurança: só o administrador pode continuar.");
+    }
+    await db.update(ycloudCampanhas).set({ status: "enviando", motivoPausa: null, atualizadoEm: d.agora() }).where(and(
+      eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "pausada"),
+      c.motivoPausa === null ? isNull(ycloudCampanhas.motivoPausa) : eq(ycloudCampanhas.motivoPausa, c.motivoPausa),
+    ));
   }
   if (acao === "cancelar") {
     await db.update(ycloudCampanhas).set({ status: "cancelada", concluidaEm: d.agora(), atualizadoEm: d.agora() }).where(eq(ycloudCampanhas.id, campanhaId));

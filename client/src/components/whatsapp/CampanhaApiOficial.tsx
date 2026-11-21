@@ -136,15 +136,19 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
               {p.contagem.invalidos > 0 && <li>{p.contagem.invalidos} sem telefone válido ou fora do CRM</li>}
               {p.contagem.duplicados > 0 && <li>{p.contagem.duplicados} telefone repetido (cada número recebe uma vez)</li>}
               {p.contagem.reservados > 0 && <li>{p.contagem.reservados} é o número do dono ou da empresa</li>}
-              {p.contagem.jaRecebeu > 0 && <li>{p.contagem.jaRecebeu} já receberam este modelo nos últimos {p.janelaRepeticaoDias} dia(s) (não recebem de novo)</li>}
+              {p.contagem.jaRecebeu > 0 && <li>{p.contagem.jaRecebeu} já receberam este modelo {p.janelaRepeticaoDias !== undefined ? `nos últimos ${p.janelaRepeticaoDias} dia(s)` : "recentemente"} (não recebem de novo)</li>}
               {p.contagem.semNome > 0 && <li>{p.contagem.semNome} sem nome no cadastro (a variável usa o nome)</li>}
               {p.contagem.nomeRecusado > 0 && <li>{p.contagem.nomeRecusado} com nome que não pode ir na mensagem (link, "@", números ou símbolos) — corrija o cadastro</li>}
               {p.contagem.parametroInvalido > 0 && <li>{p.contagem.parametroInvalido} com nome que a Meta não aceita como variável</li>}
               {p.contagem.acimaDoLimite > 0 && <li className="text-yellow-200">{p.contagem.acimaDoLimite} acima do limite de hoje / da campanha (não entram)</li>}
             </ul>
-            <p className="text-gray-300">Limite em 24 h: {p.vagas.limiteDiario === null ? "sem limite da Meta" : p.vagas.limiteDiario} (teto do painel {p.vagas.tetoDia}) · já usados {p.vagas.usados24h} · ainda cabem {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>
+            {/* C7.1: tier, teto do painel, usados em 24 h e base do preço só chegam para o admin; o colaborador vê o que ainda cabe */}
+            {p.vagas.tetoDia !== undefined
+              ? <p className="text-gray-300">Limite em 24 h: {p.vagas.limiteDiario === null || p.vagas.limiteDiario === undefined ? "sem limite da Meta" : p.vagas.limiteDiario} (teto do painel {p.vagas.tetoDia}) · já usados {p.vagas.usados24h ?? 0} · ainda cabem {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>
+              : <p className="text-gray-300">Ainda cabem hoje: {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>}
             <p className="text-gray-300">Custo estimado: <b className="text-white">{dinheiro(p.custo.estimado, p.custo.moeda)}</b>
-              {p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : " — sem preço estimado (o administrador informa em Integrações › API oficial do WhatsApp)"}</p>
+              {p.custo.estimado === null ? " — sem preço estimado (o administrador informa em Integrações › API oficial do WhatsApp)"
+                : p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : ""}</p>
             <p className="text-gray-300">Prévia:</p>
             {p.exemplos.map((x, i) => <div key={i} className="whitespace-pre-wrap rounded bg-[#1A2332] p-2 text-gray-100"><b className="text-[#C9A961]">{x.nome}: </b>{x.texto}</div>)}
             <Button disabled={criar.isPending || p.contagem.aEnviar === 0} onClick={() => void confirmar()} className="bg-green-600 font-bold text-white hover:bg-green-700">
@@ -212,7 +216,8 @@ export function PainelCampanhasApiOficial({ iniciar }: { iniciar: number }) {
               <div className="flex flex-wrap gap-2">
                 {(c.status === "enviando" || c.status === "pausada") && (
                   <Button size="sm" disabled={enviando !== null} className="bg-green-600 text-white hover:bg-green-700" onClick={async () => {
-                    if (c.status === "pausada") await mudar.mutateAsync({ campanhaId: c.id, acao: "continuar" }).catch(() => null);
+                    // C7.1: pausa do admin (ou trava do sistema) o colaborador não continua — o servidor recusa e o aviso aparece
+                    if (c.status === "pausada" && !(await mudar.mutateAsync({ campanhaId: c.id, acao: "continuar" }).then(() => true, () => false))) return;
                     void rodar(c.id);
                   }}>{enviando === c.id ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Enviando…</> : "Continuar envio"}</Button>
                 )}

@@ -110,7 +110,9 @@ export type AutorYcloud = { id: number; papel: string };
 const PREFIXO_PAPEL = /^papel=([a-z_]{1,20})(?:; )?/;
 export function detalheComPapel(papel: string | null | undefined, detalhe: string | null | undefined): string | null {
   const p = papel && /^[a-z_]{1,20}$/.test(papel) ? `papel=${papel}` : null;
-  const d = detalhe?.trim() || null;
+  let d = detalhe?.trim() || null;
+  // C7.1: detalhe vindo de fora (ex.: aviso da YCloud) que comece com "papel=" é escapado — só o papel do CONTEXTO vira "papel=…"
+  if (d && /^papel=/i.test(d)) d = `texto: ${d}`;
   return p && d ? `${p}; ${d}` : p ?? d;
 }
 export function separarPapel(detalhe: string | null | undefined): { papel: string | null; detalhe: string | null } {

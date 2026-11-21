@@ -8,6 +8,9 @@
 //   janela, preço, estado completo (`status`) e auditoria.
 // `whatsappOficial` NÃO está no mapa de módulos de `adminProcedure` (o corretor passa em `whatsapp.*`, aqui nunca).
 // Nenhuma resposta leva a chave, o segredo ou telefones de destinatários (só mascarados); a do colaborador nem "terminando em…".
+// Portão de QA da C7.1 (21/11): a quem não é admin, nenhuma rota devolve tier, teto do dia, usados em 24 h, janela de repetição nem preço
+// unitário (F1); problema do número vira "A integração precisa de ajuste do administrador." (F2); pausa do admin ou trava do sistema só
+// o admin continua (F3, `podeContinuarPausa`).
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -18,8 +21,8 @@ import {
   MAX_DESTINATARIOS_CAMPANHA, ROTULO_QUALIDADE, ROTULO_STATUS_NUMERO, podeAdministrarIntegracaoOficial, podeOperarCampanhaOficial,
 } from "../../shared/whatsapp/ycloud.js";
 import {
-  RecusaYcloud, criarCampanha, detalheCampanha, enviarLote, mudarCampanha, painelCampanhas, prepararCampanha, previaParaTela,
-  registrarOptoutPeloPainel, situacaoParaDisparo, totalOptout, usadosNas24h, vagasDoDia,
+  AVISO_AJUSTE_ADMIN, RecusaYcloud, criarCampanha, detalheCampanha, ehAdminYcloud, enviarLote, motivoParaEquipe, mudarCampanha, painelCampanhas,
+  prepararCampanha, previaParaTela, registrarOptoutPeloPainel, situacaoParaDisparo, totalOptout, usadosNas24h, vagasDoDia,
 } from "./campanhas.js";
 import {
   CHAVE_SEGREDO_YCLOUD, EVENTOS_YCLOUD, atualizarConfigYcloud, auditarYcloud, chaveYcloud, depsYcloud, finalDoSegredo, gravarChaveYcloud, gravarSegredoWebhookYcloud,
@@ -45,16 +48,21 @@ const operar = protectedProcedure.use(({ ctx, next }) => {
 });
 const autorDe = (u: { id: number; role: string }): AutorYcloud => ({ id: u.id, papel: u.role });
 
-/** Erro para a tela: nunca com a chave/segredo; sem detalhe interno. */
-async function erroParaTela(e: unknown, padrao: string): Promise<TRPCError> {
+/**
+ * Erro para a tela: nunca com a chave/segredo; sem detalhe interno. `papel` diferente de admin (C7.1, achado F2): o motivo passa por
+ * `motivoParaEquipe` (problema do número da integração vira o aviso genérico, sem números; limite e janela sem os valores).
+ */
+async function erroParaTela(e: unknown, padrao: string, papel: string): Promise<TRPCError> {
   if (e instanceof TRPCError) return e;
   const chave = await chaveYcloud().catch(() => null);
   const segredo = await segredoWebhookYcloud().catch(() => null);
   const msg = e instanceof RecusaYcloud || e instanceof ErroYcloud || (e instanceof Error && /^(Nenhuma|Chave|Segredo|Cole|Configuração)/.test(e.message)) ? e.message : padrao;
-  return new TRPCError({ code: "BAD_REQUEST", message: semSegredo(msg, chave, segredo) });
+  const limpa = semSegredo(msg, chave, segredo);
+  return new TRPCError({ code: "BAD_REQUEST", message: ehAdminYcloud(papel) ? limpa : motivoParaEquipe(limpa) });
 }
-async function tentar<T>(fn: () => Promise<T>, padrao: string): Promise<T> {
-  try { return await fn(); } catch (e) { throw await erroParaTela(e, padrao); }
+/** `papel` padrão "admin": as rotas `soAdmin` só são alcançadas pelo admin. As de operar passam o papel do contexto. */
+async function tentar<T>(fn: () => Promise<T>, padrao: string, papel = "admin"): Promise<T> {
+  try { return await fn(); } catch (e) { throw await erroParaTela(e, padrao, papel); }
 }
 
 const variavelSchema = z.discriminatedUnion("fonte", [
@@ -95,17 +103,21 @@ async function status() {
  * C7.1 — o que quem OPERA vê: só se dá para disparar, em linguagem simples (sem chave, segredo, "terminando em…", número ou tier).
  * Lê o estado guardado (rápido); a conferência na YCloud acontece de novo na prévia, na confirmação e em cada lote.
  */
-async function prontidao() {
+async function prontidao(papel: string) {
   const [cfg, chave, segredo] = await Promise.all([lerConfigYcloud(), chaveYcloud(), segredoWebhookYcloud()]);
   const usados = await usadosNas24h(depsYcloud().agora());
   const vagas = vagasDoDia(cfg, cfg.limiteDiario ?? Number.POSITIVE_INFINITY, usados);
   const restanteHoje = Number.isFinite(vagas.restante) ? vagas.restante : null;
   const motivo = !chave || !segredo ? "A API oficial ainda não foi configurada pelo administrador."
     : !cfg.ligado ? "Os disparos pela API oficial estão desligados pelo administrador."
-    : !cfg.numeroConfere ? "O número da API oficial não confere com o número da empresa: os disparos ficam bloqueados até o administrador resolver."
+    : !cfg.numeroConfere ? (ehAdminYcloud(papel) ? "O número da API oficial não confere com o número da empresa: os disparos ficam bloqueados até o administrador resolver." : AVISO_AJUSTE_ADMIN)
     : restanteHoje === 0 ? "O limite de envios de hoje já foi usado. Amanhã o limite volta."
     : null;
-  return { pronta: motivo === null, motivo, ligado: cfg.ligado, numeroConfere: cfg.numeroConfere, restanteHoje, tetoCampanha: cfg.tetoCampanha, janelaRepeticaoDias: cfg.janelaRepeticaoDias };
+  const r: { pronta: boolean; motivo: string | null; ligado: boolean; numeroConfere: boolean; restanteHoje: number | null; tetoCampanha: number; janelaRepeticaoDias?: number } =
+    { pronta: motivo === null, motivo, ligado: cfg.ligado, numeroConfere: cfg.numeroConfere, restanteHoje, tetoCampanha: cfg.tetoCampanha };
+  // C7.1 (achado F1): a janela de repetição é configuração do admin — o colaborador não a recebe
+  if (ehAdminYcloud(papel)) r.janelaRepeticaoDias = cfg.janelaRepeticaoDias;
+  return r;
 }
 
 export const whatsappOficialRouter = router({
@@ -194,17 +206,17 @@ export const whatsappOficialRouter = router({
   // ── OPERAR (admin ou colaborador com o módulo WhatsApp) ──
 
   /** Se dá para disparar agora, em linguagem simples (nunca a chave, o segredo nem o número). */
-  prontidao: operar.query(() => tentar(prontidao, "Não consegui ler a situação da API oficial.")),
+  prontidao: operar.query(({ ctx }) => tentar(() => prontidao(ctx.user.role), "Não consegui ler a situação da API oficial.", ctx.user.role)),
 
   /** Modelos da conta (sob demanda: consulta a YCloud). */
-  modelos: operar.mutation(() => tentar(modelosDaConta, "Não consegui listar os modelos.")),
+  modelos: operar.mutation(({ ctx }) => tentar(modelosDaConta, "Não consegui listar os modelos.", ctx.user.role)),
 
   /** Prévia: contagens, vagas do dia, custo estimado e exemplos. Não cria nada. */
-  previa: operar.input(entradaSchema).mutation(({ input }) => tentar(async () => {
+  previa: operar.input(entradaSchema).mutation(({ ctx, input }) => tentar(async () => {
     const s = await situacaoParaDisparo();
     if (!s.ok) throw new RecusaYcloud(s.motivo ?? "Disparo indisponível.");
-    return previaParaTela(await prepararCampanha(input, s), randomUUID());
-  }, "Não consegui montar a prévia.")),
+    return previaParaTela(await prepararCampanha(input, s, ctx.user.role), randomUUID(), ctx.user.role);
+  }, "Não consegui montar a prévia.", ctx.user.role)),
 
   /** Confirma com a CONTAGEM vista na prévia (se mudou, recusa). Cria a campanha; o envio começa com `enviarLote`. */
   criarCampanha: operar.input(entradaSchema.extend({
@@ -215,19 +227,32 @@ export const whatsappOficialRouter = router({
     .mutation(({ ctx, input }) => tentar(async () => {
       const { confirmarQuantidade, chaveConfirmacao, ...entrada } = input;
       return criarCampanha(entrada, confirmarQuantidade, chaveConfirmacao, autorDe(ctx.user));
-    }, "Não consegui criar a campanha.")),
+    }, "Não consegui criar a campanha.", ctx.user.role)),
 
   /** Um lote (cabe em 60 s). A tela chama de novo enquanto houver fila; se a função encerrar, "Continuar" retoma de onde parou. */
-  enviarLote: operar.input(campanhaIdSchema).mutation(({ ctx, input }) => tentar(() => enviarLote(input.campanhaId, autorDe(ctx.user)), "Falha no envio do lote.")),
+  enviarLote: operar.input(campanhaIdSchema).mutation(({ ctx, input }) => tentar(async () => {
+    const r = await enviarLote(input.campanhaId, autorDe(ctx.user));
+    return ehAdminYcloud(ctx.user.role) ? r : { ...r, motivo: motivoParaEquipe(r.motivo) };
+  }, "Falha no envio do lote.", ctx.user.role)),
 
   mudarCampanha: operar.input(campanhaIdSchema.extend({ acao: z.enum(["pausar", "continuar", "cancelar"]) }).strict())
-    .mutation(({ ctx, input }) => tentar(async () => { await mudarCampanha(input.campanhaId, input.acao, autorDe(ctx.user)); return { success: true as const }; }, "Não foi possível alterar a campanha.")),
+    .mutation(({ ctx, input }) => tentar(async () => { await mudarCampanha(input.campanhaId, input.acao, autorDe(ctx.user)); return { success: true as const }; }, "Não foi possível alterar a campanha.", ctx.user.role)),
 
-  campanhas: operar.query(() => tentar(painelCampanhas, "Não consegui ler as campanhas.")),
-  detalheCampanha: operar.input(campanhaIdSchema).query(({ input }) => tentar(() => detalheCampanha(input.campanhaId), "Não consegui ler a campanha.")),
+  campanhas: operar.query(({ ctx }) => tentar(async () => {
+    const lista = await painelCampanhas();
+    return ehAdminYcloud(ctx.user.role) ? lista : lista.map(c => ({ ...c, motivoPausa: motivoParaEquipe(c.motivoPausa) }));
+  }, "Não consegui ler as campanhas.", ctx.user.role)),
+  detalheCampanha: operar.input(campanhaIdSchema).query(({ ctx, input }) => tentar(async () => {
+    const d = await detalheCampanha(input.campanhaId);
+    if (ehAdminYcloud(ctx.user.role)) return d;
+    return {
+      motivos: d.motivos.map(m => ({ ...m, motivo: motivoParaEquipe(m.motivo) })),
+      falhas: d.falhas.map(f => ({ ...f, motivo: motivoParaEquipe(f.motivo) })),
+    };
+  }, "Não consegui ler a campanha.", ctx.user.role)),
 
   registrarOptout: operar.input(z.union([
     z.object({ leadId: z.number().int().positive() }).strict(),
     z.object({ envioId: z.number().int().positive() }).strict(),
-  ])).mutation(({ ctx, input }) => tentar(() => registrarOptoutPeloPainel(input, autorDe(ctx.user)), "Não foi possível registrar o pedido de não receber.")),
+  ])).mutation(({ ctx, input }) => tentar(() => registrarOptoutPeloPainel(input, autorDe(ctx.user)), "Não foi possível registrar o pedido de não receber.", ctx.user.role)),
 });

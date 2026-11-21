@@ -167,7 +167,10 @@ export function analisarModelo(components: ComponenteModelo[] | null | undefined
   return { compativel: true, motivo: null, campos, corpo, cabecalho };
 }
 
-/** De onde vem o valor de cada variável: do cadastro (nome) ou um texto fixo digitado pelo administrador. */
+/**
+ * De onde vem o valor de cada variável: do cadastro (nome) ou um texto fixo digitado por quem opera a campanha (admin ou colaborador
+ * com o módulo WhatsApp; o do colaborador passa também por `problemaDoTextoFixoDaEquipe`).
+ */
 export type FonteVariavel = { fonte: "primeiro_nome" | "nome_completo" } | { fonte: "fixo"; texto: string };
 
 /** A Meta recusa parâmetro com quebra de linha, tabulação ou 4+ espaços seguidos (regra da Cloud API). */
@@ -175,6 +178,21 @@ export function problemaDoParametro(valor: string, limite: number): string | nul
   if (!valor.trim()) return "vazio";
   if (/[\n\r\t]/.test(valor) || / {4,}/.test(valor)) return "tem quebra de linha, tabulação ou espaços seguidos";
   if (valor.length > limite) return `passa de ${limite} caracteres`;
+  return null;
+}
+
+const TLD_COMUNS = "com|net|org|br|io|me|co|info|biz|app|site|online|store|shop|link|ly|xyz|gov|edu|tv|us|uk|pt|top|club|live|page|digital";
+const DOMINIO_COM_TLD = new RegExp(`(?:^|[^a-z0-9@])[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:${TLD_COMUNS})(?![a-z0-9])`, "i");
+
+/**
+ * C7.1 (portão de QA, 21/11/2026): texto fixo de variável digitado por quem NÃO é admin (colaborador com o módulo WhatsApp) não leva
+ * link (`http`, `https`, `www.`, domínio com terminação comum) nem telefone (8+ dígitos seguidos, aceitando espaço, ponto, hífen,
+ * parênteses e "+"). O modelo foi aprovado pela Meta; a variável não pode virar um canal para mandar o cliente a outro lugar.
+ */
+export function problemaDoTextoFixoDaEquipe(valor: string): string | null {
+  if (/https?:|www\./i.test(valor) || DOMINIO_COM_TLD.test(valor)) return "não pode ter link (só o administrador pode usar link em texto fixo)";
+  const corridas = valor.match(/[+(]?\d[\d\s().+-]*\d/g) ?? [];
+  if (corridas.some(c => c.replace(/\D/g, "").length >= 8)) return "não pode ter número de telefone (só o administrador pode usar telefone em texto fixo)";
   return null;
 }
 

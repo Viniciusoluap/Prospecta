@@ -36,6 +36,33 @@ Critérios:
 - [x] C7.1-AC5: tela: a opção "Campanha pela API oficial" aparece na Central (Enviar mensagem) para quem pode operar, com a
       linha de prontidão; o cartão de Integrações continua só do admin.
 
+### Correções do portão de QA da C7.1 (21/11/2026)
+- [x] F1: a quem não é admin, nenhuma rota devolve `limiteDiario` (tier), `tetoDia`, `usados24h`, `janelaRepeticaoDias`,
+      `precoUnitario` nem a base do preço. Prévia: `vagas = {restante, tetoCampanha}`, `custo = {estimado, moeda}`; `prontidao` sem a
+      janela; motivos de pausa/falha com "Limite de N destinatários" e "nos últimos N dia(s)" saem sem os valores
+      (`motivoParaEquipe`). Admin vê tudo. A tela (`CampanhaApiOficial.tsx`) mostra "ainda cabem hoje" ao colaborador.
+- [x] F2: número divergente (ou não cadastrado / conta sem número): recusa, resultado do lote, `motivoPausa` do painel e motivos de
+      falha ao não-admin = "A integração precisa de ajuste do administrador." — sem números, nem mascarados. Admin vê o detalhe.
+      (Substitui a parte "a mesma recusa do admin… NÃO é o número da empresa" do C7.1-AC3 para o colaborador.)
+- [x] F3: quem pausou é derivado do `motivoPausa` (gravado só pelo servidor) — SEM coluna nova, SEM migração
+      (`podeContinuarPausa`). Colaborador continua só "Pausada pela equipe (colaborador)." e a pausa do limite do dia (o limite é
+      conferido de novo em cada lote; continuar não o contorna). Pausa do admin e qualquer trava do sistema (disparos desligados,
+      número, qualidade, conta, cinco falhas, conferência que falhou) → só admin. Admin pausando uma campanha já pausada pelo
+      colaborador passa a ser pausa do admin; a do colaborador nunca troca a do admin. O "continuar" confere o mesmo motivo lido.
+      [AUTO-DECISION] pausa do limite do dia → colaborador pode continuar (razão: não é contorno — o lote re-confere o limite e volta
+      a pausar; senão a campanha travaria todo dia até o admin).
+- [x] Texto fixo das variáveis digitado por não-admin: recusa link (`http`, `https`, `www.`, domínio com terminação comum) e
+      telefone (8+ dígitos seguidos) — `problemaDoTextoFixoDaEquipe` em `shared/whatsapp/ycloud.ts`. Admin pode.
+- [x] Webhook: o status do modelo vindo da YCloud é gravado em `detalhe` como `status_ycloud=<só letras/dígitos/_>`; e
+      `detalheComPapel` escapa ("texto: …") qualquer detalhe sem papel do contexto que comece com "papel=". `separarPapel` nunca o
+      lê como papel.
+- [x] Eco: `ehEcoDeCampanhaOficial` ligado em `tratarPropria` (`server/dolores/roteamento.ts`) → rota `propria-campanha-oficial`:
+      não cala a Dolores nem grava atendimento humano (a campanha já registrou a mensagem como automática). Na dúvida (texto diferente,
+      fora de 10 min, outro número, tabela ausente) segue "propria-equipe".
+- [x] Achado no caminho (teste do F3): o lote reservava MAIS envios que o limite do dia — `UPDATE … WHERE id IN (SELECT … LIMIT n FOR
+      UPDATE SKIP LOCKED)` reavaliava o subselect. Agora os ids são escolhidos numa consulta separada e o UPDATE confere "na_fila"
+      (um lote por vez continua garantido por `travarLote`). Teste: com teto 1, o lote envia 1.
+
 ## Pedido do dono (20/11/2026)
 O WhatsApp da empresa é ligado pela Evolution (WhatsApp Web): por ela entra TUDO (conversas, grupos, Dolores) e saem as mensagens
 comuns. O dono criou conta gratuita na YCloud (provedor oficial da Meta) e vinculou o MESMO número em coexistência (WhatsApp Business
@@ -119,7 +146,7 @@ App + API oficial): conta "VFX Capital", Conectado, limite inicial de 250 client
 Em coexistência, a mensagem da API aparece no app e PODE chegar pela Evolution como "enviada pela empresa" (fromMe). Hoje o roteamento
 (`server/dolores/roteamento.ts`, `tratarPropria`) só reconhece como automática a linha `automatica` sem `external_id`, do mesmo número e
 MESMO texto, de até 5 min; fora disso trata como resposta da EQUIPE (grava outra linha e cala a Dolores naquela conversa — erro para o
-lado humano; nada é enviado a mais). Esta entrega NÃO mexe no roteamento (outra frente).
+lado humano; nada é enviado a mais). Atualização 21/11 (portão da C7.1): LIGADO — ver "Correções do portão de QA da C7.1".
 
 Regra segura pronta e testada: `ehEcoDeCampanhaOficial(numero, texto)` em `server/ycloud/campanhas.ts` — só é eco se houve envio da
 campanha ao MESMO número (forma canônica, regra estrita do número do dono) aceito há ≤ 10 min E o texto do eco CONTÉM o corpo preenchido
@@ -168,6 +195,9 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - (a) automáticos: `npx vitest run server/ycloud/ycloud.test.ts --maxWorkers=2 --minWorkers=1` → 24/24; WhatsApp afetados
   (`api-rotas-producao`, `imports-esm`, `whatsapp-business`, `whatsapp-conversas`, `whatsapp-noite`, `whatsapp-lote3`,
   `admin-permissions`) → 54/54; `npx tsc --noEmit` → 0 erros; `vite build` ok.
+- (a') portão da C7.1 (21/11): `npx vitest run server/ycloud server/admin-permissions.test.ts server/dolores/roteamento-eco-campanha.test.ts
+  server/dolores/e9-conexao-unica.test.ts server/dolores/c3-qa-seguranca.test.ts --maxWorkers=2 --minWorkers=1` → 7 arquivos, 171/171;
+  `npx tsc --noEmit` → 0 erros.
 - (b) manuais: nenhum (sem acesso à conta).
 - (c) pendentes em produção: aplicar 0141; salvar a chave; Testar; Ativar avisos; campanha de 1 destinatário (o próprio celular de
   teste) para conferir entrega, preço registrado, aviso assinado e o eco na Central.
@@ -184,8 +214,14 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - C7.1: `shared/whatsapp/ycloud.ts`, `server/ycloud/{router,config,campanhas}.ts`, `server/ycloud/ycloud.test.ts`,
   `server/ycloud/ycloud-qa.test.ts`, `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `client/src/components/admin/YcloudCard.tsx`,
   `client/src/pages/admin/AdminWhatsApp.tsx`
+- Portão da C7.1: `server/ycloud/{campanhas,router,config,webhook}.ts`, `shared/whatsapp/ycloud.ts`, `server/dolores/roteamento.ts`,
+  `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `server/ycloud/ycloud-qa-c71.test.ts`, `server/ycloud/ycloud.test.ts`,
+  `server/dolores/roteamento-eco-campanha.test.ts` (novo)
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): correções do portão de QA da C7.1 (F1, F2, F3, texto fixo, webhook, eco no roteamento, limite do dia no
+  lote); sem migração. Testes em `server/ycloud/ycloud-qa-c71.test.ts` (F1/F2/F3 invertidos para o corrigido) e
+  `server/dolores/roteamento-eco-campanha.test.ts` (novo).
 - 21/11/2026 — @dev (Dex): C7.1 — dois níveis (operar × administrar) pela decisão do dono; colaborador com WhatsApp opera campanhas.
 - 21/11/2026 — @dev (Dex): correções R2-1 e R2-2 da rodada 2 do portão.
 - 21/11/2026 — @dev (Dex): correções 1–11 do portão de QA (CONCERNS/NEEDS_WORK); segue InReview para nova revisão.

@@ -553,7 +553,7 @@ describe("C7.1 — colaborador com WhatsApp disparando", () => {
     const respostas: unknown[] = [];
     const pr = await colab().whatsappOficial.prontidao();
     expect(pr).toMatchObject({ pronta: true, motivo: null, ligado: true, numeroConfere: true, restanteHoje: 200 }); // menor entre o tier (250) e o teto do dia (200)
-    expect(Object.keys(pr).sort()).toEqual(["janelaRepeticaoDias", "ligado", "motivo", "numeroConfere", "pronta", "restanteHoje", "tetoCampanha"]);
+    expect(Object.keys(pr).sort()).toEqual(["ligado", "motivo", "numeroConfere", "pronta", "restanteHoje", "tetoCampanha"]); // C7.1 F1: sem a janela
     respostas.push(pr, await colab().whatsappOficial.modelos());
     const p = await colab().whatsappOficial.previa(entrada([1, 2]));
     respostas.push(p);
@@ -587,7 +587,8 @@ describe("C7.1 — colaborador com WhatsApp disparando", () => {
     await expect(admin().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/DESLIGADOS pelo administrador/);
     await admin().whatsappOficial.salvarConfig({ ligado: true });
     numeroDaApi = "+5599900002222";
-    await expect(colab().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/NÃO é o número da empresa/);
+    await expect(colab().whatsappOficial.previa(entrada([1]))).rejects.toThrow("A integração precisa de ajuste do administrador."); // C7.1 F2
+    await expect(admin().whatsappOficial.previa(entrada([1]))).rejects.toThrow(/NÃO é o número da empresa/);
     await expect(colab().whatsappOficial.prontidao()).resolves.toMatchObject({ pronta: false, numeroConfere: false });
     expect(envioCalls()).toHaveLength(0);
   });
