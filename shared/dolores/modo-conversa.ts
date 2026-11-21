@@ -33,6 +33,14 @@ export const TEXTO_MODO = {
   silencio: "Equipe atendendo",
   assumir: "Assumir (humano)",
   devolver: "Devolver para a Dolores",
-  ajudaAssumir: "A Dolores fica calada nesta conversa até alguém devolver. Nenhuma mensagem é enviada.",
-  ajudaDevolver: "Ela responde só a próxima mensagem do cliente; as antigas sem resposta ficam com a equipe.",
+  // EPIC-027 C6: a frase abaixo do botão descreve o efeito de TOCAR nele (antes, com "Dolores atendendo", parecia dizer que ela já
+  // estava calada). Uma por estado.
+  /** Estado "Dolores atendendo" (botão "Assumir"). */
+  ajudaAssumir: "Toque em Assumir para a Dolores parar de responder nesta conversa até você devolver. Tocar não envia nada ao cliente.",
+  /** Estado "Equipe atendendo (assumida)" (botão "Devolver"). */
+  ajudaDevolver: "A Dolores está parada nesta conversa. Toque em Devolver para ela voltar: responde só a próxima mensagem do cliente; as antigas sem resposta ficam com a equipe. Tocar não envia nada.",
+  /** Estado "Equipe atendendo" por silêncio automático depois de resposta da equipe (botão "Devolver"). */
+  ajudaSilencio: "A Dolores está parada porque a equipe respondeu; ela volta sozinha no horário indicado. Toque em Devolver para ela voltar antes: responde só a próxima mensagem do cliente. Tocar não envia nada.",
 } as const;
+/** A frase de ajuda do estado atual (o efeito de tocar no botão). */
+export const ajudaDoEstado = (e: EstadoDoAtendimento) => (e === "assumida" ? TEXTO_MODO.ajudaDevolver : e === "silencio" ? TEXTO_MODO.ajudaSilencio : TEXTO_MODO.ajudaAssumir);
