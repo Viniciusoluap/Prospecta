@@ -19,15 +19,24 @@ import { registrarOptoutDoAviso } from "./campanhas.js";
 import { auditarYcloud, depsYcloud, segredoWebhookYcloud } from "./config.js";
 
 export const TOLERANCIA_ASSINATURA_S = 300;
+/**
+ * Reenvio da YCloud: a documentação diz que a janela de 5 min é "política da aplicação, não prazo de reenvio" e lista reenvios até
+ * ~6 h depois (10 s, 30 s, 5 min, 30 min, 1 h, 2 h, 2 h), mas NÃO diz se o reenvio traz um `t` novo. Por isso, assinatura VÁLIDA com
+ * `t` de até 8 h atrás também é aceita — e só é processada se o `id` do evento ainda não foi visto (a deduplicação por id barra o
+ * replay de um aviso já recebido). `t` no futuro continua limitado a 5 min.
+ */
+export const TOLERANCIA_REENVIO_S = 8 * 60 * 60;
 
-/** Confere a assinatura. Qualquer forma estranha → false. */
-export function verificarAssinaturaYcloud(corpo: Buffer, cabecalho: string | undefined, segredo: string | null, agoraMs: number): boolean {
+/** Confere a assinatura. Qualquer forma estranha → false. `passadoS`/`futuroS`: idade máxima aceita do `t`. */
+export function verificarAssinaturaYcloud(corpo: Buffer, cabecalho: string | undefined, segredo: string | null, agoraMs: number,
+  o: { passadoS?: number; futuroS?: number } = {}): boolean {
   if (!Buffer.isBuffer(corpo) || typeof cabecalho !== "string" || !segredo || cabecalho.length > 1000) return false;
   const campos = cabecalho.split(",").map(p => p.trim().split("="));
   const ts = campos.filter(([k]) => k === "t").map(([, v]) => v);
   const assinaturas = campos.filter(([k]) => k === "s").map(([, v]) => v);
   if (ts.length !== 1 || !/^\d{1,12}$/.test(ts[0] ?? "")) return false;
-  if (Math.abs(Math.floor(agoraMs / 1000) - Number(ts[0])) > TOLERANCIA_ASSINATURA_S) return false;
+  const idade = Math.floor(agoraMs / 1000) - Number(ts[0]);
+  if (idade > (o.passadoS ?? TOLERANCIA_ASSINATURA_S) || -idade > (o.futuroS ?? TOLERANCIA_ASSINATURA_S)) return false;
   const esperado = createHmac("sha256", segredo).update(`${ts[0]}.`).update(corpo).digest();
   return assinaturas.some(s => typeof s === "string" && /^[a-fA-F0-9]{64}$/.test(s) && timingSafeEqual(esperado, Buffer.from(s, "hex")));
 }
@@ -105,7 +114,10 @@ export async function tratarWebhookYcloud(req: Request, res: Response): Promise<
   const corpo = req.body;
   let segredo: string | null = null;
   try { segredo = await segredoWebhookYcloud(); } catch { segredo = null; }
-  if (!Buffer.isBuffer(corpo) || !verificarAssinaturaYcloud(corpo, req.get("YCloud-Signature"), segredo, depsYcloud().agora().getTime())) {
+  const agoraMs = depsYcloud().agora().getTime();
+  const cab = req.get("YCloud-Signature");
+  // assinatura válida dentro de 5 min, ou de até 8 h atrás (reenvio); o id repetido é barrado logo abaixo, sem processar
+  if (!Buffer.isBuffer(corpo) || !verificarAssinaturaYcloud(corpo, cab, segredo, agoraMs, { passadoS: TOLERANCIA_REENVIO_S })) {
     res.status(401).end();
     return;
   }

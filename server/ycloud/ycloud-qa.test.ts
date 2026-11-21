@@ -93,6 +93,8 @@ async function criarBanco() {
   const migracao = readFileSync(new URL("../../drizzle/0141_ycloud.sql", import.meta.url), "utf8");
   await banco.exec(migracao);
   await banco.exec(migracao); // idempotente
+  // marca de descadastro da Central de Vendas (tabela real tem mais colunas; aqui só as que a campanha lê)
+  await banco.exec("CREATE TABLE IF NOT EXISTS central_vendas_leads (lead_id integer PRIMARY KEY, opt_out boolean NOT NULL DEFAULT false)");
   return banco;
 }
 
@@ -109,7 +111,7 @@ const entrada = (leadIds: number[]) => ({
 
 async function campanha(leadIds: number[]) {
   const p = await admin().whatsappOficial.previa(entrada(leadIds));
-  const c = await admin().whatsappOficial.criarCampanha({ ...entrada(leadIds), confirmarQuantidade: p.contagem.aEnviar });
+  const c = await admin().whatsappOficial.criarCampanha({ ...entrada(leadIds), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao });
   return { previa: p, ...c };
 }
 
@@ -156,59 +158,97 @@ afterEach(async () => {
 const recebidosPor = (tel: string) => envioCalls().filter(c => c.corpo?.to === tel).length;
 
 describe("QA — dinheiro e proteção do número", () => {
-  it("ACHADO 1: duas confirmações (duas abas / reenvio do pedido) criam DUAS campanhas e a mesma pessoa recebe DUAS vezes", async () => {
+  it("CORRIGIDO 1: duas confirmações com a mesma chave da prévia = UMA campanha; e quem já recebeu o mesmo modelo em 7 dias é pulado", async () => {
     await configurarTudo();
     const p = await admin().whatsappOficial.previa(entrada([1, 2]));
-    const [a, b] = await Promise.all([
-      admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar }),
-      admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar }),
-    ]);
-    expect(a.campanhaId).not.toBe(b.campanhaId);
+    const confirmar = () => admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao });
+    const [a, b] = await Promise.all([confirmar(), confirmar()]);
+    expect(a.campanhaId).toBe(b.campanhaId);
+    expect((await q("SELECT id FROM ycloud_campanhas")).length).toBe(1);
+    await admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId });
+    expect(recebidosPor("+5599988881111")).toBe(1);
+    // nova prévia (outra chave) do MESMO modelo: os dois já receberam → pulados, com contagem visível
+    const p2 = await admin().whatsappOficial.previa(entrada([1, 2, 3]));
+    expect(p2.contagem).toMatchObject({ jaRecebeu: 2, aEnviar: 1 });
+    expect(p2.janelaRepeticaoDias).toBe(7);
+    // 8 dias depois a janela libera; com a janela em 0 não confere
+    relogio = new Date(AGORA.getTime() + 8 * 24 * 60 * 60_000);
+    expect((await admin().whatsappOficial.previa(entrada([1, 2]))).contagem.jaRecebeu).toBe(0);
+  });
+
+  it("CORRIGIDO 1b: duas campanhas criadas ANTES de qualquer envio (chaves diferentes): o lote da segunda pula quem já recebeu o modelo", async () => {
+    await configurarTudo();
+    const a = await campanha([1]);
+    await pg.exec("UPDATE ycloud_config SET janela_repeticao_dias = 0");
+    const b = await campanha([1]); // sem conferência na prévia
+    await pg.exec("UPDATE ycloud_config SET janela_repeticao_dias = 7");
     await admin().whatsappOficial.enviarLote({ campanhaId: a.campanhaId });
     await admin().whatsappOficial.enviarLote({ campanhaId: b.campanhaId });
-    expect(recebidosPor("+5599988881111")).toBe(2); // mesmo modelo, mesma pessoa, duas cobranças
-    // o limite de 24 h conta destinatários ÚNICOS, então a segunda campanha nem consome vaga
-    expect((await admin().whatsappOficial.status()).usados24h).toBe(2);
-  });
-
-  it("ACHADO 2: quem disse SAIR na Central de Vendas (central_vendas_leads.opt_out) recebe a campanha da API oficial", async () => {
-    await pg.exec(`CREATE TABLE IF NOT EXISTS central_vendas_leads (lead_id integer PRIMARY KEY, opt_out boolean NOT NULL DEFAULT false);
-      INSERT INTO central_vendas_leads (lead_id, opt_out) VALUES (1, true);`);
-    await configurarTudo();
-    const { campanhaId, previa } = await campanha([1]);
-    expect(previa.contagem.optout).toBe(0);
-    await admin().whatsappOficial.enviarLote({ campanhaId });
     expect(recebidosPor("+5599988881111")).toBe(1);
+    const [x] = await q<{ status: string; erro_codigo: string }>(`SELECT status, erro_codigo FROM ycloud_envios WHERE campanha_id = ${b.campanhaId}`);
+    expect(x).toMatchObject({ status: "falhou", erro_codigo: "REPETIDO" });
   });
 
-  it("ACHADO 3: opt-out gravado SEM o nono dígito (formato do wa_id antigo) não bloqueia o mesmo celular com o 9", async () => {
+  it("CORRIGIDO 2: quem disse SAIR na Central de Vendas (central_vendas_leads.opt_out) não recebe — na prévia e de novo no lote", async () => {
+    await pg.exec(`INSERT INTO central_vendas_leads (lead_id, opt_out) VALUES (1, true);`);
     await configurarTudo();
-    await pg.exec(`INSERT INTO ycloud_optout (telefone, origem) VALUES ('+559988881111', 'whatsapp_preferencia')`);
-    const { campanhaId, previa } = await campanha([1]);
-    expect(previa.contagem.optout).toBe(0);
+    const p = await admin().whatsappOficial.previa(entrada([1, 2]));
+    expect(p.contagem).toMatchObject({ optout: 1, aEnviar: 1 });
+    const { campanhaId } = await campanha([2, 3]);
+    await pg.exec(`INSERT INTO central_vendas_leads (lead_id, opt_out) VALUES (2, true);`); // disse SAIR depois da criação
     await admin().whatsappOficial.enviarLote({ campanhaId });
-    expect(recebidosPor("+5599988881111")).toBe(1);
+    expect(recebidosPor("+5599977772222")).toBe(0);
+    expect(recebidosPor("+5599966663333")).toBe(1);
   });
 
-  it("ACHADO 4: o mesmo celular em dois cadastros, com e sem o nono dígito, recebe duas vezes na MESMA campanha", async () => {
+  it("CORRIGIDO 3: opt-out gravado SEM o nono dígito bloqueia o mesmo celular com o 9 (prévia e lote)", async () => {
+    await configurarTudo();
+    await pg.exec(`DELETE FROM ycloud_optout; INSERT INTO ycloud_optout (telefone, chave_telefone, origem) VALUES ('+559988881111', '5599988881111', 'whatsapp_preferencia')`);
+    expect((await admin().whatsappOficial.previa(entrada([1]))).contagem.optout).toBe(1);
+    // pelo aviso da Meta (formato sem o 9): grava pela forma canônica
+    await pg.exec("DELETE FROM ycloud_optout");
+    const { campanhaId } = await campanha([1]);
+    const { registrarOptoutDoAviso } = await import("./campanhas.js");
+    await registrarOptoutDoAviso("+559988881111", "whatsapp_preferencia");
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    expect(recebidosPor("+5599988881111")).toBe(0);
+  });
+
+  it("CORRIGIDO 4: o mesmo celular em dois cadastros, com e sem o nono dígito, recebe UMA vez", async () => {
     await pg.exec(`INSERT INTO leads (name, phone) VALUES ('Maria Antiga', '(99) 8888-1111')`); // id 7
     await configurarTudo();
     const { campanhaId, previa } = await campanha([1, 7]);
-    expect(previa.contagem.duplicados).toBe(0);
+    expect(previa.contagem.duplicados).toBe(1);
     await admin().whatsappOficial.enviarLote({ campanhaId });
-    expect(recebidosPor("+5599988881111") + recebidosPor("+559988881111")).toBe(2);
+    expect(recebidosPor("+5599988881111") + recebidosPor("+559988881111")).toBe(1);
   });
 
-  it("ACHADO 5: o nome do cadastro (vem de fora: pushName do WhatsApp, formulário do site) entra na variável sem filtro — link sai pelo número oficial", async () => {
-    await pg.exec(`INSERT INTO leads (name, phone) VALUES ('https://golpe.example/pix Clique', '99 95555-4444')`); // id 7
+  it("CORRIGIDO 5: nome com link, @, números ou longo demais não entra na variável — o destinatário é pulado com motivo visível", async () => {
+    await pg.exec(`INSERT INTO leads (name, phone) VALUES ('https://golpe.example/pix Clique', '99 95555-4444'), ('fulano@x.com', '99 94444-3333'),
+      ('Ana 999999', '99 93333-2222'), ('${"Maria ".repeat(10)}', '99 92222-1111'), ('D''Ávila-Souza', '99 91111-0000')`); // ids 7..11
     await configurarTudo();
-    const { campanhaId } = await campanha([7]);
+    const p = await admin().whatsappOficial.previa(entrada([7, 8, 9, 10, 11]));
+    expect(p.contagem).toMatchObject({ nomeRecusado: 4, aEnviar: 1 });
+    expect(p.exemplos[0].nome).toBe("D'Ávila-Souza");
+    const { campanhaId } = await admin().whatsappOficial.criarCampanha({ ...entrada([7, 8, 9, 10, 11]), confirmarQuantidade: 1, chaveConfirmacao: p.chaveConfirmacao });
     await admin().whatsappOficial.enviarLote({ campanhaId });
-    const corpo = envioCalls()[0].corpo;
-    expect(JSON.stringify(corpo.template.components)).toContain("https://golpe.example/pix");
+    expect(JSON.stringify(envioCalls().map(c => c.corpo))).not.toMatch(/golpe|@x\.com|999999/);
+    // modelo só com texto fixo: o nome não é usado, então o nome ruim não bloqueia
+    const fixo = { ...entrada([7]), variaveis: { "cabecalho.1": { fonte: "fixo" as const, texto: "Cliente" }, "corpo.1": { fonte: "fixo" as const, texto: "Cliente" }, "corpo.2": { fonte: "fixo" as const, texto: "Jardim" } } };
+    expect((await admin().whatsappOficial.previa(fixo)).contagem.aEnviar).toBe(1);
   });
 
-  it("ACHADO 7: aviso de entrega que chega ANTES da gravação do aceite é sobrescrito (volta para 'aceita' e perde o preço final)", async () => {
+  it("CORRIGIDO 6: 5xx da YCloud é ambíguo → 'incerto', nunca reenviado sozinho", async () => {
+    await configurarTudo();
+    const { campanhaId } = await campanha([1, 2]);
+    respostaEnvio = (_c, n) => (n === 1 ? { status: 502, json: { error: { status: 502, code: "SERVICE_UNAVAILABLE" } } } : { status: 200 });
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    expect(envioCalls()).toHaveLength(2);
+    expect((await envios()).map(e => e.status)).toEqual(["incerto", "aceita"]);
+  });
+
+  it("CORRIGIDO 7: aviso de entrega que chega ANTES da gravação do aceite não é rebaixado nem perde o preço final", async () => {
     await configurarTudo();
     const { campanhaId } = await campanha([1]);
     const original = fetchFalso.getMockImplementation()!;
@@ -219,7 +259,7 @@ describe("QA — dinheiro e proteção do número", () => {
         const r = await original(u, init);
         if (String(u).endsWith("/whatsapp/messages")) {
           const ext = JSON.parse(String(init!.body)).externalId;
-          expect(await aviso(evStatus({ externalId: ext, status: "delivered", totalPrice: 0.0625, currency: "USD" }))).toBe(204);
+          expect(await aviso(evStatus({ externalId: ext, status: "delivered", totalPrice: 0.0711, currency: "USD" }))).toBe(204);
           expect((await envios())[0].status).toBe("entregue");
         }
         return r;
@@ -227,9 +267,40 @@ describe("QA — dinheiro e proteção do número", () => {
     });
     await admin().whatsappOficial.enviarLote({ campanhaId });
     const [e] = await envios();
-    expect(e.status).toBe("aceita");
-    expect(e.preco_final).toBe(true); // marcado como final…
-    expect(e.preco).not.toBeNull();   // (preço da resposta do POST, não o do aviso)
+    expect(e.status).toBe("entregue");
+    expect(e.preco_final).toBe(true);
+    expect(Number(e.preco)).toBeCloseTo(0.0711);
+    expect(e.ycloud_id).toBe("ym1");
+    const [m] = await q<{ status: string }>("SELECT status FROM whatsapp_messages");
+    expect(m.status).toBe("entregue");
+  });
+
+  it("CORRIGIDO 8: o lote só solta a trava se ela ainda for a dele", async () => {
+    await configurarTudo();
+    const { campanhaId } = await campanha([1]);
+    const original = fetchFalso.getMockImplementation()!;
+    const outra = new Date(AGORA.getTime() + 999_000).toISOString();
+    definirDependenciasYcloud({
+      agora: () => relogio, esperar: async () => undefined, numeroDaEmpresa: async () => EMPRESA, numeroDoDono: async () => DONO,
+      conexaoDaEmpresaId: async () => 1, urlDoSite: () => "https://www.exemplo-prospecta.test",
+      fetch: (async (u: any, init?: RequestInit) => {
+        if (String(u).endsWith("/whatsapp/messages")) await pg.exec(`UPDATE ycloud_config SET lote_ate = '${outra}'`); // outro lote assumiu
+        return original(u, init);
+      }) as never,
+    });
+    await admin().whatsappOficial.enviarLote({ campanhaId });
+    const [c] = await q<{ lote_ate: Date | null }>("SELECT lote_ate FROM ycloud_config");
+    expect(c.lote_ate && new Date(c.lote_ate).toISOString()).toBe(outra);
+  });
+
+  it("CORRIGIDO 9: avisos assinam também whatsapp.user.preferences e o 'stop' entra no opt-out local", async () => {
+    await configurarTudo();
+    const ep = chamadas.find(c => c.url.endsWith("/webhookEndpoints"))!;
+    expect(ep.corpo.enabledEvents).toContain("whatsapp.user.preferences");
+    expect(ep.corpo.enabledEvents).not.toContain("whatsapp.inbound_message.received");
+    expect(await aviso({ id: "evt_pref_000001", type: "whatsapp.user.preferences", apiVersion: "v2", createTime: relogio.toISOString(),
+      whatsappUserPreference: { contactPhoneNumber: "+559977772222", category: "marketing_messages", value: "stop" } })).toBe(204);
+    expect((await admin().whatsappOficial.previa(entrada([2]))).contagem.optout).toBe(1);
   });
 
   it("OK: trava de lote é atômica — dois lotes em paralelo (mesma campanha) não enviam duas vezes", async () => {
@@ -270,7 +341,7 @@ describe("QA — dinheiro e proteção do número", () => {
   it("OK: contagem alterada entre a prévia e a confirmação é recusada", async () => {
     await configurarTudo();
     const p = await admin().whatsappOficial.previa(entrada([1, 2]));
-    await pg.exec(`INSERT INTO ycloud_optout (telefone, origem) VALUES ('+5599977772222', 'painel')`);
+    await pg.exec(`INSERT INTO ycloud_optout (telefone, chave_telefone, origem) VALUES ('+5599977772222', '5599977772222', 'painel')`);
     await expect(admin().whatsappOficial.criarCampanha({ ...entrada([1, 2]), confirmarQuantidade: p.contagem.aEnviar })).rejects.toThrow(/contagem mudou/);
   });
 });
@@ -301,12 +372,15 @@ describe("QA — webhook público", () => {
     expect(await aviso({ type: "whatsapp.message.updated" })).toBe(400);
     expect(await q("SELECT * FROM ycloud_eventos")).toHaveLength(0);
   });
-  it("evento antigo (assinatura válida de 6 min atrás) → 401; reenvio dentro da janela com outro t e mesmo id → 204 sem reprocessar", async () => {
+  it("CORRIGIDO 10: reenvio atrasado (assinatura válida de 6 min a 8 h atrás) de evento NÃO visto é aceito; mais velho que 8 h → 401; id repetido não reprocessa", async () => {
     const e = await comUmEnvio();
     const ev = evStatus({ id: e.ycloud_id, status: "failed" });
     const corpo = JSON.stringify(ev);
-    expect(await aviso(ev, assinar(corpo, Math.floor(relogio.getTime() / 1000) - 360))).toBe(401);
-    expect(await aviso(ev)).toBe(204);
+    const agoraS = Math.floor(relogio.getTime() / 1000);
+    expect(await aviso(ev, assinar(corpo, agoraS - 8 * 3600 - 1))).toBe(401);
+    expect(await q("SELECT * FROM ycloud_eventos")).toHaveLength(0);
+    expect(await aviso(ev, assinar(corpo, agoraS - 360))).toBe(204);
+    expect((await envios())[0].status).toBe("falhou");
     await pg.exec("UPDATE ycloud_envios SET status = 'aceita', falhou_em = NULL");
     expect(await aviso(ev, assinar(corpo, Math.floor(relogio.getTime() / 1000) - 10))).toBe(204);
     expect((await envios())[0].status).toBe("aceita");

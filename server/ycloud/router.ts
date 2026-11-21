@@ -2,6 +2,7 @@
 // tetos), modelos, prévia, criação e envio das campanhas pela API oficial (YCloud) e painel.
 // SÓ ADMINISTRADOR POR PAPEL: `adminProcedure` confere o módulo (o colaborador com o módulo WhatsApp passaria); aqui vale o papel.
 // Nenhuma resposta leva a chave, o segredo ou telefones de destinatários (só mascarados).
+import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, router } from "../_core/trpc.js";
@@ -55,7 +56,7 @@ async function status() {
   const vagas = vagasDoDia(cfg, cfg.limiteDiario ?? Number.POSITIVE_INFINITY, usados);
   return {
     configurado: Boolean(chave), final: finalDoSegredo(chave),
-    ligado: cfg.ligado, tetoDia: cfg.tetoDia, tetoCampanha: cfg.tetoCampanha,
+    ligado: cfg.ligado, tetoDia: cfg.tetoDia, tetoCampanha: cfg.tetoCampanha, janelaRepeticaoDias: cfg.janelaRepeticaoDias,
     precoEstimado: cfg.precoEstimado !== null ? Number(cfg.precoEstimado) : null, moeda: cfg.moeda,
     conferencia: cfg.conferidoEm ? {
       numero: cfg.numeroApi, nomeVerificado: cfg.nomeVerificado, status: cfg.statusNumero,
@@ -126,6 +127,7 @@ export const whatsappOficialRouter = router({
     ligado: z.boolean().optional(),
     tetoDia: z.number().int().min(1).max(100_000).optional(),
     tetoCampanha: z.number().int().min(1).max(MAX_DESTINATARIOS_CAMPANHA).optional(),
+    janelaRepeticaoDias: z.number().int().min(0).max(90).optional(),
     precoEstimado: z.number().min(0).max(100).nullable().optional(),
     moeda: z.string().regex(/^[A-Z]{3}$/).optional(),
   }).strict()).mutation(({ ctx, input }) => tentar(async () => {
@@ -139,6 +141,7 @@ export const whatsappOficialRouter = router({
       ...(input.ligado !== undefined ? { ligado: input.ligado } : {}),
       ...(input.tetoDia !== undefined ? { tetoDia: input.tetoDia } : {}),
       ...(input.tetoCampanha !== undefined ? { tetoCampanha: input.tetoCampanha } : {}),
+      ...(input.janelaRepeticaoDias !== undefined ? { janelaRepeticaoDias: input.janelaRepeticaoDias } : {}),
       ...(input.precoEstimado !== undefined ? { precoEstimado: input.precoEstimado === null ? null : input.precoEstimado.toFixed(4) } : {}),
       ...(input.moeda !== undefined ? { moeda: input.moeda } : {}),
     }, ctx.user.id);
@@ -153,14 +156,18 @@ export const whatsappOficialRouter = router({
   previa: soAdmin.input(entradaSchema).mutation(({ input }) => tentar(async () => {
     const s = await situacaoParaDisparo();
     if (!s.ok) throw new RecusaYcloud(s.motivo ?? "Disparo indisponível.");
-    return previaParaTela(await prepararCampanha(input, s));
+    return previaParaTela(await prepararCampanha(input, s), randomUUID());
   }, "Não consegui montar a prévia.")),
 
   /** Confirma com a CONTAGEM vista na prévia (se mudou, recusa). Cria a campanha; o envio começa com `enviarLote`. */
-  criarCampanha: soAdmin.input(entradaSchema.extend({ confirmarQuantidade: z.number().int().positive() }).strict())
+  criarCampanha: soAdmin.input(entradaSchema.extend({
+    confirmarQuantidade: z.number().int().positive(),
+    /** devolvida pela prévia; a mesma chave duas vezes = a MESMA campanha (duas abas, clique duplo, reenvio do pedido) */
+    chaveConfirmacao: z.string().regex(/^[A-Za-z0-9-]{16,64}$/, "Veja a prévia de novo antes de confirmar."),
+  }).strict())
     .mutation(({ ctx, input }) => tentar(async () => {
-      const { confirmarQuantidade, ...entrada } = input;
-      return criarCampanha(entrada, confirmarQuantidade, ctx.user.id);
+      const { confirmarQuantidade, chaveConfirmacao, ...entrada } = input;
+      return criarCampanha(entrada, confirmarQuantidade, chaveConfirmacao, ctx.user.id);
     }, "Não consegui criar a campanha.")),
 
   /** Um lote (cabe em 60 s). A tela chama de novo enquanto houver fila; se a função encerrar, "Continuar" retoma de onde parou. */

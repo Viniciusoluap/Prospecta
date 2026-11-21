@@ -10,6 +10,7 @@ export const ycloudConfig = pgTable("ycloud_config", {
   ligado: boolean("ligado").default(false).notNull(),
   tetoDia: integer("teto_dia").default(200).notNull(),
   tetoCampanha: integer("teto_campanha").default(250).notNull(),
+  janelaRepeticaoDias: integer("janela_repeticao_dias").default(7).notNull(),
   precoEstimado: numeric("preco_estimado", { precision: 10, scale: 4 }),
   moeda: varchar("moeda", { length: 3 }).default("USD").notNull(),
   numeroApi: varchar("numero_api", { length: 20 }),
@@ -34,6 +35,7 @@ export type StatusCampanhaYcloud = (typeof STATUS_CAMPANHA_YCLOUD)[number];
 
 export const ycloudCampanhas = pgTable("ycloud_campanhas", {
   id: serial("id").primaryKey(),
+  chaveConfirmacao: varchar("chave_confirmacao", { length: 64 }).notNull(),
   nome: varchar("nome", { length: 120 }).notNull(),
   modeloNome: varchar("modelo_nome", { length: 512 }).notNull(),
   modeloIdioma: varchar("modelo_idioma", { length: 20 }).notNull(),
@@ -49,7 +51,11 @@ export const ycloudCampanhas = pgTable("ycloud_campanhas", {
   criadaEm: timestamp("criada_em", { withTimezone: true }).defaultNow().notNull(),
   concluidaEm: timestamp("concluida_em", { withTimezone: true }),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
-}, t => ({ statusIdx: index("ycloud_campanhas_status_idx").on(t.status) }));
+}, t => ({
+  chaveConfirmacaoUidx: uniqueIndex("ycloud_campanhas_chave_confirmacao_uidx").on(t.chaveConfirmacao),
+  modeloIdx: index("ycloud_campanhas_modelo_idx").on(t.modeloNome, t.modeloIdioma),
+  statusIdx: index("ycloud_campanhas_status_idx").on(t.status),
+}));
 
 export const STATUS_ENVIO_YCLOUD = ["na_fila", "enviando", "aceita", "enviada", "entregue", "lida", "falhou", "incerto"] as const;
 export type StatusEnvioYcloud = (typeof STATUS_ENVIO_YCLOUD)[number];
@@ -59,6 +65,7 @@ export const ycloudEnvios = pgTable("ycloud_envios", {
   campanhaId: integer("campanha_id").notNull().references(() => ycloudCampanhas.id, { onDelete: "cascade" }),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
   telefone: varchar("telefone", { length: 20 }).notNull(),
+  chaveTelefone: varchar("chave_telefone", { length: 20 }).notNull(),
   nome: varchar("nome", { length: 255 }),
   parametros: jsonb("parametros").default(sql`'{}'::jsonb`).notNull(),
   texto: text("texto").notNull(),
@@ -83,7 +90,9 @@ export const ycloudEnvios = pgTable("ycloud_envios", {
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
 }, t => ({
   externalIdUidx: uniqueIndex("ycloud_envios_external_id_uidx").on(t.externalId),
-  campanhaTelefoneUidx: uniqueIndex("ycloud_envios_campanha_telefone_uidx").on(t.campanhaId, t.telefone),
+  campanhaTelefoneUidx: uniqueIndex("ycloud_envios_campanha_telefone_uidx").on(t.campanhaId, t.chaveTelefone),
+  chaveTelefoneIdx: index("ycloud_envios_chave_telefone_idx").on(t.chaveTelefone),
+  mensagemCentralIdx: index("ycloud_envios_mensagem_central_idx").on(t.mensagemCentralId),
   ycloudIdUidx: uniqueIndex("ycloud_envios_ycloud_id_uidx").on(t.ycloudId),
   campanhaStatusIdx: index("ycloud_envios_campanha_status_idx").on(t.campanhaId, t.status),
   aceitoIdx: index("ycloud_envios_aceito_idx").on(t.aceitoEm),
@@ -102,11 +111,12 @@ export type OrigemOptoutYcloud = (typeof ORIGENS_OPTOUT_YCLOUD)[number];
 export const ycloudOptout = pgTable("ycloud_optout", {
   id: serial("id").primaryKey(),
   telefone: varchar("telefone", { length: 20 }).notNull(),
+  chaveTelefone: varchar("chave_telefone", { length: 20 }).notNull(),
   origem: varchar("origem", { length: 30 }).$type<OrigemOptoutYcloud>().notNull(),
   leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
   registradoPor: integer("registrado_por").references(() => users.id, { onDelete: "set null" }),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
-}, t => ({ telefoneUidx: uniqueIndex("ycloud_optout_telefone_uidx").on(t.telefone) }));
+}, t => ({ chaveTelefoneUidx: uniqueIndex("ycloud_optout_chave_telefone_uidx").on(t.chaveTelefone) }));
 
 export const ycloudAuditoria = pgTable("ycloud_auditoria", {
   id: serial("id").primaryKey(),

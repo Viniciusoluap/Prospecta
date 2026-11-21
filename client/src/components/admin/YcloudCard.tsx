@@ -34,7 +34,7 @@ export function YcloudCard() {
   const [trocando, setTrocando] = useState(false);
   const [chave, setChave] = useState("");
   const [segredo, setSegredo] = useState("");
-  const [tetos, setTetos] = useState<{ tetoDia?: string; tetoCampanha?: string; precoEstimado?: string; moeda?: string }>({});
+  const [tetos, setTetos] = useState<{ tetoDia?: string; tetoCampanha?: string; janelaRepeticaoDias?: string; precoEstimado?: string; moeda?: string }>({});
   const s = status.data;
   const t = testar.data;
 
@@ -79,7 +79,7 @@ export function YcloudCard() {
           <div className="space-y-2 border-t border-[#C9A961]/10 pt-3">
             <p className="font-semibold text-gray-200">Avisos de entrega (situação de cada mensagem)</p>
             <p className="text-xs text-gray-300">{s.avisos.configurado ? `Ativos — segredo terminando em ${s.avisos.final}${s.avisos.status ? ` (endpoint ${s.avisos.status})` : ""}.` : "Ainda não ativados."} Endereço: <code className="break-all">{s.avisos.url}</code></p>
-            <p className="text-[11px] text-gray-400">Só os eventos de situação de mensagem enviada e de revisão de modelo. Mensagens recebidas NÃO passam pela YCloud (continuam pela Evolution).</p>
+            <p className="text-[11px] text-gray-400">Só os eventos de situação de mensagem enviada, de revisão de modelo e de preferência de marketing (quem pede para parar entra no "não receber"). Mensagens recebidas NÃO passam pela YCloud (continuam pela Evolution).</p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className={botaoSec} disabled={!s.configurado || ativarAvisos.isPending} onClick={() => ativarAvisos.mutate()}>{ativarAvisos.isPending ? "Ativando…" : "Ativar avisos de entrega"}</Button>
             </div>
@@ -94,9 +94,10 @@ export function YcloudCard() {
             <p className="font-semibold text-gray-200">Disparos pela API oficial</p>
             <p className={s.ligado ? "flex items-center gap-2 text-green-300" : "flex items-center gap-2 text-gray-300"}>{s.ligado ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />} {s.ligado ? "LIGADOS." : "DESLIGADOS (padrão)."}</p>
             <p className="text-xs text-gray-300">Usados nas últimas 24 h: {s.usados24h}{s.restanteHoje !== null ? ` · ainda cabem ${s.restanteHoje}` : ""}. Quem pediu para não receber: {s.optout}.</p>
-            <div className="grid gap-2 sm:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-5">
               <div><Label className="text-xs text-gray-400">Teto por dia (24 h)</Label><Input inputMode="numeric" className={campoCls} value={tetos.tetoDia ?? String(s.tetoDia)} onChange={e => setTetos(v => ({ ...v, tetoDia: e.target.value }))} /></div>
               <div><Label className="text-xs text-gray-400">Teto por campanha</Label><Input inputMode="numeric" className={campoCls} value={tetos.tetoCampanha ?? String(s.tetoCampanha)} onChange={e => setTetos(v => ({ ...v, tetoCampanha: e.target.value }))} /></div>
+              <div><Label className="text-xs text-gray-400">Não repetir o modelo por (dias)</Label><Input inputMode="numeric" className={campoCls} value={tetos.janelaRepeticaoDias ?? String(s.janelaRepeticaoDias)} onChange={e => setTetos(v => ({ ...v, janelaRepeticaoDias: e.target.value }))} /></div>
               <div><Label className="text-xs text-gray-400">Preço estimado por mensagem</Label><Input inputMode="decimal" placeholder="ex.: 0,0625" className={campoCls} value={tetos.precoEstimado ?? (s.precoEstimado === null ? "" : String(s.precoEstimado).replace(".", ","))} onChange={e => setTetos(v => ({ ...v, precoEstimado: e.target.value }))} /></div>
               <div><Label className="text-xs text-gray-400">Moeda</Label><Input className={campoCls} maxLength={3} value={tetos.moeda ?? s.moeda} onChange={e => setTetos(v => ({ ...v, moeda: e.target.value.toUpperCase() }))} /></div>
             </div>
@@ -107,6 +108,7 @@ export function YcloudCard() {
                 salvarConfig.mutate({
                   ...(tetos.tetoDia !== undefined ? { tetoDia: n(tetos.tetoDia) } : {}),
                   ...(tetos.tetoCampanha !== undefined ? { tetoCampanha: n(tetos.tetoCampanha) } : {}),
+                  ...(tetos.janelaRepeticaoDias !== undefined ? { janelaRepeticaoDias: n(tetos.janelaRepeticaoDias) } : {}),
                   ...(tetos.precoEstimado !== undefined ? { precoEstimado: tetos.precoEstimado.trim() ? n(tetos.precoEstimado) : null } : {}),
                   ...(tetos.moeda !== undefined ? { moeda: tetos.moeda } : {}),
                 });

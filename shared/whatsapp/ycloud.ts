@@ -57,6 +57,37 @@ export function telefoneE164(bruto: string | null | undefined): string | null {
   return null;
 }
 
+/**
+ * Forma canônica do telefone para DEDUPLICAR e BLOQUEAR (opt-out): a mesma regra estrita do número do dono (shared/dolores/whatsapp.ts,
+ * `ehNumeroDoDono`) — Brasil = 55 + DDD + 8 finais; o nono dígito só é normalizado (acrescentado) quando os 8 finais são de celular
+ * (começam por 6–9); fixo fica como está. Outro país → só os dígitos. Inválido → null.
+ */
+export function chaveCanonicaTelefone(bruto: string | null | undefined): string | null {
+  let d = String(bruto ?? "").replace(/\D/g, "");
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  const m = /^55([1-9][1-9])(9?)(\d{8})$/.exec(d);
+  if (m) return /^[6-9]/.test(m[3]) ? `55${m[1]}9${m[3]}` : `55${m[1]}${m[2]}${m[3]}`;
+  return d.length >= 10 && d.length <= 15 && !d.startsWith("55") ? d : null;
+}
+
+/**
+ * Nome do cadastro usado como variável (vem de fora: nome do WhatsApp, formulário do site). Só letras, espaços, hífen e apóstrofo,
+ * até 50 caracteres; com link, "@", dígitos ou caracteres de controle → null (tratado como "sem nome" e o envio é pulado com motivo).
+ */
+export const MAX_NOME_VARIAVEL = 50;
+export function nomeSeguroParaVariavel(bruto: string | null | undefined): string | null {
+  const n = String(bruto ?? "").replace(/\s+/g, " ").trim();
+  if (!n || n.length > MAX_NOME_VARIAVEL) return null;
+  if (!/^[A-Za-zÀ-ÖØ-öø-ÿ' -]+$/.test(n)) return null;
+  if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(n)) return null;
+  return n;
+}
+
+/** Texto para comparar (eco): espaços colapsados, sem diferença de caixa. */
+export function textoComparavel(t: string | null | undefined): string {
+  return String(t ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 /** "+5599…1234" → "+55 •••• 1234" (para tela e lista de falhas; nunca em log). */
 export function telefoneMascarado(e164: string | null | undefined): string {
   const d = String(e164 ?? "").replace(/\D/g, "");

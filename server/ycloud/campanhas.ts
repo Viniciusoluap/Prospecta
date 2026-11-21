@@ -12,11 +12,13 @@
 // - nenhum telefone, chave ou texto vai para log/auditoria.
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { leads, whatsappMessages } from "../../drizzle/schema.js";
-import { ycloudCampanhas, ycloudConfig, ycloudEnvios, ycloudOptout, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
+import { ycloudCampanhas, ycloudConfig, ycloudEnvios, ycloudOptout, type StatusEnvioYcloud, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
+import { centralVendasLeads } from "../../drizzle/schema-central-vendas.js";
 import { ehNumeroDoDono, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import {
-  INTERVALO_MINIMO_ENVIO_MS, LOTE_ENVIO_YCLOUD, MAX_DESTINATARIOS_CAMPANHA, ORCAMENTO_LOTE_MS, RESERVA_EXPIRADA_MS, preencherPosicionais,
-  problemaDoParametro, statusNaCentral, telefoneMascarado, telefoneE164, type FonteVariavel,
+  INTERVALO_MINIMO_ENVIO_MS, LOTE_ENVIO_YCLOUD, MAX_DESTINATARIOS_CAMPANHA, ORCAMENTO_LOTE_MS, RESERVA_EXPIRADA_MS, chaveCanonicaTelefone,
+  nomeSeguroParaVariavel, preencherPosicionais, problemaDoParametro, situacaoConvergente, statusNaCentral, telefoneMascarado, telefoneE164,
+  textoComparavel, type FonteVariavel,
 } from "../../shared/whatsapp/ycloud.js";
 import { ErroYcloud, criarDescadastroYcloud, enfileirarModeloYcloud } from "../_core/ycloud.js";
 import { getDb } from "../db.js";
@@ -51,7 +53,7 @@ export async function situacaoParaDisparo(): Promise<SituacaoDisparo> {
 /** Destinatários únicos que já receberam (ou podem ter recebido) campanha pela API nas últimas 24 h móveis. */
 export async function usadosNas24h(agora: Date): Promise<number> {
   const desde = new Date(agora.getTime() - 24 * 60 * 60_000);
-  const [r] = await getDb().select({ n: sql<number>`count(distinct ${ycloudEnvios.telefone})`.mapWith(Number) }).from(ycloudEnvios)
+  const [r] = await getDb().select({ n: sql<number>`count(distinct ${ycloudEnvios.chaveTelefone})`.mapWith(Number) }).from(ycloudEnvios)
     .where(and(
       inArray(ycloudEnvios.status, ["enviando", "aceita", "enviada", "entregue", "lida", "incerto"]),
       or(gte(ycloudEnvios.aceitoEm, desde), and(isNull(ycloudEnvios.aceitoEm), gte(ycloudEnvios.reservadoEm, desde))),
@@ -73,17 +75,54 @@ export type EntradaCampanha = {
   leadIds: number[];
 };
 
-type Destino = { leadId: number; nome: string | null; telefone: string; cabecalho: string[]; corpo: string[]; texto: string };
+/** `texto` = corpo preenchido (o que a pessoa lê; guardado no envio); `textoCompleto` = cabeçalho + corpo (prévia e Central). */
+type Destino = { leadId: number; nome: string | null; telefone: string; chave: string; cabecalho: string[]; corpo: string[]; texto: string; textoCompleto: string };
 export type Preparo = {
   modelo: ModeloNaTela;
   destinos: Destino[];
   contagem: {
     selecionados: number; aEnviar: number; optout: number; invalidos: number; duplicados: number; reservados: number;
-    semNome: number; parametroInvalido: number; acimaDoLimite: number;
+    semNome: number; nomeRecusado: number; parametroInvalido: number; jaRecebeu: number; acimaDoLimite: number;
   };
+  janelaRepeticaoDias: number;
   vagas: { limiteDiario: number | null; tetoDia: number; usados24h: number; restante: number; tetoCampanha: number };
   custo: { precoUnitario: number | null; estimado: number | null; moeda: string; base: "media_registrada" | "configurado" | null };
 };
+
+/**
+ * Quem NÃO recebe: o opt-out da API oficial (pela forma canônica do telefone) e qualquer marca de descadastro que o sistema já tem —
+ * hoje, `central_vendas_leads.opt_out` (quem disse SAIR na Central de Vendas, gravado em server/central-vendas/entrada.ts).
+ * Falha ao conferir → lança (nada sai).
+ */
+export async function bloqueiosDeOptout(chaves: string[], leadIds: number[]): Promise<{ chaves: Set<string>; leads: Set<number> }> {
+  const db = getDb();
+  try {
+    const [porTelefone, porLead] = await Promise.all([
+      chaves.length ? db.select({ c: ycloudOptout.chaveTelefone }).from(ycloudOptout).where(inArray(ycloudOptout.chaveTelefone, chaves)) : Promise.resolve([]),
+      leadIds.length ? db.select({ id: centralVendasLeads.leadId }).from(centralVendasLeads).where(and(inArray(centralVendasLeads.leadId, leadIds), eq(centralVendasLeads.optOut, true))) : Promise.resolve([]),
+    ]);
+    return { chaves: new Set(porTelefone.map(r => r.c)), leads: new Set(porLead.map(r => r.id)) };
+  } catch {
+    throw new RecusaYcloud("Não consegui conferir quem pediu para não receber; nada foi feito.");
+  }
+}
+
+const STATUS_JA_SAIU = ["enviando", "aceita", "enviada", "entregue", "lida", "incerto"] as const;
+
+/** Telefones (forma canônica) que já receberam — ou estão para receber — o MESMO modelo em OUTRA campanha desde `desde`. */
+export async function jaReceberamOModelo(chaves: string[], modelo: { nome: string; idioma: string }, desde: Date, o: { excetoCampanha?: number; incluirFila: boolean }): Promise<Set<string>> {
+  if (!chaves.length) return new Set();
+  const status: StatusEnvioYcloud[] = o.incluirFila ? [...STATUS_JA_SAIU, "na_fila"] : [...STATUS_JA_SAIU];
+  const linhas = await getDb().select({ c: ycloudEnvios.chaveTelefone }).from(ycloudEnvios)
+    .innerJoin(ycloudCampanhas, eq(ycloudCampanhas.id, ycloudEnvios.campanhaId))
+    .where(and(
+      inArray(ycloudEnvios.chaveTelefone, chaves), inArray(ycloudEnvios.status, status),
+      eq(ycloudCampanhas.modeloNome, modelo.nome), eq(ycloudCampanhas.modeloIdioma, modelo.idioma),
+      gte(sql`coalesce(${ycloudEnvios.aceitoEm}, ${ycloudEnvios.criadoEm})`, desde),
+      o.excetoCampanha ? sql`${ycloudEnvios.campanhaId} <> ${o.excetoCampanha}` : undefined,
+    ));
+  return new Set(linhas.map(l => l.c));
+}
 
 /** Preço médio REAL (final) das últimas mensagens entregues/lidas pela API — melhor estimativa quando existe. */
 async function precoMedioRegistrado(): Promise<{ preco: number; moeda: string } | null> {
@@ -96,12 +135,12 @@ async function precoMedioRegistrado(): Promise<{ preco: number; moeda: string } 
   return { preco: mesmas.reduce((s, l) => s + Number(l.preco), 0) / mesmas.length, moeda };
 }
 
-function valorDaVariavel(f: FonteVariavel | undefined, nome: string | null): string | null {
+/** Texto fixo vem do administrador; nome vem do cadastro e só entra LIMPO (`nomeSeguroParaVariavel`). null = sem valor. */
+function valorDaVariavel(f: FonteVariavel | undefined, nomeLimpo: string | null): string | null {
   if (!f) return null;
   if (f.fonte === "fixo") return f.texto;
-  const n = (nome ?? "").trim();
-  if (!n) return null;
-  return f.fonte === "primeiro_nome" ? n.split(/\s+/)[0] : n;
+  if (!nomeLimpo) return null;
+  return f.fonte === "primeiro_nome" ? nomeLimpo.split(" ")[0] : nomeLimpo;
 }
 
 export async function prepararCampanha(entrada: EntradaCampanha, situacao: SituacaoDisparo): Promise<Preparo> {
@@ -128,36 +167,40 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
   const [dono, empresa] = await Promise.all([d.numeroDoDono().catch(() => undefined), d.numeroDaEmpresa().catch(() => undefined)]);
   if (dono === undefined || empresa === undefined) throw new RecusaYcloud("Não consegui conferir o número do dono e o da empresa; nada foi feito.");
   const reservados = [normalizarNumeroDono(dono), normalizarNumeroDono(empresa)].filter((x): x is string => !!x);
-  const comTelefone = cadastro.map(l => ({ ...l, e164: telefoneE164(l.telefone) }));
-  const telefones = comTelefone.map(l => l.e164).filter((x): x is string => !!x);
-  const bloqueados = new Set(telefones.length
-    ? (await getDb().select({ t: ycloudOptout.telefone }).from(ycloudOptout).where(inArray(ycloudOptout.telefone, telefones))).map(r => r.t) : []);
+  const comTelefone = cadastro.map(l => { const e164 = telefoneE164(l.telefone); return { ...l, e164, chave: e164 ? chaveCanonicaTelefone(e164) : null }; });
+  const chaves = comTelefone.map(l => l.chave).filter((x): x is string => !!x);
+  const bloqueios = await bloqueiosDeOptout(chaves, cadastro.map(l => l.id));
+  const janela = situacao.cfg.janelaRepeticaoDias;
+  const repetidos = janela > 0
+    ? await jaReceberamOModelo(chaves, modelo, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { incluirFila: true }) : new Set<string>();
+  const usaNome = modelo.analise.campos.some(c => entrada.variaveis[c.chave]?.fonte !== "fixo");
 
-  const contagem = { selecionados: ids.length, aEnviar: 0, optout: 0, invalidos: ids.length - cadastro.length, duplicados: 0, reservados: 0, semNome: 0, parametroInvalido: 0, acimaDoLimite: 0 };
+  const contagem = { selecionados: ids.length, aEnviar: 0, optout: 0, invalidos: ids.length - cadastro.length, duplicados: 0, reservados: 0, semNome: 0, nomeRecusado: 0, parametroInvalido: 0, jaRecebeu: 0, acimaDoLimite: 0 };
   const vistos = new Set<string>();
   const validos: Destino[] = [];
   for (const l of comTelefone.sort((a, b) => a.id - b.id)) {
-    if (!l.e164) { contagem.invalidos++; continue; }
+    if (!l.e164 || !l.chave) { contagem.invalidos++; continue; }
     const dig = l.e164.slice(1);
     if (reservados.some(r => ehNumeroDoDono(dig, r))) { contagem.reservados++; continue; }
-    if (vistos.has(l.e164)) { contagem.duplicados++; continue; }
-    vistos.add(l.e164);
-    if (bloqueados.has(l.e164)) { contagem.optout++; continue; }
+    if (vistos.has(l.chave)) { contagem.duplicados++; continue; }
+    vistos.add(l.chave);
+    if (bloqueios.chaves.has(l.chave) || bloqueios.leads.has(l.id)) { contagem.optout++; continue; }
+    if (repetidos.has(l.chave)) { contagem.jaRecebeu++; continue; }
+    const nomeLimpo = nomeSeguroParaVariavel(l.nome);
+    if (usaNome && !nomeLimpo) { if ((l.nome ?? "").trim()) contagem.nomeRecusado++; else contagem.semNome++; continue; }
     const cabecalho: string[] = [], corpo: string[] = [];
     const valores: Record<string, Record<number, string>> = { cabecalho: {}, corpo: {} };
-    let falta: "nome" | "param" | null = null;
+    let falta = false;
     for (const c of modelo.analise.campos) {
-      const v = valorDaVariavel(entrada.variaveis[c.chave], l.nome);
-      if (v === null) { falta = "nome"; break; }
-      if (problemaDoParametro(v, c.limite)) { falta = "param"; break; }
+      const v = valorDaVariavel(entrada.variaveis[c.chave], nomeLimpo);
+      if (v === null || problemaDoParametro(v, c.limite)) { falta = true; break; }
       (c.local === "corpo" ? corpo : cabecalho)[c.indice - 1] = v;
       valores[c.local][c.indice] = v;
     }
-    if (falta === "nome") { contagem.semNome++; continue; }
-    if (falta === "param") { contagem.parametroInvalido++; continue; }
-    const texto = [modelo.analise.cabecalho ? preencherPosicionais(modelo.analise.cabecalho, valores.cabecalho) : null, preencherPosicionais(modelo.analise.corpo, valores.corpo)]
-      .filter(Boolean).join("\n");
-    validos.push({ leadId: l.id, nome: l.nome ?? null, telefone: l.e164, cabecalho, corpo, texto: texto.slice(0, 4000) });
+    if (falta) { contagem.parametroInvalido++; continue; }
+    const corpoPreenchido = preencherPosicionais(modelo.analise.corpo, valores.corpo).slice(0, 4000);
+    const textoCompleto = [modelo.analise.cabecalho ? preencherPosicionais(modelo.analise.cabecalho, valores.cabecalho) : null, corpoPreenchido].filter(Boolean).join("\n");
+    validos.push({ leadId: l.id, nome: nomeLimpo ?? null, telefone: l.e164, chave: l.chave, cabecalho, corpo, texto: corpoPreenchido, textoCompleto: textoCompleto.slice(0, 4000) });
   }
   const limiteDiario = situacao.conferencia?.limiteDiario ?? 0;
   const vagas = vagasDoDia(situacao.cfg, limiteDiario, await usadosNas24h(d.agora()));
@@ -174,23 +217,33 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
       ? { precoUnitario: configurado, estimado: configurado * destinos.length, moeda: situacao.cfg.moeda, base: "configurado" as const }
       : { precoUnitario: null, estimado: null, moeda: situacao.cfg.moeda, base: null };
   return {
-    modelo, destinos, contagem, custo,
+    modelo, destinos, contagem, custo, janelaRepeticaoDias: janela,
     vagas: { limiteDiario: Number.isFinite(limiteDiario) ? limiteDiario : null, tetoDia: vagas.tetoDia, usados24h: vagas.usados24h, restante: vagas.restante, tetoCampanha: situacao.cfg.tetoCampanha },
   };
 }
 
 /** O que a tela recebe da prévia: contagens, custo e até 5 exemplos (nome + texto). Telefones não saem. */
-export function previaParaTela(p: Preparo) {
+export function previaParaTela(p: Preparo, chaveConfirmacao: string) {
   return {
     modelo: { nome: p.modelo.nome, idioma: p.modelo.idioma, categoria: p.modelo.categoria },
-    contagem: p.contagem, vagas: p.vagas, custo: p.custo,
-    exemplos: p.destinos.slice(0, 5).map(x => ({ nome: x.nome, texto: x.texto })),
+    contagem: p.contagem, vagas: p.vagas, custo: p.custo, janelaRepeticaoDias: p.janelaRepeticaoDias,
+    exemplos: p.destinos.slice(0, 5).map(x => ({ nome: x.nome, texto: x.textoCompleto })),
+    /** Exigida na confirmação: a mesma chave duas vezes = UMA campanha. */
+    chaveConfirmacao,
   };
 }
 
 // ── Criação (confirmada pela contagem) ──
 
-export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidade: number, userId: number) {
+export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidade: number, chaveConfirmacao: string, userId: number) {
+  const db = getDb();
+  const existente = async () => {
+    const [c] = await db.select({ id: ycloudCampanhas.id, total: ycloudCampanhas.total }).from(ycloudCampanhas).where(eq(ycloudCampanhas.chaveConfirmacao, chaveConfirmacao)).limit(1);
+    return c ? { campanhaId: c.id, total: c.total, repetida: true as const } : null;
+  };
+  // segunda confirmação (duas abas, clique duplo, reenvio do pedido): devolve a MESMA campanha, nada novo é criado
+  const ja = await existente();
+  if (ja) return ja;
   const situacao = await situacaoParaDisparo();
   if (!situacao.ok) throw new RecusaYcloud(situacao.motivo ?? "Disparo indisponível.");
   const p = await prepararCampanha(entrada, situacao);
@@ -199,21 +252,21 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
     throw new RecusaYcloud(`A contagem mudou: agora são ${p.contagem.aEnviar} destinatário(s), não ${confirmarQuantidade}. Revise a prévia e confirme de novo.`);
   }
   const d = depsYcloud();
-  const db = getDb();
   const [camp] = await db.insert(ycloudCampanhas).values({
-    nome: entrada.nome.trim().slice(0, 120), modeloNome: p.modelo.nome, modeloIdioma: p.modelo.idioma, modeloCategoria: p.modelo.categoria,
+    chaveConfirmacao, nome: entrada.nome.trim().slice(0, 120), modeloNome: p.modelo.nome, modeloIdioma: p.modelo.idioma, modeloCategoria: p.modelo.categoria,
     corpo: p.modelo.analise.corpo, variaveis: entrada.variaveis, status: "enviando", total: p.destinos.length,
     custoEstimado: p.custo.estimado !== null ? p.custo.estimado.toFixed(4) : null, moeda: p.custo.moeda, criadaPor: userId,
     criadaEm: d.agora(), atualizadoEm: d.agora(),
-  }).returning({ id: ycloudCampanhas.id });
+  }).onConflictDoNothing().returning({ id: ycloudCampanhas.id });
+  if (!camp) { const outra = await existente(); if (outra) return outra; throw new RecusaYcloud("Não consegui criar a campanha."); }
   const linhas = p.destinos.map((x, i) => ({
-    campanhaId: camp.id, leadId: x.leadId, telefone: x.telefone, nome: x.nome?.slice(0, 255) ?? null,
-    parametros: { cabecalho: x.cabecalho, corpo: x.corpo }, texto: x.texto,
+    campanhaId: camp.id, leadId: x.leadId, telefone: x.telefone, chaveTelefone: x.chave, nome: x.nome?.slice(0, 255) ?? null,
+    parametros: { cabecalho: x.cabecalho, corpo: x.corpo, textoCompleto: x.textoCompleto }, texto: x.texto,
     externalId: `prospecta-c${camp.id}-${i + 1}`, status: "na_fila" as const, criadoEm: d.agora(), atualizadoEm: d.agora(),
   }));
   for (let i = 0; i < linhas.length; i += 500) await db.insert(ycloudEnvios).values(linhas.slice(i, i + 500)).onConflictDoNothing();
   await auditarYcloud({ acao: "campanha_criada", usuarioId: userId, campanhaId: camp.id, modelo: `${p.modelo.nome} (${p.modelo.idioma})`, quantidade: linhas.length });
-  return { campanhaId: camp.id, total: linhas.length };
+  return { campanhaId: camp.id, total: linhas.length, repetida: false as const };
 }
 
 // ── Envio em lotes ──
@@ -270,25 +323,58 @@ async function registrarNaCentral(conexaoId: number | null, e: { leadId: number 
 }
 
 /**
+ * Grava a resposta do POST sem atropelar o aviso de entrega que pode ter chegado ANTES (corrida webhook × resposta): com o envio ainda
+ * "enviando", grava tudo; se o aviso já mudou a situação, só completa o que falta (id, wamid, aceite, mensagem da Central) — nunca
+ * rebaixa a situação nem troca um preço final pelo estimado.
+ */
+async function gravarAceite(envioId: number, r: { id?: string; wamid?: string; totalPrice?: number; currency?: string } | null, falhouNaHora: boolean, centralId: number | null) {
+  const db = getDb();
+  const agora = depsYcloud().agora();
+  const ycloudId = typeof r?.id === "string" ? r.id.slice(0, 80) : null;
+  const wamid = typeof r?.wamid === "string" ? r.wamid.slice(0, 255) : null;
+  const preco = typeof r?.totalPrice === "number" && Number.isFinite(r.totalPrice) ? String(r.totalPrice) : null;
+  const moeda = typeof r?.currency === "string" ? r.currency.slice(0, 3) : null;
+  const feito = await db.update(ycloudEnvios).set({
+    status: falhouNaHora ? "falhou" : "aceita", ycloudId, wamid, preco, moeda, aceitoEm: agora,
+    ...(falhouNaHora ? { falhouEm: agora, motivo: "A YCloud recusou na hora." } : {}), mensagemCentralId: centralId, atualizadoEm: agora,
+  }).where(and(eq(ycloudEnvios.id, envioId), eq(ycloudEnvios.status, "enviando"))).returning({ id: ycloudEnvios.id });
+  if (feito.length) return;
+  const [atual] = await db.select().from(ycloudEnvios).where(eq(ycloudEnvios.id, envioId)).limit(1);
+  if (!atual) return;
+  await db.update(ycloudEnvios).set({
+    ycloudId: atual.ycloudId ?? ycloudId, wamid: atual.wamid ?? wamid, aceitoEm: atual.aceitoEm ?? agora,
+    ...(atual.preco === null && preco !== null ? { preco, moeda } : {}),
+    mensagemCentralId: atual.mensagemCentralId ?? centralId, atualizadoEm: agora,
+  }).where(eq(ycloudEnvios.id, envioId));
+  const situacao = situacaoConvergente(atual);
+  if (centralId && !atual.mensagemCentralId) {
+    await db.update(whatsappMessages).set({ status: statusNaCentral(situacao), updatedAt: agora }).where(and(eq(whatsappMessages.id, centralId), eq(whatsappMessages.automatica, true)));
+  }
+}
+
+/**
  * UM lote por vez no sistema inteiro (duas abas, duas campanhas): o limite diário e as 5 mensagens/s são do NÚMERO. A trava vence
  * sozinha depois de 70 s (a função da Vercel tem 60 s), então uma função que morreu não prende os envios.
  */
-async function travarLote(agora: Date): Promise<boolean> {
+async function travarLote(agora: Date): Promise<Date | null> {
   await lerConfigYcloud();
-  const r = await getDb().update(ycloudConfig).set({ loteAte: new Date(agora.getTime() + 70_000) })
-    .where(and(eq(ycloudConfig.id, 1), or(isNull(ycloudConfig.loteAte), lt(ycloudConfig.loteAte, agora)))).returning({ id: ycloudConfig.id });
-  return r.length > 0;
+  const marca = new Date(agora.getTime() + 70_000);
+  const r = await getDb().update(ycloudConfig).set({ loteAte: marca })
+    .where(and(eq(ycloudConfig.id, 1), or(isNull(ycloudConfig.loteAte), lt(ycloudConfig.loteAte, agora)))).returning({ loteAte: ycloudConfig.loteAte });
+  return r.length ? (r[0].loteAte ?? marca) : null;
 }
-async function destravarLote() {
-  await getDb().update(ycloudConfig).set({ loteAte: null }).where(eq(ycloudConfig.id, 1)).catch(() => undefined);
+/** Só solta a trava se ela ainda for a DESTE lote (a de outro lote, que assumiu depois de a nossa vencer, fica). */
+async function destravarLote(marca: Date) {
+  await getDb().update(ycloudConfig).set({ loteAte: null }).where(and(eq(ycloudConfig.id, 1), eq(ycloudConfig.loteAte, marca))).catch(() => undefined);
 }
 
 export async function enviarLote(campanhaId: number, userId: number): Promise<ResultadoLote> {
-  if (!(await travarLote(depsYcloud().agora()))) {
+  const marca = await travarLote(depsYcloud().agora());
+  if (!marca) {
     return { status: "enviando", enviadas: 0, falhas: 0, incertas: 0, restantes: (await contarRestantes(campanhaId)).fila, aguardarSegundos: 10, motivo: "Outro lote está sendo enviado agora; este continua em seguida." };
   }
   try { return await enviarLoteTravado(campanhaId, userId); }
-  finally { await destravarLote(); }
+  finally { await destravarLote(marca); }
 }
 
 async function enviarLoteTravado(campanhaId: number, userId: number): Promise<ResultadoLote> {
@@ -335,9 +421,18 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
     .where(and(inArray(ycloudEnvios.id, sub), eq(ycloudEnvios.status, "na_fila"))).returning();
   reservados.sort((a, b) => a.id - b.id);
 
-  // opt-out conferido de novo na hora do envio (pode ter chegado depois da criação)
-  const bloqueados = new Set(reservados.length
-    ? (await db.select({ t: ycloudOptout.telefone }).from(ycloudOptout).where(inArray(ycloudOptout.telefone, reservados.map(r => r.telefone)))).map(r => r.t) : []);
+  // opt-out (API e Central de Vendas) e repetição do mesmo modelo conferidos de novo na hora do envio
+  let bloqueios: Awaited<ReturnType<typeof bloqueiosDeOptout>>;
+  try { bloqueios = await bloqueiosDeOptout(reservados.map(r => r.chaveTelefone), reservados.map(r => r.leadId).filter((x): x is number => x !== null)); }
+  catch (e) {
+    await devolverParaFila(reservados.map(r => r.id));
+    await pausarCampanha(campanhaId, e instanceof Error ? e.message : "Não consegui conferir o opt-out.");
+    return fim();
+  }
+  const janela = situacao.cfg.janelaRepeticaoDias;
+  const repetidos = janela > 0
+    ? await jaReceberamOModelo(reservados.map(r => r.chaveTelefone), { nome: camp.modeloNome, idioma: camp.modeloIdioma }, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { excetoCampanha: campanhaId, incluirFila: false })
+    : new Set<string>();
   const conexaoId = await d.conexaoDaEmpresaId().catch(() => null);
   const origem = situacao.conferencia.numero;
   let ultimoEnvio = 0;
@@ -350,8 +445,14 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
       const [st] = await db.select({ status: ycloudCampanhas.status }).from(ycloudCampanhas).where(eq(ycloudCampanhas.id, campanhaId)).limit(1);
       if (st?.status !== "enviando") { await devolverParaFila(pendentes()); break; }
     }
-    if (bloqueados.has(e.telefone)) {
+    if (bloqueios.chaves.has(e.chaveTelefone) || (e.leadId !== null && bloqueios.leads.has(e.leadId))) {
       await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "OPTOUT", motivo: "Não enviada: a pessoa pediu para não receber.", falhouEm: d.agora(), atualizadoEm: d.agora() })
+        .where(eq(ycloudEnvios.id, e.id));
+      res.falhas++;
+      continue;
+    }
+    if (repetidos.has(e.chaveTelefone)) {
+      await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "REPETIDO", motivo: `Não enviada: já recebeu este modelo nos últimos ${janela} dia(s).`, falhouEm: d.agora(), atualizadoEm: d.agora() })
         .where(eq(ycloudEnvios.id, e.id));
       res.falhas++;
       continue;
@@ -359,7 +460,7 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
     const espera = ultimoEnvio + INTERVALO_MINIMO_ENVIO_MS - relogio();
     if (espera > 0) await d.esperar(espera);
     ultimoEnvio = relogio();
-    const params = (e.parametros ?? {}) as { cabecalho?: string[]; corpo?: string[] };
+    const params = (e.parametros ?? {}) as { cabecalho?: string[]; corpo?: string[]; textoCompleto?: string };
     try {
       const r = await enfileirarModeloYcloud({ apiKey: situacao.apiKey, fetchImpl: d.fetch }, {
         from: origem, to: e.telefone, externalId: e.externalId, nome: camp.modeloNome, idioma: camp.modeloIdioma,
@@ -368,21 +469,15 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
       });
       falhasSeguidas = 0;
       const falhouNaHora = r?.status === "failed";
-      const centralId = falhouNaHora ? null : await registrarNaCentral(conexaoId, e);
-      await db.update(ycloudEnvios).set({
-        status: falhouNaHora ? "falhou" : "aceita", ycloudId: typeof r?.id === "string" ? r.id.slice(0, 80) : null,
-        wamid: typeof r?.wamid === "string" ? r.wamid.slice(0, 255) : null,
-        preco: typeof r?.totalPrice === "number" && Number.isFinite(r.totalPrice) ? String(r.totalPrice) : null,
-        moeda: typeof r?.currency === "string" ? r.currency.slice(0, 3) : null,
-        aceitoEm: d.agora(), ...(falhouNaHora ? { falhouEm: d.agora(), motivo: "A YCloud recusou na hora." } : {}),
-        mensagemCentralId: centralId, atualizadoEm: d.agora(),
-      }).where(eq(ycloudEnvios.id, e.id));
+      const centralId = falhouNaHora ? null : await registrarNaCentral(conexaoId, { ...e, texto: params.textoCompleto || e.texto });
+      await gravarAceite(e.id, r, falhouNaHora, centralId);
       if (falhouNaHora) res.falhas++; else res.enviadas++;
     } catch (err) {
-      const x = err instanceof ErroYcloud ? err : new ErroYcloud("Falha inesperada no envio.", 0, null);
-      if (x.ambiguo) {
-        await db.update(ycloudEnvios).set({ status: "incerto", motivo: "Sem resposta da YCloud (o envio pode ter saído). Não é reenviado automaticamente.", atualizadoEm: d.agora() })
-          .where(eq(ycloudEnvios.id, e.id));
+      // erro que não é resposta HTTP da YCloud (rede, exceção inesperada) e 5xx são AMBÍGUOS: o envio pode ter saído
+      const x = err instanceof ErroYcloud ? err : new ErroYcloud("Falha inesperada no envio.", null, null);
+      if (x.ambiguo || (x.status ?? 0) >= 500) {
+        await db.update(ycloudEnvios).set({ status: "incerto", motivo: "Sem resposta clara da YCloud (o envio pode ter saído). Não é reenviado automaticamente; o aviso de entrega confirma.", atualizadoEm: d.agora() })
+          .where(and(eq(ycloudEnvios.id, e.id), eq(ycloudEnvios.status, "enviando")));
         res.incertas++;
         continue;
       }
@@ -398,11 +493,7 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
         res.motivo = x.message;
         break;
       }
-      if ((x.status ?? 0) >= 500 && e.tentativas < 3) {
-        // erro temporário da YCloud: volta para a fila (a tentativa fica contada; na 3ª vira falha)
-        await db.update(ycloudEnvios).set({ status: "na_fila", reservadoEm: null, atualizadoEm: d.agora() }).where(and(eq(ycloudEnvios.id, e.id), eq(ycloudEnvios.status, "enviando")));
-        falhasSeguidas++;
-      } else {
+      {
         await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: x.codigo ?? (x.status ? `HTTP_${x.status}` : null), motivo: x.message.slice(0, 300), falhouEm: d.agora(), atualizadoEm: d.agora() })
           .where(eq(ycloudEnvios.id, e.id));
         if (x.codigo === "RECIPIENT_UNSUBSCRIBED") await registrarOptoutInterno(e.telefone, "ycloud_descadastro", e.leadId, null);
@@ -493,7 +584,9 @@ export async function detalheCampanha(campanhaId: number) {
 // ── Opt-out ──
 
 async function registrarOptoutInterno(telefone: string, origem: "painel" | "whatsapp_preferencia" | "ycloud_descadastro", leadId: number | null, userId: number | null) {
-  await getDb().insert(ycloudOptout).values({ telefone, origem, leadId, registradoPor: userId, criadoEm: depsYcloud().agora() }).onConflictDoNothing();
+  const chaveTelefone = chaveCanonicaTelefone(telefone);
+  if (!chaveTelefone) return;
+  await getDb().insert(ycloudOptout).values({ telefone: telefone.slice(0, 20), chaveTelefone, origem, leadId, registradoPor: userId, criadoEm: depsYcloud().agora() }).onConflictDoNothing();
 }
 
 /** Opt-out vindo do aviso da YCloud (preferência de marketing "stop"). Só telefone em E.164; nada sai daqui. */
@@ -518,7 +611,7 @@ export async function registrarOptoutPeloPainel(alvo: { leadId?: number; envioId
   await registrarOptoutInterno(telefone, "painel", leadId, userId);
   // envios ainda na fila deste telefone não saem mais (o lote confere de novo, mas já fica claro no painel)
   await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "OPTOUT", motivo: "Não enviada: a pessoa pediu para não receber.", falhouEm: depsYcloud().agora(), atualizadoEm: depsYcloud().agora() })
-    .where(and(eq(ycloudEnvios.telefone, telefone), eq(ycloudEnvios.status, "na_fila")));
+    .where(and(eq(ycloudEnvios.chaveTelefone, chaveCanonicaTelefone(telefone) ?? "-"), eq(ycloudEnvios.status, "na_fila")));
   const apiKey = await chaveYcloud().catch(() => null);
   if (apiKey) await criarDescadastroYcloud({ apiKey, fetchImpl: depsYcloud().fetch }, telefone).catch(() => undefined); // melhor esforço
   await auditarYcloud({ acao: "optout_registrado", usuarioId: userId, quantidade: 1 });
@@ -530,23 +623,27 @@ export async function totalOptout() {
   return Number(r?.n ?? 0);
 }
 
-// ── Eco em coexistência (proposta para o roteamento da Dolores) ──
+// ── Eco em coexistência (para o roteamento da Dolores ligar) ──
 
-/** Janela em que uma mensagem "da empresa" (fromMe) que chega pela Evolution pode ser o eco de uma campanha da API. */
-export const JANELA_ECO_CAMPANHA_MS = 6 * 60 * 60_000;
+/** Só é eco se o envio da campanha ao mesmo número saiu há no máximo isso. */
+export const JANELA_ECO_CAMPANHA_MS = 10 * 60_000;
 
 /**
- * Em coexistência, a mensagem enviada pela API aparece no app e pode chegar pela Evolution como "enviada pela empresa" (fromMe). Hoje o
- * roteamento (server/dolores/roteamento.ts, `tratarPropria`) só reconhece o eco automático do MESMO texto em até 5 min; fora disso trata
- * como resposta da EQUIPE (grava de novo e cala a Dolores naquela conversa). Esta função responde, por código, se houve envio de
- * campanha pela API a esse número nas últimas horas — para o roteamento tratar o eco como automático. NÃO está ligada ao roteamento
- * nesta entrega (arquivo de outra frente): ver a story C7, "Eco em coexistência".
+ * Em coexistência, a mensagem enviada pela API aparece no app e pode chegar pela Evolution como "enviada pela empresa" (fromMe).
+ * Regra SEGURA, por código: é eco de campanha só se (1) houve envio de campanha pela API ao MESMO número (forma canônica, regra estrita
+ * do número do dono) aceito há no máximo 10 min e (2) o texto do eco CONTÉM o corpo preenchido daquele envio (`ycloud_envios.texto`).
+ * Qualquer dúvida (sem texto, texto diferente, fora da janela) → false = é mensagem da EQUIPE (o roteamento segue a regra de sempre).
+ * Ligação pela frente da Dolores: ver a story C7, "Eco em coexistência".
  */
-export async function ehEcoDeCampanhaOficial(numero: string, agora: Date = depsYcloud().agora()): Promise<boolean> {
-  const e164 = telefoneE164(numero);
-  if (!e164) return false;
-  const desde = new Date(agora.getTime() - JANELA_ECO_CAMPANHA_MS);
-  const [r] = await getDb().select({ id: ycloudEnvios.id }).from(ycloudEnvios)
-    .where(and(eq(ycloudEnvios.telefone, e164), inArray(ycloudEnvios.status, ["aceita", "enviada", "entregue", "lida", "incerto"]), gte(ycloudEnvios.aceitoEm, desde))).limit(1);
-  return Boolean(r);
+export async function ehEcoDeCampanhaOficial(numero: string, textoDoEco: string | null | undefined, agora: Date = depsYcloud().agora()): Promise<boolean> {
+  const chave = chaveCanonicaTelefone(numero);
+  const eco = textoComparavel(textoDoEco);
+  if (!chave || !eco) return false;
+  try {
+    const desde = new Date(agora.getTime() - JANELA_ECO_CAMPANHA_MS);
+    const linhas = await getDb().select({ texto: ycloudEnvios.texto }).from(ycloudEnvios)
+      .where(and(eq(ycloudEnvios.chaveTelefone, chave), inArray(ycloudEnvios.status, ["aceita", "enviada", "entregue", "lida", "incerto"]),
+        gte(ycloudEnvios.aceitoEm, desde), lt(ycloudEnvios.aceitoEm, new Date(agora.getTime() + 60_000)))).limit(20);
+    return linhas.some(l => { const corpo = textoComparavel(l.texto); return corpo.length >= 3 && eco.includes(corpo); });
+  } catch { return false; }
 }

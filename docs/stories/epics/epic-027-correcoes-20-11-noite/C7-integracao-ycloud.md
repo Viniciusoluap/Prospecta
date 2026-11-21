@@ -84,15 +84,45 @@ App + API oficial): conta "VFX Capital", Conectado, limite inicial de 250 client
    espera; erro de conta (chave, saldo, modelo, número) → pausa a campanha; 5xx → volta à fila (3 tentativas); sem resposta → `incerto`.
 4. A tela repete o lote enquanto houver fila. Fechou a tela ou a função caiu → "Continuar envio" retoma; ninguém recebe duas vezes.
 
-## Eco em coexistência (comportamento atual e proposta)
-Em coexistência, a mensagem da API aparece no app e PODE chegar pela Evolution como "enviada pela empresa" (fromMe). O roteamento da
-Dolores (`server/dolores/roteamento.ts`, `tratarPropria`) reconhece como automática a mensagem `automatica` sem `external_id`, do mesmo
-número e MESMO texto, gravada há até 5 min — a mensagem da campanha é gravada assim, então o eco rápido e de mesmo texto casa. Fora disso
-(eco atrasado pela fila, ou texto diferente do modelo), ele trata como resposta da EQUIPE: grava uma segunda linha na conversa e cala a
-Dolores naquela conversa pelo prazo normal (erro para o lado humano; nada é enviado a mais).
-**Proposta (não aplicada aqui: arquivo de outra frente):** em `tratarPropria`, antes de tratar como "da equipe", chamar
-`ehEcoDeCampanhaOficial(p.numero)` (`server/ycloud/campanhas.ts`, testada) e, se verdadeira, devolver `"propria-automatica"` sem
-gravar nem silenciar. Conferir com uma campanha real de 1 destinatário antes de ligar.
+## Eco em coexistência (comportamento atual e instrução para a frente da Dolores)
+Em coexistência, a mensagem da API aparece no app e PODE chegar pela Evolution como "enviada pela empresa" (fromMe). Hoje o roteamento
+(`server/dolores/roteamento.ts`, `tratarPropria`) só reconhece como automática a linha `automatica` sem `external_id`, do mesmo número e
+MESMO texto, de até 5 min; fora disso trata como resposta da EQUIPE (grava outra linha e cala a Dolores naquela conversa — erro para o
+lado humano; nada é enviado a mais). Esta entrega NÃO mexe no roteamento (outra frente).
+
+Regra segura pronta e testada: `ehEcoDeCampanhaOficial(numero, texto)` em `server/ycloud/campanhas.ts` — só é eco se houve envio da
+campanha ao MESMO número (forma canônica, regra estrita do número do dono) aceito há ≤ 10 min E o texto do eco CONTÉM o corpo preenchido
+(`ycloud_envios.texto`). Na dúvida devolve false (= mensagem da equipe).
+
+**Instrução de UMA linha para a frente da Dolores** — em `tratarPropria`, logo depois do bloco `if (p.texto) { … }` e antes de
+`await gravarItemNaCentral(conn, item, …)`:
+```ts
+if (await (await import("../ycloud/campanhas.js")).ehEcoDeCampanhaOficial(p.numero, p.texto)) return "propria-automatica";
+```
+Conferir com uma campanha real de 1 destinatário antes de dar como resolvido.
+
+## Correções do portão de QA (20–21/11)
+1. Idempotência: a prévia devolve `chaveConfirmacao`; a confirmação a exige; índice único em `ycloud_campanhas.chave_confirmacao` →
+   duas confirmações = UMA campanha. Quem recebeu (ou está para receber) o MESMO modelo em outra campanha nos últimos N dias
+   (`ycloud_config.janela_repeticao_dias`, padrão 7, 0 = desliga) é pulado na prévia (contagem "já receberam") e de novo no lote (`REPETIDO`).
+2. Opt-out da Central de Vendas (`central_vendas_leads.opt_out`, única outra marca de descadastro encontrada no sistema) conta como
+   opt-out na prévia e no lote; falha ao conferir → nada sai.
+3. Forma canônica do telefone (`chaveCanonicaTelefone`, mesma regra estrita do número do dono) em `ycloud_envios.chave_telefone` e
+   `ycloud_optout.chave_telefone` (únicos): deduplicação e opt-out ignoram a falta do nono dígito no celular.
+4. Nome do cadastro só entra na variável limpo (`nomeSeguroParaVariavel`: letras, espaço, hífen, apóstrofo, até 50); com link, "@",
+   dígitos ou símbolos → pulado com motivo ("nome que não pode ir na mensagem").
+5. Eco: regra segura acima.
+6. 5xx e erro sem resposta HTTP → "incerto" (nunca reenviado sozinho).
+7. Resposta do POST que chega depois do aviso não rebaixa a situação nem troca preço final.
+8. A trava do lote só é solta pela marca do próprio lote.
+9. Avisos assinam também `whatsapp.user.preferences` ("stop" → opt-out local).
+10. Reenvio atrasado: a doc diz que a janela de 5 min é política da aplicação e lista reenvios até ~6 h, sem dizer se o `t` é renovado.
+    Assinatura válida com `t` de até 8 h atrás é aceita; `t` no futuro continua limitado a 5 min; id já visto nunca é reprocessado.
+11. Índice em `ycloud_envios.mensagem_central_id`.
+
+## Pendência: retenção
+Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `ycloud_eventos` e `ycloud_auditoria` — NÃO implementada
+(apagar dados exige ordem do dono). `ycloud_optout` não entra na retenção (o pedido de não receber vale para sempre).
 
 ## Passo a passo do dono em produção
 (ver o relatório da entrega; reproduzido no HANDOFF da frente)
@@ -116,4 +146,5 @@ gravar nem silenciar. Conferir com uma campanha real de 1 destinatário antes de
 - `docs/stories/epics/ROADMAP.md` (pendência de porte), esta story
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): correções 1–11 do portão de QA (CONCERNS/NEEDS_WORK); segue InReview para nova revisão.
 - 20/11/2026 — @dev (Dex): story criada a partir do pedido do coordenador; InProgress → InReview (implementação, testes e tsc ok; aguarda @qa).

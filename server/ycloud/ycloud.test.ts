@@ -94,6 +94,8 @@ async function criarBanco() {
   const migracao = readFileSync(new URL("../../drizzle/0141_ycloud.sql", import.meta.url), "utf8");
   await banco.exec(migracao);
   await banco.exec(migracao); // idempotente
+  // marca de descadastro da Central de Vendas (tabela real tem mais colunas; aqui só as que a campanha lê)
+  await banco.exec("CREATE TABLE IF NOT EXISTS central_vendas_leads (lead_id integer PRIMARY KEY, opt_out boolean NOT NULL DEFAULT false)");
   return banco;
 }
 
@@ -110,7 +112,7 @@ const entrada = (leadIds: number[]) => ({
 
 async function campanha(leadIds: number[]) {
   const p = await admin().whatsappOficial.previa(entrada(leadIds));
-  const c = await admin().whatsappOficial.criarCampanha({ ...entrada(leadIds), confirmarQuantidade: p.contagem.aEnviar });
+  const c = await admin().whatsappOficial.criarCampanha({ ...entrada(leadIds), confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao });
   return { previa: p, ...c };
 }
 
@@ -184,7 +186,7 @@ describe("permissão por PAPEL (appRouter)", () => {
   it("colaborador com o módulo WhatsApp, corretor e cliente são recusados; admin passa", async () => {
     for (const [role, id] of [["colaborador", 2], ["corretor", 3], ["cliente", 4]] as const) {
       await expect(caller(role, id).whatsappOficial.status()).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await expect(caller(role, id).whatsappOficial.criarCampanha({ ...entrada([1]), confirmarQuantidade: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller(role, id).whatsappOficial.criarCampanha({ ...entrada([1]), confirmarQuantidade: 1, chaveConfirmacao: "chave-de-teste-0123456789" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role, id).whatsappOficial.enviarLote({ campanhaId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller(role, id).whatsappOficial.salvarChave({ apiKey: CHAVE })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
@@ -233,7 +235,7 @@ describe("chave e segredo nunca saem", () => {
     await configurarTudo({ ligar: false });
     const ep = chamadas.find(c => c.url.endsWith("/webhookEndpoints"))!;
     expect(ep.corpo.url).toBe("https://www.exemplo-prospecta.test/api/ycloud/webhook");
-    expect(ep.corpo.enabledEvents).toEqual(["whatsapp.message.updated", "whatsapp.template.reviewed"]);
+    expect(ep.corpo.enabledEvents).toEqual(["whatsapp.message.updated", "whatsapp.template.reviewed", "whatsapp.user.preferences"]);
   });
 });
 
@@ -271,12 +273,14 @@ describe("prévia, limite diário e opt-out", () => {
     await admin().whatsappOficial.salvarConfig({ tetoDia: 2 });
     const p = await admin().whatsappOficial.previa(entrada([1, 2, 3]));
     expect(p.contagem).toMatchObject({ aEnviar: 2, acimaDoLimite: 1 });
-    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 3 })).rejects.toThrow(/contagem mudou/);
-    const { campanhaId } = await admin().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 2 });
+    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 3, chaveConfirmacao: p.chaveConfirmacao })).rejects.toThrow(/contagem mudou/);
+    const { campanhaId } = await admin().whatsappOficial.criarCampanha({ ...entrada([1, 2, 3]), confirmarQuantidade: 2, chaveConfirmacao: p.chaveConfirmacao });
     await admin().whatsappOficial.enviarLote({ campanhaId });
     expect(envioCalls()).toHaveLength(2);
     // o dia está cheio: nova campanha não tem vaga
-    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([3]), confirmarQuantidade: 1 })).rejects.toThrow(/Nenhum destinatário/);
+    const cheia = await admin().whatsappOficial.previa(entrada([3]));
+    expect(cheia.contagem).toMatchObject({ aEnviar: 0, acimaDoLimite: 1 });
+    await expect(admin().whatsappOficial.criarCampanha({ ...entrada([3]), confirmarQuantidade: 1, chaveConfirmacao: cheia.chaveConfirmacao })).rejects.toThrow(/Nenhum destinatário/);
     // 24 h depois a janela libera
     relogio = new Date(AGORA.getTime() + 24 * 60 * 60_000 + 1000);
     expect((await admin().whatsappOficial.previa(entrada([3]))).contagem.aEnviar).toBe(1);
@@ -289,7 +293,7 @@ describe("prévia, limite diário e opt-out", () => {
   it("opt-out registrado depois de criar a campanha: o lote não envia a essa pessoa", async () => {
     await configurarTudo();
     const { campanhaId } = await campanha([1, 2]);
-    await pg.exec("INSERT INTO ycloud_optout (telefone, origem) VALUES ('+5599977772222', 'whatsapp_preferencia')");
+    await pg.exec("INSERT INTO ycloud_optout (telefone, chave_telefone, origem) VALUES ('+5599977772222', '5599977772222', 'whatsapp_preferencia')");
     await admin().whatsappOficial.enviarLote({ campanhaId });
     expect(envioCalls().map(c => c.corpo.to)).toEqual(["+5599988881111"]);
     expect((await envios()).find(e => e.telefone === "+5599977772222")?.status).toBe("falhou");
@@ -375,7 +379,7 @@ describe("aviso de entrega (webhook)", () => {
     const ev = evStatus({ id: e.ycloud_id, status: "delivered", totalPrice: 0.0625, currency: "USD" });
     const corpo = JSON.stringify(ev);
     expect(await aviso(ev, assinar(corpo, undefined, "segredo-errado-0123456789abcdef"))).toBe(401);
-    expect(await aviso(ev, assinar(corpo, Math.floor(relogio.getTime() / 1000) - 301))).toBe(401);
+    expect(await aviso(ev, assinar(corpo, Math.floor(relogio.getTime() / 1000) - 8 * 3600 - 1))).toBe(401); // mais velho que a tolerância de reenvio
     expect(await aviso(ev, null)).toBe(401);
     expect(await aviso(ev, assinar(corpo), corpo.replace("delivered", "read"))).toBe(401);
     expect((await envios())[0].status).toBe("aceita");
@@ -434,16 +438,20 @@ describe("rota publicada com corpo bruto", () => {
   });
 });
 
-describe("eco em coexistência (proposta)", () => {
-  it("reconhece por código o envio recente de campanha ao número (para o roteamento não calar a Dolores)", async () => {
+describe("eco em coexistência (regra segura, para o roteamento da Dolores)", () => {
+  it("só é eco com envio ao MESMO número (forma canônica) há ≤ 10 min E texto que contém o corpo preenchido", async () => {
     const { ehEcoDeCampanhaOficial } = await import("./campanhas.js");
     await configurarTudo();
     const { campanhaId } = await campanha([1]);
-    expect(await ehEcoDeCampanhaOficial("5599988881111", relogio)).toBe(false); // ainda na fila
+    const corpo = "Olá Maria, conheça o Jardim das Flores.";
+    expect(await ehEcoDeCampanhaOficial("5599988881111", corpo, relogio)).toBe(false); // ainda na fila
     await admin().whatsappOficial.enviarLote({ campanhaId });
-    expect(await ehEcoDeCampanhaOficial("5599988881111", relogio)).toBe(true);
-    expect(await ehEcoDeCampanhaOficial("5599977772222", relogio)).toBe(false);
-    expect(await ehEcoDeCampanhaOficial("5599988881111", new Date(relogio.getTime() + 7 * 60 * 60_000))).toBe(false);
+    expect(await ehEcoDeCampanhaOficial("5599988881111", `Novidade, Maria\n${corpo}`, relogio)).toBe(true);
+    expect(await ehEcoDeCampanhaOficial("559988881111", corpo, relogio)).toBe(true); // mesmo celular sem o nono dígito
+    expect(await ehEcoDeCampanhaOficial("5599988881111", "Oi, tudo bem?", relogio)).toBe(false); // texto da equipe
+    expect(await ehEcoDeCampanhaOficial("5599988881111", "", relogio)).toBe(false);
+    expect(await ehEcoDeCampanhaOficial("5599977772222", corpo, relogio)).toBe(false);
+    expect(await ehEcoDeCampanhaOficial("5599988881111", corpo, new Date(relogio.getTime() + 11 * 60_000))).toBe(false);
   });
 });
 

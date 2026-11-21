@@ -11,8 +11,11 @@ import type { FetchLike } from "../_core/ycloud.js";
 export const CHAVE_SEGREDO_YCLOUD = "segredo.ycloud_api_key";
 export const CHAVE_SEGREDO_WEBHOOK_YCLOUD = "segredo.ycloud_webhook_secret";
 
-/** Só os eventos de situação de mensagem enviada e de revisão de modelo — NUNCA mensagem recebida (duplicaria com a Evolution). */
-export const EVENTOS_YCLOUD = ["whatsapp.message.updated", "whatsapp.template.reviewed"] as const;
+/**
+ * Situação de mensagem enviada, revisão de modelo e preferência de marketing (opt-out vindo da Meta entra no opt-out local) — NUNCA
+ * mensagem recebida (duplicaria com a Evolution).
+ */
+export const EVENTOS_YCLOUD = ["whatsapp.message.updated", "whatsapp.template.reviewed", "whatsapp.user.preferences"] as const;
 
 export type DependenciasYcloud = {
   agora: () => Date;

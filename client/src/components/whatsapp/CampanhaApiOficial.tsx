@@ -74,9 +74,9 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
     if (!entrada || !p) return;
     const custo = p.custo.estimado !== null ? ` Custo estimado: ${dinheiro(p.custo.estimado, p.custo.moeda)}.` : "";
     if (!window.confirm(`Disparar a campanha "${entrada.nome}" para ${p.contagem.aEnviar} contato(s) pela API oficial?${custo}\n\nEssa ação envia mensagens de verdade.`)) return;
-    const r = await criar.mutateAsync({ ...entrada, confirmarQuantidade: p.contagem.aEnviar }).catch(() => null);
+    const r = await criar.mutateAsync({ ...entrada, confirmarQuantidade: p.contagem.aEnviar, chaveConfirmacao: p.chaveConfirmacao }).catch(() => null);
     if (!r) return;
-    toast.success(`Campanha criada com ${r.total} destinatário(s). O envio começou.`);
+    toast.success(r.repetida ? "Essa campanha já tinha sido confirmada: nada novo foi criado." : `Campanha criada com ${r.total} destinatário(s). O envio começou.`);
     await utils.whatsappOficial.campanhas.invalidate();
     aoCriar(r.campanhaId);
     setChaveModelo(""); setNome(""); setVariaveis({});
@@ -130,7 +130,9 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
               {p.contagem.invalidos > 0 && <li>{p.contagem.invalidos} sem telefone válido ou fora do CRM</li>}
               {p.contagem.duplicados > 0 && <li>{p.contagem.duplicados} telefone repetido (cada número recebe uma vez)</li>}
               {p.contagem.reservados > 0 && <li>{p.contagem.reservados} é o número do dono ou da empresa</li>}
+              {p.contagem.jaRecebeu > 0 && <li>{p.contagem.jaRecebeu} já receberam este modelo nos últimos {p.janelaRepeticaoDias} dia(s) (não recebem de novo)</li>}
               {p.contagem.semNome > 0 && <li>{p.contagem.semNome} sem nome no cadastro (a variável usa o nome)</li>}
+              {p.contagem.nomeRecusado > 0 && <li>{p.contagem.nomeRecusado} com nome que não pode ir na mensagem (link, "@", números ou símbolos) — corrija o cadastro</li>}
               {p.contagem.parametroInvalido > 0 && <li>{p.contagem.parametroInvalido} com nome que a Meta não aceita como variável</li>}
               {p.contagem.acimaDoLimite > 0 && <li className="text-yellow-200">{p.contagem.acimaDoLimite} acima do limite de hoje / da campanha (não entram)</li>}
             </ul>

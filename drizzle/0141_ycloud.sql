@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS "ycloud_config" (
   "ligado" boolean NOT NULL DEFAULT false,
   "teto_dia" integer NOT NULL DEFAULT 200 CHECK ("teto_dia" BETWEEN 1 AND 100000),
   "teto_campanha" integer NOT NULL DEFAULT 250 CHECK ("teto_campanha" BETWEEN 1 AND 100000),
+  -- quem recebeu o MESMO modelo nos últimos N dias (qualquer campanha) é pulado; 0 = não confere
+  "janela_repeticao_dias" integer NOT NULL DEFAULT 7 CHECK ("janela_repeticao_dias" BETWEEN 0 AND 90),
   "preco_estimado" numeric(10, 4) CHECK ("preco_estimado" IS NULL OR "preco_estimado" >= 0),
   "moeda" varchar(3) NOT NULL DEFAULT 'USD',
   -- última conferência do número na YCloud (GET /whatsapp/phoneNumbers)
@@ -45,6 +47,8 @@ INSERT INTO "ycloud_config" ("id") VALUES (1) ON CONFLICT ("id") DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS "ycloud_campanhas" (
   "id" serial PRIMARY KEY NOT NULL,
+  -- chave de idempotência gerada na prévia e exigida na confirmação: duas confirmações = UMA campanha
+  "chave_confirmacao" varchar(64) NOT NULL,
   "nome" varchar(120) NOT NULL,
   "modelo_nome" varchar(512) NOT NULL,
   "modelo_idioma" varchar(20) NOT NULL,
@@ -61,6 +65,8 @@ CREATE TABLE IF NOT EXISTS "ycloud_campanhas" (
   "concluida_em" timestamp with time zone,
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_campanhas_chave_confirmacao_uidx" ON "ycloud_campanhas" ("chave_confirmacao");
+CREATE INDEX IF NOT EXISTS "ycloud_campanhas_modelo_idx" ON "ycloud_campanhas" ("modelo_nome", "modelo_idioma");
 CREATE INDEX IF NOT EXISTS "ycloud_campanhas_status_idx" ON "ycloud_campanhas" ("status");
 
 CREATE TABLE IF NOT EXISTS "ycloud_envios" (
@@ -69,8 +75,11 @@ CREATE TABLE IF NOT EXISTS "ycloud_envios" (
   "lead_id" integer REFERENCES "leads"("id") ON DELETE SET NULL,
   -- E.164 com "+", como vai para a YCloud
   "telefone" varchar(20) NOT NULL,
+  -- forma canônica (DDI + DDD + nono dígito normalizado no celular, a mesma regra estrita do número do dono): deduplicação e opt-out
+  "chave_telefone" varchar(20) NOT NULL,
   "nome" varchar(255),
   "parametros" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- corpo do modelo já preenchido (o que a pessoa lê); usado para reconhecer o eco pela Evolution
   "texto" text NOT NULL,
   "external_id" varchar(80) NOT NULL,
   "status" varchar(20) NOT NULL DEFAULT 'na_fila'
@@ -94,7 +103,9 @@ CREATE TABLE IF NOT EXISTS "ycloud_envios" (
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_envios_external_id_uidx" ON "ycloud_envios" ("external_id");
-CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_envios_campanha_telefone_uidx" ON "ycloud_envios" ("campanha_id", "telefone");
+CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_envios_campanha_telefone_uidx" ON "ycloud_envios" ("campanha_id", "chave_telefone");
+CREATE INDEX IF NOT EXISTS "ycloud_envios_chave_telefone_idx" ON "ycloud_envios" ("chave_telefone");
+CREATE INDEX IF NOT EXISTS "ycloud_envios_mensagem_central_idx" ON "ycloud_envios" ("mensagem_central_id");
 CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_envios_ycloud_id_uidx" ON "ycloud_envios" ("ycloud_id");
 CREATE INDEX IF NOT EXISTS "ycloud_envios_campanha_status_idx" ON "ycloud_envios" ("campanha_id", "status");
 CREATE INDEX IF NOT EXISTS "ycloud_envios_aceito_idx" ON "ycloud_envios" ("aceito_em");
@@ -107,14 +118,15 @@ CREATE TABLE IF NOT EXISTS "ycloud_eventos" (
 
 CREATE TABLE IF NOT EXISTS "ycloud_optout" (
   "id" serial PRIMARY KEY NOT NULL,
-  -- E.164 com "+"
+  -- E.164 com "+" (como chegou) e a forma canônica (a que vale para bloquear)
   "telefone" varchar(20) NOT NULL,
+  "chave_telefone" varchar(20) NOT NULL,
   "origem" varchar(30) NOT NULL CHECK ("origem" IN ('painel', 'whatsapp_preferencia', 'ycloud_descadastro')),
   "lead_id" integer REFERENCES "leads"("id") ON DELETE SET NULL,
   "registrado_por" integer REFERENCES "users"("id") ON DELETE SET NULL,
   "criado_em" timestamp with time zone NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_optout_telefone_uidx" ON "ycloud_optout" ("telefone");
+CREATE UNIQUE INDEX IF NOT EXISTS "ycloud_optout_chave_telefone_uidx" ON "ycloud_optout" ("chave_telefone");
 
 CREATE TABLE IF NOT EXISTS "ycloud_auditoria" (
   "id" serial PRIMARY KEY NOT NULL,
