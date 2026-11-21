@@ -303,9 +303,17 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   empresa, modelos com situação de aprovação, campanha por modelo APROVADO com prévia, custo estimado e confirmação pela contagem,
   envio em lotes retomáveis pela fila da YCloud (`externalId` único, 5 mensagens/s, limite diário lido da conta, tetos do painel,
   opt-out permanente), aviso de entrega assinado (`/api/ycloud/webhook`, HMAC-SHA256 `t.corpo`, janela de 5 min, dedupe por id),
-  painel da campanha e auditoria; só administrador por papel. Migração aqui: `0141_ycloud.sql`. Story:
+  painel da campanha e auditoria. Quem dispara (C7.1, decisão do dono em 21/11: "eu ou colaborador se estiver marcado WhatsApp
+  pra ele"): OPERAR campanha = admin ou colaborador ativo com o módulo WhatsApp; ADMINISTRAR a integração (chave, interruptor,
+  tetos, preço, avisos de entrega, auditoria) = só admin por papel; a auditoria guarda id e papel de quem disparou. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
+- [ ] C7.2 — modelos criados pelo próprio sistema (21/11, pedido do dono: não usar o painel da YCloud): modelo padrão
+  `novidades_prospecta` (MARKETING, pt_BR) enviado UMA vez pelo servidor quando a conta não tem modelo de marketing em pt_BR (crons
+  + listagem; compare-and-set; 1 tentativa por dia, 3 no total); no formulário de template da Central ("+ Novo template"/"Editar",
+  só admin), a opção "Usar também em campanha pela API oficial" converte {{nome}}… em {{1}}…, valida as regras da Meta, envia
+  para aprovação, mostra a situação no cartão e a campanha preenche sozinha as variáveis mapeadas; aviso da Central atualizado
+  (disparo em massa = Campanha pela API oficial). Sem migração aqui (estado em `dashboard_settings`).
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026)
 
@@ -316,3 +324,12 @@ Dolores) é exceção.
   quem escreveu, mídia como rótulo, paginação), escrita no grupo pelo número da empresa com quem enviou registrado ("equipe —
   Fulano") e os tetos do envio manual (10/min, 200/dia). No Santa Fé, sem Dolores, a lista de grupos precisa de um registro de
   grupos próprio (lá não existe `dolores_grupos`).
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C8 — registrada em 21/11/2026)
+
+A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar ao Santa Fé (na stack de lá).
+- [ ] C8 — "Gerar logotipo com IA" pela chave da Anthropic do painel (Integrações › Anthropic): proposta em SVG desenhada pelo
+  modelo, com linha própria em "Modelo por função" ("Logotipo da incorporação", padrão `claude-sonnet-5`), dados do empreendimento
+  enviados como dado delimitado, prazo de 40 s, teto de 5 propostas/dia por empreendimento e por pessoa, limpeza do SVG (lista de
+  permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
+  Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.

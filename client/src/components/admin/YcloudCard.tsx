@@ -1,6 +1,8 @@
 // EPIC-027 C7 (20/11/2026) — Configurações › Integrações › "API oficial do WhatsApp (YCloud)". Só administrador.
 // Chave digitada pelo dono (nunca exibida de volta: só "terminando em …"), Testar (número, nome verificado, situação, qualidade e
 // limite), avisos de entrega, interruptor geral (desligado por padrão), tetos e preço estimado.
+// C7.1 (21/11/2026): o colaborador com o módulo WhatsApp OPERA campanhas na Central, mas este cartão (configuração) e a auditoria
+// completa continuam só do admin por papel.
 import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Info, Loader2, XCircle } from "lucide-react";
@@ -13,6 +15,22 @@ import { Label } from "@/components/ui/label";
 const botaoSec = "border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const campoCls = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white placeholder:text-gray-500";
 const limiteLegivel = (n: number | null | undefined) => (n === null || n === undefined ? "sem limite da Meta (valem os tetos abaixo)" : `${n.toLocaleString("pt-BR")} clientes em 24 h`);
+
+const ROTULO_ACAO: Record<string, string> = {
+  chave_salva: "Chave salva", chave_removida: "Chave removida", avisos_ativados: "Avisos de entrega ativados", segredo_avisos_salvo: "Segredo dos avisos salvo",
+  disparos_ligados: "Disparos ligados", disparos_desligados: "Disparos desligados", config_salva: "Tetos/preço salvos", campanha_criada: "Campanha disparada",
+  campanha_concluida: "Campanha concluída", campanha_pausar: "Campanha pausada", campanha_continuar: "Campanha retomada", campanha_cancelar: "Campanha cancelada",
+  optout_registrado: "\"Não enviar mais\" registrado", modelo_revisado: "Modelo revisado pela Meta",
+  modelo_padrao_enviado: "Modelo padrão enviado para aprovação", modelo_padrao_recusado: "Modelo padrão recusado pela YCloud",
+  modelo_padrao_dispensado: "Modelo padrão dispensado (já havia modelo de marketing)", modelo_enviado: "Template enviado para aprovação",
+  modelo_recusado: "Template recusado pela YCloud",
+};
+const SITUACAO_MODELO_PADRAO: Record<string, string> = {
+  criado: "enviado para aprovação da Meta (a situação aparece em Central WhatsApp › Templates)",
+  ja_existia: "não foi preciso: a conta já tinha modelo de marketing em português",
+  recusado: "a YCloud recusou", incerto: "a YCloud não respondeu a tempo; o sistema confere amanhã", falhou: "não consegui consultar a YCloud; o sistema tenta amanhã",
+  andamento: "em andamento",
+};
 
 export function YcloudCard() {
   const utils = trpc.useUtils();
@@ -31,6 +49,8 @@ export function YcloudCard() {
   });
   const salvarSegredo = trpc.whatsappOficial.salvarSegredoAvisos.useMutation({ onSuccess: async () => { toast.success("Segredo salvo."); setSegredo(""); await recarregar(); }, onError });
   const salvarConfig = trpc.whatsappOficial.salvarConfig.useMutation({ onSuccess: async () => { toast.success("Salvo."); setTetos({}); await recarregar(); }, onError });
+  const [verAuditoria, setVerAuditoria] = useState(false);
+  const auditoria = trpc.whatsappOficial.auditoria.useQuery(undefined, { enabled: verAuditoria, retry: false });
   const [trocando, setTrocando] = useState(false);
   const [chave, setChave] = useState("");
   const [segredo, setSegredo] = useState("");
@@ -62,6 +82,10 @@ export function YcloudCard() {
               </div>
             );
           })()}
+          {/* C7.2: o modelo padrão é enviado pelo próprio servidor (o dono não usa o painel da YCloud) */}
+          <p className="text-xs text-gray-300">Modelo padrão "{s.modeloPadrao.nome}": {s.modeloPadrao.situacao
+            ? `${SITUACAO_MODELO_PADRAO[s.modeloPadrao.situacao] ?? s.modeloPadrao.situacao}${s.modeloPadrao.motivo ? ` — ${s.modeloPadrao.motivo}` : ""}${s.modeloPadrao.situacao === "recusado" || s.modeloPadrao.situacao === "incerto" || s.modeloPadrao.situacao === "falhou" ? ` (tentativa ${s.modeloPadrao.tentativas} de ${s.modeloPadrao.maxTentativas}${s.modeloPadrao.tentativas >= s.modeloPadrao.maxTentativas ? "; o sistema não tenta mais sozinho" : ""})` : ""}`
+            : "o sistema envia sozinho para aprovação quando a chave estiver salva e o número conferido."}</p>
           {testar.isPending && <p className="flex items-center gap-2 text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Testando na YCloud…</p>}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" className={botaoSec} disabled={!s.configurado || testar.isPending} onClick={() => testar.mutate()}>Testar</Button>
@@ -118,6 +142,23 @@ export function YcloudCard() {
                 {s.ligado ? "Desligar disparos" : "Ligar disparos"}
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-2 border-t border-[#C9A961]/10 pt-3">
+            <Button size="sm" variant="outline" className={botaoSec} onClick={() => setVerAuditoria(v => !v)}>{verAuditoria ? "Fechar auditoria" : "Ver auditoria (quem fez o quê)"}</Button>
+            {verAuditoria && (auditoria.isLoading ? <p className="text-xs text-gray-400">Carregando…</p> : (
+              <div className="max-h-60 space-y-1 overflow-y-auto text-xs text-gray-300">
+                {!(auditoria.data ?? []).length && <p className="text-gray-400">Nenhum registro ainda.</p>}
+                {(auditoria.data ?? []).map(a => (
+                  <p key={a.id} className="rounded bg-[#1A2332] px-2 py-1">
+                    {new Date(a.criadoEm).toLocaleString("pt-BR")} · <b className="text-white">{ROTULO_ACAO[a.acao] ?? a.acao}</b>
+                    {a.campanhaId ? ` · campanha ${a.campanhaId}` : ""}{a.quantidade !== null ? ` · ${a.quantidade}` : ""}
+                    {" · "}{a.usuarioId ? `${a.usuarioNome?.trim() || `usuário ${a.usuarioId}`}${a.papel ? ` (${a.papel === "admin" ? "administrador" : a.papel})` : ""}` : "sistema/YCloud"}
+                    {a.detalhe ? ` · ${a.detalhe}` : ""}
+                  </p>
+                ))}
+              </div>
+            ))}
           </div>
         </>}
       </CardContent>

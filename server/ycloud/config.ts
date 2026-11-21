@@ -2,7 +2,8 @@
 // dashboard_settings com o mesmo cofre das outras chaves do painel — server/_core/secret-vault.ts), a linha única `ycloud_config`
 // (interruptor geral desligado por padrão, tetos, última conferência do número) e as dependências trocáveis nos testes.
 // Nada aqui devolve a chave ou o segredo: a tela só recebe "terminando em …".
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+import { users } from "../../drizzle/schema.js";
 import { ycloudAuditoria, ycloudConfig, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "../_core/secret-vault.js";
 import * as db from "../db.js";
@@ -102,12 +103,41 @@ export async function atualizarConfigYcloud(dados: Partial<Omit<YcloudConfig, "i
   await db.getDb().update(ycloudConfig).set({ ...dados, atualizadoEm: deps.agora(), ...(userId ? { atualizadoPor: userId } : {}) }).where(eq(ycloudConfig.id, 1));
 }
 
+/** Quem fez a ação (C7.1): id e papel no momento (admin ou colaborador). */
+export type AutorYcloud = { id: number; papel: string };
+
+/** O papel vai no começo do `detalhe` ("papel=colaborador; …"): sem coluna nova (sem migração). */
+const PREFIXO_PAPEL = /^papel=([a-z_]{1,20})(?:; )?/;
+export function detalheComPapel(papel: string | null | undefined, detalhe: string | null | undefined): string | null {
+  const p = papel && /^[a-z_]{1,20}$/.test(papel) ? `papel=${papel}` : null;
+  let d = detalhe?.trim() || null;
+  // C7.1: detalhe vindo de fora (ex.: aviso da YCloud) que comece com "papel=" é escapado — só o papel do CONTEXTO vira "papel=…"
+  if (d && /^papel=/i.test(d)) d = `texto: ${d}`;
+  return p && d ? `${p}; ${d}` : p ?? d;
+}
+export function separarPapel(detalhe: string | null | undefined): { papel: string | null; detalhe: string | null } {
+  const m = (detalhe ?? "").match(PREFIXO_PAPEL);
+  if (!m) return { papel: null, detalhe: detalhe ?? null };
+  const resto = (detalhe ?? "").slice(m[0].length).trim();
+  return { papel: m[1], detalhe: resto || null };
+}
+
 /** Auditoria sem telefones nem segredos. Nunca lança (a ação principal já aconteceu ou vai acontecer). */
-export async function auditarYcloud(a: { acao: string; usuarioId: number | null; campanhaId?: number | null; modelo?: string | null; quantidade?: number | null; detalhe?: string | null }) {
+export async function auditarYcloud(a: { acao: string; usuarioId: number | null; papel?: string | null; campanhaId?: number | null; modelo?: string | null; quantidade?: number | null; detalhe?: string | null }) {
   try {
     await db.getDb().insert(ycloudAuditoria).values({
       acao: a.acao.slice(0, 60), usuarioId: a.usuarioId, campanhaId: a.campanhaId ?? null, modelo: a.modelo?.slice(0, 600) ?? null,
-      quantidade: a.quantidade ?? null, detalhe: a.detalhe?.slice(0, 300) ?? null, criadoEm: deps.agora(),
+      quantidade: a.quantidade ?? null, detalhe: detalheComPapel(a.papel, a.detalhe)?.slice(0, 300) ?? null, criadoEm: deps.agora(),
     });
   } catch { /* a auditoria não derruba a operação */ }
+}
+
+/** Auditoria completa (só admin): as últimas ações, com quem fez (nome e papel). Sem telefone nem segredo (nunca foram gravados). */
+export async function listarAuditoriaYcloud(limite = 200) {
+  const linhas = await db.getDb().select({
+    id: ycloudAuditoria.id, acao: ycloudAuditoria.acao, usuarioId: ycloudAuditoria.usuarioId, usuarioNome: users.name,
+    campanhaId: ycloudAuditoria.campanhaId, modelo: ycloudAuditoria.modelo, quantidade: ycloudAuditoria.quantidade, detalhe: ycloudAuditoria.detalhe,
+    criadoEm: ycloudAuditoria.criadoEm,
+  }).from(ycloudAuditoria).leftJoin(users, eq(users.id, ycloudAuditoria.usuarioId)).orderBy(desc(ycloudAuditoria.id)).limit(limite);
+  return linhas.map(l => { const { papel, detalhe } = separarPapel(l.detalhe); return { ...l, papel, detalhe }; });
 }

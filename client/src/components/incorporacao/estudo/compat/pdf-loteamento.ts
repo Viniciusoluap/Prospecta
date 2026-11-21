@@ -6,6 +6,18 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { CenariosLoteamento, ResultadoLoteamento } from "@shared/incorporacao/viabilidade-economica";
 import { formatCurrency, formatArea } from "./util";
+import type { ResultadoMixItem } from "@shared/incorporacao/mix-produtos";
+import { blocoApartamento } from "@shared/incorporacao/ocupacao-mix";
+
+/** Premissas efetivamente usadas pelo motor, sem exibir preço/m² legado de apartamento. */
+export function linhasMixRelatorio(itens: ResultadoMixItem[]): string[][] {
+  return itens.map(i => {
+    const b = i.apartamento ? blocoApartamento(i) : null;
+    return [i.apartamento ? `${i.nome} (apartamento)` : i.casaPronta ? `${i.nome} (casa pronta)` : i.nome,
+      i.quantidade.toLocaleString("pt-BR"), b ? `${b.blocos} blocos × ${formatArea(b.areaBlocoM2)} = ${formatArea(b.areaTotalM2)}` : formatArea(i.areaUnidadeM2),
+      i.casaPronta || i.apartamento ? `${formatCurrency(i.precoUnidade ?? 0)}/unid.` : `${formatCurrency(i.precoM2)}/m²`, formatCurrency(i.vgv)];
+  });
+}
 
 export interface MetaRelatorio {
   nome: string;
@@ -136,8 +148,15 @@ export function gerarRelatorioExecutivo(meta: MetaRelatorio, c: CenariosLoteamen
 
   y = titulo(doc, "2. MIX DE PRODUTOS", y);
   y = tabela(doc, y,
-    ["Produto", "Quantidade", "Área do lote/unid.", "Preço", "VGV do produto"],
-    r.mix.itens.map((i) => [i.casaPronta ? `${i.nome} (casa pronta)` : i.nome, i.quantidade.toLocaleString("pt-BR"), m2Str(i.areaUnidadeM2), i.casaPronta ? `${formatCurrency(i.precoUnidade ?? 0)}/unid.` : `${formatCurrency(i.precoM2)}/m²`, formatCurrency(i.vgv)])
+    ["Produto", "Quantidade", "Terreno (lote/unid. ou blocos)", "Preço", "VGV do produto"],
+    linhasMixRelatorio(r.mix.itens)
+  );
+  const apartamentos = r.mix.itens.filter(i => i.apartamento);
+  if (apartamentos.length) y = tabela(doc, y,
+    ["Apartamento", "Aptos/andar × andares", "Projeção do prédio", "Vagas: cabem / previstas / necessárias por bloco"],
+    apartamentos.map(i => { const b = blocoApartamento(i); return [i.nome,
+      `${b.apartamentosPorAndar} × ${b.andares}`, m2Str(b.areaProjecaoBlocoM2),
+      `${b.vagasFisicas} / ${b.vagasPorBloco} / ${b.unidadesPorBloco}${b.estacionamentoSuficiente ? "" : " — insuficiente"}`]; })
   );
 
   y = titulo(doc, "3. COMPARAÇÃO DE CENÁRIOS", y);

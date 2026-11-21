@@ -1,0 +1,3 @@
+@import "../../../client/src/index.css";
+/* O harness fica fora de client/: inclui as classes da página e dos componentes reais. */
+@source "../../../client/src";

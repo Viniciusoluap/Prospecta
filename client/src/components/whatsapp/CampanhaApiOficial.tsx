@@ -1,10 +1,12 @@
-// EPIC-027 C7 (20/11/2026) — Central WhatsApp › Enviar mensagem › "Campanha pela API oficial" (só administrador).
+// EPIC-027 C7 (20/11/2026) — Central WhatsApp › Enviar mensagem › "Campanha pela API oficial".
+// C7.1 (21/11/2026): quem OPERA é o admin ou o colaborador com o módulo WhatsApp (decisão do dono); a configuração (chave, interruptor,
+// tetos, preço, avisos de entrega) continua só do admin, em Integrações. O colaborador vê só se a API está pronta para uso.
 // Escolher modelo APROVADO, preencher as variáveis, ver a prévia (contagens, vagas do dia e custo estimado), confirmar com a contagem
 // e acompanhar o envio em lotes (retomável: "Continuar" segue de onde parou). Também: lista dos modelos e painel das campanhas.
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertCircle, Loader2, Megaphone, RefreshCw, Send } from "lucide-react";
-import { ROTULO_CATEGORIA_MODELO, ROTULO_STATUS_MODELO, type FonteVariavel } from "@shared/whatsapp/ycloud";
+import { FONTE_AUTOMATICA_DA_VARIAVEL, ROTULO_CATEGORIA_MODELO, ROTULO_STATUS_MODELO, type FonteVariavel } from "@shared/whatsapp/ycloud";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,16 +21,22 @@ const ROTULO_CAMPANHA: Record<string, string> = { enviando: "Enviando", pausada:
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 type Modelo = { nome: string; idioma: string; categoria: string | null; status: string | null; motivoRecusa: string | null;
+  variaveisDoTemplate?: string[] | null;
   analise: { compativel: boolean; motivo: string | null; campos: Array<{ chave: string; local: "cabecalho" | "corpo"; indice: number }>; corpo: string; cabecalho: string | null } };
 
 /** Modelos da conta da YCloud, com situação de aprovação (Templates da Central). */
 export function ModelosApiOficial() {
-  const modelos = trpc.whatsappOficial.modelos.useMutation({ onError: e => toast.error(e.message) });
+  const utils = trpc.useUtils();
+  // C7.2: listar também garante o modelo padrão (novidades_prospecta) quando a conta não tem modelo de marketing em pt_BR
+  const modelos = trpc.whatsappOficial.modelos.useMutation({
+    onSuccess: () => { void utils.whatsappOficial.situacaoDosTemplates.invalidate(); void utils.whatsappOficial.status.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
   return (
     <Card className={cardCls}>
       <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-[#C9A961]"><Megaphone className="h-4 w-4" /> Modelos da API oficial (YCloud)</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm text-gray-200">
-        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são criados e enviados para aprovação no painel da YCloud (passo a passo na story C7); aqui você confere a situação.</p>
+        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são enviados para aprovação da Meta daqui mesmo: marque a opção ao criar ou editar um template abaixo. Com a chave salva e o número conferido, se a conta não tiver nenhum modelo de marketing em português, o sistema envia sozinho (uma vez) o modelo padrão "novidades_prospecta" para aprovação.</p>
         <Button size="sm" variant="outline" disabled={modelos.isPending} onClick={() => modelos.mutate()}><RefreshCw className={`mr-1 h-3 w-3 ${modelos.isPending ? "animate-spin" : ""}`} /> {modelos.data ? "Atualizar modelos" : "Carregar modelos"}</Button>
         {modelos.data && (modelos.data.length === 0 ? <p className="text-xs text-gray-400">Nenhum modelo na conta.</p> : (
           <div className="space-y-2">
@@ -38,6 +46,7 @@ export function ModelosApiOficial() {
                   <span className={m.status === "APPROVED" ? "text-green-300" : m.status === "REJECTED" ? "text-red-300" : "text-yellow-200"}>{ROTULO_STATUS_MODELO[m.status ?? ""] ?? m.status ?? "—"}</span>
                   {!m.analise.compativel && <span className="text-orange-200"> · não dá para disparar por aqui: {m.analise.motivo}</span>}</p>
                 {m.motivoRecusa && <p className="text-[11px] text-red-200">Motivo da recusa: {m.motivoRecusa}</p>}
+                {m.variaveisDoTemplate && <p className="text-[11px] text-gray-400">Veio de um template da Central: {m.variaveisDoTemplate.map((v, i) => `{{${i + 1}}} = {{${v}}}`).join(" · ") || "sem variáveis"}</p>}
                 <p className="mt-1 whitespace-pre-line text-[11px] text-gray-400">{m.analise.cabecalho ? `${m.analise.cabecalho}\n` : ""}{m.analise.corpo}</p>
               </div>
             ))}
@@ -46,6 +55,24 @@ export function ModelosApiOficial() {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * C7.2: modelo que veio de um template da Central — cada {{n}} já sabe de qual variável veio ({{nome}} → primeiro nome do contato);
+ * o que não tem origem automática fica como "Texto fixo" para preencher.
+ */
+function preenchidasDoTemplate(m: Modelo | null): Record<string, FonteVariavel> {
+  const v = m?.variaveisDoTemplate;
+  if (!m || !v?.length) return {};
+  const out: Record<string, FonteVariavel> = {};
+  for (const c of m.analise.campos) {
+    if (c.local !== "corpo") continue;
+    const nome = v[c.indice - 1];
+    if (!nome) continue;
+    const auto = FONTE_AUTOMATICA_DA_VARIAVEL[nome];
+    out[c.chave] = auto ? { fonte: auto } : { fonte: "fixo", texto: "" };
+  }
+  return out;
 }
 
 /** Formulário da campanha (os destinatários vêm da lista da esquerda, os mesmos leads do CRM). */
@@ -69,6 +96,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
     return v && (v.fonte !== "fixo" || v.texto.trim());
   });
   const p = previa.data;
+  const pronta = trpc.whatsappOficial.prontidao.useQuery(undefined, { retry: false, refetchOnWindowFocus: true });
 
   async function confirmar() {
     if (!entrada || !p) return;
@@ -87,11 +115,14 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
       <CardHeader><CardTitle className="text-sm text-gray-300">Campanha pela API oficial (modelo aprovado)</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm text-gray-200">
         <p className="text-xs text-gray-300">Sai pela API oficial da Meta (YCloud), com fila, limite diário da conta e opt-out respeitados. Conversas e grupos continuam pelo WhatsApp Web.</p>
+        {pronta.data && (pronta.data.pronta
+          ? <p role="status" className="text-xs text-green-300">Pronta para uso{pronta.data.restanteHoje !== null ? ` · ainda cabem ${pronta.data.restanteHoje} envio(s) hoje` : ""} · até {pronta.data.tetoCampanha} por campanha.</p>
+          : <p role="alert" className="flex items-start gap-2 rounded border border-orange-500/30 bg-orange-500/10 p-2 text-xs text-orange-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{pronta.data.motivo}</p>)}
         <div><Label className="text-gray-300">Nome da campanha</Label><Input className={inputCls} maxLength={120} value={nome} onChange={e => setNome(e.target.value)} placeholder="ex.: Lançamento Jardim — novembro" /></div>
         <div>
           <Label className="text-gray-300">Modelo aprovado</Label>
           <div className="mt-1 flex gap-2">
-            <select value={chaveModelo} onChange={e => { setChaveModelo(e.target.value); setVariaveis({}); }} className={`${inputCls} w-full rounded-md px-3 py-2 text-sm`}>
+            <select value={chaveModelo} onChange={e => { setChaveModelo(e.target.value); setVariaveis(preenchidasDoTemplate(aprovados.find((m: Modelo) => `${m.nome}:${m.idioma}` === e.target.value) ?? null)); }} className={`${inputCls} w-full rounded-md px-3 py-2 text-sm`}>
               <option value="">{modelos.isPending ? "Carregando modelos…" : aprovados.length ? "— Escolha um modelo —" : "Nenhum modelo aprovado e compatível"}</option>
               {aprovados.map((m: Modelo) => <option key={`${m.nome}:${m.idioma}`} value={`${m.nome}:${m.idioma}`}>{m.nome} ({m.idioma}) — {ROTULO_CATEGORIA_MODELO[m.categoria ?? ""] ?? m.categoria}</option>)}
             </select>
@@ -107,7 +138,7 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
                 <div key={c.chave} className="grid gap-1 sm:grid-cols-2">
                   <select aria-label={`Valor de {{${c.indice}}}`} value={v?.fonte ?? ""} className={`${inputCls} rounded-md px-2 py-1.5 text-xs`}
                     onChange={e => { const f = e.target.value; setVariaveis(x => ({ ...x, [c.chave]: f === "fixo" ? { fonte: "fixo", texto: "" } : { fonte: f as "primeiro_nome" | "nome_completo" } })); }}>
-                    <option value="">{`{{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"} — escolha`}</option>
+                    <option value="">{`{{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"}${c.local === "corpo" && modelo.variaveisDoTemplate?.[c.indice - 1] ? ` ({{${modelo.variaveisDoTemplate[c.indice - 1]}}})` : ""} — escolha`}</option>
                     <option value="primeiro_nome">Primeiro nome do contato</option>
                     <option value="nome_completo">Nome completo do contato</option>
                     <option value="fixo">Texto fixo</option>
@@ -130,15 +161,19 @@ export function CampanhaApiOficial({ leadIds, aoCriar }: { leadIds: number[]; ao
               {p.contagem.invalidos > 0 && <li>{p.contagem.invalidos} sem telefone válido ou fora do CRM</li>}
               {p.contagem.duplicados > 0 && <li>{p.contagem.duplicados} telefone repetido (cada número recebe uma vez)</li>}
               {p.contagem.reservados > 0 && <li>{p.contagem.reservados} é o número do dono ou da empresa</li>}
-              {p.contagem.jaRecebeu > 0 && <li>{p.contagem.jaRecebeu} já receberam este modelo nos últimos {p.janelaRepeticaoDias} dia(s) (não recebem de novo)</li>}
+              {p.contagem.jaRecebeu > 0 && <li>{p.contagem.jaRecebeu} já receberam este modelo {p.janelaRepeticaoDias !== undefined ? `nos últimos ${p.janelaRepeticaoDias} dia(s)` : "recentemente"} (não recebem de novo)</li>}
               {p.contagem.semNome > 0 && <li>{p.contagem.semNome} sem nome no cadastro (a variável usa o nome)</li>}
               {p.contagem.nomeRecusado > 0 && <li>{p.contagem.nomeRecusado} com nome que não pode ir na mensagem (link, "@", números ou símbolos) — corrija o cadastro</li>}
               {p.contagem.parametroInvalido > 0 && <li>{p.contagem.parametroInvalido} com nome que a Meta não aceita como variável</li>}
               {p.contagem.acimaDoLimite > 0 && <li className="text-yellow-200">{p.contagem.acimaDoLimite} acima do limite de hoje / da campanha (não entram)</li>}
             </ul>
-            <p className="text-gray-300">Limite em 24 h: {p.vagas.limiteDiario === null ? "sem limite da Meta" : p.vagas.limiteDiario} (teto do painel {p.vagas.tetoDia}) · já usados {p.vagas.usados24h} · ainda cabem {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>
+            {/* C7.1: tier, teto do painel, usados em 24 h e base do preço só chegam para o admin; o colaborador vê o que ainda cabe */}
+            {p.vagas.tetoDia !== undefined
+              ? <p className="text-gray-300">Limite em 24 h: {p.vagas.limiteDiario === null || p.vagas.limiteDiario === undefined ? "sem limite da Meta" : p.vagas.limiteDiario} (teto do painel {p.vagas.tetoDia}) · já usados {p.vagas.usados24h ?? 0} · ainda cabem {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>
+              : <p className="text-gray-300">Ainda cabem hoje: {p.vagas.restante} · teto por campanha {p.vagas.tetoCampanha}</p>}
             <p className="text-gray-300">Custo estimado: <b className="text-white">{dinheiro(p.custo.estimado, p.custo.moeda)}</b>
-              {p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : " — informe o preço estimado em Integrações › API oficial do WhatsApp"}</p>
+              {p.custo.estimado === null ? " — sem preço estimado (o administrador informa em Integrações › API oficial do WhatsApp)"
+                : p.custo.base === "media_registrada" ? " (média real das últimas mensagens)" : p.custo.base === "configurado" ? " (preço informado em Integrações)" : ""}</p>
             <p className="text-gray-300">Prévia:</p>
             {p.exemplos.map((x, i) => <div key={i} className="whitespace-pre-wrap rounded bg-[#1A2332] p-2 text-gray-100"><b className="text-[#C9A961]">{x.nome}: </b>{x.texto}</div>)}
             <Button disabled={criar.isPending || p.contagem.aEnviar === 0} onClick={() => void confirmar()} className="bg-green-600 font-bold text-white hover:bg-green-700">
@@ -202,11 +237,12 @@ export function PainelCampanhasApiOficial({ iniciar }: { iniciar: number }) {
         {cs.map(c => (
           <div key={c.id} className="rounded border border-[#C9A961]/20 bg-[#1A2332] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-bold text-white">{c.nome} <span className="font-normal text-gray-400">— {c.modelo}</span> <span className="ml-1 rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{ROTULO_CAMPANHA[c.status] ?? c.status}</span></p>
+              <p className="font-bold text-white">{c.nome} <span className="font-normal text-gray-400">— {c.modelo}{c.disparadaPor ? ` · disparada por ${c.disparadaPor.nome}${c.disparadaPor.papel === "colaborador" ? " (colaborador)" : c.disparadaPor.papel === "admin" ? " (administrador)" : ""}` : ""}</span> <span className="ml-1 rounded bg-[#C9A961]/20 px-2 py-0.5 text-[10px] font-bold uppercase text-[#C9A961]">{ROTULO_CAMPANHA[c.status] ?? c.status}</span></p>
               <div className="flex flex-wrap gap-2">
                 {(c.status === "enviando" || c.status === "pausada") && (
                   <Button size="sm" disabled={enviando !== null} className="bg-green-600 text-white hover:bg-green-700" onClick={async () => {
-                    if (c.status === "pausada") await mudar.mutateAsync({ campanhaId: c.id, acao: "continuar" }).catch(() => null);
+                    // C7.1: pausa do admin (ou trava do sistema) o colaborador não continua — o servidor recusa e o aviso aparece
+                    if (c.status === "pausada" && !(await mudar.mutateAsync({ campanhaId: c.id, acao: "continuar" }).then(() => true, () => false))) return;
                     void rodar(c.id);
                   }}>{enviando === c.id ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Enviando…</> : "Continuar envio"}</Button>
                 )}

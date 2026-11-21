@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquete 3D · Lote 4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: monografia de arquiteto, calma e exata
+   IDEA: a prancha do projeto que vira maquete física sobre a mesa
+   PICTURE: a casa em corte 3D, sem telhado, ocupando a tela
+   COLOUR and TYPE: branco, preto, concreto, amarelo de obra em um só elemento; Hanken Grotesk
+   LAYOUT: título discreto no canto, maquete grande, cômodos em linha abaixo */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#1a1a19);--ink:light-dark(#111,#ecebe7);--mute:light-dark(#6b6b66,#a3a29c);--plane:light-dark(#d8d8d4,#2a2a28);--line:light-dark(#e4e4e0,#33332f);--hi:#ffe600}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Hanken Grotesk",system-ui,sans-serif;overflow-x:clip}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;padding:20px max(4vw,16px) 12px}
+h1{font-size:clamp(22px,3vw,32px);line-height:1.05;margin:0;font-weight:500;text-wrap:balance}
+.sub{color:var(--mute);font-size:14px}
+.fig{position:relative;height:min(64vh,640px);min-height:340px;background:var(--plane);margin:0 max(4vw,16px);border-radius:6px;overflow:hidden;touch-action:none}
+.fig canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.lbl{position:absolute;transform:translate(-50%,-50%);font-size:13px;font-weight:500;padding:2px 8px;border-radius:3px;background:rgba(255,255,255,.88);color:#111;pointer-events:none;white-space:nowrap;transition:opacity .2s}
+.hint{position:absolute;left:12px;bottom:10px;font-size:13px;color:#111;background:rgba(255,255,255,.8);padding:3px 8px;border-radius:3px}
+.tools{position:absolute;right:10px;top:10px;display:flex;gap:6px}
+.tools button{min-height:44px}
+nav{display:flex;gap:8px;overflow-x:auto;padding:14px max(4vw,16px) 6px;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+button{font:inherit;font-size:15px;min-height:44px;padding:0 16px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
+button[aria-pressed=true]{background:var(--hi);color:#111;border-color:#111}
+button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.info{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;padding:10px max(4vw,16px) 40px}
+.room h2{font-size:24px;line-height:1.1;margin:6px 0 4px;font-weight:500}
+.room p{margin:0;color:var(--mute);max-width:60ch}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td{padding:7px 0;border-bottom:1px solid var(--line)}
+td:last-child{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.note{font-size:13px;color:var(--mute);margin-top:10px}
+@media(max-width:600px){.info{grid-template-columns:1fr}.fig{height:58vh}}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header>
+  <h1>Casa térrea · Lote 4, Quadra 18</h1>
+  <span class="sub">Vila Esmeralda · lote 5 × 30 m · Prospecta Construções</span>
+</header>
+<div class="fig" id="fig">
+  <div class="tools"><button id="roof" aria-pressed="false">Telhado</button></div>
+  <div class="hint" id="hint">Arraste para girar · pinça ou roda para aproximar</div>
+</div>
+<nav id="nav" aria-label="Cômodos"></nav>
+<section class="info">
+  <div class="room" id="room"></div>
+  <div>
+    <table><tbody id="areas"></tbody></table>
+    <p class="note">Teste: paredes, portas e janelas nas medidas da planta aprovada; mobiliário ilustrativo.</p>
+  </div>
+</section>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+{
+const F=0.40, TOP=3.20, T=0.15;
+const fig=document.getElementById('fig');
+const R=[
+ {id:'geral',n:'Visão geral',a:null,d:'Maquete em corte, sem telhado. Toque num cômodo para entrar nele.',p:[11,12.5,13.5],t:[2.5,0.4,4.6]},
+ {id:'sala',n:'Sala de estar e jantar',a:'8,21',d:'Porta de correr de 1,60 m para a varanda da frente e passagem aberta para cozinha e hall.',p:[1.2,2.0,7.75],t:[1.25,1.5,3.6]},
+ {id:'cozinha',n:'Cozinha',a:'5,40',d:'Bancada sob a janela de 1,00 m e porta de 0,60 m para a área de serviço.',p:[0.55,2.0,3.55],t:[1.7,1.3,1.3]},
+ {id:'q1',n:'Quarto 1',a:'9,07',d:'Janela de correr de 4 folhas voltada para o quintal.',p:[2.55,2.0,3.5],t:[4.1,1.0,0.9]},
+ {id:'q2',n:'Quarto 2',a:'9,07',d:'Janela de correr de 4 folhas voltada para a garagem.',p:[2.6,2.0,6.05],t:[4.2,1.0,8.6]},
+ {id:'ban',n:'Banheiro',a:'2,78',d:'Box no canto, vaso e lavatório; exaustor de forro.',p:[3.3,2.05,5.55],t:[4.5,0.9,4.1]},
+ {id:'serv',n:'Área de serviço',a:'2,64',d:'Descoberta, com tanque, ligada à cozinha.',p:[1.15,2.4,-2.6],t:[1.15,1.0,0.5]},
+ {id:'gar',n:'Garagem e frente',a:null,d:'Portão de 3,00 m, vaga coberta pelo recuo frontal e varanda da sala.',p:[2.5,2.3,19.4],t:[2.4,1.4,9]}
+];
+const LBL=[['Sala',1.15,1.2,6.2],['Cozinha',1.1,1.2,2.3],['Quarto 1',3.6,1.2,2],['Quarto 2',3.6,1.2,7.4],['Banheiro',4.1,1.4,4.7],['Serviço',1.1,1,-0.2],['Garagem',2.5,0.6,14],['Quintal',2.5,0.6,-5]];
+
+document.getElementById('areas').innerHTML=R.filter(r=>r.a).map(r=>`<tr><td>${r.n}</td><td>${r.a} m²</td></tr>`).join('')+'<tr><td>Hall</td><td>1,90 m²</td></tr>';
+const nav=document.getElementById('nav');
+nav.innerHTML=R.map(r=>`<button id="b-${r.id}" data-id="${r.id}" aria-pressed="false">${r.n.split(' e ')[0]}</button>`).join('');
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+fig.prepend(renderer.domElement);
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(50,1,0.05,200);
+const ctl=new OrbitControls(cam,renderer.domElement);
+ctl.enableDamping=true;ctl.maxPolarAngle=Math.PI*0.495;ctl.minDistance=0.3;ctl.maxDistance=60;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x9a9384,1.1),new THREE.AmbientLight(0xffffff,0.55));
+for(const [x,z] of [[1.1,2.3],[1.1,5.8],[3.6,1.9],[3.6,7.5],[4.1,4.7],[2.7,4.7]]){const l=new THREE.PointLight(0xfff1dc,2.2,5,1.6);l.position.set(x,3.0,z);scene.add(l)}
+const sun=new THREE.DirectionalLight(0xfff4e0,1.6);
+sun.position.set(-14,22,8);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-16,right:16,top:20,bottom:-20,near:1,far:70});
+sun.target.position.set(2.5,0,5);scene.add(sun,sun.target);
+
+const M=(c,o={})=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.85},o));
+const mat={wall:M(0xf3f2ee),floor:M(0xd9d5cc,{roughness:.6}),bath:M(0xc9d3d6,{roughness:.5}),ext:M(0xbdb9b0),grass:M(0x86a062),
+ soil:M(0xcfc8b8),road:M(0x5a5a58),wood:M(0x9c6c48),fab:M(0x5d6872),white:M(0xfafafa,{roughness:.3}),steel:M(0x9aa0a4,{metalness:.5,roughness:.4}),
+ dark:M(0x2b2b2b),glass:M(0x9fc3d6,{transparent:true,opacity:.35,roughness:.05}),hi:M(0xffe600),roof:M(0x8f918e),car:M(0x3f6f8f,{roughness:.4}),bed:M(0xece8df)};
+
+function box(x1,y1,z1,x2,y2,z2,m,shadow=true){
+  const g=new THREE.BoxGeometry(Math.abs(x2-x1),Math.abs(y2-y1),Math.abs(z2-z1));
+  const me=new THREE.Mesh(g,m);me.position.set((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);
+  me.castShadow=shadow;me.receiveShadow=true;scene.add(me);return me;
+}
+// wall along axis 'x' (s=x, t=z) or 'z' (s=z, t=x); openings {a,b,lo,hi,g}
+function wall(ax,s1,s2,t1,t2,ops=[],top=TOP){
+  const put=(a,b,y1,y2,m=mat.wall)=>ax==='x'?box(a,y1,t1,b,y2,t2,m):box(t1,y1,a,t2,y2,b,m);
+  let cur=s1;
+  for(const o of ops.sort((p,q)=>p.a-q.a)){
+    if(o.a>cur)put(cur,o.a,0,top);
+    put(o.a,o.b,0,F+o.lo);
+    if(F+o.hi<top)put(o.a,o.b,F+o.hi,top);
+    if(o.g){const m=(t1+t2)/2;ax==='x'?box(o.a,F+o.lo,m-.01,o.b,F+o.hi,m+.01,mat.glass,false):box(m-.01,F+o.lo,o.a,m+.01,F+o.hi,o.b,mat.glass,false)}
+    cur=o.b;
+  }
+  if(s2>cur)put(cur,s2,0,top);
+}
+const J=(a)=>({a,b:a+1.0,lo:1.10,hi:2.30,g:true});
+const D=(a,w,h=2.10)=>({a,b:a+w,lo:0,hi:h});
+
+// terreno
+box(-4,-0.05,-12,9,0,24,mat.soil,false);
+box(0.15,0,-10,4.85,0.02,0,mat.grass,false);
+box(0.15,0,9.45,4.85,0.06,19.85,mat.ext,false);
+box(-4,0,20,9,0.15,21.5,mat.ext,false);
+box(-4,-0.02,21.5,9,0.01,28,mat.road,false);
+// pisos
+box(0.15,0,0.86,4.85,F,9.30,mat.floor,false);
+box(3.35,F,3.80,4.85,F+0.005,5.65,mat.bath,false);
+box(0.15,0,-0.45,2.14,0.35,0.86,mat.ext,false);
+box(0.15,0,8.10,2.14,0.35,9.45,mat.ext,false);
+// muros
+const MURO=1.8;
+wall('z',-10,0.86,0,T,[],MURO);wall('z',8.10,20,0,T,[],MURO);
+wall('z',-10,0,4.85,5,[],MURO);wall('z',9.45,20,4.85,5,[],MURO);
+wall('x',0,5,-10.15,-10,[],MURO);
+wall('x',0,1,19.85,20,[],MURO);wall('x',4,5,19.85,20,[],MURO);
+for(let x=1.05;x<4;x+=0.12)box(x,0,19.88,x+0.04,2.4,19.96,mat.dark);
+box(1,2.36,19.86,4,2.4,19.98,mat.dark);
+
+// paredes externas
+wall('x',2.14,5,0,T,[J(3.07)]);
+wall('z',0,9.45,4.85,5);
+wall('x',2.14,5,9.30,9.45,[J(3.07)]);
+wall('z',0.86,8.10,0,T);
+wall('x',0,2.14,0.86,1.01,[D(0.24,0.60),J(0.98)]);
+wall('x',0,2.14,7.95,8.10,[{a:0.52,b:2.12,lo:0,hi:2.50}]);
+box(1.32,F,8.01,2.12,F+2.5,8.04,mat.glass,false);
+// paredes internas
+wall('z',0,3.80,2.14,2.29);
+wall('z',5.65,9.45,2.14,2.29);
+wall('x',0.95,2.14,3.65,3.80);
+wall('x',2.29,4.85,3.65,3.80,[D(2.32,0.70)]);
+wall('z',3.80,5.65,3.20,3.35,[D(5.0,0.60)]);
+wall('x',2.29,4.85,5.65,5.80,[D(2.38,0.70)]);
+// destaque: soleira da porta de entrada
+box(0.52,0.35,8.10,2.12,F+0.01,8.22,mat.hi,false);
+
+// mobiliário
+const f=F;
+function bed(x1,z1,x2,z2,head){box(x1,f,z1,x2,f+0.45,z2,mat.bed);
+  if(head==='z1')box(x1,f,z1,x2,f+1.0,z1+0.06,mat.wood);else box(x2-0.06,f,z1,x2,f+1.0,z2,mat.wood);}
+bed(3.0,0.15,4.38,2.03,'z1');box(2.5,f,0.15,2.95,f+0.5,0.55,mat.wood);box(4.43,f,0.15,4.83,f+0.5,0.55,mat.wood);
+bed(2.97,6.83,4.85,8.21,'x2');box(4.4,f,6.3,4.83,f+0.5,6.75,mat.wood);
+box(0.85,f+0.72,4.1,1.45,f+0.76,5.3,mat.wood);box(1.1,f,4.65,1.2,f+0.72,4.75,mat.wood);
+for(const [x,z] of [[0.55,4.4],[0.55,5.0],[1.75,4.4],[1.75,5.0]])box(x-0.2,f,z-0.2,x+0.2,f+0.45,z+0.2,mat.fab);
+box(0.15,f,6.0,0.95,f+0.42,7.8,mat.fab);box(0.15,f,6.0,0.35,f+0.85,7.8,mat.fab);
+box(1.85,f,6.3,2.14,f+0.5,7.4,mat.wood);box(2.06,f+0.9,6.35,2.12,f+1.6,7.35,mat.dark);
+box(0.95,f,1.01,2.14,f+0.9,1.6,mat.white);box(1.55,f,1.6,2.14,f+0.9,3.65,mat.white);
+box(1.6,f+0.9,2.05,2.1,f+0.93,2.6,mat.dark);box(0.15,f,1.01,0.85,f+1.8,1.7,mat.steel);
+box(3.5,f,3.95,3.9,f+0.42,4.6,mat.white);box(3.55,f+0.42,3.95,3.85,f+0.75,4.1,mat.white);
+box(4.2,f,3.80,4.23,f+2.0,4.65,mat.glass,false);box(4.2,f,4.62,4.85,f+2.0,4.65,mat.glass,false);
+box(4.4,f+0.75,5.05,4.85,f+0.85,5.5,mat.white);
+box(0.85,0.35,0.2,1.4,1.2,0.8,mat.white);box(1.45,0.35,0.2,2.05,1.25,0.8,mat.white);
+box(1.6,0.06,12,3.4,0.8,16.2,mat.car);box(1.75,0.8,13,3.25,1.4,15.4,mat.car);box(1.78,0.85,12.95,3.22,1.35,13.0,mat.glass,false);
+
+// telhado (fibrocimento 20%, cumeeira no meio, platibanda)
+const roof=new THREE.Group();
+const pb=(x1,z1,x2,z2)=>{const g=new THREE.BoxGeometry(x2-x1,1.15,z2-z1);const m=new THREE.Mesh(g,mat.ext);m.position.set((x1+x2)/2,TOP+0.575,(z1+z2)/2);m.castShadow=true;roof.add(m)};
+pb(0,0,5,T);pb(0,9.30,5,9.45);pb(0,0,T,9.45);pb(4.85,0,5,9.45);
+const half=4.725,ang=Math.atan(0.2),len=half/Math.cos(ang);
+for(const s of [-1,1]){const g=new THREE.BoxGeometry(4.7,0.03,len);const m=new THREE.Mesh(g,mat.roof);
+  m.position.set(2.5,TOP+0.15+half*0.1,half+s*half/2);m.rotation.x=s*ang;m.castShadow=true;roof.add(m)}
+const cap=new THREE.Mesh(new THREE.BoxGeometry(5,0.06,9.45),mat.wall);cap.position.set(2.5,TOP+0.03,4.725);roof.add(cap);
+roof.visible=false;scene.add(roof);
+
+// rótulos
+const labels=LBL.map(([t,x,y,z])=>{const d=document.createElement('div');d.className='lbl';d.textContent=t;fig.appendChild(d);return {d,v:new THREE.Vector3(x,y,z)}});
+
+// câmera
+let anim=null,cur='geral';
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function go(id){
+  const r=R.find(x=>x.id===id)||R[0];cur=r.id;fov(r.id);
+  for(const b of nav.children)b.setAttribute('aria-pressed',b.dataset.id===r.id);
+  document.getElementById('room').innerHTML=`<span class="sub">${r.a?r.a+' m² de área útil':'Lote de 150 m²'}</span><h2>${r.n}</h2><p>${r.d}</p>`;
+  const p=new THREE.Vector3(...r.p),t=new THREE.Vector3(...r.t);
+  if(r.id!=='geral'){roof.visible=false;rb.setAttribute('aria-pressed','false')}
+  ctl.maxDistance=r.id==='geral'?60:(r.id==='gar'||r.id==='serv'?14:4);
+  if(reduce){cam.position.copy(p);ctl.target.copy(t);anim=null}
+  else anim={p0:cam.position.clone(),t0:ctl.target.clone(),p,t,s:performance.now()};
+  try{history.replaceState(null,'','#'+r.id)}catch(e){}
+}
+nav.addEventListener('click',e=>{const b=e.target.closest('button');if(b)go(b.dataset.id)});
+const rb=document.getElementById('roof');
+rb.addEventListener('click',()=>{const on=!roof.visible;if(on&&cur!=='geral')go('geral');roof.visible=on;rb.setAttribute('aria-pressed',on)});
+
+function size(){const w=fig.clientWidth,h=fig.clientHeight;renderer.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}
+function fov(id){cam.fov=id==='geral'?45:68;cam.updateProjectionMatrix()}
+const ro=new ResizeObserver(size);ro.observe(fig);size();
+
+function bg(){const dark=getComputedStyle(document.body).backgroundColor.match(/\d+/g).slice(0,3).reduce((a,b)=>a+ +b,0)<200;
+  scene.background=new THREE.Color(dark?0x22221f:0xe9ebec)}
+bg();new MutationObserver(bg).observe(document.documentElement,{attributes:true});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',bg);
+
+const tmp=new THREE.Vector3();
+cam.position.set(...R[0].p);ctl.target.set(...R[0].t);
+go((location.hash||'').slice(1)||'geral');
+if(anim){cam.position.copy(anim.p);ctl.target.copy(anim.t);anim=null}
+renderer.setAnimationLoop(now=>{
+  if(anim){const k=Math.min(1,(now-anim.s)/1100),e=k<.5?4*k*k*k:1-((-2*k+2)**3)/2;
+    cam.position.lerpVectors(anim.p0,anim.p,e);ctl.target.lerpVectors(anim.t0,anim.t,e);if(k>=1)anim=null}
+  ctl.update();renderer.render(scene,cam);
+  const show=cur==='geral'&&!roof.visible,w=fig.clientWidth,h=fig.clientHeight;
+  for(const l of labels){tmp.copy(l.v).project(cam);l.d.style.opacity=show&&tmp.z<1?1:0;
+    l.d.style.left=((tmp.x+1)/2*w)+'px';l.d.style.top=((1-tmp.y)/2*h)+'px'}
+});
+}
+</script>
+</body>
+</html>

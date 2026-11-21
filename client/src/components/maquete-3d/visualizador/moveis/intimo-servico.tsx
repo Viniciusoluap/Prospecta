@@ -1304,6 +1304,41 @@ const churrasqueira = criar(({ peca, m, estilo, k }) => {
   }
 });
 
+// ── Balcão americano (EPIC-028) ──
+
+/**
+ * Balcão americano: corpo estreito de alvenaria revestida nas costas (lado da cozinha, −Z) e tampo de pedra em
+ * balanço avançando para a frente (+Z, lado da sala), apoiado em mãos-francesas. Opções: `base_prof` (profundidade
+ * do corpo, padrão 0,15) e `tampo_prof` (profundidade do tampo, padrão = profundidade da peça).
+ */
+const balcao = criar(({ peca, m, estilo, k }) => {
+  const { largura: L, altura: H, profundidade: P } = peca, ap = k.ap, lux = estilo === "luxo";
+  const bp = lim(Number(peca.opcoes.base_prof ?? 0.15), 0.08, P), tp = lim(Number(peca.opcoes.tampo_prof ?? P), bp, P);
+  const et = lux ? 0.05 : 0.03, hr = 0.07, zCostas = -P / 2;
+  const zCorpo = zCostas + bp / 2, hCorpo = H - et;
+  // Corpo revestido (mesmo acabamento da parede), rodapé recuado e a faixa de pedra que arremata o topo do corpo.
+  k.rb(L, hCorpo - hr, bp, 0, hr + (hCorpo - hr) / 2, zCorpo, m.parede, 0.006, { s: 1 });
+  k.cx(L - 0.01, hr, bp - 0.02, 0, hr / 2, zCorpo, m.rodape);
+  // Tampo: começa nas costas e avança para a sala; pingadeira mais grossa na frente.
+  const zT = zCostas + tp / 2;
+  if (ap) k.rb(L, et, tp, 0, H - et / 2, zT, m.pedra, 0.008, { s: 2 });
+  else k.cx(L, et, tp, 0, H - et / 2, zT, m.pedra);
+  k.cx(L, 0.03, 0.02, 0, H - et - 0.015, zCostas + tp - 0.01, m.pedra);
+  // Mãos-francesas sob o balanço (só quando o tampo passa do corpo).
+  const balanco = tp - bp;
+  if (balanco > 0.06) {
+    const n = L > 1.4 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const x = -L / 2 + 0.12 + ((L - 0.24) * i) / (n - 1);
+      k.cx(0.012, 0.012, balanco - 0.02, x, H - et - 0.006, zCostas + bp + (balanco - 0.02) / 2, m.metalEscuro);
+      k.cx(0.012, Math.min(0.28, hCorpo * 0.3), 0.012, x, H - et - Math.min(0.28, hCorpo * 0.3) / 2, zCostas + bp + 0.006, m.metalEscuro);
+      const d = Math.hypot(balanco - 0.03, Math.min(0.26, hCorpo * 0.28));
+      const ang = Math.atan2(Math.min(0.26, hCorpo * 0.28), balanco - 0.03);
+      k.cx(0.01, 0.01, d, x, H - et - Math.min(0.26, hCorpo * 0.28) / 2 - 0.01, zCostas + bp + (balanco - 0.03) / 2, m.metalEscuro, { r: [-ang, 0, 0], fixo: true });
+    }
+  }
+});
+
 /** Móveis da área íntima (quarto, banheiro) e de serviço (cozinha, lavanderia, churrasqueira). */
 export const MOVEIS_INTIMO_SERVICO: CatalogoMoveis = {
   cama,
@@ -1320,4 +1355,5 @@ export const MOVEIS_INTIMO_SERVICO: CatalogoMoveis = {
   maquina_lavar: maquinaLavar,
   armario_servico: armarioServico,
   churrasqueira,
+  balcao,
 };

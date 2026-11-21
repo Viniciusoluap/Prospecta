@@ -5,7 +5,7 @@
 // O teste de conexão e a lista de modelos usam client.models.list() (não consome tokens).
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./secret-vault.js";
 import * as db from "../db.js";
-import { DESCRICAO_FUNCOES_ANTHROPIC, FUNCOES_ANTHROPIC, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
+import { DESCRICAO_FUNCOES_ANTHROPIC, FUNCOES_ANTHROPIC, MODELO_PADRAO_DA_FUNCAO, type FuncaoAnthropic } from "../../shared/funcoes-anthropic.js";
 import {
   CHAVE_MODELO_PREFERENCIAL, chaveAnteriorSumiuDaFuncao, chaveAvisoDaFuncao, chaveModeloDaFuncao, modeloDaFuncao, modelosGravadosDasFuncoes, type LeitorModelos, type OrigemModelo,
 } from "./modelo-por-funcao.js";
@@ -291,7 +291,7 @@ export async function statusModelosPorFuncao(
   const [salva, preferencial, gravados] = await Promise.all([lerChaveSalva(deps), lerModelo(deps), modelosGravadosDasFuncoes(soLeitor(deps))]);
   const utilizavel = Boolean(salva && salva !== "ilegivel");
   const funcoes = await Promise.all(FUNCOES_ANTHROPIC.map(async f => {
-    const padrao = f === "maquete_leitura" ? extras.padraoMaquete?.trim() || null : null;
+    const padrao = f === "maquete_leitura" ? extras.padraoMaquete?.trim() || null : MODELO_PADRAO_DA_FUNCAO[f] ?? null;
     const servidor = f === "maquete_leitura" && !!extras.chaveServidorMaquete;
     const valendo: { modelo: string | null; origem: OrigemModelo | "servidor" | null } = utilizavel
       ? await modeloDaFuncao(f, {
@@ -328,11 +328,13 @@ export async function existeChaveAnthropicPainel(deps: AnthropicPainelDeps = ant
 
 /**
  * Chave e modelo preferencial cadastrados no painel, para uma função que opte por usá-los explicitamente.
- * Usada em DOIS pontos, e só neles (a guarda em server/integracoes-anthropic.test.ts falha com qualquer outro uso):
+ * Usada em TRÊS pontos, e só neles (a guarda em server/integracoes-anthropic.test.ts falha com qualquer outro uso):
  * - EPIC-024 S-03: `resolverCredencialIA` em server/maquete-3d/base.ts — leitura por IA das pranchas da Maquete 3D,
  *   com confirmação do custo por execução e teto por maquete;
  * - EPIC-025 E2: `bloqueioAtual` em server/dolores/whatsapp.ts, depois da pausa e do interruptor da IA da Dolores
- *   (desligado por padrão).
+ *   (desligado por padrão);
+ * - EPIC-027 C8: `resolverCredencialLogotipo` em server/incorporacao-logo-ia.ts — proposta de logotipo da Incorporação,
+ *   só quando a pessoa clica em "Gerar logotipo com IA", com teto diário por empreendimento e por pessoa.
  * Não substitui ENV.anthropicApiKey nem os modelos da Central de Vendas ou de INCORPORACAO_IA_MODELO.
  */
 export async function configuracaoAnthropicPainel(deps: AnthropicPainelDeps = anthropicPainelDepsPadrao): Promise<{ apiKey: string; modelo: string | null } | null> {
