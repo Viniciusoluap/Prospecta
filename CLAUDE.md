@@ -291,11 +291,13 @@ Estrutura apresentada e autorizada por ele ("Autorizo"). Epic: `docs/stories/epi
    marcada no cadastro; o humano pode escrever no grupo pela Central, "exatamente igual faz na conversa". Isto substitui o
    trecho da regra de 20/11 (manhã) de que grupos nunca aparecem na Central. A conversa direta do dono com a Dolores
    continua fora da Central. O que um humano escreve no grupo não é comando para ela.
-3. **Classificar × aceitar grupo** — classificar (tipo e vínculo) pode ser pelo WhatsApp e pela tela. Aceitar grupo em
-   que outra pessoa a colocou (recusado / sem prova) continua SÓ do dono, pelo WhatsApp (regra de 19/11).
-   **Trava do portão de QA (21/11), informada ao dono:** colaborador só põe ou tira os tipos cliente, pós-atendimento e
-   engenharia; administrativo (sócios), jurídico e parceiros comerciais só o admin — porque trocar o tipo amplia o que
-   ela revela no grupo. Toda classificação pela tela avisa o dono no WhatsApp. Só afrouxar se ele mandar.
+3. **Classificar grupo é SÓ do dono/admin** — correção do dono em 21/11/2026, palavras dele: "eu disse que o colaborador
+   pode ter acesso às mensagens do grupo assim como as mensagens dos clientes, mas em nenhum momento eu falei que ele iria
+   classificar". O colaborador com a permissão de grupos só VÊ as mensagens e ESCREVE no grupo. Classificar (tipo e
+   vínculo) é do admin pela tela e do dono pelo WhatsApp; aceitar grupo em que outra pessoa a colocou (recusado / sem
+   prova) continua SÓ do dono, pelo WhatsApp (regra de 19/11). Nunca dar a colaborador poder de classificar, vincular
+   ou aceitar grupo. (Uma leitura errada da resposta dele em 20/11 chegou a ser implementada e foi desfeita antes de
+   publicar — não repetir: na dúvida sobre o alcance de uma permissão, perguntar.)
 4. **Agir a partir de grupo** — liberado SÓ quando o NÚMERO DO DONO pede, e SÓ para registrar (salvar nota, orçamento,
    documento). Nunca dinheiro, nunca mensagem a terceiro. Ajusta o item 5 da regra de 19/11; para todos os demais,
    mensagem de grupo continua nunca sendo comando.
