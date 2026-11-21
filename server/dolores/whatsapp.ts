@@ -53,6 +53,9 @@ import {
 } from "./roteamento.js";
 import { tratarAtendimento } from "./atendimento.js";
 import { transcreverAudio } from "./transcricao.js";
+import { esquecerConversa, gravarNaConversa, lerJanela, referenciaDoGrupo } from "./memoria.js";
+import { FRASE_ESQUECI, ehPedidoDeEsquecer, vozDaDolores } from "../../shared/dolores/voz.js";
+import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -141,7 +144,9 @@ async function atualizarMensagem(id: number, dados: Partial<{ situacao: Situacao
  * Resposta ao dono. O destino é o número que acabou de ser conferido como o do dono — e é conferido DE NOVO aqui:
  * nenhum texto (do modelo, de ferramenta ou de mensagem) escolhe para quem a Dolores escreve.
  */
-async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown>; prazoFinal: number; quadros?: string | null }) {
+async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto: string, ctx: { mensagemId: number; autor: number | null; resumo: Record<string, unknown>; prazoFinal: number; quadros?: string | null;
+  /** EPIC-027 C5 (E1): `false` = não entra na memória da conversa; senão, entra com estas referências. */
+  memoria?: false | { referencias?: ReferenciaConversa[] } }) {
   if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) {
     await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "destino não é o número do dono", autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}` });
     return false;
@@ -203,6 +208,12 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   if (!completa && partes.length > 1) {
     await auditar("erro", "resposta incompleta: faltou parte", { partesPrevistas: partes.length, partesEnviadas: enviadas, avisoDeFalta: avisou, ...ctx.resumo });
   }
+  // EPIC-027 C5 (E1): o que saiu para o dono entra na memória da conversa (destino conferido acima). Os quadros do sistema não
+  // entram (têm os códigos de aprovação, que o modelo nunca vê): só uma linha dizendo que foram mostrados.
+  if (ctx.memoria !== false && enviadas.length) {
+    const nota = ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
+    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${filtrar(texto)}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
+  }
   return completa;
 }
 
@@ -241,6 +252,13 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
   catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
   await auditar(ok ? "ok" : "erro", motivo, { caracteres: final.length, destino: mascararNumero(numero) }, deps.ms() - inicio);
+  // EPIC-027 C5 (E1): o aviso enviado entra na memória da conversa do dono ("esse grupo" depois do aviso de grupo novo). Do
+  // aviso de grupo, só o primeiro parágrafo (as opções numeradas e os códigos ficam fora); a ref do grupo vem do banco.
+  if (ok) {
+    const doGrupo = ctx.funcao.startsWith("grupo_");
+    await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
+      referencias: await referenciaDoGrupo(ctx.resumo?.grupoId) });
+  }
   return { ok, motivo };
 }
 
@@ -334,6 +352,15 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "mensagem encaminhada", respondidaEm: deps.agora() });
     return "encaminhada";
   }
+  // EPIC-027 C5 (E1): "esquece" / "limpa a conversa" (a mensagem INTEIRA, por código, sem IA) apaga a memória da conversa.
+  if (!msg.encaminhada && !msg.temMidia && ehPedidoDeEsquecer(msg.texto)) {
+    const ok = await esquecerConversa();
+    await responderAoDono(cfg, msg.numero, ok ? FRASE_ESQUECI : "Dolores: não consegui limpar a conversa agora; tente de novo em instantes.", { mensagemId: msg.id, autor, resumo: { esquece: ok }, prazoFinal, memoria: false });
+    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: "esquece a conversa", respondidaEm: deps.agora() });
+    return ok ? "esquece" : "erro";
+  }
+  // EPIC-027 C5 (E1): a mensagem do dono entra na memória da conversa, marcada pela origem (encaminhada e anexo são dado).
+  if (msg.texto) await gravarNaConversa({ papel: "dono", origem: msg.encaminhada ? "encaminhada" : msg.temMidia ? "com_midia" : "mensagem", texto: msg.texto, agora: deps.agora(), mensagemId: msg.id });
   if (!msg.texto) {
     await responderAoDono(cfg, msg.numero, FRASE_SO_TEXTO, { mensagemId: msg.id, autor, resumo: { bloqueio: "so_texto" }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "bloqueada", motivo: "sem texto", respondidaEm: deps.agora() });
@@ -411,16 +438,20 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   }
   autor = estado.autor;
   try {
+    // EPIC-027 C5 (E1): a conversa recente do dono (sem a mensagem atual, que vai como o pedido)
+    const historico = await lerJanela(deps.agora(), msg.id);
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
-      limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida },
+      limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
     });
-    let texto = r.texto;
+    // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
+    const voz = vozDaDolores(r.texto);
+    let texto = voz.texto;
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     const quadros = await montarQuadros(msg.id, r.codigosNaFila);
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida }, prazoFinal, quadros });
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}) }, prazoFinal, quadros, memoria: { referencias: r.referencias } });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {
