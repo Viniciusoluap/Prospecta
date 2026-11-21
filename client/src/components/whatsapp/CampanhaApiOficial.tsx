@@ -36,7 +36,7 @@ export function ModelosApiOficial() {
     <Card className={cardCls}>
       <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-[#C9A961]"><Megaphone className="h-4 w-4" /> Modelos da API oficial (YCloud)</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm text-gray-200">
-        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são enviados para aprovação da Meta daqui mesmo: marque a opção ao criar ou editar um template abaixo. Se a conta não tiver nenhum modelo de marketing, o sistema envia sozinho o modelo padrão "novidades_prospecta".</p>
+        <p className="text-xs text-gray-300">Campanha pela API oficial só usa modelo APROVADO pela Meta. Os modelos são enviados para aprovação da Meta daqui mesmo: marque a opção ao criar ou editar um template abaixo. Com a chave salva e o número conferido, se a conta não tiver nenhum modelo de marketing em português, o sistema envia sozinho (uma vez) o modelo padrão "novidades_prospecta" para aprovação.</p>
         <Button size="sm" variant="outline" disabled={modelos.isPending} onClick={() => modelos.mutate()}><RefreshCw className={`mr-1 h-3 w-3 ${modelos.isPending ? "animate-spin" : ""}`} /> {modelos.data ? "Atualizar modelos" : "Carregar modelos"}</Button>
         {modelos.data && (modelos.data.length === 0 ? <p className="text-xs text-gray-400">Nenhum modelo na conta.</p> : (
           <div className="space-y-2">

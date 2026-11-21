@@ -83,10 +83,14 @@ export async function modelosDaConta(): Promise<ModeloNaTela[]> {
   const cfg = await lerConfigYcloud();
   const lista = await listarModelosYcloud({ apiKey: chave, fetchImpl: d.fetch }, cfg.wabaId);
   // C7.2: listar também garante o modelo padrão (uma vez; se a conta não tem modelo de marketing em pt_BR). Nunca lança.
-  const { garantirModeloPadrao, vinculosDosTemplates } = await import("./modelos.js");
+  const { garantirModeloPadrao, mapeamentosDoVinculo, vinculosDosTemplates } = await import("./modelos.js");
   const padrao = await garantirModeloPadrao({ origem: "listagem", lista });
   if (padrao.r === "criado" && padrao.modelo) lista.push(padrao.modelo);
-  const porNome = new Map(Array.from((await vinculosDosTemplates().catch(() => new Map())).values()).map(v => [v.n, v.v] as const));
+  // QA-3: atual e versões anteriores (a v1 aprovada continua preenchendo sozinha enquanto a v2 está em análise)
+  const porNome = new Map<string, string[]>();
+  for (const v of Array.from((await vinculosDosTemplates().catch(() => new Map<number, never>())).values())) {
+    for (const [n, vars] of mapeamentosDoVinculo(v)) if (!porNome.has(n)) porNome.set(n, vars);
+  }
   return lista.filter(m => m.name && m.language).map(m => ({ ...modeloParaTela(m), variaveisDoTemplate: m.language === "pt_BR" ? porNome.get(String(m.name)) ?? null : null }))
     .sort((a, b) => Number(b.status === "APPROVED") - Number(a.status === "APPROVED") || a.nome.localeCompare(b.nome));
 }

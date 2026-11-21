@@ -65,7 +65,7 @@ const MENSAGEM_POR_CODIGO: Record<string, string> = {
 /** Texto da Meta para quem configura (ex.: "o modelo tem variáveis demais"): sem a chave, sem sequências de dígitos, sem controle, curto. */
 function explicacaoSegura(v: unknown, apiKey: string): string | null {
   if (typeof v !== "string" || !v.trim()) return null;
-  const t = semSegredo(v, apiKey).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\d{6,}/g, "…").replace(/\s+/g, " ").trim().slice(0, 200);
+  const t = textoBemFormado(semSegredo(v, apiKey).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\d{6,}/g, "…").replace(/\s+/g, " ").trim(), 200);
   return t || null;
 }
 
@@ -73,7 +73,14 @@ function codigoSeguro(v: unknown): string | null {
   return typeof v === "string" && /^[A-Z0-9_]{2,60}$/.test(v) ? v : null;
 }
 
-export type ChamadaYcloud = { apiKey: string; fetchImpl?: FetchLike };
+/** `signal` (C7.2, portão de QA): prazo total de quem chama (ex.: o cron) — aborta junto com o tempo-limite de cada chamada. */
+export type ChamadaYcloud = { apiKey: string; fetchImpl?: FetchLike; signal?: AbortSignal };
+
+/** Texto que cabe em JSON sem surpresa: troca surrogates soltos por "�" e corta sem partir um caractere (por ponto de código). */
+export function textoBemFormado(v: string, max: number): string {
+  const limpo = v.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
+  return Array.from(limpo).slice(0, max).join("");
+}
 
 async function chamar<T>(c: ChamadaYcloud, metodo: "GET" | "POST", caminho: string, corpo?: unknown): Promise<T> {
   const f = c.fetchImpl ?? fetch;
@@ -83,7 +90,7 @@ async function chamar<T>(c: ChamadaYcloud, metodo: "GET" | "POST", caminho: stri
       method: metodo,
       headers: { "X-API-Key": c.apiKey, Accept: "application/json", ...(corpo !== undefined ? { "Content-Type": "application/json" } : {}) },
       ...(corpo !== undefined ? { body: JSON.stringify(corpo) } : {}),
-      signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
+      signal: c.signal ? AbortSignal.any([AbortSignal.timeout(TEMPO_LIMITE_MS), c.signal]) : AbortSignal.timeout(TEMPO_LIMITE_MS),
     });
   } catch {
     throw new ErroYcloud("A YCloud não respondeu a tempo (rede ou tempo esgotado).", null, null);
