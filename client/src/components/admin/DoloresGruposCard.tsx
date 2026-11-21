@@ -10,8 +10,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { jidDeGrupoParaExibir } from "@shared/dolores/grupos";
-import { ROTULO_AUTORIA_PENDENTE, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, precisaDoAceiteDoDono, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
+import { desfechoRespondido, rotuloDoDesfechoDaMarcacao } from "@shared/dolores/marcacao";
+import { CATEGORIAS_GRUPO, FRASE_ENGENHARIA_COM_OBRA, FRASE_TIPOS_DO_ADMIN, ROTULO_AUTORIA_PENDENTE, colaboradorPodeClassificar, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, categoriaDoTipo, telaPodeClassificar, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -69,15 +71,19 @@ export function DoloresGruposCard() {
     <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100">
       <CardHeader><CardTitle className="flex items-center gap-2 text-[#C9A961]"><Users className="h-5 w-5" /> Dolores — grupos</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-gray-300">
-          Não é preciso cadastrar grupo: quando VOCÊ (o número do dono cadastrado na integração) coloca o número da Dolores num grupo,
-          ele entra sozinho nesta lista (ou ao clicar em "Atualizar grupos"). Se outra pessoa a colocar, o grupo fica recusado: ela não
-          lê nem fala lá e avisa você — só você aceita. O tipo é descoberto pelo NOME do grupo: com Jurídico, Administrativo,
-          Parceiros ou Engenharia no nome, é um grupo interno daquele tipo; com o nome de um único cliente do CRM, é grupo de cliente
-          (ou de pós-atendimento, se tiver "pós" no nome). Ela avisa você no WhatsApp o que entendeu; se não reconhecer o nome, pergunta
-          e só observa até você responder. Mudar o nome do grupo depois não muda o tipo. Ela só responde num grupo quando alguém a
-          MARCA nele, com o "responder quando marcada" ligado (abaixo); nada escrito no grupo é comando.
-        </p>
+        {/* EPIC-027 C3: texto do topo curto; o que cada categoria permite vem da lista única (shared/dolores/grupos-tipo.ts) */}
+        <div className="space-y-1 text-xs text-gray-300">
+          <p>
+            Os grupos entram sozinhos quando <strong>você</strong> (o número do dono) coloca a Dolores neles. Se outra pessoa a colocar, o
+            grupo fica recusado e só você aceita, pelo WhatsApp. Ela só responde num grupo quando alguém a <strong>marca</strong>, e
+            nunca faz nada a partir dele.
+          </p>
+          <p>O tipo do grupo diz o que ela pode responder ali:</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {CATEGORIAS_GRUPO.map(c => <li key={c.tipo}><strong>{c.rotulo}</strong> — {c.explica}.</li>)}
+          </ul>
+          <p>Sem tipo definido, ela só observa e pergunta a você no WhatsApp (dá para responder só com o número da opção).</p>
+        </div>
         {dados.isLoading ? <p className="text-sm text-gray-300">Carregando…</p> : dados.error ? <p role="alert" className="text-sm text-red-300">{dados.error.message}</p> : <>
           {/* Etapa 7: grupos em que ela está */}
           <GruposSecao grupos={dados.data?.grupos ?? []} cfg={cfg} atualizando={atualizarGrupos.isPending} onAtualizar={() => atualizarGrupos.mutate()}
@@ -226,13 +232,9 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
       </p>
       <p className="text-xs text-gray-300">
         Ela só responde quando alguém marca o número dela no grupo (a marcação de verdade do WhatsApp; escrever o nome não conta), com
-        este interruptor e o do grupo ligados (o do grupo já vem ligado nos grupos que ela reconheceu). O que ela pode responder depende
-        do tipo do grupo: cliente/pós-atendimento — só aquele cliente (andamento, etapas e documentos que faltam); administrativo — a
-        operação toda, sem senhas, chaves nem dados bancários e com CPF/telefone mascarados; jurídico — processos, regularizações e
-        documentos; engenharia — obras, medições e notas; parceiros — só o andamento dos clientes de quem a marcou. Em grupo que ela não
-        reconheceu, fica calada. Nunca faz nada a partir do grupo — nesses casos responde "Isso a equipe responde por aqui." (ninguém
-        é avisado: a pergunta aparece na lista abaixo). Usa o modelo da função
-        "Dolores — resposta em grupo quando marcada" (Integrações › Anthropic), o interruptor da IA e o limite mensal da Dolores.
+        este interruptor e o do grupo ligados — o do grupo já vem ligado nos grupos aceitos e com tipo. O que ela responde depende do
+        tipo do grupo (lista acima). Fora disso responde "Isso a equipe responde por aqui." Usa o modelo da função "Dolores — resposta
+        em grupo quando marcada" (Integrações › Anthropic), o interruptor da IA e o limite mensal da Dolores.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {([["grupo", "Respostas por grupo/dia", d.config.tetoGrupoDia], ["remetente", "Por pessoa/hora", d.config.tetoRemetenteHora],
@@ -243,9 +245,22 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
       </div>
       <Button size="sm" variant="outline" className={botaoSec} disabled={salvar.isPending || !Object.values(tetos).some(Boolean)}
         onClick={() => salvar.mutate({ tetoGrupoDia: n("grupo"), tetoRemetenteHora: n("remetente"), janelaFrescorSegundos: n("janela") })}>Salvar tetos</Button>
-      <p className="text-xs text-gray-400">
-        Marcação por @lid (grupos novos do WhatsApp): {d.config.lid ? `conferida (final ${d.config.lid.final}, ${quando(d.config.lid.conferidoEm)})` : "ainda não conferida — ligue um grupo ou use o botão do grupo"}.
+      <p className={d.config.lid ? "text-xs text-gray-400" : "text-xs text-yellow-200"}>
+        Marcação por @lid (o WhatsApp novo marca pelo @lid, não pelo número): {d.config.lid
+          ? `conferida (final ${d.config.lid.final}, ${quando(d.config.lid.conferidoEm)})`
+          : "ainda não conferida. Ela aprende sozinha na próxima marcação, pela lista de participantes do grupo no WhatsApp; se o quadro abaixo mostrar \"@lid ainda não conferido\", toque em \"Conferir @lid\" no grupo"}.
       </p>
+      {/* EPIC-027 C4: o que aconteceu com cada marcação (inclusive as que não viraram linha na lista), sem texto nem telefone */}
+      <div className="rounded border border-white/10 p-2 text-xs">
+        <p className="font-semibold text-[#C9A961]">O que aconteceu com as marcações (últimas 24 h)</p>
+        {!d.desfechos.length ? <p className="mt-1 text-gray-300">Nenhuma marcação nas últimas 24 h.</p> : (
+          <ul className="mt-1 space-y-0.5">
+            {d.desfechos.map(x => (
+              <li key={x.chave} className={desfechoRespondido(x.chave) ? "text-gray-300" : "text-yellow-200"}>{x.total}× {rotuloDoDesfechoDaMarcacao(x.chave)}</li>
+            ))}
+          </ul>
+        )}
+      </div>
       {!grupos.length ? <p className="text-xs text-gray-300">Nenhum grupo ainda: eles aparecem aqui sozinhos quando a Dolores entra.</p> : (
         <ul className="space-y-1 text-xs">
           {grupos.map(g => (
@@ -284,23 +299,36 @@ function MarcacoesSecao({ grupos }: { grupos: Array<{ id: number; nome: string; 
 type GrupoDaTela = {
   id: number; nome: string; ativo: boolean; leadId: number | null; obraId: number | null; cliente: string | null; obra: string | null;
   tipo: TipoGrupo; origem: string; situacaoConfirmacao: SituacaoConfirmacao; nomeWhatsapp: string | null; codigo: string | null;
-  criadoEm: string | Date; mensagens: number; adicionadoPor: AdicionadoPor | null; provaAdicao: ProvaAdicao | null;
+  criadoEm: string | Date; mensagens: number; adicionadoPor: AdicionadoPor | null; provaAdicao: ProvaAdicao | null; obraExcluidaEm?: string | Date | null;
   documentos: { aClassificar: number; classificados: number; confira: number; salvos: number; naoBaixados: number };
 };
 type ConfigEntrada = { entradaAutomaticaLigada: boolean; tetoGruposNovosDia: number; tetoAvisosGruposDia: number } | undefined;
 
-const TIPOS_DA_TELA = ["cliente", "pos_atendimento", "juridico", "administrativo", "parceiros", "engenharia"] as const;
+type TipoDaTela = (typeof CATEGORIAS_GRUPO)[number]["tipo"];
 
-/** Etapa 7 — a lista dos grupos em que ela está, com tipo, vínculo e situação, e a correção (só admin, decisão gravada). */
+/**
+ * Etapa 7 — a lista dos grupos em que ela está, com tipo, vínculo e situação, e a correção (decisão gravada). EPIC-027 C3: todo grupo
+ * ACEITO (inclusive "não identificado · aguardando o dono") tem o botão; recusado / sem prova, só o dono aceita pelo WhatsApp.
+ */
 function GruposSecao(p: {
   grupos: GrupoDaTela[]; cfg: ConfigEntrada; atualizando: boolean; onAtualizar: () => void; onAtivo: (id: number, ativo: boolean) => void; ocupado: boolean;
   onConfig: (c: { entradaAutomaticaLigada?: boolean; tetoGruposNovosDia?: number; tetoAvisosGruposDia?: number }) => void; salvando: boolean;
 }) {
   const utils = trpc.useUtils();
+  // QA-SEG EPIC-027 (achado 1): o colaborador vê só as categorias que pode usar (o servidor confere de novo)
+  const { user } = useAuth();
+  const ehAdmin = user?.role === "admin";
+  // rodada 2: o colaborador só classifica grupo sem vínculo/não identificado, como cliente, pós ou engenharia DE UMA OBRA
+  const opcoesDaTela = (g: { tipo: TipoGrupo; leadId: number | null; obraId: number | null }) =>
+    CATEGORIAS_GRUPO.filter(c => ehAdmin || colaboradorPodeClassificar(g, c.tipo, 1));
   const [editando, setEditando] = useState<{ id: number; tipo: string; numero: string } | null>(null);
   const [tetos, setTetos] = useState<Record<string, string>>({});
   const definir = trpc.dolores.grupos.definirTipo.useMutation({
-    onSuccess: async r => { toast.success(r.texto); setEditando(null); await utils.dolores.grupos.listar.invalidate(); },
+    onSuccess: async r => {
+      toast.success(r.texto);
+      if (r.aviso === "pendente") toast.message("O aviso ao dono ficou pendente (teto de avisos do dia); a mudança entra no relatório diário.");
+      setEditando(null); await utils.dolores.grupos.listar.invalidate();
+    },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const aguardando = p.grupos.filter(g => g.ativo && g.situacaoConfirmacao === "aguardando_dono" && !autoriaPendente(g)).length;
@@ -332,7 +360,8 @@ function GruposSecao(p: {
       )}
       {aguardando > 0 && (
         <p role="status" className="rounded border border-yellow-300/40 bg-yellow-300/10 p-2 text-xs text-yellow-100">
-          {aguardando} grupo(s) esperando você dizer de que tipo são. Enquanto isso, ela só observa (não fala nem quando é marcada).
+          {aguardando} grupo(s) esperando o tipo. Enquanto isso, ela só observa (não fala nem quando é marcada). Defina em "Definir tipo ou
+          vínculo" abaixo, ou responda à Dolores no WhatsApp só com o número da opção.
         </p>
       )}
       {semAutoria > 0 && (
@@ -358,6 +387,9 @@ function GruposSecao(p: {
                 {g.leadId ? ` · cliente nº ${g.leadId}${g.cliente ? ` — ${g.cliente}` : ""}` : g.obraId ? ` · obra nº ${g.obraId}${g.obra ? ` — ${g.obra}` : ""}` : ""}
                 {" · "}<span className={g.situacaoConfirmacao === "aguardando_dono" ? "text-yellow-200" : g.situacaoConfirmacao === "recusado" ? "text-red-300" : "text-gray-300"}>{autoriaPendente(g) ? ROTULO_AUTORIA_PENDENTE : ROTULO_SITUACAO_CONFIRMACAO[g.situacaoConfirmacao] ?? g.situacaoConfirmacao}</span>
               </p>
+              {g.obraExcluidaEm && g.tipo === "indefinido" && (
+                <p role="status" className="mt-1 text-xs text-yellow-200">Obra excluída no CRM em {quando(g.obraExcluidaEm)}: ela ficou calada neste grupo. Reclassifique.</p>
+              )}
               <p className="mt-1 text-xs text-gray-300">
                 Adicionada por: {g.adicionadoPor === "dono" ? "dono" : g.adicionadoPor === "outra_pessoa" || g.adicionadoPor === "desconhecido"
                   ? `${g.adicionadoPor === "outra_pessoa" ? "outra pessoa" : "não ficou provado quem"} — ${g.provaAdicao === "aceito_pelo_dono" ? "aceito pelo dono" : g.situacaoConfirmacao === "recusado" ? "recusado (não lê nem fala lá)" : "só observa até o dono aceitar"}`
@@ -372,27 +404,31 @@ function GruposSecao(p: {
                   <div><Label htmlFor={`tipo-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
                     <select id={`tipo-${g.id}`} value={editando.tipo} onChange={e => setEditando({ ...editando, tipo: e.target.value })}
                       className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
-                      {TIPOS_DA_TELA.map(t => <option key={t} value={t}>{ROTULO_TIPO_GRUPO[t]}</option>)}
-                    </select></div>
+                      {opcoesDaTela(g).map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
+                    </select>
+                    <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(editando.tipo)?.explica ?? ""}</p>
+                    {!ehAdmin && <p className="mt-1 max-w-xs text-[11px] text-yellow-200">{FRASE_TIPOS_DO_ADMIN}</p>}
+                    <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
                   {(precisaNumero(editando.tipo) || editando.tipo === "engenharia") && (
-                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
+                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : ehAdmin ? "Nº da obra (opcional)" : "Nº da obra (obrigatório)"}</Label>
+                      {!ehAdmin && editando.tipo === "engenharia" && <p className="max-w-xs text-[11px] text-yellow-200">{FRASE_ENGENHARIA_COM_OBRA}</p>}
                       <Input id={`numero-${g.id}`} inputMode="numeric" value={editando.numero} onChange={e => setEditando({ ...editando, numero: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
                   )}
-                  <Button size="sm" className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]" disabled={definir.isPending || (precisaNumero(editando.tipo) && !editando.numero)}
-                    onClick={() => definir.mutate({ grupoId: g.id, tipo: editando.tipo as (typeof TIPOS_DA_TELA)[number], numero: editando.numero ? Number(editando.numero) : null })}>Salvar</Button>
+                  <Button size="sm" className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]" disabled={definir.isPending || ((precisaNumero(editando.tipo) || (!ehAdmin && editando.tipo === "engenharia")) && !editando.numero)}
+                    onClick={() => definir.mutate({ grupoId: g.id, tipo: editando.tipo as TipoDaTela, numero: editando.numero ? Number(editando.numero) : null })}>Salvar</Button>
                   <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando(null)}>Cancelar</Button>
                 </div>
-              ) : precisaDoAceiteDoDono(g) ? (
+              ) : !telaPodeClassificar(g) ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {/* QA-SEG E7 (6c): só o DONO aceita, pelo WhatsApp; a tela mostra e explica, mas não aceita */}
-                  {g.situacaoConfirmacao === "recusado" || autoriaPendente(g)
-                    ? <p className="text-xs text-gray-300">Para aceitar, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} aceitar</strong> (a tela não aceita grupo).</p>
-                    : <p className="text-xs text-gray-300">Para definir o tipo, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} cliente &lt;nº&gt; | jurídico | administrativo | parceiros | engenharia</strong> (a tela não define o tipo de grupo aguardando o dono).</p>}
+                  {/* QA-SEG E7 (6c): grupo recusado ou sem prova de quem colocou a Dolores — só o DONO aceita, pelo WhatsApp */}
+                  <p className="text-xs text-gray-300">Para aceitar, o dono responde à Dolores no WhatsApp: <strong>grupo {g.codigo ?? "CÓDIGO"} aceitar</strong> (a tela não aceita grupo).</p>
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>Corrigir tipo ou vínculo</Button>
+                  {ehAdmin || opcoesDaTela(g).length
+                    ? <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" || !opcoesDaTela(g).some(c => c.tipo === g.tipo) ? opcoesDaTela(g)[0]?.tipo ?? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
+                    : <p className="text-xs text-gray-300">{FRASE_TIPOS_DO_ADMIN}</p>}
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}

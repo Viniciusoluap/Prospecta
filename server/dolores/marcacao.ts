@@ -36,16 +36,16 @@ import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
 import {
   FRASE_APRESENTACAO, FRASE_APRESENTACAO_PARCEIRO, FRASE_FORA_DE_ESCOPO, FRASE_PARCEIRO_NAO_IDENTIFICADO, FRASE_SEM_VINCULO, FRASE_TETO_DO_DIA,
   MAX_CARACTERES_GRUPO, PADRAO_MARCACOES, PERMITIDOS_POR_TIPO, PROMPT_SISTEMA_GRUPO, PROMPT_SISTEMA_PARCEIRO, doloresFoiMarcada, foraDeEscopo,
-  fraseDeApresentacaoInterna, lidValido, marcacaoFresca, promptSistemaInterno, respostaSeguraDoGrupo, respostaSeguraInterna, semCamposDeValor, trechoCitado,
+  fraseDeApresentacaoInterna, lidDaPropriaMensagem, lidValido, marcacaoFresca, mencoesDoItem, promptSistemaInterno, respostaSeguraDoGrupo, respostaSeguraInterna, semCamposDeValor, trechoCitado,
   type IdentidadeDolores, type MotivoForaDeEscopo, type SaidaDoGrupo,
 } from "../../shared/dolores/marcacao.js";
-import { ROTULO_TIPO_GRUPO, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
+import { ROTULO_TIPO_GRUPO, lerParticipante, ligadoPorPadrao, tipoEfetivo, type TipoGrupo } from "../../shared/dolores/grupos-tipo.js";
 import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
 import { sanitizarResposta, sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { limitarResposta } from "../../shared/dolores/formato.js";
 import { ehNumeroDoDono, mascararNumero, normalizarNumeroDono, type Limites, type MotivoBloqueio } from "../../shared/dolores/whatsapp.js";
 import { ENV } from "../_core/env.js";
-import { enviarTextoAoGrupoEvolution } from "../_core/evolution.js";
+import { enviarTextoAoGrupoEvolution, metadadoDoGrupoEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import { registrarAcao } from "./auditoria.js";
@@ -76,10 +76,135 @@ export async function lerConfigMarcacoes(): Promise<typeof CONFIG_MARCACOES_PADR
   return c ?? CONFIG_MARCACOES_PADRAO;
 }
 
-/** Interruptor do grupo (sem linha = desligado). */
-export async function grupoLigado(grupoId: number): Promise<boolean> {
-  const [g] = await getDb().select({ ligado: doloresMarcacoesGrupo.responderLigado }).from(doloresMarcacoesGrupo).where(eq(doloresMarcacoesGrupo.grupoId, grupoId)).limit(1);
-  return g?.ligado === true;
+/**
+ * Interruptor do grupo. Com linha em dolores_marcacoes_grupo, vale a linha (o admin/dono decidiu). EPIC-027 C4: SEM linha, vale o
+ * padrão da etapa 7 (AC9: "o do grupo nasce LIGADO para grupo avisado/confirmado") — grupo da etapa 7 aceito e de tipo conhecido
+ * nasce ligado; recusado, aguardando o dono, tipo indefinido, desativado e grupo manual antigo (etapa 4b) sem linha: desligado.
+ * O interruptor GERAL continua valendo por cima (nasce desligado).
+ */
+export async function grupoLigado(grupo: DoloresGrupo): Promise<boolean> {
+  const [g] = await getDb().select({ ligado: doloresMarcacoesGrupo.responderLigado }).from(doloresMarcacoesGrupo).where(eq(doloresMarcacoesGrupo.grupoId, grupo.id)).limit(1);
+  return g ? g.ligado === true : ligadoPorPadrao(grupo);
+}
+
+// ── EPIC-027 C4: o @lid da conta, aprendido só de fonte do SERVIDOR ──
+
+/** Entre duas consultas automáticas à Evolution por grupo (uma menção por @lid desconhecido não martela a Evolution). */
+export const INTERVALO_CONSULTA_LID_MS = 10 * 60_000;
+
+/** Grava o @lid conferido para o número conectado (só se mudou). */
+async function gravarLid(lid: string, numero: string, userId: number | null, origem: string): Promise<void> {
+  const db = getDb();
+  const [atual] = await db.select({ lid: doloresMarcacoesConfig.lidDolores, numero: doloresMarcacoesConfig.lidDoNumero }).from(doloresMarcacoesConfig).where(eq(doloresMarcacoesConfig.id, 1)).limit(1);
+  if (atual?.lid === lid && atual.numero === numero) return;
+  await db.update(doloresMarcacoesConfig).set({ lidDolores: lid, lidDoNumero: numero, lidConferidoEm: new Date(), atualizadoEm: new Date(), ...(userId ? { atualizadoPor: userId } : {}) })
+    .where(eq(doloresMarcacoesConfig.id, 1));
+  await registrarAcao({ funcao: "conferir_lid_dolores", resultado: "ok", motivo: `@lid da Dolores aprendido (${origem})`, autorUserId: null, canal: userId ? "tela" : "whatsapp",
+    pedidoId: `lid:${origem}`, resumo: { origem, final: lid.replace(/@lid$/, "").slice(-4), ...(userId ? { porUserId: userId } : {}) } }).catch(() => undefined);
+}
+
+/**
+ * Confere o @lid da Dolores pela lista de participantes de um grupo da lista dela (Evolution, SÓ LEITURA; primeiro
+ * `/group/participants`, depois os dados do grupo `findGroupInfos`): o participante cujo número é EXATAMENTE o número conectado e
+ * confirmado. A Evolution é a fonte (o par @lid↔número vem do WhatsApp); nada vem do texto nem da menção de quem escreveu.
+ * Mais de um @lid para o número, nenhum, número não confirmado: não grava nada.
+ */
+export async function conferirLidDaDolores(grupoId: number, o: { userId: number | null; origem: string; prazoMs?: number }): Promise<{ conferido: boolean; motivo: string }> {
+  const { lerConfigWhatsapp } = await import("./consumo.js");
+  const cfg = await lerConfigWhatsapp().catch(() => null);
+  if (!cfg?.instancia || cfg.statusConexao !== "conectado" || !cfg.numeroDolores) return { conferido: false, motivo: "a conexão do WhatsApp ainda não foi confirmada (Integrações › WhatsApp)" };
+  const [g] = await getDb().select().from(doloresGrupos).where(eq(doloresGrupos.id, grupoId)).limit(1);
+  if (!g || !g.ativo || g.instancia !== cfg.instancia || g.situacaoConfirmacao === "recusado") return { conferido: false, motivo: "grupo fora da lista, desativado ou recusado" };
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const configurada = await configEvolution();
+  // QA E4 r2 N4: a chamada recusa redirecionamento (o apikey não vai a outro host)
+  const evo = configurada ? { ...configurada, semRedirecionamento: true } : null;
+  if (!evo) return { conferido: false, motivo: "servidor do WhatsApp (Evolution) não configurado" };
+  const prazo = Math.max(1_000, o.prazoMs ?? 15_000);
+  // QA-SEG EPIC-027 (achado 4): um prazo só para as duas consultas; a segunda usa o que sobrou
+  const fim = Date.now() + prazo;
+  const numero = cfg.numeroDolores;
+  const lids = new Set<string>();
+  let viuONumero = false;
+  let falhou = 0;
+  try {
+    for (const p of await participantesDoGrupoEvolution(evo, cfg.instancia, g.grupoJid, fetch, prazo)) {
+      if (p.numero && ehNumeroDoDono(p.numero, numero)) { viuONumero = true; if (lidValido(p.lid)) lids.add(p.lid); }
+    }
+  } catch { falhou++; }
+  if (!lids.size && fim - Date.now() >= 1_000) {
+    // reserva: os dados do grupo (outra rota da Evolution, que em algumas versões traz o par @lid ↔ número quando a primeira não traz)
+    try {
+      const meta = await metadadoDoGrupoEvolution(evo, cfg.instancia, g.grupoJid, fetch, Math.max(1_000, fim - Date.now()));
+      for (const p of (meta?.participantes ?? []).map(lerParticipante)) {
+        if (p.numero && ehNumeroDoDono(p.numero, numero)) { viuONumero = true; if (lidValido(p.lid)) lids.add(p.lid); }
+      }
+    } catch { falhou++; }
+  }
+  if (lids.size > 1) return { conferido: false, motivo: "mais de um @lid para o número da Dolores (não gravado)" };
+  if (!lids.size) {
+    return { conferido: false, motivo: falhou > 0 && !viuONumero ? "a Evolution não listou os participantes agora"
+      : viuONumero ? "este grupo não usa @lid para a Dolores (as menções vêm pelo número)" : "o número da Dolores não apareceu na lista de participantes" };
+  }
+  const [lid] = Array.from(lids);
+  await gravarLid(lid, numero, o.userId, o.origem);
+  return { conferido: true, motivo: "@lid da Dolores conferido" };
+}
+
+/**
+ * Uma mensagem que a PRÓPRIA conta mandou num grupo (fromMe, posto pelo WhatsApp/Evolution no aviso autenticado) traz o @lid dela
+ * no `participant` nos grupos que endereçam por @lid. Aprende dali, se ainda não souber (ou se o número conectado mudou).
+ */
+export async function aprenderLidDaPropriaMensagem(cfg: Pick<DoloresWhatsappConfig, "numeroDolores" | "statusConexao">, item: unknown): Promise<boolean> {
+  const numero = cfg.statusConexao === "conectado" ? cfg.numeroDolores : null;
+  const lid = lidDaPropriaMensagem(item, numero);
+  if (!lid || !numero) return false;
+  try {
+    const conf = await lerConfigMarcacoes();
+    if (conf.lidDolores === lid && conf.lidDoNumero === numero) return false;
+    // já havia um @lid conferido para ESTE número e é outro: não troca sozinho (o admin confere pela tela)
+    if (lidValido(conf.lidDolores) && conf.lidDoNumero === numero) return false;
+    await gravarLid(lid, numero, null, "mensagem-propria");
+    return true;
+  } catch (e) {
+    console.error("[dolores/marcacao] não consegui gravar o @lid da própria mensagem", erroParaLog(e));
+    return false;
+  }
+}
+
+/**
+ * O aviso de grupo da Evolution (`group-participants.update` / `groups.upsert`, webhook autenticado) traz os participantes com o par
+ * @lid ↔ número dado pelo WhatsApp: se a conta aparece ali com o número conectado e UM @lid, aprende (só se ainda não souber para
+ * esse número). Quem adiciona alguém não escolhe o par; nada vem de texto.
+ */
+export async function aprenderLidDoAvisoDeGrupo(cfg: Pick<DoloresWhatsappConfig, "numeroDolores" | "statusConexao">, dados: unknown): Promise<boolean> {
+  const numero = cfg.statusConexao === "conectado" ? cfg.numeroDolores : null;
+  if (!numero) return false;
+  const d = (dados ?? {}) as Record<string, unknown>;
+  const lista = Array.isArray(d.participants) ? d.participants.slice(0, 1024) : [];
+  const lids = new Set(lista.map(lerParticipante).filter(p => p.numero && ehNumeroDoDono(p.numero, numero) && lidValido(p.lid)).map(p => p.lid as string));
+  if (lids.size !== 1) return false;
+  const [lid] = Array.from(lids);
+  try {
+    const conf = await lerConfigMarcacoes();
+    if (lidValido(conf.lidDolores) && conf.lidDoNumero === numero) return false;
+    await gravarLid(lid, numero, null, "aviso-de-grupo");
+    return true;
+  } catch (e) {
+    console.error("[dolores/marcacao] não consegui gravar o @lid do aviso de grupo", erroParaLog(e));
+    return false;
+  }
+}
+
+/** Menção por @lid com o @lid da Dolores desconhecido: consulta a Evolution (no máximo uma vez a cada 10 min por grupo). */
+async function tentarAprenderLid(cfg: DoloresWhatsappConfig, grupo: DoloresGrupo, prazoFinal: number): Promise<boolean> {
+  const restante = prazoFinal - deps.ms() - MINIMO_PARA_RESPONDER_MS;
+  if (restante < 2_000) return false;
+  const janela = Math.floor(deps.ms() / INTERVALO_CONSULTA_LID_MS);
+  if (!(await primeiraVez(`lid-consulta:${grupo.id}:${janela}`).catch(() => false))) return false;
+  const r = await conferirLidDaDolores(grupo.id, { userId: null, origem: "marcacao", prazoMs: Math.min(5_000, restante) }).catch(() => ({ conferido: false, motivo: "erro" }));
+  if (!r.conferido) console.warn("[dolores/marcacao] menção por @lid sem o @lid da Dolores conferido:", r.motivo);
+  return r.conferido;
 }
 
 /**
@@ -325,6 +450,18 @@ export async function parceiroDoRemetente(numero: string | null): Promise<number
   return achados.length === 1 ? achados[0].id : null;
 }
 
+/** A "engenharia geral" (sem obra) deste grupo foi decidida por quem pode? Ver `escopoDoGrupo`. Erro ao conferir → não. */
+export async function engenhariaGeralValida(g: Pick<DoloresGrupo, "decididoPor" | "origem" | "obraExcluidaEm">): Promise<boolean> {
+  if (g.obraExcluidaEm) return false;
+  const por = g.decididoPor ?? "";
+  if (!por) return g.origem === "automatico"; // entrou sozinha pelo nome do grupo (o dono foi avisado do que ela entendeu)
+  if (por.startsWith("whatsapp:")) return true;
+  const m = /^tela:(\d{1,9})$/.exec(por);
+  if (!m) return false;
+  const [u] = await getDb().select({ role: users.role }).from(users).where(eq(users.id, Number(m[1]))).limit(1).catch(() => []);
+  return u?.role === "admin";
+}
+
 export type EscopoDoGrupo = {
   tipo: TipoGrupo;
   ferramentas: () => FerramentaDoGrupo[];
@@ -344,6 +481,10 @@ export async function escopoDoGrupo(grupo: DoloresGrupo, m: { participante: stri
   const tipo = tipoEfetivo(grupo);
   if (grupo.situacaoConfirmacao === "recusado") return { silencio: "grupo recusado (outra pessoa colocou a Dolores)" };
   if (grupo.situacaoConfirmacao === "aguardando_dono" || tipo === "indefinido") return { silencio: "grupo aguardando o dono definir o tipo: só observa" };
+  // QA-SEG EPIC-027 (rodada 3, R3-1, defesa em profundidade): engenharia SEM obra só vale como "engenharia geral" (escopo interno)
+  // quando foi DEFINIDA assim pelo dono (WhatsApp), por um administrador (tela) ou entrou sozinha pelo nome; obra excluída,
+  // decisão de colaborador, da fila ou de origem desconhecida → silêncio.
+  if (tipo === "engenharia" && !grupo.obraId && !(await engenhariaGeralValida(grupo))) return { silencio: "engenharia sem obra que não foi definida como geral pelo dono ou por um administrador: só observa" };
   const url = urlDoSistemaParaLinks();
   const base = { agora, grupoId: grupo.id };
   if (tipo === "cliente" || tipo === "pos_atendimento" || (tipo === "engenharia" && grupo.obraId)) {
@@ -457,7 +598,7 @@ async function responderNoGrupo(grupo: DoloresGrupo, m: Marcada, texto: string, 
   if (!atual || !atual.ativo || atual.instancia !== ctx.instancia || atual.grupoJid !== m.grupoJid || atual.grupoJid !== grupo.grupoJid) return recusar("destino não confere com o grupo cadastrado e ativo da mensagem");
   // Etapa 7: o tipo pode ter mudado durante a chamada (dono respondeu "ignorar" ou o grupo voltou a aguardar): confere de novo
   if (atual.situacaoConfirmacao === "aguardando_dono" || atual.situacaoConfirmacao === "recusado" || tipoEfetivo(atual) === "indefinido" || tipoEfetivo(atual) !== tipoEfetivo(grupo)) return recusar("tipo do grupo mudou ou aguarda o dono no momento do envio");
-  const ligados = await Promise.all([lerConfigMarcacoes().then(c => c.responderLigado).catch(() => false), grupoLigado(grupo.id).catch(() => false)]);
+  const ligados = await Promise.all([lerConfigMarcacoes().then(c => c.responderLigado).catch(() => false), grupoLigado(atual).catch(() => false)]);
   if (pausadaPorFalhaNoConsumo || !ligados[0] || !ligados[1]) return recusar("interruptor de responder quando marcada desligado no momento do envio");
   // Etapa 6 — a pausa geral confere de novo no envio (pode ter sido ligada durante a chamada à IA)
   if (!(await podeFalarNoGrupo())) return recusar("Dolores pausada (pausa geral ou conta desativada) no momento do envio");
@@ -622,9 +763,27 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
   // 1) marcação, por código. Primeiro só com o número (sem banco); se houve menção que não casou, confere o @lid.
   let m = doloresFoiMarcada(item, identidadeDaDolores(cfg, null));
   let conf: typeof CONFIG_MARCACOES_PADRAO | null = null;
+  // EPIC-027 C4: houve menção, mas a conexão não está confirmada (sem o número da conta não dá para saber quem foi marcado)
+  if (!m.marcada && m.motivo === "sem_identidade") return mencoesDoItem(item).length ? "marcacao-sem-identidade" : null;
   if (!m.marcada && m.motivo === "mencao_de_outro") {
-    try { conf = await lerConfigMarcacoes(); } catch { return null; }
-    m = doloresFoiMarcada(item, identidadeDaDolores(cfg, conf));
+    try { conf = await lerConfigMarcacoes(); } catch { return "marcacao-indisponivel"; }
+    const id = identidadeDaDolores(cfg, conf);
+    m = doloresFoiMarcada(item, id);
+    // EPIC-027 C4 (causa raiz): nos grupos que endereçam por @lid a menção vem "<lid>@lid", e o @lid da conta só era aprendido
+    // quando o admin ligava o grupo pela tela. Sem ele, TODA marcação por @lid caía aqui e sumia sem registro. Agora: consulta a
+    // Evolution (fonte do servidor, com teto por grupo) e, se ainda não souber, não responde e deixa o motivo no quadro.
+    if (!m.marcada && m.motivo === "mencao_de_outro" && !id.lid && mencoesDoItem(item).some(j => lidValido(j))) {
+      const jid = String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "");
+      let g: DoloresGrupo | null = null;
+      try { g = cfg.instancia ? await grupoAtivo(cfg.instancia, jid) : null; } catch { return "marcacao-indisponivel"; }
+      if (!g) return "marcacao-grupo-nao-cadastrado";
+      if (g.situacaoConfirmacao === "recusado") return "marcacao-grupo-recusado";
+      if (await tentarAprenderLid(cfg, g, o.prazoFinal)) {
+        try { conf = await lerConfigMarcacoes(); } catch { return "marcacao-indisponivel"; }
+        m = doloresFoiMarcada(item, identidadeDaDolores(cfg, conf));
+        if (!m.marcada) return null; // agora se sabe: a menção era de outra pessoa
+      } else return "marcacao-lid-desconhecido";
+    }
   }
   if (!m.marcada) return null;
   if (!cfg.instancia) return null;
@@ -658,7 +817,7 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
       return "marcacao-pausada";
     }
     // 5) interruptores (geral e do grupo; os dois nascem desligados): silêncio, registrado
-    const doGrupo = await grupoLigado(grupo.id);
+    const doGrupo = await grupoLigado(grupo);
     if (pausadaPorFalhaNoConsumo || !conf.responderLigado || !doGrupo) {
       await gravar(grupo, m, "silencio", pausadaPorFalhaNoConsumo ? "pausada nesta instância: o consumo de uma resposta não foi gravado"
         : !conf.responderLigado ? "interruptor geral de responder quando marcada desligado" : "interruptor deste grupo desligado");

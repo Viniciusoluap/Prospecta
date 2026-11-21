@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { trpc } from "@/lib/trpc";
 import { alternarItem, alternarTodosVisiveis, chaveDaConversa, ehConversaSemNumero, podarSelecao, textoConfirmacaoExclusao } from "@shared/whatsapp/conversas";
-import { TEXTO_MODO } from "@shared/dolores/modo-conversa";
+import { TEXTO_MODO, ajudaDoEstado } from "@shared/dolores/modo-conversa";
 
 const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 /** EPIC-026 C2: a conversa cujo número o WhatsApp não informou ("@lid") aparece assim — nunca com um telefone inventado. */
@@ -175,7 +175,7 @@ function AtendimentoDaConversa({ numero }: { numero: string }) {
         {comEquipe ? <Bot className="h-3 w-3 mr-1" /> : <Hand className="h-3 w-3 mr-1" />}
         {comEquipe ? TEXTO_MODO.devolver : TEXTO_MODO.assumir}
       </Button>
-      <span className="text-gray-400">{comEquipe ? TEXTO_MODO.ajudaDevolver : TEXTO_MODO.ajudaAssumir}</span>
+      <span className="text-gray-400">{ajudaDoEstado(a.estado)}</span>
     </div>
   );
 }

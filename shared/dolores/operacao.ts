@@ -124,7 +124,7 @@ export type TotaisRonda = {
   documentos?: { pendentes: number; clientes: number };
   recebiveis?: { cobrancas: number; emAberto: number; vencidas: number; vencido: number; regularizacoesComSaldo: number; saldoRegularizacoes: number };
   conversas?: { semLeitura: number };
-  grupos?: { aClassificar: number; aConferir: number; prontosParaSalvar: number; comErro: number; aguardandoDono?: number };
+  grupos?: { aClassificar: number; aConferir: number; prontosParaSalvar: number; comErro: number; aguardandoDono?: number; classificadosSemAviso?: number; obraExcluida?: number };
   notas?: { semConfirmacao: number; confirmadasSemConciliacao: number; correcao: number; naoLidas: number };
   banco?: { sincronizadas24h: number; aClassificar: number };
   feitos24h?: { cobrancas: number; documentos: number; tarefas: number; acompanhamentos: number };
@@ -235,6 +235,10 @@ export function montarRelatorio(p: {
   if (t.grupos) {
     const linhas = [`${n(t.grupos.aClassificar)} a classificar, ${n(t.grupos.aConferir)} a conferir (confiança baixa), ${n(t.grupos.prontosParaSalvar)} classificado(s) aguardando salvar no card, ${n(t.grupos.comErro)} com erro.`];
     // Etapa 7: grupos novos que ela não soube identificar (só observam até o dono responder "grupo CÓDIGO tipo")
+    // QA-SEG EPIC-027 (achado 1b): classificação pela tela sem o aviso (teto do dia)
+    // QA-SEG EPIC-027 (R3-1): obra excluída no CRM — o grupo ficou calado até reclassificar
+    if (t.grupos.obraExcluida) linhas.push(`${n(t.grupos.obraExcluida)} grupo(s) de engenharia com a obra excluída no CRM: ela ficou calada lá; reclassifique em Dolores › Grupos.`);
+    if (t.grupos.classificadosSemAviso) linhas.push(`${n(t.grupos.classificadosSemAviso)} grupo(s) com o tipo mudado pela tela sem o aviso a você (teto de avisos do dia); confira em Dolores › Grupos.`);
     if (t.grupos.aguardandoDono) linhas.push(`${n(t.grupos.aguardandoDono)} grupo(s) novo(s) aguardando sua resposta (responda "grupo CÓDIGO tipo"; os códigos estão no aviso de entrada e em Dolores › Grupos).`);
     sec("Documentos dos grupos", linhas);
   }
