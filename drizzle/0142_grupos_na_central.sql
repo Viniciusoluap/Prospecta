@@ -1,7 +1,7 @@
 -- 21/11/2026 — EPIC-027 (C2): grupos do WhatsApp na Central, com permissão por colaborador e escrita.
 -- Pedido do dono: "Aqui nas mensagens do WhatsApp também deve aparecer as mensagens do grupo para que o humano possa intervir";
--- quem vê: o admin e o colaborador com a permissão "Grupos do WhatsApp" marcada no cadastro (a permissão fica no JSON de
--- "users.permissions", como os outros módulos — nada a migrar para ela); quais: "Todos"; intervir: "Pode escrever".
+-- quem vê: o admin e o colaborador com o módulo "WhatsApp" marcado no cadastro (decisão do dono em 21/11: sem permissão
+-- separada; corretor nunca); quais: "Todos"; intervir: "Pode escrever".
 -- Story: docs/stories/epics/epic-027-correcoes-20-11-noite/C2-grupos-na-central.md.
 --
 -- 1) "dolores_grupo_mensagens.nome_remetente" (coluna NOVA, anulável): o nome que o participante usa no WhatsApp, filtrado, para a

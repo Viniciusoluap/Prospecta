@@ -13,6 +13,9 @@ outra função que ele só pode visualizar se for liberado pra ele"; (2) quais g
 exatamente igual faz na conversa".
 
 ## Critérios de aceite
+> **Atualização de 21/11/2026 (decisão do dono):** a permissão separada "Grupos do WhatsApp" (AC1/AC2 abaixo) foi REMOVIDA. Vale o
+> módulo "WhatsApp" já existente: admin ativo sempre; colaborador ativo com o módulo; corretor e demais papéis nunca.
+
 - [x] AC1 — Permissão nova "Grupos do WhatsApp" no cadastro do usuário (Configurações › Usuários e acesso), no mesmo mecanismo
       dos módulos: a chave `whatsappGrupos` em `ADMIN_MODULES` (`shared/admin-permissions.ts`), gravada no JSON de
       `users.permissions` como os demais — sem migração para ela. Desmarcada por padrão. A tela do cadastro mostra, junto dos
