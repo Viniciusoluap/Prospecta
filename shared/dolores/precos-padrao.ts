@@ -48,7 +48,7 @@ export type PrevisaoDoLimite = {
 
 /**
  * Quanto os limites mensais custariam, em reais, com os preços CADASTRADOS (ou a reserva) — preço sugerido não entra. Conta a
- * entrada inteira a preço cheio de entrada (o limite conta o cache como entrada cheia; é o pior caso).
+ * entrada inteira a preço cheio de entrada, sem cache (é o pior caso: com cache, o mesmo limite custa menos).
  */
 export function previsaoDoLimite(p: {
   limites: { entrada: number; saida: number };

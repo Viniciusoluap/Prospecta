@@ -3,7 +3,9 @@
 // cotação do dólar). Modelo sem preço usa a RESERVA (os dois campos antigos de preço único, em R$ por milhão) e a tela diz isso.
 // Cache: a escrita custa 1,25× e a leitura 0,1× do preço de entrada quando o admin deixa esses campos vazios (regra da Anthropic
 // para o cache de 5 minutos) — e a tela diz que assumiu.
-// Isto é só ESTIMATIVA para a tela e o relatório: o limite mensal (a trava) continua em tokens e conta o cache como entrada cheia.
+// Isto é só ESTIMATIVA para a tela e o relatório: o limite mensal (a trava) continua em tokens. QA C5-E1 r4: no limite, o cache conta pelo
+// peso do preço — escrita FATOR_CACHE_ESCRITA (1,25×), leitura FATOR_CACHE_LEITURA (0,1×) — a mesma soma do banco
+// (server/dolores/consumo.ts#entradaNoLimiteSql).
 
 export const FATOR_CACHE_ESCRITA = 1.25;
 export const FATOR_CACHE_LEITURA = 0.1;
@@ -34,8 +36,12 @@ const somaUso = (a: UsoDetalhado, b: UsoDetalhado): UsoDetalhado =>
   ({ entrada: a.entrada + b.entrada, saida: a.saida + b.saida, cacheEscrita: a.cacheEscrita + b.cacheEscrita, cacheLeitura: a.cacheLeitura + b.cacheLeitura });
 export const USO_ZERO: UsoDetalhado = { entrada: 0, saida: 0, cacheEscrita: 0, cacheLeitura: 0 };
 
-/** Tokens que o LIMITE MENSAL conta como entrada (entrada + escrita + leitura de cache, tudo como entrada cheia). */
-export const entradaNoLimite = (u: UsoDetalhado) => u.entrada + u.cacheEscrita + u.cacheLeitura;
+/**
+ * Tokens que o LIMITE MENSAL conta como entrada, pelo peso do preço: entrada + escrita de cache × 1,25 + leitura de cache × 0,1
+ * (cada uma arredondada para cima; o −1e-9 só tira o erro de ponto flutuante, ex.: 50.480 × 0,1). Os tokens brutos ficam em `uso`.
+ */
+const pesado = (x: number, fator: number) => Math.ceil(x * fator - 1e-9);
+export const entradaNoLimite = (u: UsoDetalhado) => u.entrada + pesado(u.cacheEscrita, FATOR_CACHE_ESCRITA) + pesado(u.cacheLeitura, FATOR_CACHE_LEITURA);
 
 /**
  * Custo de um uso com um preço por milhão (na moeda do preço). Entrada ou saída sem preço → null. Escrita/leitura de cache
