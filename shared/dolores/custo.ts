@@ -68,8 +68,12 @@ export function erroDasPartes(p: Partial<Record<string, unknown>>): string | nul
   for (const f of FUNCOES_DO_GASTO) {
     const v = p[f];
     if (typeof v !== "number" || !Number.isInteger(v)) return `A parte de "${ROTULO_FUNCAO_CONSUMO[f]}" tem de ser um número inteiro.`;
-    if (v < PARTE_MINIMA) return `Nenhuma função pode ficar com 0%: "${ROTULO_FUNCAO_CONSUMO[f]}" precisa de pelo menos ${PARTE_MINIMA}%.`;
-    if (v > PARTE_MAXIMA) return `"${ROTULO_FUNCAO_CONSUMO[f]}" pode ter no máximo ${PARTE_MAXIMA}% (as outras precisam de pelo menos ${PARTE_MINIMA}% cada).`;
+  }
+  for (const f of FUNCOES_DO_GASTO) {
+    if ((p[f] as number) < PARTE_MINIMA) return `Nenhuma função pode ficar com 0%: "${ROTULO_FUNCAO_CONSUMO[f]}" precisa de pelo menos ${PARTE_MINIMA}%.`;
+  }
+  for (const f of FUNCOES_DO_GASTO) {
+    if ((p[f] as number) > PARTE_MAXIMA) return `"${ROTULO_FUNCAO_CONSUMO[f]}" pode ter no máximo ${PARTE_MAXIMA}% (as outras precisam de pelo menos ${PARTE_MINIMA}% cada).`;
   }
   const soma = FUNCOES_DO_GASTO.reduce((s, f) => s + (p[f] as number), 0);
   if (soma !== 100) return `As partes somam ${soma}%: precisam somar exatamente 100%.`;
@@ -155,7 +159,8 @@ export function textoDoAlerta(a: { alvo: AlvoAlerta; nivel: NivelAlerta }, s: Si
   const m = a.alvo === "total" ? s.total : s.funcoes.find(f => f.funcao === a.alvo)!;
   const deQue = a.alvo === "total" ? "do limite do mês" : `da parte dela (${s.funcoes.find(f => f.funcao === a.alvo)!.parte}% do limite do mês)`;
   const quem = a.alvo === "total" ? "O gasto total com a IA" : maiuscula(NOME_DA_FUNCAO_NA_FRASE[a.alvo]);
-  const L: string[] = [`Dolores: aviso de gasto da IA (mês ${mes}). ${quem} chegou a ${pctTxt(a.nivel === 100 ? Math.max(100, m.pct) : m.pct)} ${deQue}.`];
+  const verbo = a.alvo === "grupos" || a.alvo === "avisos" ? "chegaram" : "chegou";
+  const L: string[] = [`Dolores: aviso de gasto da IA (mês ${mes}). ${quem} ${verbo} a ${pctTxt(a.nivel === 100 ? Math.max(100, m.pct) : m.pct)} ${deQue}.`];
   L.push(m.reais !== null
     ? `Gasto: ${brlAlerta(m.reais)} de ${brlAlerta(m.limiteReais)} (resta ${brlAlerta(Math.max(0, m.limiteReais - m.reais))}).`
     : "Gasto em reais: sem preço cadastrado para algum modelo (ou sem a cotação) — contei pelos tokens.");

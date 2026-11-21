@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Activity, PauseCircle, PlayCircle } from "lucide-react";
 import { HORAS_DO_RELATORIO } from "@shared/dolores/operacao";
+import { FUNCOES_DO_GASTO, ROTULO_FUNCAO_CONSUMO, erroDasPartes, type FuncaoDoConsumo } from "@shared/dolores/custo";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,17 @@ type CamposPreco = { entrada?: string; saida?: string; cacheEscrita?: string; ca
 const CAMPOS_PRECO: Array<[keyof CamposPreco, string]> = [["entrada", "entrada"], ["saida", "saída"], ["cacheEscrita", "escrita de cache"], ["cacheLeitura", "leitura de cache"]];
 const precoTxt = (x: number | null) => (x == null ? "—" : x.toLocaleString("pt-BR", { maximumFractionDigits: 4 }));
 const pct = (uso: number, limite: number) => (limite > 0 ? Math.min(100, Math.round((uso / limite) * 100)) : 0);
+/** Barra de uso (gasto × parte): até 100% preenchida; amarela a partir de 80%, vermelha em 100%. */
+function Barra({ valor, rotulo }: { valor: number; rotulo: string }) {
+  const v = Number.isFinite(valor) ? Math.max(0, valor) : 100;
+  const cor = v >= 100 ? "bg-red-500" : v >= 80 ? "bg-amber-400" : "bg-[#C9A961]";
+  return (
+    <div role="progressbar" aria-label={rotulo} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(v))} className="h-2 w-full overflow-hidden rounded bg-[#C9A961]/10">
+      <div className={`h-2 ${cor}`} style={{ width: `${Math.min(100, v)}%` }} />
+    </div>
+  );
+}
+const ROTULO_ALVO = (alvo: string) => (alvo === "total" ? "Total" : ROTULO_FUNCAO_CONSUMO[alvo as FuncaoDoConsumo] ?? alvo);
 const ligado = (v: boolean) => <strong className={v ? "text-green-300" : "text-gray-300"}>{v ? "ligado" : "desligado"}</strong>;
 
 export function DoloresOperacaoCard() {
@@ -37,10 +49,13 @@ export function DoloresOperacaoCard() {
   // Etapa 8 — preços por modelo (US$ por milhão) e cotação, editados na tela
   const [precosModelo, setPrecosModelo] = useState<Record<string, CamposPreco>>({});
   const [cotacao, setCotacao] = useState<string | undefined>(undefined);
+  // EPIC-027 C5-E5 — divisão do limite por função (só o admin vê este cartão; o servidor confere de novo)
+  const [partes, setPartes] = useState<Partial<Record<FuncaoDoConsumo, string>>>({});
   const pausar = trpc.dolores.operacao.pausar.useMutation({ onSuccess: async r => { toast.success(r.pausa?.pausada ? "Dolores pausada: tudo parado." : "Pausa geral desligada."); setMotivo(""); await recarregar(); }, onError: erro });
   const salvar = trpc.dolores.operacao.salvar.useMutation({ onSuccess: async () => { toast.success("Configuração salva."); setPrecos({}); await recarregar(); }, onError: erro });
   const salvarPrecoModelo = trpc.dolores.operacao.salvarPrecoModelo.useMutation({ onSuccess: async (_r, v) => { toast.success(`Preço de ${v.modelo} salvo.`); setPrecosModelo(p => { const { [v.modelo]: _x, ...resto } = p; return resto; }); await recarregar(); }, onError: erro });
   const usarSugerido = trpc.dolores.operacao.usarPrecoSugerido.useMutation({ onSuccess: async (_r, v) => { toast.success(`Preço sugerido gravado para ${v.modelo}.`); await recarregar(); }, onError: erro });
+  const salvarPartes = trpc.dolores.operacao.salvarPartes.useMutation({ onSuccess: async () => { toast.success("Divisão do gasto salva."); setPartes({}); await recarregar(); }, onError: erro });
   const salvarCotacao = trpc.dolores.operacao.salvarCotacao.useMutation({ onSuccess: async () => { toast.success("Cotação salva."); setCotacao(undefined); await recarregar(); }, onError: erro });
   const ronda = trpc.dolores.operacao.rodarRonda.useMutation({
     onSuccess: async r => { toast.success(r.nova ? `Ronda feita${r.falhas.length ? ` (sem leitura: ${r.falhas.join(", ")})` : ""}.` : "Já houve uma ronda neste minuto."); await recarregar(); },
@@ -99,9 +114,57 @@ export function DoloresOperacaoCard() {
                     {m.fonte === "reserva" ? <span className="text-amber-200"> (sem preço cadastrado: usou o preço de reserva)</span> : m.fonte === "sem_preco" ? <span className="text-amber-200"> (sem preço: informe abaixo)</span> : null}
                     <span className="text-gray-400"> · entrada {n(m.uso.entrada)}, saída {n(m.uso.saida)}, escrita de cache {n(m.uso.cacheEscrita)}, leitura de cache {n(m.uso.cacheLeitura)}</span></li>
                 ))}</ul>
-                <p className="text-xs text-gray-300">Por função: {d.gasto.custo.porFuncao.map(f => `${f.rotulo}: ${f.completo ? dinheiro(f.dolares, f.reais) : "sem preço"}`).join(" · ")}</p>
                 {d.gasto.custo.cacheAssumido && <p className="text-xs text-gray-400">Cache sem preço informado: assumi {String(d.gasto.fatoresCache.escrita).replace(".", ",")}× (escrita) e {String(d.gasto.fatoresCache.leitura).replace(".", ",")}× (leitura) do preço de entrada.</p>}
               </>}
+
+              {/* EPIC-027 C5-E5 — gasto por função: cada uma com a sua parte do limite; ao bater a parte, só ela para */}
+              <h4 className="pt-1 text-xs font-semibold text-gray-300">Gasto por função (cada função com a sua parte do limite)</h4>
+              {!d.gastoPorFuncao ? <p className="text-xs text-amber-200">Não consegui calcular o gasto por função agora.</p> : (() => {
+                const g = d.gastoPorFuncao;
+                const valores = Object.fromEntries(FUNCOES_DO_GASTO.map(f => [f, partes[f] !== undefined ? Number(partes[f]) : g.partes[f]])) as Record<FuncaoDoConsumo, number>;
+                const editou = FUNCOES_DO_GASTO.some(f => partes[f] !== undefined);
+                const problema = editou ? erroDasPartes(valores) : null;
+                const soma = FUNCOES_DO_GASTO.reduce((s, f) => s + (Number.isFinite(valores[f]) ? valores[f] : 0), 0);
+                return <>
+                  <div className="space-y-1">
+                    <p className="text-xs">Total: <strong>{g.total.pct.toLocaleString("pt-BR")}%</strong>{g.total.reais != null ? ` · ${brl(g.total.reais)} de ${brl(g.total.limiteReais)}` : " · sem preço completo: contado pelos tokens"}</p>
+                    <Barra valor={g.total.pct} rotulo="Gasto total do mês" />
+                  </div>
+                  <ul className="space-y-2 text-xs">{g.funcoes.map(f => (
+                    <li key={f.funcao} className="space-y-1">
+                      <p><strong>{f.rotulo}</strong> — parte de {f.parte}% · {f.pct.toLocaleString("pt-BR")}% usado
+                        {f.reais != null ? ` · ${brl(f.reais)} de ${brl(f.limiteReais)}` : ""}
+                        <span className="text-gray-400"> · tokens: {n(f.tokens.entrada)} de {n(f.limiteTokens.entrada)} (entrada), {n(f.tokens.saida)} de {n(f.limiteTokens.saida)} (saída)</span>
+                        {f.tokensPct >= 100 ? <span className="font-semibold text-red-300"> — parte atingida: só esta função está sem IA</span> : f.pct >= 80 ? <span className="text-amber-200"> — passou de 80%</span> : null}</p>
+                      <Barra valor={f.pct} rotulo={`Gasto de ${f.rotulo}`} />
+                    </li>
+                  ))}</ul>
+                  <p className="text-xs text-gray-400">
+                    Alertas ao dono neste mês (WhatsApp, uma vez por limite, em 80% e em 100%):{" "}
+                    {!g.alertas.disponivel ? "indisponíveis até a migração 0148 ser aplicada."
+                      : !g.alertas.alertas.length ? "nenhum ainda."
+                      : g.alertas.alertas.map(a => `${ROTULO_ALVO(a.alvo)} ${a.nivel}% (${a.enviado ? "enviado" : "enviando"} em ${quando(a.criadoEm)})`).join(" · ")}
+                  </p>
+                  <div className="space-y-1 rounded border border-[#C9A961]/10 p-2">
+                    <p className="text-xs font-semibold text-gray-300">Divisão do limite (% por função; soma 100, cada uma de {g.minimo} a {g.maximo})</p>
+                    {!g.partesDisponiveis && <p className="text-xs text-amber-200">A migração 0148 ainda não foi aplicada: vale a divisão padrão e não dá para salvar.</p>}
+                    <div className="grid gap-2 sm:grid-cols-5">
+                      {FUNCOES_DO_GASTO.map(f => (
+                        <div key={f}><Label htmlFor={`dol-parte-${f}`} className="text-xs text-gray-300">{ROTULO_FUNCAO_CONSUMO[f]}</Label>
+                          <Input id={`dol-parte-${f}`} inputMode="numeric" className={campo} value={partes[f] ?? String(g.partes[f])}
+                            onChange={e => setPartes(p => ({ ...p, [f]: e.target.value.replace(/\D/g, "").slice(0, 3) }))} /></div>
+                      ))}
+                    </div>
+                    <p className={`text-xs ${problema ? "text-amber-200" : "text-gray-400"}`} role={problema ? "alert" : undefined}>Soma: {soma}%{problema ? ` — ${problema}` : ""}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" className={botaoSec} disabled={salvarPartes.isPending || !editou || !!problema || !g.partesDisponiveis}
+                        onClick={() => salvarPartes.mutate(valores)}>Salvar divisão</Button>
+                      <Button size="sm" variant="outline" className={botaoSec} disabled={salvarPartes.isPending || !g.partesDisponiveis}
+                        onClick={() => salvarPartes.mutate({ ...g.padrao })}>Voltar à divisão do dono (55 · 20 · 10 · 10 · 5)</Button>
+                    </div>
+                  </div>
+                </>;
+              })()}
 
               {/* EPIC-026 C5 — previsão em reais para acompanhar o mês */}
               <h4 className="pt-1 text-xs font-semibold text-gray-300">Previsão em reais</h4>

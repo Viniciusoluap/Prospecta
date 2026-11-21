@@ -7,7 +7,12 @@ import { eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { doloresConfig } from "../../drizzle/schema-dolores.js";
 import { doloresCotacao, doloresEventos, doloresOperacaoConfig, doloresPrecosModelo } from "../../drizzle/schema-dolores-operacao.js";
-import { COTACAO_MAXIMA, COTACAO_MINIMA, FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA, MAX_PRECO_MILHAO_USD } from "../../shared/dolores/custo.js";
+import {
+  COTACAO_MAXIMA, COTACAO_MINIMA, FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA, FUNCOES_DO_GASTO, MAX_PRECO_MILHAO_USD, PARTES_PADRAO, PARTE_MAXIMA, PARTE_MINIMA,
+  ROTULO_FUNCAO_CONSUMO, erroDasPartes,
+} from "../../shared/dolores/custo.js";
+import { doloresGastoPartes } from "../../drizzle/schema-dolores-operacao.js";
+import { alertasDoMes, gastoPorFuncaoDoMes } from "./operacao-gasto.js";
 import { CHAVE_MODELO_PREFERENCIAL, leitorModelosPadrao, modelosGravadosDasFuncoes } from "../_core/modelo-por-funcao.js";
 import { custoEstimadoDoMes, lerPrecos, previsaoDoLimiteAtual } from "./custo.js";
 import { COTACAO_SUGERIDA, DATA_PRECOS_SUGERIDOS, FONTE_PRECOS_SUGERIDOS, precoSugerido, projecaoDoMes } from "../../shared/dolores/precos-padrao.js";
@@ -61,6 +66,11 @@ async function situacao() {
   const limiteEmReaisPorModelo = await previsaoDoLimiteAtual({ limites, reserva: precos, anteriorDaConversa: wa?.modelo ?? null, precos: tabela })
     .catch(e => { console.error("[dolores/operacao] falha ao prever o limite", e instanceof Error ? e.name : "erro"); return null; });
   const gastoReais = custo ? (custo.porModelo.length ? (custo.total.completo ? custo.total.reais : null) : 0) : null;
+  // EPIC-027 C5-E5 — gasto por função contra a parte de cada uma, e os alertas de 80%/100% já enviados no mês
+  const [porFuncao, alertas] = await Promise.all([
+    gastoPorFuncaoDoMes(mes, { precos: tabela, limites }).catch(e => { console.error("[dolores/operacao] falha ao montar o gasto por função", e instanceof Error ? e.name : "erro"); return null; }),
+    alertasDoMes(mes),
+  ]);
   return {
     pausa: pausa ? { pausada: pausa.pausada, motivo: pausa.motivo } : null,
     gasto: {
@@ -81,6 +91,10 @@ async function situacao() {
           semCotacao: limiteEmReaisPorModelo.semCotacao, acimaDoTeto: limiteEmReaisPorModelo.acimaDoTeto, suspeita: limiteEmReaisPorModelo.suspeita } : null,
       },
     },
+    gastoPorFuncao: porFuncao ? {
+      partes: porFuncao.partes, partesDisponiveis: porFuncao.partesDisponiveis, padrao: { ...PARTES_PADRAO }, minimo: PARTE_MINIMA, maximo: PARTE_MAXIMA,
+      funcoes: porFuncao.situacao.funcoes, total: porFuncao.situacao.total, alertas,
+    } : null,
     config: { rondasLigadas: config.rondasLigadas, relatorioLigado: config.relatorioLigado, relatorioHora: horaDoRelatorio(config.relatorioHora), eventosLigados: config.eventosLigados },
     interruptores: {
       iaLigada: wa?.iaLigada ?? false, conexao: wa?.statusConexao ?? "desconectado", numeroDono: mascararNumero(wa?.numeroDono ?? null),
@@ -219,6 +233,24 @@ export const operacaoRouter = router({
     if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cotação indisponível: a migração 0134 ainda não foi aplicada." });
     await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "cotação do dólar alterada pela tela", autorUserId: null, canal: "tela",
       resumo: { cotacao: true, porUserId: ctx.user.id } });
+    return situacao();
+  }),
+
+  /**
+   * EPIC-027 C5-E5 — divisão do limite mensal por função (% inteiros). SÓ o administrador (soAdmin). Validação no servidor: as 5
+   * funções, cada uma de 1 a 96, soma exatamente 100 (o banco confere de novo, CHECK da 0148). Não muda dado de consumo.
+   */
+  salvarPartes: soAdmin.input(z.object(Object.fromEntries(FUNCOES_DO_GASTO.map(f => [f, z.number().int()
+    .min(PARTE_MINIMA, { message: `Nenhuma função pode ficar com 0%: "${ROTULO_FUNCAO_CONSUMO[f]}" precisa de pelo menos ${PARTE_MINIMA}%.` })
+    .max(PARTE_MAXIMA, { message: `"${ROTULO_FUNCAO_CONSUMO[f]}" pode ter no máximo ${PARTE_MAXIMA}%.` })])) as Record<(typeof FUNCOES_DO_GASTO)[number], z.ZodNumber>).strict()
+    .superRefine((v, c) => { const e = erroDasPartes(v); if (e) c.addIssue({ code: z.ZodIssueCode.custom, message: e }); })).mutation(async ({ ctx, input }) => {
+    await exigirConfig();
+    const p = input as Record<(typeof FUNCOES_DO_GASTO)[number], number>;
+    const r = await getDb().update(doloresGastoPartes).set({ conversaPct: p.conversa, documentosPct: p.documentos_e_notas, gruposPct: p.grupos, clientesPct: p.clientes,
+      avisosPct: p.avisos, atualizadoEm: new Date(), atualizadoPor: ctx.user.id }).where(eq(doloresGastoPartes.id, 1)).returning({ id: doloresGastoPartes.id }).catch(() => []);
+    if (!r.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Divisão do gasto indisponível: a migração 0148 ainda não foi aplicada (vale a divisão padrão)." });
+    await registrarAcao({ funcao: "operacao_config", resultado: "ok", motivo: "divisão do gasto por função alterada pela tela", autorUserId: null, canal: "tela",
+      resumo: { ...p, porUserId: ctx.user.id } });
     return situacao();
   }),
 
