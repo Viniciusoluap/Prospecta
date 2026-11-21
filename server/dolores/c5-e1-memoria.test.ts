@@ -17,7 +17,7 @@ import {
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { AGORA, CENARIO, MIGRACAO_0143, criarBanco } from "./testes-banco.js";
-import { FRASE_DECISAO_NA_MEMORIA, definirDependenciasWhatsapp, enviarAvisoAoDono, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { FRASE_DECISAO_NA_MEMORIA, semOsCodigos, definirDependenciasWhatsapp, enviarAvisoAoDono, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
 const DONO = "5599991234567";
 const CHAVE = "sk-ant-chave-de-teste-nao-real-123456";
@@ -88,6 +88,14 @@ afterEach(() => {
 
 const item = (min: number, papel: ItemDaConversa["papel"], t: string, origem: ItemDaConversa["origem"] = papel === "dono" ? "mensagem" : papel === "dolores" ? "resposta" : "aviso") =>
   ({ papel, origem, texto: t, criadoEm: new Date(AGORA.getTime() - min * 60_000), referencias: [] as any[] });
+
+describe("QA C5-E1 rodada 2 — semOsCodigos só troca o formato exato dos códigos do sistema", () => {
+  it("\"[K7M3P]\" e \"(KHMN)\" saem; \"(2026)\", \"[CNPJ]\", \"(MCMV 2)\" e \"Nada mudou\" ficam", () => {
+    expect(semOsCodigos("Dolores:\n[K7M3P] não existe na fila. Ano (2026), campo [CNPJ], programa (MCMV 2). Grupo «Obra» (KHMN). Nada mudou.", ["K7M3P", "nada"]))
+      .toBe("Dolores:\n(código) não existe na fila. Ano (2026), campo [CNPJ], programa (MCMV 2). Grupo «Obra» (código). Nada mudou.");
+    expect(semOsCodigos("não achei nenhum grupo com o código KBQO.", ["kbqo"])).toBe("não achei nenhum grupo com o código (código).");
+  });
+});
 
 describe("migração 0143", () => {
   it("é aditiva e idempotente (aplicada de novo sobre o banco com a tabela, sem erro) e recusa papel/origem fora da lista", async () => {

@@ -70,9 +70,13 @@ const CODG = `[${ALFABETO_CODIGO_GRUPO}]{4}`;
 const CODIGO_DE_GRUPO = new RegExp(`\\(?\\bc[oó]digo[ \\t]{1,3}${CODG}\\b\\)?`, "g");
 /** «grupo K7QM 3», "grupo K7QM ignorar" — comando de grupo entre aspas. */
 const COMANDO_DE_GRUPO = new RegExp(`[«"“]grupo[ \\t]{1,3}${CODG}\\b[^»"”\\n]{0,40}[»"”]`, "g");
-// Para a MEMÓRIA (semCodigos), mais largo: o dono digita o código em minúsculas e o comando sem aspas (lerDecisaoDoDono e
-// lerDecisaoDeGrupo aceitam). Pode levar junto uma palavra de 4/5 letras parecida com código — na memória, tirar a mais é seguro.
+// Para a MEMÓRIA (semCodigos), mais largo: o comando sem aspas e o verbo em qualquer caixa. QA C5-E1 rodada 2: só conta como
+// CÓDIGO a palavra TODA EM MAIÚSCULAS ou com pelo menos um dígito (conferido no replacer, `pareceCodigo`) — palavra comum em
+// minúsculas ("venda", "ajuda", "nada") nunca é apagada, para não mudar o sentido. O comando de decisão em si (minúsculas
+// inclusive) já entra na memória como frase neutra (whatsapp.ts, FRASE_DECISAO_NA_MEMORIA).
 const APROVAR_CODIGO_LARGO = new RegExp(`\\b(?:aprovar|aprovo|recusar|recuso)[ \\t]{1,3}${COD}(?:[ \\t]{0,3}(?:,|\\be\\b)[ \\t]{0,3}${COD}){0,9}\\b`, "gi");
+/** Palavra com cara de código do sistema: toda em maiúsculas ou com algum dígito (o formato e o alfabeto já vêm da regex). */
+export const pareceCodigo = (p: string) => /\d/.test(p) || (p === p.toUpperCase() && p !== p.toLowerCase());
 const CODIGO_DE_GRUPO_LARGO = new RegExp(`\\(?\\bc[oó]digo[ \\t]{1,3}${CODG}\\b\\)?`, "gi");
 const COMANDO_DE_GRUPO_LARGO = new RegExp(`\\bgrupo[ \\t]{1,3}${CODG}\\b`, "gi");
 
@@ -119,10 +123,26 @@ export function vozDaDolores(texto: string): { texto: string; correcoes: number 
   return { texto: correcoes ? costurar(t).trim() : t, correcoes };
 }
 
+const ultimaPalavra = (m: string) => m.trim().split(/[ \t]+/).pop() ?? "";
+/**
+ * "aprovar K7M3P e AC3DE" → só a parte até o último código de verdade sai; a partir da primeira palavra que não parece código
+ * ("aprovar venda do lote", "aprovar K7M3P e ajuda"), o resto fica como veio.
+ */
+function verbosComCodigos(m: string): string {
+  const partes = m.split(/([ \t]*(?:,|\be\b)[ \t]*|[ \t]+)/); // [verbo, sep, código, sep, código, …]
+  let corte = 0; // índice (em `partes`) do último código aceito
+  for (let i = 2; i < partes.length; i += 2) { if (!pareceCodigo(partes[i])) break; corte = i; }
+  if (!corte) return m;
+  return MARCA + partes.slice(corte + 1).join("");
+}
+
 /** Tira códigos de aprovação e de grupo (texto que vai para a memória: o modelo nunca vê códigos), em qualquer caixa e sem aspas. */
 export function semCodigos(texto: string): string {
   const t = String(texto ?? "").slice(0, MAX_ENTRADA_VOZ).replaceAll(MARCA, "")
-    .replace(COMANDO_DE_GRUPO, MARCA).replace(APROVAR_CODIGO_LARGO, MARCA).replace(COMANDO_DE_GRUPO_LARGO, `grupo${MARCA}`).replace(CODIGO_DE_GRUPO_LARGO, MARCA);
+    .replace(COMANDO_DE_GRUPO, MARCA)
+    .replace(APROVAR_CODIGO_LARGO, verbosComCodigos)
+    .replace(COMANDO_DE_GRUPO_LARGO, m => (pareceCodigo(ultimaPalavra(m)) ? `grupo${MARCA}` : m))
+    .replace(CODIGO_DE_GRUPO_LARGO, m => (pareceCodigo(ultimaPalavra(m.replace(/\)$/, ""))) ? MARCA : m));
   return t.includes(MARCA) ? costurar(t).trim() : t;
 }
 

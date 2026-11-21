@@ -1,7 +1,7 @@
 // EPIC-027 C5 (E1) — a voz da Dolores: o filtro de saída (só o texto do modelo), os rótulos das consultas, o "esquece" e o
 // prompt novo (sem citar ferramenta, sem "aprovar CÓDIGO"). Regras puras: nada de banco nem de rede.
 import { describe, expect, it } from "vitest";
-import { MAX_ENTRADA_VOZ, ROTULO_CONSULTA, ehPedidoDeEsquecer, pedeDetalhe, rotulosDasConsultas, semCodigos, vozDaDolores } from "../../shared/dolores/voz.js";
+import { MAX_ENTRADA_VOZ, ROTULO_CONSULTA, ehPedidoDeEsquecer, pareceCodigo, pedeDetalhe, rotulosDasConsultas, semCodigos, vozDaDolores } from "../../shared/dolores/voz.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { ACOES } from "./acoes/registro.js";
 import { FUNCOES } from "./funcoes.js";
@@ -89,13 +89,31 @@ describe("QA C5-E1 achado 1 — sem ReDoS: todas as regex da voz são lineares",
   });
 });
 
-describe("QA C5-E1 achado 3 — códigos fora da memória em qualquer caixa e sem aspas", () => {
-  it("\"aprovar k7m3p\", \"Recusar K7M3P e AC3DE\", \"grupo khmn 3\", \"código khmn\"", () => {
+describe("QA C5-E1 achado 3 — códigos fora da memória sem aspas (maiúsculas ou com dígito)", () => {
+  it("\"aprovar k7m3p\", \"Recusar K7M3P e AC3DE\", \"grupo KHMN 3\", \"código KHMN\"", () => {
     expect(semCodigos("aprovar k7m3p").toUpperCase()).not.toContain("K7M3P");
     expect(semCodigos("Recusar K7M3P e AC3DE agora")).toBe("agora");
     expect(semCodigos("grupo KHMN aceitar")).toBe("grupo aceitar");
-    expect(semCodigos("grupo khmn 3")).not.toMatch(/khmn/i);
-    expect(semCodigos("o grupo (código khmn) entrou")).toBe("o grupo entrou");
+    expect(semCodigos("grupo KHMN 3")).not.toMatch(/khmn/i);
+    expect(semCodigos("o grupo (código KHMN) entrou")).toBe("o grupo entrou");
+    expect(semCodigos("o grupo (código kh3n) entrou")).toBe("o grupo entrou");
+  });
+});
+
+describe("QA C5-E1 rodada 2 — a memória nunca muda o sentido: palavra comum em minúsculas não é código", () => {
+  it("frases do dono ficam inteiras", () => {
+    for (const t of ["pode aprovar venda do lote?", "não vou recusar ajuda", "não mexa no grupo nada", "aprovo tudo hoje", "o código ajuda a achar",
+      "Recuso essa proposta", "grupo deve ser o da Lúcia", "aprovar nada agora"]) expect(semCodigos(t), t).toBe(t);
+  });
+  it("o que tem cara de código sai (maiúsculas ou com dígito); o resto da frase fica", () => {
+    expect(semCodigos("aprovar K7M3P e ajuda")).toBe("e ajuda");
+    expect(semCodigos("pode aprovar VENDA")).toBe("pode");
+    expect(semCodigos("aprovar k7m3p")).toBe("");
+    expect(semCodigos("grupo khm3 ignorar")).toBe("grupo ignorar");
+    expect(semCodigos("grupo nada ignorar")).toBe("grupo nada ignorar");
+    expect(pareceCodigo("venda")).toBe(false);
+    expect(pareceCodigo("KHMN")).toBe(true);
+    expect(pareceCodigo("k7m3p")).toBe(true);
   });
 });
 

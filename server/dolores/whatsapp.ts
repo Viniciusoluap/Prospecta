@@ -55,6 +55,8 @@ import { tratarAtendimento } from "./atendimento.js";
 import { transcreverAudio } from "./transcricao.js";
 import { esquecerConversa, gravarNaConversa, lerJanela, referenciaDoGrupo } from "./memoria.js";
 import { FRASE_ESQUECI, ehPedidoDeEsquecer, vozDaDolores } from "../../shared/dolores/voz.js";
+import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
+import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -348,9 +350,14 @@ export const FRASE_DECISAO_NA_MEMORIA = "(o dono respondeu a um pedido de confir
  * Resposta do sistema a um comando de confirmação, para a memória: sem os códigos conhecidos (qualquer caixa) e sem códigos entre
  * colchetes/parênteses ("[K7M3P]", "(KHMN)"). Só para texto do SISTEMA (nunca do modelo): pode tirar uma sigla a mais.
  */
+const CODIGO_DA_FILA_ENTRE_COLCHETES = new RegExp(`\\[[${ALFABETO_CODIGO}]{5}\\]`, "g");
+const CODIGO_DE_GRUPO_ENTRE_PARENTESES = new RegExp(`\\([${ALFABETO_CODIGO_GRUPO}]{4}\\)`, "g");
 export function semOsCodigos(texto: string, codigos: readonly string[]): string {
-  let t = texto.slice(0, 20_000).replace(/[[(][A-Z0-9]{4,5}[\])]/g, "(código)");
-  for (const c of codigos) if (/^[A-Za-z0-9]{4,5}$/.test(c)) t = t.replace(new RegExp(`\\b${c}\\b`, "gi"), "(código)");
+  // QA C5-E1 rodada 2: só o formato EXATO dos códigos do sistema — "[K7M3P]" (fila: 5, alfabeto da fila) e "(KHMN)" (grupo: 4,
+  // alfabeto do grupo), em maiúsculas; "(2026)", "[CNPJ]" e texto comum ficam
+  let t = texto.slice(0, 20_000).replace(CODIGO_DA_FILA_ENTRE_COLCHETES, "(código)").replace(CODIGO_DE_GRUPO_ENTRE_PARENTESES, "(código)");
+  // os códigos conhecidos (os do próprio comando), como o sistema os escreve: EM MAIÚSCULAS ("Nada mudou" fica)
+  for (const c of codigos) if (/^[A-Za-z0-9]{4,5}$/.test(c)) t = t.replace(new RegExp(`\\b${c.toUpperCase()}\\b`, "g"), "(código)");
   return t;
 }
 
