@@ -49,27 +49,10 @@ export type CategoriaGrupo = (typeof CATEGORIAS_GRUPO)[number];
 export const categoriaDoTipo = (tipo: string) => CATEGORIAS_GRUPO.find(c => c.tipo === tipo) ?? null;
 
 /**
- * QA-SEG EPIC-027 (achado 1 e rodada 2, R2-1/R2-2) — a regra do COLABORADOR (módulo WhatsApp), conferida na rota e no gatilho da
- * 0139: só classifica grupo ainda "não identificado" ou SEM vínculo, e só como cliente / pós-atendimento (com o nº do cliente) ou
- * engenharia DE UMA OBRA (com o nº da obra). Qualquer correção depois (trocar ou tirar o vínculo, mudar o tipo de grupo já
- * vinculado) é do ADMIN — assim como administrativo (sócios), jurídico, parceiros comerciais e engenharia geral (sem obra), que
- * usam o escopo interno (liberam valores e outros clientes).
+ * Regra do dono (21/11/2026): "eu disse que o colaborador pode ter acesso às mensagens do grupo assim como as mensagens dos
+ * clientes, mas em nenhum momento eu falei que ele iria classificar". Classificar grupo (tipo e vínculo) é SÓ do administrador,
+ * pela tela, e do dono, pelo WhatsApp (rota `dolores.grupos.definirTipo` e gatilho da 0144).
  */
-export const TIPOS_DO_COLABORADOR = ["cliente", "pos_atendimento", "engenharia"] as const;
-export const TIPOS_SO_DO_ADMIN = ["administrativo", "juridico", "parceiros"] as const;
-/** Tipo de admin: os três internos e a engenharia geral (sem obra), que também usa o escopo interno. */
-export const ehTipoDeAdmin = (tipo: TipoGrupo, obraId: number | null) =>
-  (TIPOS_SO_DO_ADMIN as readonly string[]).includes(tipo) || (tipo === "engenharia" && !obraId);
-export function colaboradorPodeClassificar(atual: { tipo: TipoGrupo; leadId: number | null; obraId: number | null }, novo: string, numero: number | null): boolean {
-  const semVinculo = !atual.leadId && !atual.obraId;
-  const atualLivre = atual.tipo === "indefinido" || (semVinculo && !ehTipoDeAdmin(atual.tipo, atual.obraId));
-  if (!atualLivre || !semVinculo) return false;
-  return (novo === "cliente" || novo === "pos_atendimento" || novo === "engenharia") && !!numero && numero > 0;
-}
-export const FRASE_TIPOS_DO_ADMIN = "Administrativo (sócios), jurídico, parceiros comerciais e engenharia geral (sem obra) só o administrador define ou tira, porque liberam mais informação no grupo. Corrigir um grupo que já tem cliente ou obra também é do administrador.";
-export const FRASE_NOME_DE_OUTRO_CLIENTE = (leadId: number) =>
-  `O nome deste grupo bate com outro cliente do CRM (nº ${leadId}). Ligar o grupo a um cliente ou obra diferente desse só o administrador faz.`;
-export const FRASE_ENGENHARIA_COM_OBRA = "Para você, engenharia é sempre de uma obra: informe o nº da obra (engenharia geral, sem obra, é do administrador).";
 
 /** Quem colocou a Dolores no grupo: provado o dono, provado outra pessoa, ou não provado (QA-SEG E7). Vazio = cadastro à mão. */
 export const ADICIONADO_POR = ["dono", "outra_pessoa", "desconhecido"] as const;
@@ -112,7 +95,7 @@ export function ligadoPorPadrao(g: { ativo: boolean; origem?: string | null; tip
 }
 
 /**
- * EPIC-027 C3 — o tipo deste grupo pode ser definido/corrigido pela TELA (admin, ou colaborador com o módulo WhatsApp)? Sim para
+ * EPIC-027 C3 — o tipo deste grupo pode ser definido/corrigido pela TELA (só o administrador)? Sim para
  * grupo já ACEITO — inclusive o "não identificado · aguardando o dono" que o dono adicionou ou aceitou. NUNCA para grupo recusado
  * ou cuja entrada não foi provada e o dono ainda não aceitou: aceitar esses continua só do dono, pelo WhatsApp (regra de 19/11).
  */

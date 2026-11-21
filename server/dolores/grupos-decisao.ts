@@ -5,7 +5,7 @@
 //   a obra (opcional). Tipos internos ficam sem vínculo.
 // - O gatilho da 0133 só deixa tipo e vínculo mudarem com `decidido_em` gravado na mesma operação — é o que esta função faz.
 // - Mensagem de grupo nunca chega aqui (o webhook trata grupo antes e nunca o transforma em comando).
-// - EPIC-027 C3: pela tela (admin ou colaborador com o módulo WhatsApp) se CLASSIFICA grupo já aceito, inclusive o "aguardando o
+// - EPIC-027 C3: pela tela (só o administrador — regra do dono de 21/11) se CLASSIFICA grupo já aceito, inclusive o "aguardando o
 //   dono" de tipo indefinido que o dono adicionou/aceitou. O que segue (R2-3) passa a valer só para recusado / sem prova.
 // - QA-SEG E7 (achado 6c; r2, R2-3): grupo RECUSADO ou automático "aguardando o dono" (sem prova de quem colocou a Dolores, ou
 //   adicionado pelo dono mas de tipo indefinido) só sai desse estado pelo comando do DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
@@ -31,7 +31,7 @@ export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | n
 const aspas = (s: string | null | undefined) => { const t = limparNomeDeTerceiro(s); return t ? `«${t}»` : "(sem nome)"; };
 
 /** Aplica a decisão do dono ao grupo (pelo código, no WhatsApp; pelo id, na tela). Devolve o texto para o dono. */
-export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number }, d: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
+export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number; instancia?: string }, d: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
   const db = getDb();
   const pedidoId = origem.via === "whatsapp" ? `wa:${origem.mensagemId}` : `tela:grupos:${"grupoId" in alvo ? alvo.grupoId : "codigo"}`;
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>) =>
@@ -41,7 +41,9 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
       resumo: { ...resumo, ...(origem.via === "tela" ? { porUserId: origem.userId } : {}) } });
   let g: DoloresGrupo | undefined;
   try {
-    [g] = await db.select().from(doloresGrupos).where("codigo" in alvo ? eq(doloresGrupos.codigo, alvo.codigo) : eq(doloresGrupos.id, alvo.grupoId)).limit(1);
+    // EPIC-027 (portão da C2): pela tela, só grupo da instância da empresa
+    [g] = await db.select().from(doloresGrupos).where("codigo" in alvo ? eq(doloresGrupos.codigo, alvo.codigo)
+      : alvo.instancia ? and(eq(doloresGrupos.id, alvo.grupoId), eq(doloresGrupos.instancia, alvo.instancia)) : eq(doloresGrupos.id, alvo.grupoId)).limit(1);
   } catch (e) {
     console.error("[dolores/grupos-decisao] grupos indisponíveis", erroParaLog(e));
     return { ok: false, texto: "Dolores: não consegui ler os grupos agora (a migração 0133 foi aplicada?); nada mudou.", grupoId: null };
@@ -125,7 +127,8 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number 
     await db.transaction(async tx => {
       // definir o tipo de um grupo recusado (ou sem prova de quem colocou a Dolores) também o aceita — é a decisão do dono no
       // WhatsApp (pela tela, recusado acima)
-      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ativo: true, situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor, obraExcluidaEm: null,
+      // EPIC-027 (portão da C2): classificar pela TELA não reativa grupo desativado; o comando do dono no WhatsApp reativa (como antes)
+      await tx.update(doloresGrupos).set({ tipo, leadId, obraId, ...(origem.via === "whatsapp" ? { ativo: true } : {}), situacaoConfirmacao: "confirmado", decididoEm: agora, decididoPor, obraExcluidaEm: null,
         ...(semProva ? { provaAdicao: "aceito_pelo_dono" as const } : {}),
         atualizadoEm: agora, atualizadoPorUserId: origem.via === "tela" ? origem.userId : null }).where(eq(doloresGrupos.id, g!.id));
       // grupo confirmado nasce com o interruptor LIGADO (se ninguém mexeu nele antes); nada fala com o interruptor geral desligado

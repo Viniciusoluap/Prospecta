@@ -103,7 +103,7 @@ export const nomeDoWhatsappParaGravar = (s: string | null | undefined) => {
 };
 
 /** Clientes ativos do CRM (id e nome) para comparar com o nome do grupo. */
-export async function clientesDoCrm(): Promise<ClienteParaTipo[]> {
+async function clientesDoCrm(): Promise<ClienteParaTipo[]> {
   const linhas = await getDb().select({ id: leads.id, nome: leads.name }).from(leads).where(isNull(leads.deletedAt)).limit(MAX_CLIENTES_PARA_TIPO);
   return linhas;
 }
@@ -441,7 +441,7 @@ async function avisarEntradaNoAdministrativo(instancia: string, jid: string, qua
 }
 
 /**
- * QA-SEG EPIC-027 (achado 1b) — classificação feita pela TELA (admin ou colaborador): aviso ao dono no WhatsApp (texto fixo, sem
+ * QA-SEG EPIC-027 (achado 1b) — classificação feita pela TELA (só administrador; útil com mais de um): aviso ao dono no WhatsApp (texto fixo, sem
  * IA) com o grupo, o tipo antes → depois, quem mudou e quando. Conta no teto diário de avisos de grupo (contador próprio). Passou do
  * teto (ou o envio falhou): a classificação continua valendo e o grupo fica marcado "aviso pendente" — entra no relatório diário.
  */

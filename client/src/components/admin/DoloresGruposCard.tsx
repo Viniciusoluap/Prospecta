@@ -10,10 +10,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { jidDeGrupoParaExibir } from "@shared/dolores/grupos";
 import { desfechoRespondido, rotuloDoDesfechoDaMarcacao } from "@shared/dolores/marcacao";
-import { CATEGORIAS_GRUPO, FRASE_ENGENHARIA_COM_OBRA, FRASE_TIPOS_DO_ADMIN, ROTULO_AUTORIA_PENDENTE, colaboradorPodeClassificar, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, categoriaDoTipo, telaPodeClassificar, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
+import { CATEGORIAS_GRUPO, ROTULO_AUTORIA_PENDENTE, ROTULO_SITUACAO_CONFIRMACAO, ROTULO_TIPO_GRUPO, autoriaPendente, categoriaDoTipo, telaPodeClassificar, type AdicionadoPor, type ProvaAdicao, type SituacaoConfirmacao, type TipoGrupo } from "@shared/dolores/grupos-tipo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -315,12 +314,6 @@ function GruposSecao(p: {
   onConfig: (c: { entradaAutomaticaLigada?: boolean; tetoGruposNovosDia?: number; tetoAvisosGruposDia?: number }) => void; salvando: boolean;
 }) {
   const utils = trpc.useUtils();
-  // QA-SEG EPIC-027 (achado 1): o colaborador vê só as categorias que pode usar (o servidor confere de novo)
-  const { user } = useAuth();
-  const ehAdmin = user?.role === "admin";
-  // rodada 2: o colaborador só classifica grupo sem vínculo/não identificado, como cliente, pós ou engenharia DE UMA OBRA
-  const opcoesDaTela = (g: { tipo: TipoGrupo; leadId: number | null; obraId: number | null }) =>
-    CATEGORIAS_GRUPO.filter(c => ehAdmin || colaboradorPodeClassificar(g, c.tipo, 1));
   const [editando, setEditando] = useState<{ id: number; tipo: string; numero: string } | null>(null);
   const [tetos, setTetos] = useState<Record<string, string>>({});
   const definir = trpc.dolores.grupos.definirTipo.useMutation({
@@ -404,17 +397,15 @@ function GruposSecao(p: {
                   <div><Label htmlFor={`tipo-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
                     <select id={`tipo-${g.id}`} value={editando.tipo} onChange={e => setEditando({ ...editando, tipo: e.target.value })}
                       className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
-                      {opcoesDaTela(g).map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
+                      {CATEGORIAS_GRUPO.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
                     </select>
                     <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(editando.tipo)?.explica ?? ""}</p>
-                    {!ehAdmin && <p className="mt-1 max-w-xs text-[11px] text-yellow-200">{FRASE_TIPOS_DO_ADMIN}</p>}
                     <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
                   {(precisaNumero(editando.tipo) || editando.tipo === "engenharia") && (
-                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : ehAdmin ? "Nº da obra (opcional)" : "Nº da obra (obrigatório)"}</Label>
-                      {!ehAdmin && editando.tipo === "engenharia" && <p className="max-w-xs text-[11px] text-yellow-200">{FRASE_ENGENHARIA_COM_OBRA}</p>}
+                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
                       <Input id={`numero-${g.id}`} inputMode="numeric" value={editando.numero} onChange={e => setEditando({ ...editando, numero: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
                   )}
-                  <Button size="sm" className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]" disabled={definir.isPending || ((precisaNumero(editando.tipo) || (!ehAdmin && editando.tipo === "engenharia")) && !editando.numero)}
+                  <Button size="sm" className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]" disabled={definir.isPending || (precisaNumero(editando.tipo) && !editando.numero)}
                     onClick={() => definir.mutate({ grupoId: g.id, tipo: editando.tipo as TipoDaTela, numero: editando.numero ? Number(editando.numero) : null })}>Salvar</Button>
                   <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando(null)}>Cancelar</Button>
                 </div>
@@ -426,9 +417,7 @@ function GruposSecao(p: {
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {ehAdmin || opcoesDaTela(g).length
-                    ? <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" || !opcoesDaTela(g).some(c => c.tipo === g.tipo) ? opcoesDaTela(g)[0]?.tipo ?? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
-                    : <p className="text-xs text-gray-300">{FRASE_TIPOS_DO_ADMIN}</p>}
+                  <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}
