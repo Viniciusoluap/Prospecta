@@ -10,9 +10,10 @@
 // Retenção: linhas com mais de 24 h são apagadas a cada gravação (barato, pelo índice de criado_em; sem cron novo);
 // "esquece" apaga todas. Falha aqui nunca derruba a resposta: sem memória, ela responde como antes. Nada daqui vai para log
 // (só a causa do erro, sem o texto) nem para tela.
-import { and, desc, gte, lt, ne, or, isNull, eq } from "drizzle-orm";
+import { and, desc, gte, lt, ne, or, isNull, isNotNull, eq } from "drizzle-orm";
 import { doloresConversa, type OrigemConversa, type PapelConversa, type ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { semCodigos } from "../../shared/dolores/voz.js";
@@ -36,9 +37,43 @@ export type ItemDaConversa = { papel: PapelConversa; origem: OrigemConversa; cri
 export type Historico = { itens: ItemDaConversa[]; referencias: ReferenciaConversa[] };
 export const HISTORICO_VAZIO: Historico = Object.freeze({ itens: [], referencias: [] }) as Historico;
 
-/** O texto como é guardado: filtro do registro (tudo mascarado), sem códigos, cortado. */
-export function textoParaGravar(texto: string): string {
-  const t = semCodigos(sanitizarTexto(String(texto ?? ""), FILTRO_DO_REGISTRO)).trim();
+/** Teto das consultas dos códigos reais (as tabelas são pequenas; o teto só garante que a consulta é barata). */
+export const MAX_CODIGOS_APROVACAO = 1_000;
+export const MAX_CODIGOS_GRUPO = 2_000;
+
+/**
+ * QA C5-E1 rodada 3: os códigos que EXISTEM de verdade — os da fila (os mais recentes, qualquer situação: a resposta a uma decisão
+ * ainda cita o código) e os dos grupos —, em maiúsculas. Falha → null (quem chama cai no filtro por formato, o lado seguro).
+ */
+export async function codigosReais(): Promise<Set<string> | null> {
+  try {
+    const db = getDb();
+    const [fila, grupos] = await Promise.all([
+      db.select({ c: doloresAprovacoes.codigo }).from(doloresAprovacoes).orderBy(desc(doloresAprovacoes.id)).limit(MAX_CODIGOS_APROVACAO),
+      db.select({ c: doloresGrupos.codigo }).from(doloresGrupos).where(isNotNull(doloresGrupos.codigo)).orderBy(desc(doloresGrupos.id)).limit(MAX_CODIGOS_GRUPO),
+    ]);
+    return new Set([...fila, ...grupos].map(x => String(x.c ?? "").toUpperCase()).filter(c => c.length >= 4));
+  } catch (e) {
+    console.error("[dolores/memoria] falha ao ler os códigos reais; a memória usa o filtro por formato", erroParaLog(e));
+    return null;
+  }
+}
+
+/** Troca só as palavras que SÃO um código real (qualquer caixa); siglas do negócio (MCMV, CNPJ, TURMA) ficam. Linear: sem regex do texto. */
+export function semCodigosReais(texto: string, reais: ReadonlySet<string>): string {
+  if (!reais.size) return texto;
+  const t = texto.split(/([A-Za-z0-9]+)/).map((p, i) => (i % 2 === 1 && p.length <= 8 && reais.has(p.toUpperCase()) ? "(código)" : p)).join("");
+  // "(código KHMN)" dos avisos do sistema some inteiro; "código KHMN" vira só "(código)" (textos fixos: sem regex variável)
+  return t.replaceAll(" (código (código))", "").replaceAll("(código (código))", "").replaceAll("código (código)", "(código)");
+}
+
+/**
+ * O texto como é guardado: filtro do registro (tudo mascarado), sem códigos, cortado. Com `reais` (os códigos que existem), troca só
+ * esses; sem eles (consulta falhou ou chamada pura), o filtro por formato (`semCodigos`).
+ */
+export function textoParaGravar(texto: string, reais?: ReadonlySet<string> | null): string {
+  const limpo = sanitizarTexto(String(texto ?? "").slice(0, 20_000), FILTRO_DO_REGISTRO);
+  const t = (reais ? semCodigosReais(limpo, reais) : semCodigos(limpo)).trim();
   return t.length > MAX_TEXTO_GRAVADO ? `${t.slice(0, MAX_TEXTO_GRAVADO - 1)}…` : t;
 }
 
@@ -46,7 +81,7 @@ const horasAntes = (agora: Date, h: number) => new Date(agora.getTime() - h * 3_
 
 /** Grava uma mensagem da conversa do dono e apaga as que passaram da retenção. Falha só vai ao log (sem o texto). */
 export async function gravarNaConversa(p: { papel: PapelConversa; origem: OrigemConversa; texto: string; agora: Date; mensagemId?: number | null; funcao?: string | null; referencias?: readonly ReferenciaConversa[] }): Promise<boolean> {
-  const texto = textoParaGravar(p.texto);
+  const texto = textoParaGravar(p.texto, await codigosReais());
   if (!texto) return false;
   try {
     const db = getDb();

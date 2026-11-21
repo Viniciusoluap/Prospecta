@@ -11,7 +11,7 @@ import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { RESERVA_MINIMA_ENTRADA, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import {
-  HISTORICO_VAZIO, JANELA_CARACTERES, lerJanela, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
+  HISTORICO_VAZIO, JANELA_CARACTERES, codigosReais, lerJanela, semCodigosReais, textoParaGravar, JANELA_MENSAGENS, janelaDe, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico,
   type ItemDaConversa,
 } from "./memoria.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
@@ -94,6 +94,31 @@ describe("QA C5-E1 rodada 2 — semOsCodigos só troca o formato exato dos códi
     expect(semOsCodigos("Dolores:\n[K7M3P] não existe na fila. Ano (2026), campo [CNPJ], programa (MCMV 2). Grupo «Obra» (KHMN). Nada mudou.", ["K7M3P", "nada"]))
       .toBe("Dolores:\n(código) não existe na fila. Ano (2026), campo [CNPJ], programa (MCMV 2). Grupo «Obra» (código). Nada mudou.");
     expect(semOsCodigos("não achei nenhum grupo com o código KBQO.", ["kbqo"])).toBe("não achei nenhum grupo com o código (código).");
+  });
+});
+
+describe("QA C5-E1 rodada 3 — a memória troca só os códigos que EXISTEM (fila e grupos), em qualquer caixa", () => {
+  const reais = new Set(["KHMNP", "KHMN"]);
+  it("siglas do negócio ficam; código real sai, maiúsculo ou minúsculo, no meio da frase", () => {
+    for (const t of ["grupo MCMV da Lucia", "código MCMV da obra", "grupo CNPJ", "aprovar TURMA", "a NAVE chegou", "pode aprovar venda do lote?"])
+      expect(textoParaGravar(t, reais), t).toBe(t);
+    expect(textoParaGravar("pode aprovar khmnp?", reais)).toBe("pode aprovar (código)?");
+    expect(textoParaGravar("grupo KHMN ignorar", reais)).toBe("grupo (código) ignorar");
+    expect(semCodigosReais("KHMNPX e xKHMN ficam", reais)).toBe("KHMNPX e xKHMN ficam");
+  });
+  it("lê os códigos do banco (grupos e fila) e a gravação usa eles", async () => {
+    expect(await codigosReais()).toEqual(new Set(["KHMN", "KHMP"]));
+    roteiro = [() => texto("ok")];
+    await chamar(aviso({ texto: "o grupo khmn é da Lúcia, programa MCMV" }));
+    const [dono] = (await conversa()).filter(g => g.papel === "dono");
+    expect(dono.texto).toBe("o grupo (código) é da Lúcia, programa MCMV");
+  });
+  it("consulta dos códigos falhou → cai no filtro por formato (lado seguro)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getDb).mockImplementationOnce(() => { throw new Error("banco fora"); });
+    expect(await codigosReais()).toBeNull();
+    expect(textoParaGravar("grupo KHMN aceitar", null)).not.toContain("KHMN");
+    expect(textoParaGravar("aprovar k7m3p", null).toUpperCase()).not.toContain("K7M3P");
   });
 });
 
