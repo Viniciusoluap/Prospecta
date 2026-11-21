@@ -59,8 +59,9 @@ prévia sem banco para o dono ver e para as capturas.
 
 ## Testes
 - (a) Automáticos: `server/maquete-3d-gerador.test.ts` (conversor, alturas, níveis, balcão, cobertura, vistas,
-  ModeloMaquete, itens × mobília automática, planta 2D e cotas) e os testes existentes `server/maquete-3d*.test.ts` —
-  ver o resultado em `ETAPA-2-RELATORIO.md`. `npx tsc --noEmit` sem erro. O projeto não tem script `lint`.
+  ModeloMaquete, itens × mobília automática, planta 2D e cotas; 20 testes) e todos os `server/maquete-3d*.test.ts`:
+  13 arquivos, 322 testes passando em 21/11/2026. `npx tsc --noEmit` sem erro; `npx vite build` sem erro. O projeto
+  não tem script `lint`.
 - (b) Manuais: capturas conferidas uma a uma (lista no relatório).
 - (c) Produção: nada nesta etapa (sem banco, sem publicação).
 
