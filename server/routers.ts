@@ -66,6 +66,8 @@ import {
 import { configuracoesRouter, primeiroAcessoRouter } from "./configuracoes-router.js";
 import { consentimentoRouter } from "./consentimento.js";
 import { integracoesRouter } from "./integracoes-router.js";
+// EPIC-027 C7: API oficial do WhatsApp (YCloud) — campanhas por modelo aprovado. Só admin por papel.
+import { whatsappOficialRouter } from "./ycloud/router.js";
 import { doloresRouter } from "./dolores/router.js";
 import { googleDriveRouter } from "./google-drive-router.js";
 import { relatoriosRouter } from "./relatorios-router.js";
@@ -203,6 +205,7 @@ export const appRouter = router({
   mapa: mapaRouter,
   configuracoes: configuracoesRouter,
   integracoes: integracoesRouter,
+  whatsappOficial: whatsappOficialRouter,
   // EPIC-025 E2: WhatsApp da Dolores — só admin (fora do mapa de módulos e com checagem de papel)
   dolores: doloresRouter,
   googleDrive: googleDriveRouter,
