@@ -1,4 +1,5 @@
 import type { ItemMixProduto } from "./mix-produtos.js";
+import { APROVEITAMENTO_VAGAS, M2_POR_VAGA } from "../maquete-3d/padrao.js";
 
 const inteiro = (n: number) => Number.isFinite(n) && n > 0 && Number.isInteger(n) ? n : 0;
 
@@ -10,13 +11,19 @@ export function blocoApartamento(item: ItemMixProduto) {
   const areaBlocoM2 = Number.isFinite(area) && area > 0 ? area : 0;
   const vagasPorBloco = inteiro(item.vagasPorBloco ?? 24);
   const unidadesPorBloco = apartamentosPorAndar * andares;
-  const valido = unidadesPorBloco > 0 && areaBlocoM2 > 0 && vagasPorBloco > 0;
+  const projecao = item.areaProjecaoBlocoM2 ?? apartamentosPorAndar * 50;
+  const areaProjecaoBlocoM2 = Number.isFinite(projecao) && projecao > 0 ? projecao : 0;
+  const valido = unidadesPorBloco > 0 && areaBlocoM2 > 0 && vagasPorBloco > 0 && areaProjecaoBlocoM2 > 0 && areaProjecaoBlocoM2 <= areaBlocoM2;
+  // Mesma regra do pátio da Maquete 3D: desconta projeção, recuos/jardim/acessos e manobra.
+  const areaPatioM2 = Math.max(0, areaBlocoM2 - areaProjecaoBlocoM2) * APROVEITAMENTO_VAGAS.patio;
+  const vagasFisicas = Math.floor(areaPatioM2 / M2_POR_VAGA);
+  const vagasUtilizaveis = Math.min(vagasPorBloco, vagasFisicas);
   const quantidade = Number.isFinite(item.quantidade) ? Math.max(0, item.quantidade) : 0;
   const blocos = valido ? Math.ceil(quantidade / unidadesPorBloco) : 0;
-  return { apartamentosPorAndar, andares, areaBlocoM2, vagasPorBloco, unidadesPorBloco,
+  return { apartamentosPorAndar, andares, areaBlocoM2, areaProjecaoBlocoM2, areaPatioM2, vagasPorBloco, vagasFisicas, vagasUtilizaveis, unidadesPorBloco,
     valido, blocos, areaTotalM2: blocos * areaBlocoM2,
-    estacionamentoSuficiente: vagasPorBloco >= unidadesPorBloco,
-    capacidadePorBloco: valido ? Math.min(unidadesPorBloco, vagasPorBloco) : 0 };
+    estacionamentoSuficiente: valido && vagasUtilizaveis >= unidadesPorBloco,
+    capacidadePorBloco: valido ? Math.min(unidadesPorBloco, vagasUtilizaveis) : 0 };
 }
 
 /** Blocos incompletos também reservam o terreno completo, inclusive suas vagas. */
@@ -64,10 +71,24 @@ export function capacidadeTerrenoMix(itens: ItemMixProduto[], areaDisponivelM2: 
       return Math.max(0, Math.floor(areaDisponivelM2 / b.areaBlocoM2)) * b.capacidadePorBloco;
     }
   }
-  if (ativos.some(i => i.apartamento && !blocoApartamento(i).valido)) return 0;
-  const quantidade = ativos.reduce((s, i) => s + (i.apartamento
-    ? Math.min(i.quantidade, blocoApartamento(i).blocos * blocoApartamento(i).capacidadePorBloco)
-    : i.quantidade), 0);
+  if (ativos.some(i => i.apartamento)) {
+    if (ativos.some(i => i.apartamento && !blocoApartamento(i).valido)) return 0;
+    // Estimativa por uma implantação possível: aloca blocos inteiros por densidade,
+    // depois usa a sobra com outras tipologias. Nunca fraciona um bloco vertical.
+    const opcoes = ativos.map(i => i.apartamento
+      ? { area: blocoApartamento(i).areaBlocoM2, unidades: blocoApartamento(i).capacidadePorBloco }
+      : { area: i.areaUnidadeM2, unidades: 1 })
+      .filter(i => Number.isFinite(i.area) && i.area > 0 && i.unidades > 0)
+      .sort((a, b) => b.unidades / b.area - a.unidades / a.area || a.area - b.area);
+    let restante = Math.max(0, areaDisponivelM2), capacidade = 0;
+    for (const o of opcoes) {
+      const quantidade = Math.floor(restante / o.area);
+      capacidade += quantidade * o.unidades;
+      restante = Math.max(0, restante - quantidade * o.area);
+    }
+    return capacidade;
+  }
+  const quantidade = ativos.reduce((s, i) => s + i.quantidade, 0);
   const area = ativos.reduce((s, i) => s + areaTerrenoItemMix(i), 0);
   return area > 0 ? Math.max(0, Math.floor(areaDisponivelM2 / (area / quantidade))) : 0;
 }

@@ -5,6 +5,7 @@ import { defaultsForm, montarViabilidadeDoEstudo, paraMotor } from "../shared/in
 import { calcularCenarios, calcularLoteamento } from "../shared/incorporacao/viabilidade-economica";
 import { paraEstudoData } from "../shared/incorporacao/estudo-data";
 import { linhaEstudo2 } from "./fixtures/estudo-2-daniel-mota";
+import { linhasMixRelatorio } from "../client/src/components/incorporacao/estudo/compat/pdf-loteamento";
 
 const apt = (extra: Partial<ItemMixProduto> = {}): ItemMixProduto => ({ nome: "Apartamentos", quantidade: 216,
   apartamento: true, areaUnidadeM2: 1100, precoM2: 500, precoUnidade: 210_000,
@@ -52,8 +53,35 @@ describe("Apartamento no mix: unidades vendidas e terreno por bloco", () => {
     expect(item.quantidade).toBe(216); // jamais reduz a quantidade digitada em silêncio
   });
 
+  it("não aceita vagas declaradas como prova de que cabem no terreno", () => {
+    expect(blocoApartamento(apt({ areaBlocoM2: 10 }))).toMatchObject({ estacionamentoSuficiente: false, vagasFisicas: 0, capacidadePorBloco: 0 });
+    expect(capacidadeTerrenoMix([apt({ areaBlocoM2: 10 })], 1000)).toBe(0);
+    expect(blocoApartamento(apt({ areaProjecaoBlocoM2: 500 }))).toMatchObject({ vagasFisicas: 18, vagasUtilizaveis: 18, capacidadePorBloco: 18, estacionamentoSuficiente: false });
+    expect(blocoApartamento(apt())).toMatchObject({ vagasFisicas: 26, vagasUtilizaveis: 24, estacionamentoSuficiente: true });
+  });
+
+  it("aloca blocos inteiros quando há mais de uma tipologia vertical", () => {
+    const pequeno = apt({ quantidade: 12, apartamentosPorAndar: 3, andares: 4, areaBlocoM2: 500, vagasPorBloco: 12 });
+    expect(capacidadeTerrenoMix([apt({ quantidade: 24 }), pequeno], 1499)).toBe(24);
+    expect(capacidadeTerrenoMix([apt({ quantidade: 24 }), pequeno], 499)).toBe(0);
+    expect(capacidadeTerrenoMix([apt({ quantidade: 24 }), pequeno], 1500)).toBe(36);
+  });
+
+  it("o PDF mostra preço por apartamento e terreno por bloco em vez dos campos legados", () => {
+    const linha = linhasMixRelatorio(calcularMix([apt()]).itens)[0];
+    expect(linha[0]).toContain("apartamento");
+    expect(linha[1]).toBe("216");
+    expect(linha[2]).toContain("9 blocos");
+    expect(linha[2]).toContain("9.000,00");
+    expect(linha[3]).toContain("210.000,00");
+    expect(linha[3]).toContain("/unid.");
+    expect(linha[4]).toContain("45.360.000,00");
+    expect(linha.join(" ")).not.toContain("1.100,00");
+    expect(linha.join(" ")).not.toContain("500,00");
+  });
+
   it("não volta ao padrão quando o usuário zera ou invalida a configuração", () => {
-    for (const extra of [{ apartamentosPorAndar: 0 }, { andares: 1.5 }, { areaBlocoM2: 0 }, { areaBlocoM2: Infinity }, { vagasPorBloco: -1 }]) {
+    for (const extra of [{ apartamentosPorAndar: 0 }, { andares: 1.5 }, { areaBlocoM2: 0 }, { areaBlocoM2: Infinity }, { vagasPorBloco: -1 }, { areaProjecaoBlocoM2: 0 }, { areaProjecaoBlocoM2: 1001 }]) {
       expect(blocoApartamento(apt(extra)).valido).toBe(false);
       expect(capacidadeTerrenoMix([apt(extra)], 9000)).toBe(0);
     }

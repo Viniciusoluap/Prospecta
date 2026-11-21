@@ -25,6 +25,8 @@ export interface ItemMixProduto {
   andares?: number;
   /** Área total de terreno por bloco, JÁ incluindo estacionamento e circulação. */
   areaBlocoM2?: number;
+  /** Projeção no solo do prédio, incluindo áreas comuns; não inclui estacionamento. */
+  areaProjecaoBlocoM2?: number;
   /** Vagas efetivamente previstas dentro da área de cada bloco. */
   vagasPorBloco?: number;
   /** Valor de venda por unidade (Casa pronta ou Apartamento). */

@@ -135,7 +135,8 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
       novo[i] = { ...novo[i], [campo]: campo === "nome" || campo === "casaPronta" || campo === "apartamento" ? valor : (typeof valor === "number" ? valor : parseFloat(String(valor)) || 0) };
       if (campo === "apartamento" && valor === true) novo[i] = { ...novo[i], casaPronta: false,
         apartamentosPorAndar: novo[i].apartamentosPorAndar ?? 6, andares: novo[i].andares ?? 4,
-        areaBlocoM2: novo[i].areaBlocoM2 ?? 1000, vagasPorBloco: novo[i].vagasPorBloco ?? 24 };
+        areaBlocoM2: novo[i].areaBlocoM2 ?? 1000, vagasPorBloco: novo[i].vagasPorBloco ?? 24,
+        areaProjecaoBlocoM2: novo[i].areaProjecaoBlocoM2 ?? (novo[i].apartamentosPorAndar ?? 6) * 50 };
       if (campo === "casaPronta" && valor === true) novo[i] = { ...novo[i], apartamento: false };
       // Casa Pronta sem área: sugere a área média dos lotes do cenário/lotes avulsos (editável)
       if (campo === "casaPronta" && valor === true && !(novo[i].areaUnidadeM2 > 0) && areaMediaLote > 0) novo[i] = { ...novo[i], areaUnidadeM2: areaMediaLote };
@@ -279,10 +280,12 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
                   <Num label="Apartamentos por andar" value={p.apartamentosPorAndar ?? 6} onChange={v => updProduto(i, "apartamentosPorAndar", v)} />
                   <Num label="Número de andares" value={p.andares ?? 4} onChange={v => updProduto(i, "andares", v)} />
                   <Num label="Terreno por bloco com estacionamento" sufixo="m²" value={p.areaBlocoM2 ?? 1000} onChange={v => updProduto(i, "areaBlocoM2", v)} />
+                  <Num label="Projeção do prédio no solo, com áreas comuns" sufixo="m²" value={p.areaProjecaoBlocoM2 ?? (p.apartamentosPorAndar ?? 6) * 50} onChange={v => updProduto(i, "areaProjecaoBlocoM2", v)} />
                   <Num label="Vagas previstas por bloco" value={p.vagasPorBloco ?? 24} onChange={v => updProduto(i, "vagasPorBloco", v)} />
                 </div>
                 <p className="text-xs text-gray-600">{p.apartamentosPorAndar ?? 6} apartamentos × {p.andares ?? 4} andares = {blocoApartamento(p).unidadesPorBloco} por bloco · {blocoApartamento(p).blocos} blocos · terreno total: {fmtM2(blocoApartamento(p).areaTotalM2)}. Cada bloco ocupa um lote; a área informada já inclui as vagas e a circulação.</p>
-                {!blocoApartamento(p).valido || !Number.isInteger(p.quantidade) || p.quantidade < 0 ? <p role="alert" className="text-xs font-bold text-red-600">Informe área positiva, quantidade inteira não negativa e números inteiros positivos para apartamentos por andar, andares e vagas.</p> : !blocoApartamento(p).estacionamentoSuficiente ? <p role="alert" className="text-xs font-bold text-red-600">Estacionamento insuficiente: são necessárias {blocoApartamento(p).unidadesPorBloco} vagas por bloco e foram previstas {blocoApartamento(p).vagasPorBloco}. Ajuste a composição ou as vagas dentro da área informada.</p> : null}
+                <p className="text-xs text-gray-500">Estacionamento por bloco: {blocoApartamento(p).vagasFisicas} vagas cabem pela área, {blocoApartamento(p).vagasPorBloco} previstas e {blocoApartamento(p).unidadesPorBloco} necessárias. A conta usa 70% da área livre após a projeção do prédio e 18,75 m² por vaga com manobra. Projeção inicial sugerida a 50 m² por apartamento no pavimento; ajuste conforme a planta, incluindo áreas comuns.</p>
+                {!blocoApartamento(p).valido || !Number.isInteger(p.quantidade) || p.quantidade < 0 ? <p role="alert" className="text-xs font-bold text-red-600">Informe áreas positivas, projeção do prédio dentro do terreno, quantidade inteira não negativa e números inteiros positivos para apartamentos por andar, andares e vagas.</p> : !blocoApartamento(p).estacionamentoSuficiente ? <p role="alert" className="text-xs font-bold text-red-600">Estacionamento insuficiente: são necessárias {blocoApartamento(p).unidadesPorBloco} vagas por bloco, cabem {blocoApartamento(p).vagasFisicas} pela área e foram previstas {blocoApartamento(p).vagasPorBloco}. Ajuste a composição, a projeção ou a área de terreno por bloco.</p> : null}
               </div>}
               <p className="text-xs text-right text-gray-500">
                 {p.casaPronta && !p.apartamento && !(p.areaUnidadeM2 > 0) ? <span className="block text-left font-bold text-red-600">Informe a área do lote: sem ela, o custo de infraestrutura por m² desta linha fica zerado.</span> : null}
@@ -296,7 +299,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
           <Plus size={12} /> Adicionar produto
         </button>
         <p className="text-[11px] text-gray-400 mt-2">
-          Capacidade estimada por área{temApartamento ? " e vagas, com a composição informada" : " com o tamanho médio atual do mix"}: <b>{urb.capacidadeEstimadaUnidades.toLocaleString("pt-BR")} unidades</b>
+          Capacidade estimada por área{temApartamento ? " e vagas, alocando blocos inteiros das tipologias informadas" : " com o tamanho médio atual do mix"}: <b>{urb.capacidadeEstimadaUnidades.toLocaleString("pt-BR")} unidades</b>
           {" "}({fmtM2(urb.areaVendavelM2)} vendável).{temApartamento ? ` Terreno ocupado pelo mix: ${fmtM2(ocupacao.areaTotalM2)}. A implantação depende de os blocos caberem nos lotes.` : ""}
         </p>
         {unidadesDisponiveis > 0 && (

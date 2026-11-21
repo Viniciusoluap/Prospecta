@@ -17,7 +17,7 @@
 
 ## Testes
 ### (a) Automáticos
-- 103 testes aprovados em 7 suítes: apartamentos (11 novos), mix, correções 09–12, loteamento SF, viabilidade econômica, relatório executivo e lançamento/viabilidade.
+- 106 testes aprovados em 7 suítes: apartamentos (14 novos), mix, correções 09–12, loteamento SF, viabilidade econômica, relatório executivo e lançamento/viabilidade.
 - DOM com React/happy-dom e componente real: Casa → Apartamento, exclusividade das caixas, 24 apartamentos/bloco, 9 blocos, área, VGV, salvar, desmontar/reabrir com JSON salvo, voltar a Casa com valores preservados. Somente a ação de persistência foi substituída por gravação em memória. Sem chamadas ao banco.
 - TypeScript dos quatro módulos compartilhados de viabilidade/ocupação e `git diff --check`.
 - A verificação TypeScript global da cópia local não é evidência válida da main: a cópia-base disponível era de 11/11, com 621 arquivos diferentes da main de 21/11; foram sincronizados os módulos relevantes de Incorporação. O restante contém routers e dependências antigos (por exemplo maplibre/maquete/logo). Nenhum desses arquivos será enviado por este PR. Confirmar o build completo no preview da Vercel.
@@ -38,3 +38,12 @@
 - Preview Vercel `dpl_J65o8k3UWWY4FuZZLrnNg3SjaozT` conferido READY; build completo concluído. Esta evidência substitui a pendência de build local descrita acima.
 - Migração de banco dispensada: novos campos opcionais ficam em `loteamentoJson`/mix existente. Sem DDL ou alteração de registros.
 - Próximo passo autorizado: integrar somente este PR e acompanhar o deployment de produção até READY, confirmando o SHA e os domínios. Validação autenticada do estudo real e do iPad permanece pendente; nenhum estudo existente será modificado automaticamente.
+
+## Revisão antes da produção — três achados corrigidos
+- P1: estacionamento agora calcula a capacidade física, descontando a projeção do prédio, aproveitando 70% do pátio e usando 18,75 m²/vaga com manobra; constantes reutilizadas da regra existente em `shared/maquete-3d/padrao.ts` (arquivo não alterado). Limite = menor entre vagas físicas, declaradas e apartamentos do bloco.
+- Novo campo editável `areaProjecaoBlocoM2`: projeção do prédio no solo, incluindo áreas comuns. Sugestão inicial explícita de 50 m² por apartamento no pavimento; o usuário ajusta conforme a planta. A tela mostra vagas físicas, previstas e necessárias. As vagas já não dependem só da declaração.
+- P2: misturas verticais agora alocam blocos inteiros por densidade, usando a sobra com outras tipologias. É uma estimativa de implantação possível por área, não uma otimização arquitetônica nem imposição de proporção entre os produtos.
+- P2: PDF executivo reconhece preço por apartamento, terreno por bloco, projeção e conferência de vagas; não mostra campos legados de preço/m² como premissas do apartamento.
+- Regressões adicionadas: 24 vagas declaradas em apenas 10 m² não validam a capacidade; 24 aptos/1.000 m² + 12 aptos/500 m² em 1.499 m² retornam 24, jamais 35; PDF exibe R$ 210.000/unidade e 9 blocos, preservando VGV.
+- Validação final: 106 testes em 7 suítes e DOM de alternância/salvamento/reabertura aprovados novamente. Repetir preview após este commit antes de integrar.
+- Cuidado reforçado pelo dono: preservar o trabalho do Fabel. Somente os 7 arquivos deste pedido entram no PR; PR #280 e sua branch permanecem intocados. Conferir novamente a main e conflitos imediatamente antes do merge.
