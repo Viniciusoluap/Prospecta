@@ -245,7 +245,7 @@ describe("entrada automática", () => {
     expect(avisos).toHaveLength(1);
     expect(avisos[0].numero).toBe(DONO);
     expect(avisos[0].texto).toContain("pós-atendimento «João Atrasado» (nº 2)");
-    expect(avisos[0].texto).toContain(`grupo ${g.codigo} cliente`);
+    expect(avisos[0].texto).toContain(`grupo ${g.codigo} <número da opção>`); // EPIC-027 C3: opções numeradas
     expect(enviarAoGrupo).not.toHaveBeenCalled();
     expect((await acoes("grupo_entrada")).map(a => a.resultado)).toEqual(["ok"]);
   });

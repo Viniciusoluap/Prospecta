@@ -199,7 +199,7 @@ export const ROTULO_DESFECHO_MARCACAO: Record<string, string> = {
   "marcacao-respondida": "respondida",
   "marcacao-apresentacao": "respondida com a apresentação (marcada sem pergunta)",
   "marcacao-fora": "respondida com a frase fixa (pergunta fora do que o grupo permite)",
-  "marcacao-lid-desconhecido": "não respondida: a menção veio por @lid e o @lid da Dolores ainda não foi conferido",
+  "marcacao-lid-desconhecido": "possível marcação não respondida: a menção veio por @lid e o @lid da Dolores ainda não foi conferido",
   "marcacao-sem-identidade": "não respondida: a conexão do WhatsApp não está confirmada (número conectado desconhecido)",
   "marcacao-grupo-nao-cadastrado": "não respondida: grupo fora da lista da Dolores",
   "marcacao-grupo-recusado": "não respondida: grupo recusado (outra pessoa colocou a Dolores)",

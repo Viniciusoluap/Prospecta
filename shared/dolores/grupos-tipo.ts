@@ -39,7 +39,7 @@ export const CATEGORIAS_GRUPO = [
   { opcao: 3, tipo: "juridico", rotulo: ROTULO_TIPO_GRUPO.juridico, vinculo: null,
     explica: "processos, regularizações e documentos (sem valores)" },
   { opcao: 4, tipo: "administrativo", rotulo: ROTULO_TIPO_GRUPO.administrativo, vinculo: null,
-    explica: "tudo da operação, menos senhas, chaves e dados bancários" },
+    explica: "tudo da operação, menos dados de acesso (logins e chaves do sistema) e dados bancários" },
   { opcao: 5, tipo: "parceiros", rotulo: ROTULO_TIPO_GRUPO.parceiros, vinculo: null,
     explica: "só o andamento dos clientes indicados por quem perguntou (corretor ou correspondente)" },
   { opcao: 6, tipo: "engenharia", rotulo: ROTULO_TIPO_GRUPO.engenharia, vinculo: "obra",

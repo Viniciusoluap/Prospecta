@@ -13,11 +13,13 @@ import { ADMIN_MODULES } from "../../shared/admin-permissions.js";
 import {
   CATEGORIAS_GRUPO, ROTULO_TIPO_GRUPO, TIPOS_GRUPO, lerDecisaoDeGrupo, lerRespostaNumerada, perguntaDoTipo, telaPodeClassificar, textoDoAvisoDeEntrada,
 } from "../../shared/dolores/grupos-tipo.js";
+import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { appRouter } from "../routers.js";
 import { definirClienteModelo } from "./cerebro.js";
+import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
@@ -86,6 +88,12 @@ describe("C3 — uma única lista de categorias", () => {
     expect(p).toMatch(/só com o número da opção/);
     expect(p).toContain("grupo K7HM ignorar");
     expect(perguntaDoTipo("Família", "K7HM")).toContain("6. engenharia");
+    // o aviso passa intacto pelo filtro de texto da Dolores (nenhuma explicação vira "[senha omitida]")
+    for (const tipo of ["indefinido", "juridico"] as const) {
+      const t = textoDoAvisoDeEntrada({ nomeDoGrupo: "Família", codigo: "K7HM", tipo });
+      expect(sanitizarTexto(t, filtroDaSaida("whatsapp"))).toBe(t);
+      expect(sanitizarTexto(t, FILTRO_DO_REGISTRO)).toBe(t);
+    }
     const tela = readFileSync(new URL("../../client/src/components/admin/DoloresGruposCard.tsx", import.meta.url), "utf8");
     expect(tela).toContain("CATEGORIAS_GRUPO");
     expect(tela).not.toMatch(/cliente &lt;nº&gt; \| jurídico/);

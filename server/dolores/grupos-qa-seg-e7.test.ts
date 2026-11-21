@@ -205,7 +205,7 @@ describe("QA-SEG E7 — autoria (só vale grupo em que o DONO colocou a Dolores)
     enviarAoDono.mockClear();
     await chamar(eventoAdd(NOVO, `${DONO}@s.whatsapp.net`));
     expect((await grupos())[0]).toMatchObject({ situacao_confirmacao: "avisado", adicionado_por: "dono", prova_adicao: "evento_add", decidido_por: "whatsapp:dono-adicionou" });
-    expect(avisosAoDono().map(a => a.texto)).toEqual([expect.stringMatching(/entrei no grupo «Jurídico»\. Entendi: grupo jurídico/)]);
+    expect(avisosAoDono().map(a => a.texto)).toEqual([expect.stringMatching(/entrei no grupo «Jurídico» \(código [A-Z0-9]{4}\)\. Entendi: grupo jurídico/)]);
   });
   it("A6 (gatilho): sem a decisão do dono pelo WhatsApp, o banco não tira grupo de 'aguardando o dono' sem prova; rebaixar é livre", async () => {
     nomes[NOVO] = "Jurídico"; nomes[NOVO2] = "Engenharia";
