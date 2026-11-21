@@ -18,7 +18,7 @@ import { configEvolution } from "../whatsapp-router.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
-import { conferirLidDaDolores, definirDependenciasMarcacao, type RespostaGrupo } from "./marcacao.js";
+import { conferirLidDaDolores, definirDependenciasMarcacao, escopoDoGrupo, type RespostaGrupo } from "./marcacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
 import { definirDependenciasRoteamento } from "./roteamento.js";
@@ -381,5 +381,39 @@ describe("QA rodada 2 — trava de escopo do colaborador", () => {
     const t = (enviarAoDono.mock.calls[0][0] as { texto: string }).texto;
     expect(t).not.toMatch(/\d{3}\.\d{3}|99123|R\$|Maria Trello/);
     expect(sanitizarTexto(t, filtroDaSaida("whatsapp"))).toBe(t);
+  });
+});
+
+describe("QA rodada 3", () => {
+  it("ACHADO R3-1 (importante): excluir a obra no CRM (ON DELETE SET NULL) vira o grupo 'engenharia da obra' em 'engenharia geral' (escopo interno) sem decisão de ninguém", async () => {
+    await banco.pg.exec(`UPDATE dolores_grupos SET obra_id = 1, decidido_em = now() + interval '5 s', decidido_por = 'tela:1' WHERE id = 1`);
+    const [antes] = await (banco.db as any).select().from((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos).where((await import("drizzle-orm")).eq((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos.id, 1));
+    const eAntes = await escopoDoGrupo(antes, { participante: null }, AGORA);
+    expect("escopo" in eAntes && eAntes.escopo.foraDeEscopo("e o contrato do outro cliente?")).toBeTruthy(); // restrito: fora de escopo
+    await banco.pg.exec(`DELETE FROM construction_projects WHERE id = 1`); // exclusão definitiva da obra (server/db.ts:577)
+    const [depois] = await (banco.db as any).select().from((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos).where((await import("drizzle-orm")).eq((await import("../../drizzle/schema-dolores-grupos.js")).doloresGrupos.id, 1));
+    expect(depois).toMatchObject({ tipo: "engenharia", obraId: null, situacaoConfirmacao: "confirmado", ativo: true });
+    const e = await escopoDoGrupo(depois, { participante: null }, AGORA);
+    // agora é o escopo interno (engenharia geral): "outro cliente" e "contrato" deixam de ser fora de escopo
+    expect("escopo" in e).toBe(true);
+    expect("escopo" in e && e.escopo.foraDeEscopo("e o contrato do outro cliente?")).toBeFalsy();
+  });
+
+  it("ACHADO R3-2 (médio): o aviso ao dono de classificação pela tela não diz QUAL cliente/obra foi ligado — apontar para o cliente errado passa despercebido", async () => {
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'indefinido', situacao_confirmacao = 'aguardando_dono', decidido_em = now() + interval '5 s', decidido_por = 'whatsapp:dono' WHERE id = 1`);
+    enviarAoDono.mockClear();
+    await caller("colaborador", ["whatsapp"], 2).dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 2 });
+    const t = (enviarAoDono.mock.calls[0][0] as { texto: string }).texto;
+    expect(t).not.toMatch(/nº 2|João Atrasado/);
+  });
+
+  it("colaborador: lead inexistente/excluído e obra inexistente não gravam nada", async () => {
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'indefinido', situacao_confirmacao = 'aguardando_dono', decidido_em = now() + interval '5 s', decidido_por = 'whatsapp:dono' WHERE id = 1;
+      UPDATE leads SET deleted_at = now() WHERE id = 4;`);
+    const colab = caller("colaborador", ["whatsapp"], 2);
+    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 999 })).rejects.toThrow();
+    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "cliente", numero: 4 })).rejects.toThrow();
+    await expect(colab.dolores.grupos.definirTipo({ grupoId: 1, tipo: "engenharia", numero: 999 })).rejects.toThrow();
+    expect(await q("SELECT tipo, lead_id, obra_id FROM dolores_grupos WHERE id = 1")).toEqual([{ tipo: "indefinido", lead_id: null, obra_id: null }]);
   });
 });
