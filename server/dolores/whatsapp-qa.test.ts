@@ -282,7 +282,8 @@ describe("QA achado 6 — tipos de mensagem", () => {
     await chamar(aviso({ message: { ephemeralMessage: { message: { extendedTextMessage: { text: "liste os processos" } } } } }));
     await chamar(aviso({ message: { viewOnceMessageV2: { message: { conversation: "liste as tarefas" } } } }));
     await chamar(aviso({ message: { ephemeralMessage: { message: { viewOnceMessage: { message: { conversation: "liste as obras" } } } } } }));
-    expect(chamadas.map(c => (c.mensagens[0].content[0] as { text: string }).text)).toEqual(["liste os processos", "liste as tarefas", "liste as obras"]);
+    // EPIC-027 C5 (E1): a partir do 2º pedido vem a conversa recente antes; o pedido é sempre o fim da última mensagem do dono
+    expect(chamadas.map(c => (c.mensagens.filter(m => m.role === "user").at(-1)!.content.at(-1) as { text: string }).text.split("\n").at(-1))).toEqual(["liste os processos", "liste as tarefas", "liste as obras"]);
     expect(enviar.mock.calls.map(c => c[0].texto)).toEqual(["ok", "ok", "ok"]);
   });
   it("reação e edição: ignoradas em silêncio (sem resposta, sem IA, sem linha de mensagem) e auditadas numa linha com a contagem", async () => {
@@ -503,9 +504,10 @@ describe("QA r7 A2 — links na resposta ao dono: só o domínio do sistema e o 
     // casos patológicos para a regex de host: 200 kB em menos de 1 s cada
     for (const p of ["a.", "x.x/", "[a](", "a.a.a.a ", "1.1.1.1.", "[::", "xn--a.", "рф.", "a.com:", "//a.b", "_a.b_", "a​."]) {
       const s = p.repeat(Math.ceil(200 * 1024 / p.length));
-      const t0 = performance.now();
-      tratarLinksDaResposta(s, SISTEMA);
-      expect(performance.now() - t0, p).toBeLessThan(1000);
+      // Estabilidade (QA C5-E1): o tempo é o MELHOR de 3 execuções — um pico de carga da máquina (vários testes em paralelo)
+      // não derruba a prova; uma regex catastrófica continua lenta nas três e falha igual. O teto (1 s) é o mesmo.
+      const tempos = [0, 1, 2].map(() => { const t0 = performance.now(); tratarLinksDaResposta(s, SISTEMA); return performance.now() - t0; });
+      expect(Math.min(...tempos), p).toBeLessThan(1000);
     }
   });
 
@@ -541,8 +543,9 @@ describe("QA r7 A8 — o comando do dono vai ao modelo sem senha nem dado bancá
       if (valor !== undefined) vi.stubEnv("DOLORES_MASCARAR_DADOS_PESSOAIS", valor);
       chamadas = [];
       await chamar(aviso({ id: `C${valor ?? "x"}`, texto: "consulte o CPF 52998224725 e o tel 99991234567; a senha do gov é Maria@2025, acesso INSS: Joao#2024x, token sk-ant-api03-abcdef123456, conta 12345-6, pix -> maria@x.com" }));
-      const enviado = JSON.stringify(chamadas[0].mensagens[0]);
-      for (const s of ["Maria@2025", "Joao#2024x", "sk-ant-api03", "12345-6", "maria@x.com"]) expect(enviado, `${valor} ${s}`).not.toContain(s);
+      // EPIC-027 C5 (E1): o pedido atual é a última mensagem do dono (antes dela pode vir a conversa recente, já mascarada)
+      const enviado = JSON.stringify(chamadas[0].mensagens.filter(m => m.role === "user").at(-1));
+      for (const s of ["Maria@2025", "Joao#2024x", "sk-ant-api03", "12345-6", "maria@x.com"]) expect(JSON.stringify(chamadas[0].mensagens), `${valor} ${s}`).not.toContain(s);
       expect(enviado).toContain("52998224725");
       expect(enviado).toContain("99991234567");
       expect(enviado).toContain("[senha omitida]");

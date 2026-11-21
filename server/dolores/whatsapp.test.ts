@@ -115,7 +115,8 @@ describe("comando do dono — teste de aceite pelo WhatsApp", () => {
     expect(pedidosModelo[0].ferramentas.map(f => f.name)).not.toContain("enviar_mensagem_whatsapp");
     // resposta: uma só, para o número do dono, pela instância da Dolores
     expect(enviar).toHaveBeenCalledTimes(1);
-    expect(enviar.mock.calls[0][0]).toMatchObject({ instancia: "prospecta-dolores", numero: DONO, texto: "*Resumo* — 3 processos abertos, 1 atrasado [listar_processos_regularizacao]." });
+    expect(enviar.mock.calls[0][0]).toMatchObject({ instancia: "prospecta-dolores", numero: DONO, texto: "*Resumo* — 3 processos abertos, 1 atrasado." });
+    // EPIC-027 C5 (E1): o nome da ferramenta que o modelo escreveu entre colchetes não chega ao dono (filtro de voz)
     // auditoria: mensagem recebida, a consulta (canal whatsapp, mesma porta da ponte) e a resposta
     const a = await acoes();
     expect(a.map(x => [x.funcao, x.resultado, x.canal])).toEqual([
@@ -280,7 +281,8 @@ describe("limite mensal", () => {
     await chamar(aviso());
     expect(pedidosModelo).toHaveLength(2);
     const t = enviar.mock.calls[0][0].texto as string;
-    expect(t).toMatch(/Parei antes de terminar: o limite mensal de gasto com a IA foi atingido\. Consultei: listar_tarefas, listar_obras\./);
+    expect(t).toMatch(/Parei antes de terminar: o limite mensal de gasto com a IA foi atingido\. Já olhei: tarefas, obras\./);
+    expect(t).not.toMatch(/listar_/); // EPIC-027 C5 (E1): nunca o nome interno da consulta
     expect(t).toMatch(/limite mensal de gasto com a IA foi atingido; volto no mês que vem/); // aviso do mês, uma vez
   });
 });
@@ -398,7 +400,7 @@ describe("tetos do laço (60 s)", () => {
     expect(pedidosModelo[MAX_VOLTAS].semFerramentas).toBe(true);
     expect(JSON.stringify(pedidosModelo[MAX_VOLTAS].mensagens.at(-1))).toMatch(/Aviso do sistema Prospecta, não do dono/);
     const t = enviar.mock.calls[0][0].texto as string;
-    expect(t).toMatch(/^Resumo parcial das tarefas\.\n\n\(Parei antes de terminar: limite de consultas por pedido\. Consultei: listar_tarefas\./);
+    expect(t).toMatch(/^Resumo parcial das tarefas\.\n\n\(Parei antes de terminar: limite de consultas por pedido\. Já olhei: tarefas\./);
   });
   it("sem tempo para chamar o modelo: não chama e diz que parou", async () => {
     const r = await executarComando({ comando: "oi", mensagemId: 1, apiKey: CHAVE, modelo: "m", mes: "2026-11", limites: { entrada: 1e6, saida: 1e6 }, prazoFinal: Date.now() + 5_000 });
