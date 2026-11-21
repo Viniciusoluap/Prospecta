@@ -31,3 +31,10 @@
 ## Paridade e próximo passo
 - Conferido `Grupo-Santa-Fe/web/src/lib/finance/loteamento.ts`: ainda não tem a opção Apartamento por bloco. Porte pendente para a sessão responsável, com as mesmas fórmulas/testes, conforme regra de paridade; nenhum arquivo do Santa Fé alterado nesta frente isolada.
 - Revisar o PR exclusivo, conferir preview e integrar preservando os PRs concorrentes. Depois validar o estudo real; não mexer na configuração de WhatsApp/Dolores para esta entrega.
+
+## Publicação autorizada — 21/11/2026
+- Dono autorizou nesta conversa: "Autorizado pode fazer a migração e a produção".
+- PR: https://github.com/Viniciusoluap/Prospecta/pull/282; código testado no commit `c7d3f199a28c6da7b881792db6a6a0ee5d368050`.
+- Preview Vercel `dpl_J65o8k3UWWY4FuZZLrnNg3SjaozT` conferido READY; build completo concluído. Esta evidência substitui a pendência de build local descrita acima.
+- Migração de banco dispensada: novos campos opcionais ficam em `loteamentoJson`/mix existente. Sem DDL ou alteração de registros.
+- Próximo passo autorizado: integrar somente este PR e acompanhar o deployment de produção até READY, confirmando o SHA e os domínios. Validação autenticada do estudo real e do iPad permanece pendente; nenhum estudo existente será modificado automaticamente.
