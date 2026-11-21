@@ -403,16 +403,26 @@ describe("QA — webhook público", () => {
 });
 
 describe("QA — permissão e segredo", () => {
-  it("anônimo, colaborador com módulo, corretor, cliente e empreiteiro: todas as rotas barradas (inclusive leituras)", async () => {
+  it("anônimo, colaborador SEM o módulo, corretor, cliente e empreiteiro: todas as rotas barradas (inclusive leituras)", async () => {
     const semUser = appRouter.createCaller({ user: null, req: {}, res: {} } as never);
-    const quem = [semUser, caller("colaborador", 2, ["whatsapp", "configuracoes", "integracoes"]), caller("corretor", 3), caller("cliente", 4), caller("empreiteiro", 5)];
+    const quem = [semUser, caller("colaborador", 2, ["configuracoes", "integracoes", "crm"]), caller("corretor", 3), caller("cliente", 4), caller("empreiteiro", 5)];
     for (const c of quem) {
       for (const f of [
         () => c.whatsappOficial.status(), () => c.whatsappOficial.campanhas(), () => c.whatsappOficial.detalheCampanha({ campanhaId: 1 }),
         () => c.whatsappOficial.testar(), () => c.whatsappOficial.salvarSegredoAvisos({ segredo: "x".repeat(20) }),
         () => c.whatsappOficial.registrarOptout({ leadId: 1 }), () => c.whatsappOficial.enviarLote({ campanhaId: 1 }),
+        () => c.whatsappOficial.prontidao(), () => c.whatsappOficial.auditoria(),
       ]) await expect(f()).rejects.toMatchObject({ code: expect.stringMatching(/FORBIDDEN|UNAUTHORIZED/) });
     }
+  });
+  it("C7.1: colaborador COM o módulo (até com configurações/integrações marcados) continua barrado em toda a administração", async () => {
+    const c = caller("colaborador", 2, ["whatsapp", "configuracoes", "integracoes"]);
+    for (const f of [
+      () => c.whatsappOficial.status(), () => c.whatsappOficial.testar(), () => c.whatsappOficial.salvarChave({ apiKey: CHAVE }),
+      () => c.whatsappOficial.removerChave(), () => c.whatsappOficial.ativarAvisos(), () => c.whatsappOficial.salvarSegredoAvisos({ segredo: "x".repeat(20) }),
+      () => c.whatsappOficial.salvarConfig({ ligado: true }), () => c.whatsappOficial.salvarConfig({ tetoDia: 100_000 }), () => c.whatsappOficial.auditoria(),
+    ]) await expect(f()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(chamadas).toHaveLength(0);
   });
   it("nenhuma rota devolve o segredo do webhook nem a chave (só os 4 finais)", async () => {
     await configurarTudo();

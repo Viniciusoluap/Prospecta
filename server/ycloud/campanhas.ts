@@ -11,22 +11,63 @@
 //   idempotência da YCloud; o aviso de entrega, que traz o `externalId`, resolve o incerto);
 // - nenhum telefone, chave ou texto vai para log/auditoria.
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { leads, whatsappMessages } from "../../drizzle/schema.js";
+import { leads, users, whatsappMessages } from "../../drizzle/schema.js";
 import { ycloudCampanhas, ycloudConfig, ycloudEnvios, ycloudOptout, type StatusEnvioYcloud, type YcloudConfig } from "../../drizzle/schema-ycloud.js";
 import { centralVendasLeads } from "../../drizzle/schema-central-vendas.js";
 import { ehNumeroDoDono, normalizarNumeroDono } from "../../shared/dolores/whatsapp.js";
 import {
   INTERVALO_MINIMO_ENVIO_MS, LOTE_ENVIO_YCLOUD, MAX_DESTINATARIOS_CAMPANHA, ORCAMENTO_LOTE_MS, RESERVA_EXPIRADA_MS, chaveCanonicaTelefone,
-  nomeSeguroParaVariavel, preencherPosicionais, problemaDoParametro, situacaoConvergente, statusNaCentral, telefoneMascarado, telefoneE164,
+  nomeSeguroParaVariavel, preencherPosicionais, problemaDoParametro, problemaDoTextoFixoDaEquipe, situacaoConvergente, statusNaCentral, telefoneMascarado, telefoneE164,
   textoComparavel, type FonteVariavel,
 } from "../../shared/whatsapp/ycloud.js";
 import { ErroYcloud, criarDescadastroYcloud, enfileirarModeloYcloud } from "../_core/ycloud.js";
 import { getDb } from "../db.js";
-import { auditarYcloud, chaveYcloud, depsYcloud, lerConfigYcloud, segredoWebhookYcloud } from "./config.js";
+import { auditarYcloud, chaveYcloud, depsYcloud, lerConfigYcloud, segredoWebhookYcloud, type AutorYcloud } from "./config.js";
 import { conferirNumeroYcloud, modelosDaConta, type ConferenciaNumero, type ModeloNaTela } from "./conta.js";
 
 export class RecusaYcloud extends Error {
   constructor(message: string) { super(message); this.name = "RecusaYcloud"; }
+}
+
+// ── O que quem NÃO é admin lê (C7.1, portão de QA de 21/11/2026) ──
+
+/** Quem opera e não é admin (colaborador com o módulo WhatsApp): vê o essencial, sem tier, tetos do painel, janela nem números. */
+export const ehAdminYcloud = (papel: string | null | undefined) => papel === "admin";
+
+/** Texto ÚNICO que o colaborador lê quando a integração (número, conta, cadastro do número da empresa) precisa do administrador. */
+export const AVISO_AJUSTE_ADMIN = "A integração precisa de ajuste do administrador.";
+
+/**
+ * Traduz um motivo (recusa, pausa, falha de envio) para quem não é admin: problema de NÚMERO da integração vira o aviso genérico (sem
+ * números, nem mascarados); o limite do dia sai sem o valor (o tier e o teto do painel são do admin); a janela de repetição sai sem os
+ * dias. O admin sempre recebe o texto original. Qualquer sequência longa de dígitos ou "••••" também vira o genérico (na dúvida, nada).
+ */
+export function motivoParaEquipe(m: string): string;
+export function motivoParaEquipe(m: string | null): string | null;
+export function motivoParaEquipe(m: string | null): string | null {
+  if (!m) return m;
+  if (/n[ãa]o [ée] o (n[úu]mero )?da empresa|n[úu]mero da empresa ainda n[ãa]o est[áa] cadastrado|nenhum n[úu]mero de whatsapp conectado|••••|\d{6,}/i.test(m)) return AVISO_AJUSTE_ADMIN;
+  return m
+    .replace(/Limite de \d+ destinat[áa]rios em 24 h/g, "Limite de destinatários em 24 h")
+    .replace(/nos [úu]ltimos \d+ dia\(s\)/g, "recentemente");
+}
+
+// ── Quem pausou (C7.1): derivado do motivo gravado pelo servidor, sem coluna nova ──
+
+export const MOTIVO_PAUSA_ADMIN = "Pausada pelo administrador.";
+export const MOTIVO_PAUSA_EQUIPE = "Pausada pela equipe (colaborador).";
+const PREFIXO_PAUSA_LIMITE_DIA = "Limite de ";
+
+/**
+ * Quem pode CONTINUAR uma campanha pausada. Admin: sempre. Colaborador: só a que um colaborador pausou ("Pausada pela equipe") ou a
+ * que parou no limite do dia (o limite é conferido de novo em cada lote: continuar não o contorna). Pausada pelo admin ou por qualquer
+ * outra trava do sistema (disparos desligados, número divergente, qualidade, conta, cinco falhas, conferência que falhou) → só admin.
+ * O motivo só é escrito pelo servidor (`pausarCampanha`); a tela nunca o define.
+ */
+export function podeContinuarPausa(motivoPausa: string | null | undefined, papel: string): boolean {
+  if (ehAdminYcloud(papel)) return true;
+  const m = motivoPausa ?? "";
+  return m === MOTIVO_PAUSA_EQUIPE || m.startsWith(PREFIXO_PAUSA_LIMITE_DIA);
 }
 
 // ── Situação para disparar ──
@@ -39,7 +80,7 @@ export async function situacaoParaDisparo(): Promise<SituacaoDisparo> {
   const apiKey = await chaveYcloud();
   const nao = (motivo: string, conferencia: ConferenciaNumero | null = null): SituacaoDisparo => ({ ok: false, motivo, conferencia, cfg, apiKey });
   if (!apiKey) return nao("Nenhuma chave da YCloud salva (Configurações › Integrações › API oficial do WhatsApp).");
-  if (!cfg.ligado) return nao("Os disparos pela API oficial estão DESLIGADOS (Configurações › Integrações › API oficial do WhatsApp).");
+  if (!cfg.ligado) return nao("Os disparos pela API oficial estão DESLIGADOS pelo administrador (Configurações › Integrações › API oficial do WhatsApp).");
   if (!(await segredoWebhookYcloud())) return nao("Ative os avisos de entrega antes de disparar (Configurações › Integrações › API oficial do WhatsApp).");
   let c: ConferenciaNumero;
   try { c = await conferirNumeroYcloud(apiKey); }
@@ -138,7 +179,11 @@ async function precoMedioRegistrado(): Promise<{ preco: number; moeda: string } 
   return { preco: mesmas.reduce((s, l) => s + Number(l.preco), 0) / mesmas.length, moeda };
 }
 
-/** Texto fixo vem do administrador; nome vem do cadastro e só entra LIMPO (`nomeSeguroParaVariavel`). null = sem valor. */
+/**
+ * Texto fixo vem de quem opera a campanha (admin ou colaborador com o módulo WhatsApp) e já foi conferido em `prepararCampanha`
+ * (`problemaDoParametro`; para o colaborador, também `problemaDoTextoFixoDaEquipe`: sem link nem telefone); nome vem do cadastro e só
+ * entra LIMPO (`nomeSeguroParaVariavel`). null = sem valor.
+ */
 function valorDaVariavel(f: FonteVariavel | undefined, nomeLimpo: string | null): string | null {
   if (!f) return null;
   if (f.fonte === "fixo") return f.texto;
@@ -146,7 +191,7 @@ function valorDaVariavel(f: FonteVariavel | undefined, nomeLimpo: string | null)
   return f.fonte === "primeiro_nome" ? nomeLimpo.split(" ")[0] : nomeLimpo;
 }
 
-export async function prepararCampanha(entrada: EntradaCampanha, situacao: SituacaoDisparo): Promise<Preparo> {
+export async function prepararCampanha(entrada: EntradaCampanha, situacao: SituacaoDisparo, papel: string): Promise<Preparo> {
   const d = depsYcloud();
   const modelos = await modelosDaConta();
   const modelo = modelos.find(m => m.nome === entrada.modelo.nome && m.idioma === entrada.modelo.idioma);
@@ -160,7 +205,7 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
     const f = entrada.variaveis[c.chave];
     if (!f) throw new RecusaYcloud(`Escolha o valor da variável {{${c.indice}}} do ${c.local === "corpo" ? "corpo" : "cabeçalho"}.`);
     if (f.fonte === "fixo") {
-      const p = problemaDoParametro(f.texto, c.limite);
+      const p = problemaDoParametro(f.texto, c.limite) ?? (ehAdminYcloud(papel) ? null : problemaDoTextoFixoDaEquipe(f.texto));
       if (p) throw new RecusaYcloud(`O texto fixo da variável {{${c.indice}}} ${p}.`);
     }
   }
@@ -225,20 +270,39 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
   };
 }
 
-/** O que a tela recebe da prévia: contagens, custo e até 5 exemplos (nome + texto). Telefones não saem. */
-export function previaParaTela(p: Preparo, chaveConfirmacao: string) {
-  return {
+/** Prévia na tela: os campos a mais (tier, teto do dia, usados, janela, preço unitário e base) só existem para o admin. */
+export type PreviaNaTela = {
+  modelo: { nome: string; idioma: string; categoria: string | null };
+  contagem: Preparo["contagem"];
+  vagas: { restante: number; tetoCampanha: number; limiteDiario?: number | null; tetoDia?: number; usados24h?: number };
+  custo: { estimado: number | null; moeda: string; precoUnitario?: number | null; base?: Preparo["custo"]["base"] };
+  janelaRepeticaoDias?: number;
+  exemplos: Array<{ nome: string | null; texto: string }>;
+  chaveConfirmacao: string;
+};
+
+/**
+ * O que a tela recebe da prévia: contagens, custo e até 5 exemplos (nome + texto). Telefones não saem. Quem NÃO é admin (C7.1, achado
+ * F1) recebe só `vagas = {restante, tetoCampanha}` e `custo = {estimado, moeda}`: sem tier, teto do dia, usados em 24 h, janela de
+ * repetição, preço unitário nem a base do preço (configuração do admin). O total estimado pode revelar o unitário; o dono aceitou.
+ */
+export function previaParaTela(p: Preparo, chaveConfirmacao: string, papel: string): PreviaNaTela {
+  const base = {
     modelo: { nome: p.modelo.nome, idioma: p.modelo.idioma, categoria: p.modelo.categoria },
-    contagem: p.contagem, vagas: p.vagas, custo: p.custo, janelaRepeticaoDias: p.janelaRepeticaoDias,
+    contagem: p.contagem,
     exemplos: p.destinos.slice(0, 5).map(x => ({ nome: x.nome, texto: x.textoCompleto })),
     /** Exigida na confirmação: a mesma chave duas vezes = UMA campanha. */
     chaveConfirmacao,
   };
+  if (!ehAdminYcloud(papel)) {
+    return { ...base, vagas: { restante: p.vagas.restante, tetoCampanha: p.vagas.tetoCampanha }, custo: { estimado: p.custo.estimado, moeda: p.custo.moeda } };
+  }
+  return { ...base, vagas: { ...p.vagas }, custo: { ...p.custo }, janelaRepeticaoDias: p.janelaRepeticaoDias };
 }
 
 // ── Criação (confirmada pela contagem) ──
 
-export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidade: number, chaveConfirmacao: string, userId: number) {
+export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidade: number, chaveConfirmacao: string, autor: AutorYcloud) {
   const db = getDb();
   const existente = async () => {
     const [c] = await db.select({ id: ycloudCampanhas.id, total: ycloudCampanhas.total }).from(ycloudCampanhas).where(eq(ycloudCampanhas.chaveConfirmacao, chaveConfirmacao)).limit(1);
@@ -249,7 +313,7 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
   if (ja) return ja;
   const situacao = await situacaoParaDisparo();
   if (!situacao.ok) throw new RecusaYcloud(situacao.motivo ?? "Disparo indisponível.");
-  const p = await prepararCampanha(entrada, situacao);
+  const p = await prepararCampanha(entrada, situacao, autor.papel);
   if (p.contagem.aEnviar === 0) throw new RecusaYcloud("Nenhum destinatário pode receber agora (confira opt-out, telefones e o limite do dia).");
   if (p.contagem.aEnviar !== confirmarQuantidade) {
     throw new RecusaYcloud(`A contagem mudou: agora são ${p.contagem.aEnviar} destinatário(s), não ${confirmarQuantidade}. Revise a prévia e confirme de novo.`);
@@ -258,7 +322,7 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
   const [camp] = await db.insert(ycloudCampanhas).values({
     chaveConfirmacao, nome: entrada.nome.trim().slice(0, 120), modeloNome: p.modelo.nome, modeloIdioma: p.modelo.idioma, modeloCategoria: p.modelo.categoria,
     corpo: p.modelo.analise.corpo, variaveis: entrada.variaveis, status: "enviando", total: p.destinos.length,
-    custoEstimado: p.custo.estimado !== null ? p.custo.estimado.toFixed(4) : null, moeda: p.custo.moeda, criadaPor: userId,
+    custoEstimado: p.custo.estimado !== null ? p.custo.estimado.toFixed(4) : null, moeda: p.custo.moeda, criadaPor: autor.id,
     criadaEm: d.agora(), atualizadoEm: d.agora(),
   }).onConflictDoNothing().returning({ id: ycloudCampanhas.id });
   if (!camp) { const outra = await existente(); if (outra) return outra; throw new RecusaYcloud("Não consegui criar a campanha."); }
@@ -268,7 +332,7 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
     externalId: `prospecta-c${camp.id}-${i + 1}`, status: "na_fila" as const, criadoEm: d.agora(), atualizadoEm: d.agora(),
   }));
   for (let i = 0; i < linhas.length; i += 500) await db.insert(ycloudEnvios).values(linhas.slice(i, i + 500)).onConflictDoNothing();
-  await auditarYcloud({ acao: "campanha_criada", usuarioId: userId, campanhaId: camp.id, modelo: `${p.modelo.nome} (${p.modelo.idioma})`, quantidade: linhas.length });
+  await auditarYcloud({ acao: "campanha_criada", usuarioId: autor.id, papel: autor.papel, campanhaId: camp.id, modelo: `${p.modelo.nome} (${p.modelo.idioma})`, quantidade: linhas.length });
   return { campanhaId: camp.id, total: linhas.length, repetida: false as const };
 }
 
@@ -294,9 +358,13 @@ async function contarRestantes(campanhaId: number) {
   return { fila: Number(r?.fila ?? 0), enviando: Number(r?.enviando ?? 0) };
 }
 
-async function pausarCampanha(campanhaId: number, motivo: string) {
+/**
+ * Pausa (só se estiver enviando). `sobrepor`: o ADMIN pausando uma campanha já pausada troca o motivo para "pelo administrador" — assim
+ * o colaborador não continua uma campanha que o admin quis segurar. A pausa do colaborador nunca troca o motivo de outra pausa.
+ */
+async function pausarCampanha(campanhaId: number, motivo: string, o: { sobrepor?: boolean } = {}) {
   await getDb().update(ycloudCampanhas).set({ status: "pausada", motivoPausa: motivo.slice(0, 300), atualizadoEm: depsYcloud().agora() })
-    .where(and(eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "enviando")));
+    .where(and(eq(ycloudCampanhas.id, campanhaId), o.sobrepor ? inArray(ycloudCampanhas.status, ["enviando", "pausada"]) : eq(ycloudCampanhas.status, "enviando")));
 }
 
 /** Reserva expirada (a função encerrou entre o POST e a resposta): "incerto" — nunca volta para a fila sozinho. */
@@ -371,16 +439,16 @@ async function destravarLote(marca: Date) {
   await getDb().update(ycloudConfig).set({ loteAte: null }).where(and(eq(ycloudConfig.id, 1), eq(ycloudConfig.loteAte, marca))).catch(() => undefined);
 }
 
-export async function enviarLote(campanhaId: number, userId: number): Promise<ResultadoLote> {
+export async function enviarLote(campanhaId: number, autor: AutorYcloud): Promise<ResultadoLote> {
   const marca = await travarLote(depsYcloud().agora());
   if (!marca) {
     return { status: "enviando", enviadas: 0, falhas: 0, incertas: 0, restantes: (await contarRestantes(campanhaId)).fila, aguardarSegundos: 10, motivo: "Outro lote está sendo enviado agora; este continua em seguida." };
   }
-  try { return await enviarLoteTravado(campanhaId, userId); }
+  try { return await enviarLoteTravado(campanhaId, autor); }
   finally { await destravarLote(marca); }
 }
 
-async function enviarLoteTravado(campanhaId: number, userId: number): Promise<ResultadoLote> {
+async function enviarLoteTravado(campanhaId: number, autor: AutorYcloud): Promise<ResultadoLote> {
   const d = depsYcloud();
   const db = getDb();
   const inicio = d.agora().getTime();
@@ -397,7 +465,7 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
       await db.update(ycloudCampanhas).set({ status: "concluida", concluidaEm: d.agora(), atualizadoEm: d.agora() })
         .where(and(eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "enviando")));
       res.status = "concluida";
-      await auditarYcloud({ acao: "campanha_concluida", usuarioId: userId, campanhaId, modelo: camp.modeloNome });
+      await auditarYcloud({ acao: "campanha_concluida", usuarioId: autor.id, papel: autor.papel, campanhaId, modelo: camp.modeloNome });
     }
     if (res.status === "pausada" && !res.motivo) res.motivo = atual?.motivo ?? null;
     return res;
@@ -417,11 +485,14 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
     return fim();
   }
   // reserva atômica (um lote por vez por linha; duas abas não pegam o mesmo envio)
-  const sub = db.select({ id: ycloudEnvios.id }).from(ycloudEnvios)
+  // C7.1: os ids são escolhidos ANTES (consulta separada). Com o subselect `IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` dentro do
+  // UPDATE, o banco pode reavaliar o subselect e reservar MAIS que `n` — o lote passava do limite do dia (pego pelo teste do F3).
+  // Um lote por vez já é garantido por `travarLote`; o UPDATE confere de novo "na_fila" (nada é reservado duas vezes).
+  const escolhidos = (await db.select({ id: ycloudEnvios.id }).from(ycloudEnvios)
     .where(and(eq(ycloudEnvios.campanhaId, campanhaId), eq(ycloudEnvios.status, "na_fila"))).orderBy(ycloudEnvios.id)
-    .limit(Math.min(LOTE_ENVIO_YCLOUD, vagas.restante)).for("update", { skipLocked: true });
-  const reservados = await db.update(ycloudEnvios).set({ status: "enviando", reservadoEm: d.agora(), tentativas: sql`${ycloudEnvios.tentativas} + 1`, atualizadoEm: d.agora() })
-    .where(and(inArray(ycloudEnvios.id, sub), eq(ycloudEnvios.status, "na_fila"))).returning();
+    .limit(Math.min(LOTE_ENVIO_YCLOUD, vagas.restante))).map(r => r.id);
+  const reservados = escolhidos.length ? await db.update(ycloudEnvios).set({ status: "enviando", reservadoEm: d.agora(), tentativas: sql`${ycloudEnvios.tentativas} + 1`, atualizadoEm: d.agora() })
+    .where(and(inArray(ycloudEnvios.id, escolhidos), eq(ycloudEnvios.status, "na_fila"))).returning() : [];
   reservados.sort((a, b) => a.id - b.id);
 
   // opt-out (API e Central de Vendas) e repetição do mesmo modelo conferidos de novo na hora do envio
@@ -526,22 +597,33 @@ async function enviarLoteTravado(campanhaId: number, userId: number): Promise<Re
 
 // ── Pausar, continuar, cancelar ──
 
-export async function mudarCampanha(campanhaId: number, acao: "pausar" | "continuar" | "cancelar", userId: number) {
+export async function mudarCampanha(campanhaId: number, acao: "pausar" | "continuar" | "cancelar", autor: AutorYcloud) {
   const d = depsYcloud();
   const db = getDb();
   const [c] = await db.select().from(ycloudCampanhas).where(eq(ycloudCampanhas.id, campanhaId)).limit(1);
   if (!c) throw new RecusaYcloud("Campanha não encontrada.");
   if (c.status === "concluida" || c.status === "cancelada") throw new RecusaYcloud("Campanha já encerrada.");
-  if (acao === "pausar") await pausarCampanha(campanhaId, "Pausada pelo administrador.");
-  if (acao === "continuar") {
-    await db.update(ycloudCampanhas).set({ status: "enviando", motivoPausa: null, atualizadoEm: d.agora() }).where(and(eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "pausada")));
+  if (acao === "pausar") {
+    if (ehAdminYcloud(autor.papel)) await pausarCampanha(campanhaId, MOTIVO_PAUSA_ADMIN, { sobrepor: true });
+    else await pausarCampanha(campanhaId, MOTIVO_PAUSA_EQUIPE);
+  }
+  if (acao === "continuar" && c.status === "pausada") {
+    // C7.1 (achado F3): pausa do admin ou trava do sistema só o admin continua. O UPDATE confere o MESMO motivo lido (se o admin pausou
+    // de novo entre a leitura e a gravação, nada muda).
+    if (!podeContinuarPausa(c.motivoPausa, autor.papel)) {
+      throw new RecusaYcloud("Esta campanha foi pausada pelo administrador ou por uma trava de segurança: só o administrador pode continuar.");
+    }
+    await db.update(ycloudCampanhas).set({ status: "enviando", motivoPausa: null, atualizadoEm: d.agora() }).where(and(
+      eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, "pausada"),
+      c.motivoPausa === null ? isNull(ycloudCampanhas.motivoPausa) : eq(ycloudCampanhas.motivoPausa, c.motivoPausa),
+    ));
   }
   if (acao === "cancelar") {
     await db.update(ycloudCampanhas).set({ status: "cancelada", concluidaEm: d.agora(), atualizadoEm: d.agora() }).where(eq(ycloudCampanhas.id, campanhaId));
     await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "CANCELADA", motivo: "Campanha cancelada antes do envio.", falhouEm: d.agora(), atualizadoEm: d.agora() })
       .where(and(eq(ycloudEnvios.campanhaId, campanhaId), eq(ycloudEnvios.status, "na_fila")));
   }
-  await auditarYcloud({ acao: `campanha_${acao}`, usuarioId: userId, campanhaId, modelo: c.modeloNome });
+  await auditarYcloud({ acao: `campanha_${acao}`, usuarioId: autor.id, papel: autor.papel, campanhaId, modelo: c.modeloNome });
 }
 
 // ── Painel ──
@@ -565,6 +647,9 @@ export async function painelCampanhas() {
   const db = getDb();
   const camps = await db.select().from(ycloudCampanhas).orderBy(desc(ycloudCampanhas.id)).limit(30);
   if (!camps.length) return [];
+  // C7.1: "disparada por Fulano" (nome e papel de quem confirmou; o papel do momento fica na auditoria)
+  const ids = Array.from(new Set(camps.map(c => c.criadaPor).filter((x): x is number => typeof x === "number")));
+  const autores = ids.length ? await db.select({ id: users.id, nome: users.name, papel: users.role }).from(users).where(inArray(users.id, ids)) : [];
   const totais = await db.select({ campanhaId: ycloudEnvios.campanhaId, ...totaisSql }).from(ycloudEnvios)
     .where(inArray(ycloudEnvios.campanhaId, camps.map(c => c.id))).groupBy(ycloudEnvios.campanhaId);
   return camps.map(c => {
@@ -572,6 +657,7 @@ export async function painelCampanhas() {
     return {
       id: c.id, nome: c.nome, modelo: `${c.modeloNome} (${c.modeloIdioma})`, status: c.status, motivoPausa: c.motivoPausa, criadaEm: c.criadaEm,
       concluidaEm: c.concluidaEm, custoEstimado: numeroOuNulo(c.custoEstimado), moedaEstimada: c.moeda,
+      disparadaPor: (() => { const a = autores.find(x => x.id === c.criadaPor); return a ? { nome: a.nome?.trim() || `Usuário ${a.id}`, papel: a.papel } : null; })(),
       totais: {
         total: t?.total ?? 0, fila: t?.fila ?? 0, aceitas: t?.aceitas ?? 0, enviadas: t?.enviadas ?? 0, entregues: t?.entregues ?? 0, lidas: t?.lidas ?? 0,
         falhas: t?.falhas ?? 0, incertas: t?.incertas ?? 0,
@@ -609,7 +695,7 @@ export async function registrarOptoutDoAviso(telefoneBruto: unknown, origem: "wh
 }
 
 /** Pelo painel: por lead do CRM ou por um envio de campanha (o telefone sai do banco, nunca da tela). */
-export async function registrarOptoutPeloPainel(alvo: { leadId?: number; envioId?: number }, userId: number) {
+export async function registrarOptoutPeloPainel(alvo: { leadId?: number; envioId?: number }, autor: AutorYcloud) {
   const db = getDb();
   let telefone: string | null = null;
   let leadId: number | null = null;
@@ -621,13 +707,13 @@ export async function registrarOptoutPeloPainel(alvo: { leadId?: number; envioId
     telefone = telefoneE164(l?.telefone); leadId = alvo.leadId;
   }
   if (!telefone) throw new RecusaYcloud("Cadastro sem telefone válido.");
-  await registrarOptoutInterno(telefone, "painel", leadId, userId);
+  await registrarOptoutInterno(telefone, "painel", leadId, autor.id);
   // envios ainda na fila deste telefone não saem mais (o lote confere de novo, mas já fica claro no painel)
   await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "OPTOUT", motivo: "Não enviada: a pessoa pediu para não receber.", falhouEm: depsYcloud().agora(), atualizadoEm: depsYcloud().agora() })
     .where(and(eq(ycloudEnvios.chaveTelefone, chaveCanonicaTelefone(telefone) ?? "-"), eq(ycloudEnvios.status, "na_fila")));
   const apiKey = await chaveYcloud().catch(() => null);
   if (apiKey) await criarDescadastroYcloud({ apiKey, fetchImpl: depsYcloud().fetch }, telefone).catch(() => undefined); // melhor esforço
-  await auditarYcloud({ acao: "optout_registrado", usuarioId: userId, quantidade: 1 });
+  await auditarYcloud({ acao: "optout_registrado", usuarioId: autor.id, papel: autor.papel, quantidade: 1 });
   return { ok: true as const };
 }
 

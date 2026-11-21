@@ -17,6 +17,8 @@ import { ConexaoWhatsApp } from "@/components/whatsapp/ConexaoWhatsApp";
 import { CampanhasEAvisos } from "@/components/whatsapp/CampanhasEAvisos";
 import { CampanhaApiOficial, ModelosApiOficial, PainelCampanhasApiOficial } from "@/components/whatsapp/CampanhaApiOficial";
 import { abaInicialCentral, abasCentralWhatsapp, linkConexaoWhatsapp, type AbaCentral } from "@shared/whatsapp/central";
+import { podeOperarCampanhaOficial } from "@shared/whatsapp/ycloud";
+import { parsePermissions } from "@shared/admin-permissions";
 import { ConversasWhatsApp } from "@/components/whatsapp/ConversasWhatsApp";
 import { VARIAVEIS_TEMPLATE, variaveisDoTexto } from "@shared/whatsapp/variaveis";
 import { CampoDocumentos, CampoImovel, CampoTexto, textoDocumentosMarcados } from "@/components/whatsapp/CamposVariaveisEnvio";
@@ -44,10 +46,12 @@ export default function AdminWhatsApp() {
   const [mensagem, setMensagem] = useState("");
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([]);
   const [editor, setEditor] = useState<{ id?: number; nome: string; categoria: string; conteudo: string } | null>(null);
-  // EPIC-027 C7: só o admin escolhe "Campanha pela API oficial" (YCloud); a mensagem comum continua pelo WhatsApp Web
+  // EPIC-027 C7.1 (21/11): "Campanha pela API oficial" (YCloud) para quem pode operar — admin ou colaborador com o módulo WhatsApp
+  // (decisão do dono). A tela só esconde; quem decide é o servidor. A configuração da integração continua só do admin.
+  const podeCampanhaOficial = podeOperarCampanhaOficial({ perfil: role, ativo: user?.active ?? true, permissoes: parsePermissions(user?.permissions) });
   const [formaEnvio, setFormaEnvio] = useState<"comum" | "api_oficial">("comum");
   const [campanhaIniciada, setCampanhaIniciada] = useState(0);
-  const porApiOficial = role === "admin" && formaEnvio === "api_oficial";
+  const porApiOficial = podeCampanhaOficial && formaEnvio === "api_oficial";
 
   const conexao = trpc.whatsapp.minhaConexao.useQuery();
   // E9 (item 7): canal do disparo e o aviso de disparo em massa bloqueado pelo número principal
@@ -223,7 +227,7 @@ export default function AdminWhatsApp() {
                 </p>
               </div>
             )}
-            {role === "admin" && (
+            {podeCampanhaOficial && (
               <div className="flex flex-wrap items-center gap-2 text-xs" role="radiogroup" aria-label="Forma de envio">
                 <span className="text-gray-300">Forma de envio:</span>
                 {([["comum", "Mensagem comum (WhatsApp Web)"], ["api_oficial", "Campanha pela API oficial"]] as const).map(([v, r]) => (
