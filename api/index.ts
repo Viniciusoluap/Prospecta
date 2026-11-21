@@ -42,7 +42,9 @@ import doloresPonteRotas from "../server/dolores/ponte.js";
 import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 // EPIC-025 E6 (17/11): rondas e relatório diário da Dolores (cron próprio, CRON_SECRET em tempo constante).
-import { tratarCronDolores } from "../server/dolores/rondas.js";
+import { cronAutorizado, tratarCronDolores } from "../server/dolores/rondas.js";
+// EPIC-027 C7.2 (21/11): modelo padrão da API oficial (YCloud) enviado para aprovação pelo próprio servidor, uma vez, nos crons.
+import { garantirModeloPadraoNoCron } from "../server/ycloud/modelos.js";
 import { CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
 
@@ -187,6 +189,9 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
       console.error("[cron/central-vendas]", e instanceof Error ? e.message : "falha");
       return { erro: true };
     });
+    // EPIC-027 C7.2: modelo padrão da API oficial, DEPOIS de tudo e só com o tempo que sobra (no máximo 10 s, abortando as
+    // chamadas à YCloud). Uma vez; no máximo 1 tentativa por dia e 3 no total; nunca lança nem muda a resposta deste cron.
+    await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
     return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
@@ -199,13 +204,19 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
 // caminhos são fixos (CAMINHOS_CRON_DOLORES) e o fim do caminho é ignorado: a hora vem do relógio do servidor.
 app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
+  const inicio = Date.now();
+  let saida: { status: number; body: Record<string, unknown> };
   try {
-    const r = await tratarCronDolores(req);
-    return res.status(r.status).json(r.body);
+    saida = await tratarCronDolores(req);
   } catch (err) {
     console.error("[cron/dolores]", erroParaLog(err));
-    return res.status(500).json({ error: "Falha na rotina da Dolores" });
+    saida = { status: 500, body: { error: "Falha na rotina da Dolores" } };
   }
+  // EPIC-027 C7.2: de hora em hora (07h–14h de Brasília), só com o segredo do cron e DEPOIS da Dolores, com o tempo que sobra
+  // (no máximo 10 s, abortando as chamadas): o modelo padrão sai na primeira hora em que a integração está pronta. Nunca lança
+  // nem muda a resposta (nem o erro) da Dolores.
+  if (cronAutorizado(req.headers.authorization)) await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
+  return res.status(saida.status).json(saida.body);
 });
 
 // ── All other routes (tRPC, uploads, webhooks) ─
