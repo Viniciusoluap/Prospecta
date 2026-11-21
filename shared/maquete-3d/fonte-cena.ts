@@ -631,7 +631,7 @@ export function fonteParaModelo(f: FontePlanta): ModeloMaquete {
 }
 
 /** Item do JSON como peça do catálogo de móveis, com a altura do piso do ambiente (`y`). */
-export type PecaFonte = PecaMobilia & { y: number; estimado: boolean };
+export type PecaFonte = PecaMobilia & { y: number; estimado: boolean; /** Material e cor do item (EPIC-028, Etapa 3). */ material?: string; cor?: string };
 
 /** Os `itens` do JSON-fonte, prontos para o catálogo (substituem a mobília automática). */
 export function pecasDaFonte(f: FontePlanta): PecaFonte[] {
@@ -640,7 +640,7 @@ export function pecasDaFonte(f: FontePlanta): PecaFonte[] {
     x: i.x, z: i.z, rot: (i.rot * Math.PI) / 180,
     largura: i.larg, profundidade: i.prof, altura: i.alt, elevacao: i.elev ?? 0,
     opcoes: { ...(i.opcoes ?? {}) },
-    y: pisoDoItem(f, i), estimado: !!i.estimado,
+    y: pisoDoItem(f, i), estimado: !!i.estimado, material: i.material, cor: i.cor,
   }));
 }
 

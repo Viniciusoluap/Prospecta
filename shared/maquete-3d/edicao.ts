@@ -4,11 +4,11 @@
 // de `validarFonte`, da Etapa 1). A estrutura (paredes, aberturas, ambientes, cobertura) nunca é editada aqui.
 import { z } from "zod";
 import { TIPOS_MOVEL, type TipoMovel } from "./mobilia.js";
-import { eixoDaParede, ehOrtogonal, poligonoDoAmbiente, type AmbienteFonte, type FontePlanta, type ItemFonte } from "./fonte.js";
+import { EPS_AREA, areaComum, contornoDoItem, eixoDaParede, ehOrtogonal, poligonoDoAmbiente, type AmbienteFonte, type FontePlanta, type ItemFonte } from "./fonte.js";
 import { ehAuxiliar } from "./fonte-cena.js";
 import { pontoInterno } from "./geometria3d.js";
 import { ROTULOS_MOVEL_FONTE } from "./rotulos-itens.js";
-import { temErro, validarFonte, type ProblemaFonte } from "./validacao-fonte.js";
+import { temErro, validarFonte, zonasDaPorta, type ProblemaFonte } from "./validacao-fonte.js";
 
 // ── Limites e formato aceito pelo servidor ──
 
@@ -252,6 +252,28 @@ export const bloqueiaSalvar = (ps: ProblemaFonte[]) => temErro(ps);
 export function itensDoProblema(p: ProblemaFonte, itens: { id: string }[]): string[] {
   const ids = new Set(itens.map(i => i.id));
   return p.onde.split(" × ").filter(x => ids.has(x));
+}
+
+export type PortaBloqueada = { abertura: string; codigo: string; itens: string[]; zonas: [number, number][][] };
+
+/**
+ * Portas e portões bloqueados por algum item (vão, giro da folha ou faixa livre de 0,80 m), com as zonas proibidas
+ * em planta, para a tela pintar de vermelho. Mesmas zonas de `validarFonte` (`zonasDaPorta`).
+ */
+export function portasBloqueadas(f: FontePlanta, itens: ItemFonte[]): PortaBloqueada[] {
+  const { paredes, aberturas, ambientes } = f.estrutura;
+  const out: PortaBloqueada[] = [];
+  for (const ab of aberturas) {
+    if (ab.tipo !== "porta" && ab.tipo !== "portao") continue;
+    const w = paredes.find(p => p.id === ab.parede);
+    if (!w) continue;
+    const z = zonasDaPorta(w, ab, ambientes);
+    const zonas = [z.vao, ...z.faixas, ...(z.giro ? [z.giro] : [])];
+    const ids = itens.filter(i => (i.elev ?? 0) < ab.peitoril + ab.alt)
+      .filter(i => { const c = contornoDoItem(i); return zonas.some(zn => areaComum(zn, c) > EPS_AREA); }).map(i => i.id);
+    if (ids.length) out.push({ abertura: ab.id, codigo: ab.codigo, itens: ids, zonas: zonas.map(zn => zn.map(q => [q.x, q.y] as [number, number])) });
+  }
+  return out;
 }
 
 // ── Desfazer / refazer ──

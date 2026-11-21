@@ -200,3 +200,14 @@ describe("formato aceito pelo servidor", () => {
     expect(canonico({ b: 1, a: [1, { d: 2, c: undefined }] })).toBe('{"a":[1,{"d":2}],"b":1}');
   });
 });
+
+describe("portas bloqueadas (zonas em vermelho na tela)", () => {
+  it("a geladeira na frente da P3 marca a P3, com o vão, as faixas e o giro da folha", async () => {
+    const { portasBloqueadas } = await import("../shared/maquete-3d/edicao.js");
+    expect(portasBloqueadas(FONTE, ITENS)).toEqual([]);
+    const itens = com("geladeira", { x: 0.54, z: 1.36, rot: 0 }, ITENS.filter(i => i.id !== "bancada-pia"));
+    const b = portasBloqueadas(FONTE, itens);
+    expect(b.map(x => [x.abertura, x.itens])).toEqual([["p3-cozinha", ["geladeira"]]]);
+    expect(b[0].zonas).toHaveLength(4);
+  });
+});

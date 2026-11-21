@@ -1,14 +1,14 @@
 // Maquete 3D (EPIC-028, Etapa 2) — visualizador do JSON-fonte: o Canvas, a câmera de cada vista (visão geral em
 // corte e tour por cômodo, com os olhos a 1,60 m do piso) e a transição suave entre elas (instantânea com
 // `prefers-reduced-motion`). Carregado sob demanda (lazy) pela página: quem só olha a planta 2D não baixa o 3D.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import type { CenaFonte as Cena, PecaFonte, VistaCena } from "@shared/maquete-3d/fonte-cena";
 import { CenaFonte, type OpcoesCena } from "./CenaFonte";
 
-type Controles = { target: THREE.Vector3; update: () => void; minDistance: number; maxDistance: number; enablePan: boolean };
+export type Controles = { target: THREE.Vector3; update: () => void; minDistance: number; maxDistance: number; enablePan: boolean; enabled: boolean };
 
 const QUADROS_ATE_PRONTO = 6;
 const suave = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
@@ -63,13 +63,16 @@ function Diretor({ vista, controles, aoPronto }: { vista: VistaCena; controles: 
   return null;
 }
 
-export default function VisualizadorFonte({ cena, pecas, vista, telhado, aoPronto }: {
+export default function VisualizadorFonte({ cena, pecas, vista, telhado, aoPronto, grupoItens, controlesRef, semRotulos, children }: {
   cena: Cena; pecas: PecaFonte[]; vista: VistaCena; telhado: boolean; aoPronto?: () => void;
+  /** Editor (EPIC-028, Etapa 3): grupo dos itens, controles da câmera e camadas a mais dentro do Canvas. */
+  grupoItens?: RefObject<THREE.Group | null>; controlesRef?: RefObject<Controles | null>; semRotulos?: boolean; children?: ReactNode;
 }) {
   const toque = useMemo(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches, []);
   // Celular: sombras com mapa menor e móveis no desenho enxuto; computador: o desenho detalhado.
   const opcoes: OpcoesCena = useMemo(() => (toque ? { sombras: true, mapaSombra: 1024, aprimorado: false } : { sombras: true, mapaSombra: 2048, aprimorado: true }), [toque]);
-  const controles = useRef<Controles | null>(null);
+  const proprios = useRef<Controles | null>(null);
+  const controles = controlesRef ?? proprios;
   const [erro, setErro] = useState<string | null>(null);
   const geral = vista.tipo === "geral";
   // No tour o forro fica (é o teto de quem está dentro); na visão geral, o botão Telhado decide.
@@ -85,7 +88,7 @@ export default function VisualizadorFonte({ cena, pecas, vista, telhado, aoPront
         gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95;
         gl.domElement.addEventListener("webglcontextlost", () => setErro("o navegador encerrou o contexto gráfico"));
       }}>
-      <CenaFonte cena={cena} pecas={pecas} telhado={comTelhado} corte={geral} rotulos={geral && !telhado} opcoes={opcoes} />
+      <CenaFonte cena={cena} pecas={pecas} telhado={comTelhado} corte={geral} rotulos={geral && !telhado && !semRotulos} opcoes={opcoes} grupoItens={grupoItens}>{children}</CenaFonte>
       <OrbitControls ref={controles as never} makeDefault enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI * 0.495} rotateSpeed={0.7} zoomSpeed={0.8} />
       <Diretor vista={vista} controles={controles} aoPronto={aoPronto} />
     </Canvas>
