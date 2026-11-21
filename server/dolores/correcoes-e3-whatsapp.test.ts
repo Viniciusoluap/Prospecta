@@ -2,6 +2,7 @@
 // dos ataques A8 (dado de terceiro induz ação direta) e A9 (pedido repetido sem código), mais os cenários da regra de
 // contaminação. Modelo da Anthropic e envio pela Evolution falsos (PGlite, sem rede).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
@@ -35,7 +36,8 @@ function aviso(p: { de?: string; texto: string; encaminhada?: boolean }) {
     data: {
       key: { remoteJid: `${p.de ?? DONO}@s.whatsapp.net`, fromMe: false, id: `MSG${++seq}` },
       message: p.encaminhada ? { extendedTextMessage: { text: p.texto, contextInfo: { isForwarded: true, forwardingScore: 1 } } } : { conversation: p.texto },
-      messageTimestamp: Math.floor((AGORA.getTime() - 30_000) / 1000),
+      // QA C5-E2 (A1): a resposta curta ("pode"/"confirmo") é escrita DEPOIS da pergunta (enviada em AGORA)
+      messageTimestamp: Math.floor((AGORA.getTime() + (lerConfirmacao(p.texto) ? 1_000 : -30_000)) / 1000),
     },
   };
 }

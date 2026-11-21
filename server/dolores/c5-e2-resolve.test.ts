@@ -36,12 +36,13 @@ const tarefasDolores = () => q<{ title: string }>("SELECT t.title FROM tasks t J
 const atividadesDolores = () => q("SELECT * FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)'");
 
 let seq = 0;
-const ts = () => Math.floor((agora.getTime() - 5_000) / 1000);
+// QA C5-E2 (A1): a resposta curta ("pode"/"confirmo"/"não") é escrita DEPOIS da pergunta (enviada em `agora`); o resto, 5 s antes
+const ts = (t?: string) => Math.floor((agora.getTime() + (t !== undefined && lerConfirmacao(t) ? 1_000 : -5_000)) / 1000);
 function aviso(p: { de?: string; texto: string; grupo?: string; id?: string }) {
   const key = p.grupo
     ? { remoteJid: p.grupo, fromMe: false, id: p.id ?? `E2G${++seq}`, participant: `${p.de ?? DONO}@s.whatsapp.net` }
     : { remoteJid: `${p.de ?? DONO}@s.whatsapp.net`, fromMe: false, id: p.id ?? `E2M${++seq}` };
-  return { event: "messages.upsert", instance: "prospecta-dolores", data: { key, message: { conversation: p.texto }, messageTimestamp: ts() } };
+  return { event: "messages.upsert", instance: "prospecta-dolores", data: { key, message: { conversation: p.texto }, messageTimestamp: ts(p.texto) } };
 }
 const chamar = (body: unknown) => tratarWebhookDolores({ headers: { "x-webhook-token": segredoWebhookDolores() }, body, ip: "203.0.113.9" } as never);
 const dono = (texto: string) => chamar(aviso({ texto }));
@@ -99,13 +100,16 @@ describe("regras puras", () => {
   it("nivelDoItem: dinheiro, cobrança, aceitar grupo e tipos que liberam mais são sérios; registro é \"pode\"; desconhecido é sério", () => {
     expect(nivelDoItem("criar_tarefa", {})).toBe("registro");
     expect(nivelDoItem("registrar_acompanhamento", {})).toBe("registro");
-    expect(nivelDoItem("classificar_grupo", { tipo: "cliente" })).toBe("registro");
-    expect(nivelDoItem("classificar_grupo", { tipo: "administrativo" })).toBe("serio");
+    // QA C5-E2 (A2/A3): registro só na 1ª classificação de tipo simples (`troca: false`, montado pelo servidor); na dúvida, sério
+    expect(nivelDoItem("classificar_grupo", { tipo: "cliente", troca: false })).toBe("registro");
+    expect(nivelDoItem("classificar_grupo", { tipo: "cliente", troca: true })).toBe("serio");
+    expect(nivelDoItem("classificar_grupo", { tipo: "cliente" })).toBe("serio");
+    expect(nivelDoItem("classificar_grupo", { tipo: "administrativo", troca: false })).toBe("serio");
     expect(nivelDoItem("ligar_resposta_grupo", { ligado: false, tipo: "juridico" })).toBe("registro");
     expect(nivelDoItem("ligar_resposta_grupo", { ligado: true, tipo: "juridico" })).toBe("serio");
     for (const f of ["preparar_cobranca", "conciliar_nota_obra", "aceitar_grupo", "funcao_que_nao_existe"]) expect(nivelDoItem(f, {}), f).toBe("serio");
     // toda ação registrada tem um nível decidido (nenhuma cai no "desconhecido" por esquecimento, menos as sérias de propósito)
-    const registro = ACOES.filter(a => nivelDoItem(a.nome, { tipo: "cliente" }) === "registro").map(a => a.nome).sort();
+    const registro = ACOES.filter(a => nivelDoItem(a.nome, { tipo: "cliente", troca: false, ligado: false }) === "registro").map(a => a.nome).sort();
     expect(registro).toEqual(["classificar_grupo", "criar_card_cliente", "criar_tarefa", "gerar_documento", "ignorar_grupo", "ligar_resposta_grupo", "registrar_acompanhamento", "salvar_documentos_grupo", "salvar_nota_obra"]);
   });
 
@@ -319,7 +323,7 @@ describe("concorrência, auditoria e máscara", () => {
     expect(await q("SELECT funcao, aprovacao_id IS NOT NULL AS aprovado FROM dolores_autoria")).toEqual([{ funcao: "criar_tarefa", aprovado: true }]);
     // a tabela da proposta não tem coluna de texto
     const colunas = (await q<{ c: string }>("SELECT column_name AS c FROM information_schema.columns WHERE table_name = 'dolores_conversa_pendencia'")).map(x => x.c).sort();
-    expect(colunas).toEqual(["adjacente", "aprovacao_ids", "criado_em", "decidida_em", "decidida_mensagem_id", "id", "mensagem_id", "nivel", "situacao", "vence_em"]);
+    expect(colunas).toEqual(["adjacente", "aprovacao_ids", "criado_em", "decidida_em", "decidida_mensagem_id", "id", "mensagem_id", "nivel", "pergunta_enviada_em", "situacao", "vence_em"]);
   });
 
   it("senha, token e dado bancário no texto a gravar: recusado (nada proposto) e nada disso aparece na resposta, na memória ou na auditoria", async () => {

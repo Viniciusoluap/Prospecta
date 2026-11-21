@@ -2,6 +2,7 @@
 // depois da correção (A1 quadros na 1ª mensagem e partes no tempo; A2 aviso da ação cortada; A3 numeração; A4 teto no resumo).
 // Banco em memória (PGlite); modelo e envio falsos: nada sai para a rede.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
@@ -75,7 +76,7 @@ const q = async <T = any>(sql: string) => (await banco.pg.query<T>(sql)).rows;
 let seq = 0;
 const aviso = (texto: string) => ({
   event: "messages.upsert", instance: "prospecta-dolores",
-  data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: `QA8-${++seq}` }, message: { conversation: texto }, messageTimestamp: Math.floor((AGORA.getTime() - 30_000) / 1000) },
+  data: { key: { remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: `QA8-${++seq}` }, message: { conversation: texto }, messageTimestamp: Math.floor((AGORA.getTime() + (lerConfirmacao(texto) ? 1_000 : -30_000)) / 1000) },
 });
 const chamar = (body: unknown) => tratarWebhookDolores({ headers: { "x-webhook-token": segredoWebhookDolores() }, body, ip: "203.0.113.9" } as never);
 const uso = { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };

@@ -79,6 +79,35 @@ negócio, e não simplesmente ter programações". Decisões dele (CLAUDE.md, 21
 - [AUTO-DECISÃO] Ações de grupo só executam com a decisão via WhatsApp (`ctx.via`), inclusive pelo "aprovar CÓDIGO" do dono; pela
   fila da tela, recusa (a tela de Grupos continua sendo o caminho do admin).
 - Migração renumerada: o plano dizia 0144 (já usada pela C3); ficou 0145 e o plano foi corrigido.
+- **Decisão (portão de QA, 21/11): áudio do dono dizendo "pode" NÃO confirma.** Só texto escrito na conversa direta, reconhecido por
+  código (lista fechada), confirma uma proposta. Áudio, imagem com legenda, eco `fromMe` e encaminhada nunca confirmam: a
+  transcrição é um serviço externo e pode errar ("pode" ↔ "não pode"); confirmar algo é escrito. Teste: `c5-e2-qa.test.ts`
+  ("decisão: áudio do dono dizendo \"pode\" NUNCA confirma").
+
+## Correções do portão de QA (CONCERNS, 21/11/2026)
+- **A1 (médio) — "pode" escrito antes da pergunta.** A proposta nasce NÃO confirmável (`adjacente = false`, coluna nova
+  `pergunta_enviada_em` na própria 0145, ainda não aplicada). Só depois que a pergunta (ou a repetição dela) foi de fato enviada,
+  `responderAoDono` chama `marcarPerguntaEnviada` (adjacente = true + hora do envio). A resposta ("pode", "confirmo" e também "não")
+  só vale se o `messageTimestamp` da mensagem do dono for de um segundo POSTERIOR ao do envio (`respostaDepoisDaPergunta`); sem
+  hora, ou no mesmo segundo → não executa e o sistema mostra a proposta de novo (o "não" segue como conversa comum). A gravação de
+  "confirmada" confere de novo, no mesmo UPDATE, `adjacente` e a mesma `pergunta_enviada_em` (outra mensagem no meio → mostra de novo).
+- **A2 (médio) — trocar o vínculo/tipo de um grupo já definido.** O preparo de `classificar_grupo` grava nos argumentos (protegidos
+  pelo gatilho/hash) o estado de hoje (`antes`: tipo e vínculo) e `troca`. Troca de tipo ou de cliente/obra já definido é "sério"
+  ("confirmo"), e o resumo, montado pelo servidor, diz "TROCAR o grupo «…» — hoje: tipo X de «Fulano» (cliente nº 1) → passa a ser:
+  tipo Y de «Beltrano» (cliente nº 2)". Na execução, se o grupo mudou depois da proposta, nada muda ("peça de novo"). Primeira
+  classificação (grupo sem tipo e sem vínculo) para cliente/pós/engenharia, ou a mesma classificação confirmada, continua "pode".
+  [AUTO-DECISÃO] Grupo com tipo sugerido automaticamente pelo nome (não confirmado) conta como "já definido": trocá-lo pede "confirmo".
+- **A3 (baixo) — na dúvida, sério.** `nivelDoItem`: `classificar_grupo` só é "registro" com tipo da lista explícita dos simples
+  (`TIPOS_DE_GRUPO_SIMPLES`: cliente, pós-atendimento, engenharia) e `troca` literalmente `false`; `ligar_resposta_grupo` só é
+  "registro" com `ligado` literalmente `false` (desligar) ou `true` num tipo simples. Qualquer outro valor → "sério".
+- **A4 — "aprovar CÓDIGO" em ação séria de grupo.** Coube sem quebrar os comandos antigos: `decidir` (via WhatsApp) não executa item
+  de GRUPO sério (`exigeConfirmoNoCodigo`: aceitar grupo, tipos administrativo/jurídico/parceiros, troca de vínculo, ligar em tipo
+  interno) sem a confirmação por escrito; responde `[CÓDIGO] precisa da sua confirmação por escrito, porque …; mande "confirmo
+  CÓDIGO"` e o item continua aguardando. `lerDecisaoDoDono` passou a aceitar "confirmo CÓDIGO" / "confirmar CÓDIGO" (aprova com
+  `confirmado`). O "confirmo" à proposta também conta como confirmação por escrito. As demais funções (cobrança, conciliação, tarefa,
+  documento…) e as ações de grupo de registro (deixar de lado, desligar) continuam com o "aprovar CÓDIGO" de sempre.
+- Testes do QA marcados "ACHADO" invertidos e novos testes das correções em `server/dolores/c5-e2-qa.test.ts`; os auxiliares dos
+  testes de webhook passaram a datar a resposta curta do dono 1 s depois da pergunta (como na vida real).
 
 ## Fora desta etapa (com o motivo)
 - Pedido do dono dentro de um grupo → E3 (ordem do lead).
@@ -122,6 +151,11 @@ negócio, e não simplesmente ter programações". Decisões dele (CLAUDE.md, 21
   `server/dolores/prompt.ts`, `server/dolores/permissoes.ts`, `server/dolores/testes-banco.ts`
 - `docs/stories/epics/epic-027-correcoes-20-11-noite/C5-PLANO-dolores-jarvis.md` (número da migração corrigido)
 - Testes: `server/dolores/c5-e2-resolve.test.ts` (novo) e os ajustados acima
+- Correções do portão de QA: `drizzle/0145_dolores_pendencia.sql` e `drizzle/schema-dolores-pendencia.ts` (`pergunta_enviada_em`,
+  `adjacente` nasce false), `server/dolores/pendencia.ts`, `server/dolores/whatsapp.ts`, `server/dolores/aprovacoes.ts`,
+  `server/dolores/acoes/grupos-config.ts`, `shared/dolores/confirmacao.ts`, `shared/dolores/fila.ts`; testes
+  `server/dolores/c5-e2-qa.test.ts`, `c5-e2-resolve.test.ts`, `acoes-whatsapp.test.ts`, `correcoes-e3-whatsapp.test.ts`,
+  `correcoes-e3-r2-whatsapp.test.ts`, `e8-qa-seguranca.test.ts`
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Draft → InProgress → InReview (YOLO).

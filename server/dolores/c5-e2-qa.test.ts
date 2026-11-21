@@ -1,6 +1,6 @@
 // EPIC-027 C5 (E2) — portão de QA de SEGURANÇA (@qa, 21/11/2026). Tenta QUEBRAR a confirmação natural ("pode"/"confirmo"):
 // quem confirma, o que executa, injeção, grupos pela conversa, falha segura sem a 0145. Pelo webhook de verdade (PGlite, modelo e
-// envio falsos, sem rede). Os testes marcados "ACHADO" documentam o comportamento atual que o portão aponta como risco.
+// envio falsos, sem rede). Os testes que eram "ACHADO" (comportamento antigo) foram invertidos com as correções A1–A4 do @dev.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
@@ -9,7 +9,8 @@ vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof i
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
-import { lerConfirmacao, nivelDoItem } from "../../shared/dolores/confirmacao.js";
+import { exigeConfirmoNoCodigo, lerConfirmacao, nivelDoItem } from "../../shared/dolores/confirmacao.js";
+import { lerDecisaoDoDono } from "../../shared/dolores/fila.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
@@ -36,7 +37,9 @@ const tsDe = (d: Date) => Math.floor(d.getTime() / 1000);
 const corpo = (key: Record<string, unknown>, message: Record<string, unknown>, quando = new Date(agora.getTime() - 5_000)) =>
   ({ event: "messages.upsert", instance: "prospecta-dolores", data: { key, message, messageTimestamp: tsDe(quando) } });
 const direta = (texto: string, extra: { quando?: Date; id?: string } = {}) =>
-  corpo({ remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: extra.id ?? `QA${++seq}` }, { conversation: texto }, extra.quando);
+  // QA C5-E2 (A1): a resposta curta é escrita DEPOIS da pergunta (enviada em `agora`), salvo quando o teste diz a hora
+  corpo({ remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: extra.id ?? `QA${++seq}` }, { conversation: texto },
+    extra.quando ?? (lerConfirmacao(texto) ? new Date(agora.getTime() + 1_000) : undefined));
 const chamar = (body: unknown) => tratarWebhookDolores({ headers: { "x-webhook-token": segredoWebhookDolores() }, body, ip: "203.0.113.9" } as never);
 const dono = (texto: string) => chamar(direta(texto));
 const uso = { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
@@ -108,15 +111,70 @@ describe("QA 1 — quem confirma", () => {
     expect((await fila())[0].situacao).toBe("executada");
   });
 
-  it("ACHADO (médio): \"pode\" ENVIADO ANTES de a proposta nova existir (atraso/fora de ordem do webhook) confirma a proposta nova que o dono não viu", async () => {
+  it("A1 (corrigido): \"pode\" ESCRITO ANTES de a proposta nova existir (atraso/fora de ordem do webhook) NÃO confirma a proposta nova; mostra de novo", async () => {
     await proporTarefa("Ligar para o João");
     const viuA = new Date(agora.getTime() + 10_000); // o dono responde "pode" à proposta A…
     agora = new Date(agora.getTime() + 60_000);
     await proporTarefa("Cobrar o Pedro", "cria uma tarefa para a Bianca cobrar o Pedro"); // …mas o webhook entrega B antes do "pode"
     expect((await pendencias()).map(p => p.situacao)).toEqual(["substituida", "aberta"]);
-    await chamar(direta("pode", { quando: viuA })); // enviado antes de a pergunta de B existir
-    // comportamento atual: B (que o dono não tinha visto ao escrever "pode") é executada
+    await chamar(direta("pode", { quando: viuA })); // escrito antes de a pergunta de B existir
+    expect(await tarefasDolores()).toEqual([]); // nada executa
+    expect(ultima()).toMatch(/Antes de fazer, confira o que ainda está esperando/);
+    expect(ultima()).toContain("Cobrar o Pedro"); // a proposta de verdade, mostrada de novo
+    expect((await pendencias())[1].situacao).toBe("aberta");
+    await dono("pode"); // agora sim, escrito depois de ver B
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Cobrar o Pedro"]);
+  });
+
+  it("A1: a proposta nasce NÃO confirmável e só passa a aceitar resposta depois que a pergunta saiu (com a hora do envio)", async () => {
+    const naHoraDoEnvio: Array<{ adjacente: boolean; pergunta_enviada_em: Date | null }> = [];
+    enviar.mockImplementation(async (m: { texto: string }) => {
+      if (/Posso fazer isto\?/.test(m.texto)) naHoraDoEnvio.push(...await q<any>("SELECT adjacente, pergunta_enviada_em FROM dolores_conversa_pendencia WHERE situacao = 'aberta'"));
+      return true;
+    });
+    await proporTarefa();
+    expect(naHoraDoEnvio).toEqual([{ adjacente: false, pergunta_enviada_em: null }]); // enquanto a pergunta sai, nada a confirma
+    const [p] = await q<any>("SELECT adjacente, pergunta_enviada_em FROM dolores_conversa_pendencia");
+    expect(p.adjacente).toBe(true);
+    expect(new Date(p.pergunta_enviada_em).getTime()).toBe(agora.getTime());
+  });
+
+  it("A1: resposta no MESMO segundo do envio da pergunta, ou sem hora, não confirma (lado seguro); a seguinte, depois, confirma", async () => {
+    await proporTarefa();
+    await chamar(direta("pode", { quando: new Date(agora.getTime() + 400) })); // mesmo segundo
+    expect(await tarefasDolores()).toEqual([]);
+    expect(ultima()).toMatch(/Antes de fazer, confira/);
+    const semHora = direta("pode") as { data: Record<string, unknown> };
+    delete semHora.data.messageTimestamp;
+    await chamar(semHora); // sem messageTimestamp: a mensagem é descartada como antiga — nada executa
+    expect(await tarefasDolores()).toEqual([]);
+    await dono("pode");
+    expect(await tarefasDolores()).toHaveLength(1);
+  });
+
+  it("A1: \"não\" escrito antes da pergunta não recusa a proposta (segue como conversa comum)", async () => {
+    await proporTarefa();
+    roteiro.push(() => texto("Certo."));
+    await chamar(direta("não", { quando: new Date(agora.getTime() - 2_000) }));
+    expect((await pendencias())[0].situacao).toBe("aberta");
+  });
+
+  it("A1: envio da pergunta falhou → a proposta não vale (nenhum \"pode\" a confirma)", async () => {
+    enviar.mockImplementation(async () => false);
+    await proporTarefa();
+    expect((await pendencias())[0]).toMatchObject({ situacao: "vencida", adjacente: false });
+    enviar.mockImplementation(async () => true);
+    roteiro.push(() => texto("Não tenho nada esperando."));
+    await dono("pode");
+    expect(await tarefasDolores()).toEqual([]);
+  });
+
+  it("decisão: áudio do dono dizendo \"pode\" NUNCA confirma (só texto escrito, reconhecido por código)", async () => {
+    await proporTarefa();
+    await chamar(corpo({ remoteJid: `${DONO}@s.whatsapp.net`, fromMe: false, id: "QA-AUDIO-PODE" },
+      { audioMessage: { seconds: 1, mimetype: "audio/ogg; codecs=opus" } }, new Date(agora.getTime() + 1_000)));
+    expect(await tarefasDolores()).toEqual([]);
+    expect((await pendencias())[0].situacao).toBe("aberta");
   });
 });
 
@@ -145,11 +203,19 @@ describe("QA 2 — o que executa", () => {
     for (const [f, a] of [["conciliar_nota_obra", {}], ["preparar_cobranca", {}], ["aceitar_grupo", {}], ["classificar_grupo", { tipo: "parceiros" }],
       ["classificar_grupo", { tipo: "juridico" }], ["ligar_resposta_grupo", { ligado: true, tipo: "administrativo" }],
       ["registrar_pagamento", {}], ["excluir_registro", {}], ["", {}]] as Array<[string, unknown]>) expect(nivelDoItem(f, a), `${f} ${JSON.stringify(a)}`).toBe("serio");
-    // ACHADO (baixo): argumento sem tipo / tipo desconhecido cai em "registro" (não no lado forte). Hoje inalcançável — o zod do
-    // preparo e da execução exige um dos 6 tipos e o gatilho impede mudar os argumentos —, mas foge do "na dúvida, sério".
-    expect(nivelDoItem("classificar_grupo", {})).toBe("registro");
-    expect(nivelDoItem("classificar_grupo", { tipo: "CLIENTE" })).toBe("registro");
-    expect(nivelDoItem("ligar_resposta_grupo", { ligado: "true", tipo: "juridico" })).toBe("registro");
+    // A3 (corrigido): na dúvida, sério — sem tipo, tipo desconhecido, `troca` ausente, `ligado` que não é booleano de verdade
+    for (const [f, a] of [["classificar_grupo", {}], ["classificar_grupo", { tipo: "CLIENTE", troca: false }], ["classificar_grupo", { tipo: "indefinido", troca: false }],
+      ["classificar_grupo", { tipo: "cliente" }], ["classificar_grupo", { tipo: "cliente", troca: true }], ["classificar_grupo", { tipo: "cliente", troca: "false" }],
+      ["ligar_resposta_grupo", { ligado: "true", tipo: "juridico" }], ["ligar_resposta_grupo", { ligado: "false", tipo: "cliente" }],
+      ["ligar_resposta_grupo", { ligado: true }], ["ligar_resposta_grupo", { ligado: true, tipo: "indefinido" }], ["ligar_resposta_grupo", {}]] as Array<[string, unknown]>) {
+      expect(nivelDoItem(f, a), `${f} ${JSON.stringify(a)}`).toBe("serio");
+    }
+    // só a lista explícita dos simples é "registro"
+    for (const [f, a] of [["classificar_grupo", { tipo: "cliente", troca: false }], ["classificar_grupo", { tipo: "pos_atendimento", troca: false }],
+      ["classificar_grupo", { tipo: "engenharia", troca: false }], ["ligar_resposta_grupo", { ligado: false, tipo: "juridico" }],
+      ["ligar_resposta_grupo", { ligado: false }], ["ligar_resposta_grupo", { ligado: true, tipo: "cliente" }], ["ignorar_grupo", {}]] as Array<[string, unknown]>) {
+      expect(nivelDoItem(f, a), `${f} ${JSON.stringify(a)}`).toBe("registro");
+    }
   });
 });
 
@@ -202,16 +268,48 @@ describe("QA 4 — grupos pela conversa", () => {
     expect((await q<any>("SELECT responder_ligado FROM dolores_marcacoes_config WHERE id = 1"))[0].responder_ligado).toBe(false);
   });
 
-  it("ACHADO (médio): trocar o CLIENTE de um grupo de cliente já confirmado é 'registro' e o resumo não diz de quem o grupo era", async () => {
+  it("A2 (corrigido): trocar o CLIENTE de um grupo já confirmado é sério e o resumo mostra \"hoje: … → passa a ser: …\"; o \"pode\" não troca", async () => {
     await criar(`('prospecta-dolores', '${GRUPO}', 'Obra Maria', 'Obra Maria', true, 'cliente', 'manual', 'confirmado', 'KHMS', 1)`);
     const [g] = await q<{ id: number }>(`SELECT id FROM dolores_grupos WHERE grupo_jid = '${GRUPO}'`);
     roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: 2 }]), () => texto("Vou ligar ao João."));
     await dono("vincula esse grupo ao João");
-    expect((await pendencias())[0].nivel).toBe("registro");
+    expect((await pendencias())[0].nivel).toBe("serio");
+    const pergunta = ultima();
+    expect(pergunta).toMatch(/Isto precisa da sua confirmação por escrito\* \(troca o tipo ou o cliente\/obra de um grupo que já estava definido\)/);
+    expect(pergunta).toMatch(/hoje: tipo cliente de «Maria Trello» \(cliente nº 1\) → passa a ser: tipo cliente de «João Atrasado» \(cliente nº 2\)/);
+    for (const t of ["pode", "sim", "ok"]) await dono(t);
+    expect((await q<any>(`SELECT lead_id FROM dolores_grupos WHERE id = ${g.id}`))[0].lead_id).toBe(1); // continua da Maria
+    await dono("confirmo");
+    expect((await q<any>(`SELECT lead_id FROM dolores_grupos WHERE id = ${g.id}`))[0].lead_id).toBe(2);
+  });
+
+  it("A2: mudar o TIPO já definido (cliente → engenharia) também é sério; a primeira classificação de grupo sem tipo continua \"pode\"", async () => {
+    await criar(`('prospecta-dolores', '${GRUPO}', 'Obra Maria', 'Obra Maria', true, 'cliente', 'manual', 'confirmado', 'KHMS', 1),
+      ('prospecta-dolores', '120363000000000078@g.us', 'Grupo novo', 'Grupo novo', true, 'indefinido', 'automatico', 'confirmado', 'KHMV', NULL)`);
+    const [g1, g2] = await q<{ id: number }>("SELECT id FROM dolores_grupos ORDER BY id");
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g1.id, tipo: "engenharia" }]), () => texto("Vou trocar."));
+    await dono("define esse grupo como engenharia");
+    expect((await pendencias()).at(-1)!.nivel).toBe("serio");
+    expect(ultima()).toMatch(/hoje: tipo cliente de «Maria Trello» \(cliente nº 1\) → passa a ser: tipo engenharia/);
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g2.id, tipo: "cliente", leadId: 1 }]), () => texto("Vou ligar à Maria."));
+    await dono("vincula o grupo novo à Maria");
+    expect((await pendencias()).at(-1)!.nivel).toBe("registro");
     expect(ultima()).toMatch(/Posso fazer isto\?/);
-    expect(ultima()).not.toMatch(/Maria Trello/); // o vínculo atual (que será trocado) não aparece
+    expect(ultima()).not.toMatch(/hoje:/);
     await dono("pode");
-    expect((await q<any>(`SELECT lead_id FROM dolores_grupos WHERE id = ${g.id}`))[0].lead_id).toBe(2); // o grupo da Maria passa a falar do João
+    expect((await q<any>(`SELECT tipo, lead_id FROM dolores_grupos WHERE id = ${g2.id}`))[0]).toEqual({ tipo: "cliente", lead_id: 1 });
+  });
+
+  it("A2: o grupo mudou depois da proposta (outro vínculo gravado no meio) → o \"pode\" não aplica a proposta velha", async () => {
+    await criar(`('prospecta-dolores', '${GRUPO}', 'Grupo novo', 'Grupo novo', true, 'indefinido', 'automatico', 'confirmado', 'KHMW', NULL)`);
+    const [g] = await q<{ id: number }>(`SELECT id FROM dolores_grupos WHERE grupo_jid = '${GRUPO}'`);
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: 2 }]), () => texto("Vou ligar ao João."));
+    await dono("vincula esse grupo ao João");
+    expect((await pendencias())[0].nivel).toBe("registro");
+    await banco.pg.exec(`UPDATE dolores_grupos SET tipo = 'cliente', lead_id = 1, decidido_em = now(), decidido_por = 'whatsapp:dono' WHERE id = ${g.id}`); // outra decisão, no meio
+    await dono("pode");
+    expect((await q<any>(`SELECT lead_id FROM dolores_grupos WHERE id = ${g.id}`))[0].lead_id).toBe(1);
+    expect(ultima()).toMatch(/mudou depois da proposta/);
   });
 
   it("nenhuma ação de grupo é alcançável pela ponte HTTP nem pela mensagem de grupo (nem do dono dentro do grupo)", async () => {
@@ -250,5 +348,50 @@ describe("QA 6 — o \"pode\" não gasta", () => {
     await dono("pode");
     expect(pedidosModelo).toHaveLength(2);
     expect(await q("SELECT * FROM dolores_consumo ORDER BY 1")).toEqual(consumoAntes);
+  });
+});
+
+describe("QA 8 — A4: \"aprovar CÓDIGO\" (quadro antigo) em ação séria de grupo pede \"confirmo CÓDIGO\"", () => {
+  it("leitura por código: \"confirmo CÓDIGO\" aprova com a confirmação por escrito; \"aprovar CÓDIGO\" continua igual", () => {
+    expect(lerDecisaoDoDono("confirmo K7M3P")).toEqual({ decisao: "aprovar", codigos: ["K7M3P"], confirmado: true });
+    expect(lerDecisaoDoDono("Confirmar k7m3p.")).toEqual({ decisao: "aprovar", codigos: ["K7M3P"], confirmado: true });
+    expect(lerDecisaoDoDono("aprovar K7M3P")).toEqual({ decisao: "aprovar", codigos: ["K7M3P"] });
+    for (const t of ["confirmo", "confirmo sim", "confirmo pode", "eu confirmo K7M3P"]) expect(lerDecisaoDoDono(t), t).toBeNull();
+    expect(exigeConfirmoNoCodigo("aceitar_grupo", {})).toBe(true);
+    expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "juridico", troca: false })).toBe(true);
+    expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "cliente", troca: true })).toBe(true);
+    expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "cliente", troca: false })).toBe(false);
+    expect(exigeConfirmoNoCodigo("ignorar_grupo", {})).toBe(false);
+    // as outras funções sérias mantêm o comando antigo ("aprovar CÓDIGO")
+    expect(exigeConfirmoNoCodigo("preparar_cobranca", {})).toBe(false);
+    expect(exigeConfirmoNoCodigo("conciliar_nota_obra", {})).toBe(false);
+  });
+
+  it("aceitar grupo pelo código: \"aprovar CÓDIGO\" não aceita e pede \"confirmo CÓDIGO\"; \"confirmo CÓDIGO\" aceita", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao) VALUES
+      ('prospecta-dolores', '${GRUPO}', 'Obra X', 'Obra X', true, 'indefinido', 'automatico', 'recusado', 'KHMX', 'outra_pessoa', 'evento_add')`);
+    const [g] = await q<{ id: number }>(`SELECT id FROM dolores_grupos WHERE grupo_jid = '${GRUPO}'`);
+    roteiro.push(() => ferramenta(["aceitar_grupo", { grupoId: g.id }]), () => texto("Vou aceitar o grupo."));
+    await dono("aceita esse grupo");
+    const [item] = await fila();
+    await dono(`aprovar ${item.codigo}`);
+    expect(ultima()).toContain(`mande "confirmo ${item.codigo}"`);
+    expect((await q<any>(`SELECT situacao_confirmacao FROM dolores_grupos WHERE id = ${g.id}`))[0].situacao_confirmacao).toBe("recusado");
+    expect((await fila())[0].situacao).toBe("aguardando");
+    await dono(`confirmo ${item.codigo}`);
+    expect((await q<any>(`SELECT situacao_confirmacao FROM dolores_grupos WHERE id = ${g.id}`))[0].situacao_confirmacao).not.toBe("recusado");
+    expect((await fila())[0].situacao).toBe("executada");
+  });
+
+  it("item de grupo de registro (deixar de lado) continua com o \"aprovar CÓDIGO\" de sempre", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, lead_id) VALUES
+      ('prospecta-dolores', '${GRUPO}', 'Obra Maria', 'Obra Maria', true, 'cliente', 'manual', 'confirmado', 'KHMY', 1)`);
+    const [g] = await q<{ id: number }>(`SELECT id FROM dolores_grupos WHERE grupo_jid = '${GRUPO}'`);
+    roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Vou deixar de lado."));
+    await dono("ignora esse grupo");
+    const [item] = await fila();
+    await dono(`aprovar ${item.codigo}`);
+    expect((await fila())[0].situacao).toBe("executada");
+    expect((await q<any>(`SELECT ativo FROM dolores_grupos WHERE id = ${g.id}`))[0].ativo).toBe(false);
   });
 });
