@@ -28,6 +28,7 @@ import {
 import { MENSAGEM_EM_CURSO, MENSAGEM_LOTE, passoEmCurso, pendentesIA } from "./execucao-ia.js";
 import { ConflitoDeVersao, HistoricoIndisponivel, gravarModelo, lerRevisao, listarRevisoes } from "./revisoes.js";
 import { carregarParaEdicao, listarVersoes, publicarVersao, restaurarPadrao, salvarRascunho } from "./itens.js";
+import { buscarUnidades, gerarCodigo, listarLotes, lotePublico, salvarLote, semearLotePadrao } from "./lotes.js";
 
 type Ctx = { user: { id: number; role: string } };
 function exigirAdmin(ctx: Ctx, acao: string) {
@@ -248,8 +249,43 @@ const itensRouter = router({
   }),
 });
 
+// EPIC-028 (Etapa 4): lotes ligados à maquete da planta (N lotes → a mesma estrutura), cada um com a sua versão
+// publicada de itens e o código do link público. Só o administrador (papel conferido antes de qualquer consulta).
+const textoCurto = (n: number) => z.string().trim().max(n).nullable();
+const lotesRouter = router({
+  listar: adminProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "ver os lotes da maquete");
+    return listarLotes(input.planta);
+  }),
+  salvar: adminProcedure.input(z.object({
+    planta: plantaSchema, id: z.number().int().positive().optional(),
+    empreendimentoSlug: z.string().regex(/^[a-z0-9-]{1,80}$/, "Endereço do empreendimento: só letras minúsculas, números e hífen."),
+    loteSlug: z.string().regex(/^[a-z0-9-]{1,80}$/, "Endereço do lote: só letras minúsculas, números e hífen."),
+    empreendimentoNome: z.string().trim().min(1).max(120), quadra: textoCurto(20), lote: textoCurto(20),
+    itensVersao: z.number().int().positive().max(1_000_000).nullable(), unitId: z.number().int().positive().nullable(), ativo: z.boolean(),
+  })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "ligar lotes à maquete");
+    return salvarLote(input, ctx.user.id);
+  }),
+  /** Gera ou troca o código do link (o anterior deixa de abrir). */
+  gerarCodigo: adminProcedure.input(z.object({ planta: plantaSchema, id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "gerar o link do lote");
+    return gerarCodigo(input.planta, input.id);
+  }),
+  unidades: adminProcedure.input(z.object({ busca: z.string().trim().max(80).default("") })).query(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "buscar unidades da Incorporação");
+    return buscarUnidades(input.busca);
+  }),
+  /** Semente idempotente: Lote 4 da Quadra 18 (Vila Esmeralda) → planta lote4-qd18. */
+  semearPadrao: adminProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
+    exigirAdmin(ctx, "ligar o lote padrão da planta");
+    return semearLotePadrao(input.planta, ctx.user.id);
+  }),
+});
+
 export const maquete3dRouter = router({
   itens: itensRouter,
+  lotes: lotesRouter,
   config: adminProcedure.query(async () => {
     const config = await carregarConfig();
     const credencial = await dependencias().credencialIA().catch(() => null);
@@ -798,5 +834,15 @@ export const maquetePublicaRouter = router({
     const comercial = lerComercial(m.comercial);
     // S-04: condomínio publicado antes do muro continua como foi publicado (sem muro) até ser revisto e publicado de novo.
     return { titulo: comercial.nome || m.titulo, tipo: m.tipo, modelo: modeloParaLinkPublico(modelo), comercial, unidades: await unidadesDoEstudo(m.studyId) };
+  }),
+
+  /**
+   * EPIC-028 (Etapa 4): página do lote, /maquete/<empreendimento>/<lote>-<código>. Só a versão de itens PUBLICADA, o
+   * status só leitura e os textos. A entrada aceita qualquer texto curto: formato errado, código errado, lote que não
+   * existe ou sem publicação dão a MESMA resposta (NOT_FOUND), sem dizer se o lote existe.
+   */
+  porLote: publicProcedure.input(z.object({ empreendimento: z.string().max(2000), lote: z.string().max(2000) })).query(async ({ ctx, input }) => {
+    try { ctx.res?.setHeader?.("X-Robots-Tag", "noindex, nofollow"); } catch { /* sem resposta HTTP (testes) */ }
+    return lotePublico(input.empreendimento, input.lote);
   }),
 });
