@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ENTRADA_VOZ, ROTULO_CONSULTA, ehPedidoDeEsquecer, pareceCodigo, pedeDetalhe, rotulosDasConsultas, semCodigos, vozDaDolores } from "../../shared/dolores/voz.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { ACOES } from "./acoes/registro.js";
-import { FUNCOES } from "./funcoes.js";
+import { FUNCOES, LEITURAS_DO_DONO } from "./funcoes.js";
 import { promptSistemaWhatsapp } from "./prompt.js";
 
 describe("filtro de voz (shared/dolores/voz.ts)", () => {
@@ -54,7 +54,7 @@ describe("filtro de voz (shared/dolores/voz.ts)", () => {
     expect(semCodigos("Nada aqui")).toBe("Nada aqui");
   });
   it("todo nome de consulta e de ação tem rótulo de gente (função nova precisa ganhar o seu)", () => {
-    for (const n of [...FUNCOES.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(ROTULO_CONSULTA[n], n).toBeTruthy();
+    for (const n of [...FUNCOES.map(f => f.nome), ...LEITURAS_DO_DONO.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(ROTULO_CONSULTA[n], n).toBeTruthy();
     expect(rotulosDasConsultas(["listar_tarefas", "listar_obras", "listar_tarefas"])).toBe("tarefas, obras");
     expect(rotulosDasConsultas(["coisa_nova_x"])).toBe("outra consulta");
   });
@@ -140,7 +140,7 @@ describe("prompt de sistema novo (trava de regressão)", () => {
       expect(p).not.toMatch(/Você não atende clientes/);
       expect(p).not.toMatch(/cadastrou o administrador|cadastrados pelo administrador/);
       // nenhum nome interno de ferramenta no texto do sistema
-      for (const n of [...FUNCOES.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(p, n).not.toContain(n);
+      for (const n of [...FUNCOES.map(f => f.nome), ...LEITURAS_DO_DONO.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(p, n).not.toContain(n);
       // o que existe hoje: 6 tipos de grupo, atende cliente cadastrado; EPIC-027 C5 (E2): ela resolve pela conversa com o "pode"
       for (const t of ["cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros comerciais ou\n  engenharia", "Cliente cadastrado", "Resolver por aqui, quando ele pedir",
         "ele responde \"pode\" (ou \"confirmo\", no que é sério)", "Não pergunte você mesma"]) expect(p).toContain(t);

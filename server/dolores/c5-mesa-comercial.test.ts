@@ -21,7 +21,7 @@ import { ACOES } from "./acoes/registro.js";
 import { ferramentasDoCliente } from "./atendimento.js";
 import { RESERVA_MINIMA_ENTRADA, SOBRECARGA_DE_FERRAMENTAS, definirClienteModelo, ferramentasParaOModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { filtroDaSaida } from "./dados-pessoais.js";
-import { FUNCOES, funcaoPorNome } from "./funcoes.js";
+import { FUNCOES, LEITURAS_DO_DONO, leituraPorNome } from "./funcoes.js";
 import { LEITURAS_DO_GRUPO, LEITURAS_DO_PARCEIRO, LEITURAS_INTERNAS, executarLeituraInterna } from "./marcacao.js";
 import { hashDaPlanta } from "./maquete-lote.js";
 import { tokensEstimadosDoTexto } from "./memoria.js";
@@ -371,7 +371,7 @@ describe("segurança: só a conversa direta do dono", () => {
       expect(JSON.stringify(r.corpo)).not.toContain(COD4);
       // segunda trava: chamada direta com o canal do grupo ou do cliente é recusada pela própria leitura
       for (const canal of ["grupo", "cliente", "ponte"] as const) {
-        const d = await funcaoPorNome(n)!.executar({ busca: "lote 4 da quadra 18", loteId: 1, tom: "proximo", limite: 20 } as never, { agora, canal });
+        const d = await leituraPorNome(n)!.executar({ busca: "lote 4 da quadra 18", loteId: 1, tom: "proximo", limite: 20 } as never, { agora, canal });
         expect((d.dados as any).recusado, `${n} ${canal}`).toBeTruthy();
         expect(JSON.stringify(d)).not.toContain(COD4);
       }
@@ -382,7 +382,12 @@ describe("segurança: só a conversa direta do dono", () => {
 describe("registro, níveis e piso da reserva", () => {
   it("leituras novas: só leitura, liberadas, contaminam e são só da conversa do dono; gerar link é de fila; rascunho nunca vai à fila", () => {
     expect([...LIBERADAS_ETAPA_7_MAQUETE].every(n => funcaoLiberada(n))).toBe(true);
-    for (const n of LEITURAS_MAQUETE) expect(FUNCOES.find(f => f.nome === n)).toMatchObject({ tipo: "leitura", contamina: true, soConversaDoDono: true });
+    // EPIC-027 C5 (integração 2): mecanismo ÚNICO — as leituras só do dono moram em LEITURAS_DO_DONO, fora de FUNCOES
+    for (const n of LEITURAS_MAQUETE) {
+      expect(LEITURAS_DO_DONO.find(f => f.nome === n)).toMatchObject({ tipo: "leitura", contamina: true, soConversaDoDono: true });
+      expect(FUNCOES.find(f => f.nome === n), n).toBeUndefined();
+      expect(leituraPorNome(n)?.soConversaDoDono).toBe(true);
+    }
     expect(ACOES.find(a => a.nome === "rascunhar_mensagem_lote")).toBeUndefined();
     expect(ACOES.find(a => a.nome === "gerar_link_maquete_lote")).toMatchObject({ nivel: "fila", contamina: true });
     expect(nivelDoItem("gerar_link_maquete_lote", { loteId: 2, troca: false, antes: null })).toBe("registro");

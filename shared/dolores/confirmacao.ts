@@ -74,6 +74,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
     case "salvar_documentos_grupo": case "salvar_nota_obra": case "ignorar_grupo":
     // EPIC-027 C5 (memória de longo prazo): lembrar/corrigir/esquecer um fato é registro ("pode"); esquecer só arquiva
     case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria":
+    // EPIC-027 C5 (criadora de mesas): propor, revisar e recusar uma PROPOSTA só registram o rascunho — "pode"
+    case "propor_mesa": case "revisar_mesa": case "recusar_mesa":
       return "registro";
     case "classificar_grupo":
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser
@@ -86,7 +88,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
     case "ligar_resposta_grupo":
       // desligar (literalmente false) é registro; ligar só é registro nos tipos simples
       return a.ligado === false || (a.ligado === true && ehTipoSimples(a.tipo)) ? "registro" : "serio";
-    case "preparar_cobranca": case "conciliar_nota_obra": case "aceitar_grupo":
+    // aprovar uma mesa é sério ("confirmo"), mesmo sem ligar nada: é a decisão de construir uma função nova
+    case "preparar_cobranca": case "conciliar_nota_obra": case "aceitar_grupo": case "propor_aprovacao_mesa":
     default:
       return "serio";
   }
@@ -102,8 +105,8 @@ export const FUNCOES_DE_GRUPO = ["classificar_grupo", "aceitar_grupo", "ignorar_
  * funções (cobrança, conciliação…) continuam com o "aprovar CÓDIGO" de sempre — os comandos antigos delas não mudam.
  */
 export const exigeConfirmoNoCodigo = (funcao: string, argumentos: unknown) =>
-  // EPIC-027 C5-COM: trocar o link da maquete também (o link anterior deixa de abrir)
-  ([...FUNCOES_DE_GRUPO, "gerar_link_maquete_lote"] as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
+  // EPIC-027 C5-COM: trocar o link da maquete também (o link anterior deixa de abrir); C5 mesas: a aprovação de uma mesa
+  ([...FUNCOES_DE_GRUPO, "gerar_link_maquete_lote", "propor_aprovacao_mesa"] as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
 
 type ItemParaMotivo = string | { funcao: string; argumentos?: unknown };
 const ehTroca = (i: ItemParaMotivo) => typeof i !== "string" && i.funcao === "classificar_grupo" &&
@@ -116,6 +119,7 @@ export function motivoDoSerio(itens: readonly ItemParaMotivo[]): string {
   if (funcoes.includes("preparar_cobranca")) return "é uma cobrança a cliente";
   if (funcoes.includes("aceitar_grupo")) return "é um grupo em que outra pessoa me colocou";
   if (funcoes.includes("gerar_link_maquete_lote")) return "troca o link da maquete: o link de hoje deixa de abrir na hora";
+  if (funcoes.includes("propor_aprovacao_mesa")) return "é a aprovação de uma função nova (mesa) para ser construída";
   if (itens.some(ehTroca)) return "troca o tipo ou o cliente/obra de um grupo que já estava definido";
   return "libera mais coisa do que eu posso dizer no grupo";
 }

@@ -49,6 +49,8 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_maquetes_lotes: "lotes com maquete",
   rascunhar_mensagem_lote: "texto para o cliente",
   gerar_link_maquete_lote: "link da maquete",
+  // EPIC-027 C5 (criadora de mesas)
+  listar_mesas: "mesas", propor_mesa: "proposta de mesa", revisar_mesa: "proposta de mesa", propor_aprovacao_mesa: "aprovação de mesa", recusar_mesa: "proposta de mesa",
 });
 
 /** "tarefas, obras" — os rótulos das consultas feitas, sem repetir e na ordem; nome desconhecido vira "outra consulta". */
