@@ -5,12 +5,12 @@
 // conteúdo original e, depois, fluxos novos com UM retângulo de borda e as linhas de texto da marca. Qualquer outra
 // mudança (texto fora do vocabulário da marca, como "VALOR ALTERADO 999", preenchimento, imagem, transformação, fonte
 // embutida, desenho fora da caixa, segunda página alterada) faz o vínculo com a origem falhar.
-import { measureText, PdfArray, PdfDict, PdfRef, PdfStream, type PDF } from "@libpdf/core";
+import { PdfArray, PdfDict, PdfRef, PdfStream, type PDF } from "@libpdf/core";
+import { dataDaMarca, layoutDaMarca, linhasDaMarca } from "../client/src/lib/marca-assinatura.js";
 
 type Pagina = ReturnType<PDF["getPages"]>[number];
 const OPERADORES = new Set(["q", "Q", "w", "RG", "rg", "G", "g", "K", "k", "m", "l", "h", "S", "re", "BT", "ET", "Tf", "TL", "Tm", "Td", "Tj", "TJ"]);
 const STANDARD14 = new Set(["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique", "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic", "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"]);
-const VOCABULARIO_FIXO = "ASSINADO DIGITALMENTE CPF/CNPJ: Ver certificado Consulte o certificado";
 const TOLERANCIA = 2;
 
 type Token = { t: "num"; v: number } | { t: "nome"; v: string } | { t: "str"; v: string } | { t: "arr"; v: Token[] } | { t: "op"; v: string };
@@ -88,8 +88,6 @@ function recursosSoComFontePadrao(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial
 
 /** Os fluxos acrescentados desenham só a marca: um retângulo de borda e texto do vocabulário da marca dentro dele. */
 export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagina: { x: number; y: number; width: number; height: number }, fontesPermitidas?: Set<string>): boolean {
-  const vocabulario = new Set(`${VOCABULARIO_FIXO} ${titular.replace(/[^ -ÿ]/g, "")}`.split(/\s+/).filter(Boolean));
-  const palavraOk = (p: string) => vocabulario.has(p) || /^[\d/:,.\-]+$/.test(p);
   const pontos: [number, number][] = [], textos: { x: number; y: number; tamanho: number; texto: string }[] = [];
   let larguraLinha = 1, nivel = 0, emTexto = false, fonte = 12, entrelinha = 0, tx = 0, ty = 0, linhaX = 0, linhaY = 0, contornos = 0;
   const espessuras: number[] = [], estadoGrafico: number[] = [];
@@ -126,7 +124,7 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
           if (!emTexto || !fonteDefinida || !posicaoDefinida || textoDesenhado || args.length !== 1 || args[0].t !== "str") return false;
           textoDesenhado = true;
           const texto = args[0].v;
-          if (!texto.trim().split(/\s+/).every(palavraOk)) return false;
+          if (textos.length >= 48) return false;
           textos.push({ x: tx, y: ty, tamanho: fonte, texto });
           break;
         }
@@ -155,10 +153,23 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
   // A caixa fica dentro da página e ocupa no máximo 30% dela.
   if (caixa.x0 < pagina.x - TOLERANCIA || caixa.y0 < pagina.y - TOLERANCIA || caixa.x1 > pagina.x + pagina.width + TOLERANCIA || caixa.y1 > pagina.y + pagina.height + TOLERANCIA) return false;
   if ((caixa.x1 - caixa.x0) * (caixa.y1 - caixa.y0) > 0.3 * pagina.width * pagina.height) return false;
-  return textos.every(t => {
-    let largura = t.texto.length * t.tamanho;
-    try { largura = measureText(t.texto, "Helvetica", t.tamanho); } catch { /* usa a estimativa larga */ }
-    return t.x >= caixa.x0 - TOLERANCIA && t.y >= caixa.y0 - TOLERANCIA && t.x + largura <= caixa.x1 + TOLERANCIA && t.y + t.tamanho <= caixa.y1 + TOLERANCIA;
+  // A data é só uma informação visual. Aceite apenas o formato produzido pelo assinador,
+  // mesmo quando a quebra de linha separar a data e a hora.
+  const fim = textos.map(t => t.texto).join("").replace(/\s/g, "");
+  const dataTexto = /(\d{2})\/(\d{2})\/(\d{4}),(\d{2}):(\d{2}):(\d{2})$/.exec(fim);
+  if (!dataTexto) return false;
+  const [, dia, mes, ano, hora, minuto, segundo] = dataTexto;
+  const data = new Date(`${ano}-${mes}-${dia}T${hora}:${minuto}:${segundo}-03:00`);
+  if (!Number.isFinite(data.getTime()) || dataDaMarca(data) !== `${dia}/${mes}/${ano}, ${hora}:${minuto}:${segundo}`) return false;
+  const documento = /(?:^|:)\s*(\d{14}|\d{11})\s*$/.exec(titular)?.[1] || "";
+  const esperado = layoutDaMarca(caixa.x1 - caixa.x0, caixa.y1 - caixa.y0, linhasDaMarca(titular, documento, data));
+  // A biblioteca serializa coordenadas com precisão finita. Compare com margem abaixo de um centésimo de ponto.
+  const perto = (a: number, b: number) => Math.abs(a - b) < 0.005;
+  if (textos.length !== esperado.linhas.length || !perto(espessuras[0], esperado.borda)) return false;
+  return textos.every((t, i) => {
+    const linha = esperado.linhas[i];
+    return t.texto === linha.texto && perto(t.x, caixa.x0 + linha.x)
+      && perto(t.y, caixa.y1 - linha.base) && perto(t.tamanho, esperado.fonte);
   });
 }
 

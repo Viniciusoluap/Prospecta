@@ -35,6 +35,7 @@ import { montarCadeiaPublica, _limparLimiteCadeia } from "./juridico-cadeia";
 import { _limparEnviosPortal } from "./juridico-workflow";
 import { assinarPdf, importarCertificado } from "../client/src/lib/certificados-digitais";
 import { desenhoSoDaMarca } from "./juridico-marca-conferencia";
+import { layoutDaMarca, linhasDaMarca } from "../client/src/lib/marca-assinatura";
 
 let pki: Pki;
 const signers: Record<string, P12Signer> = {};
@@ -77,14 +78,25 @@ describe("conferência das assinaturas do PDF (ICP sintética)", () => {
     expect(desenhoSoDaMarca([borda + "BT /F1 10 Tf q Q 1 0 0 1 60 70 Tm (999) Tj ET"], "EMPRESA TESTE", pagina)).toBe(false);
     expect(desenhoSoDaMarca([borda + "BT /F1 10 Tf (999) Tj ET"], "EMPRESA TESTE", pagina)).toBe(false);
   });
-  it("P1: aceita apenas o perímetro retangular, sem linhas sobrepostas para ocultar cláusulas", () => {
+  it("confere o perímetro e as linhas exatas, incluindo nome longo dividido pelo layout", () => {
     const pagina = { x: 0, y: 0, width: 595, height: 842 };
-    const texto = " BT /F1 10 Tf 1 0 0 1 60 80 Tm (999) Tj ET";
-    const faixa = Array.from({ length: 70 }, (_, i) => `50 ${70 + i * 0.3} m 250 ${70 + i * 0.3} l`).join(" ");
-    for (const caminho of [faixa, "50 50 200 60 re 50 70 m 250 70 l", "50 50 m 250 110 l 250 50 l 50 110 l h"])
-      expect(desenhoSoDaMarca(["0.4 w " + caminho + " S" + texto], "EMPRESA TESTE", pagina)).toBe(false);
-    for (const caminho of ["50 50 200 60 re", "50 50 m 250 50 l 250 110 l 50 110 l h"])
-      expect(desenhoSoDaMarca(["0.4 w " + caminho + " S" + texto], "EMPRESA TESTE", pagina)).toBe(true);
+    const titular = "INCORPORADORAECONSTRUTORATESTELTDA:12345678000190";
+    const blocos = linhasDaMarca(titular, "12345678000190", new Date("2026-11-22T17:00:00Z"));
+    const marca = layoutDaMarca(300, 84, blocos);
+    expect(marca.linhas.map(linha => linha.texto)).not.toContain(titular);
+    const textos = marca.linhas.map(linha =>
+      ` BT /F1 ${marca.fonte} Tf 1 0 0 1 ${50 + linha.x} ${134 - linha.base} Tm (${linha.texto}) Tj ET`).join("");
+    const prefixo = `${marca.borda} w `;
+    const retangulo = "50 50 300 84 re";
+    const faixa = Array.from({ length: 70 }, (_, i) => `50 ${70 + i * 0.3} m 350 ${70 + i * 0.3} l`).join(" ");
+    for (const caminho of [faixa, `${retangulo} 50 70 m 350 70 l`, "50 50 m 350 134 l 350 50 l 50 134 l h"])
+      expect(desenhoSoDaMarca([prefixo + caminho + " S" + textos], titular, pagina)).toBe(false);
+    for (const caminho of [retangulo, "50 50 m 350 50 l 350 134 l 50 134 l h"])
+      expect(desenhoSoDaMarca([prefixo + caminho + " S" + textos], titular, pagina)).toBe(true);
+    const sobreposto = " BT /F1 10 Tf 1 0 0 1 60 80 Tm (999) Tj ET";
+    expect(desenhoSoDaMarca([prefixo + retangulo + " S" + sobreposto.repeat(50) + textos], titular, pagina)).toBe(false);
+    expect(desenhoSoDaMarca([prefixo + retangulo + " S" + sobreposto + textos], titular, pagina)).toBe(false);
+    expect(desenhoSoDaMarca([prefixo + retangulo + " S" + textos.replace("ASSINADO DIGITALMENTE", "VALOR 999")], titular, pagina)).toBe(false);
   });
   it("múltiplas assinaturas íntegras e válidas: todas as partes conferidas", async () => {
     const final = await assinar(await assinar(contratoBase(), "empresa"), "cliente");

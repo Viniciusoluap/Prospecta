@@ -39,13 +39,22 @@ export type LayoutDaMarca = {
 };
 
 /** Textos da marca; o nome é um bloco só e é quebrado pela largura disponível. */
+export function dataDaMarca(data: Date): string {
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Fortaleza", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(data);
+  const campo = (tipo: Intl.DateTimeFormatPartTypes) => partes.find(parte => parte.type === tipo)?.value;
+  return `${campo("day")}/${campo("month")}/${campo("year")}, ${campo("hour")}:${campo("minute")}:${campo("second")}`;
+}
+
 export function linhasDaMarca(titular: string, documento: string, data: Date): string[] {
   const nome = titular.replace(/[^ -ÿ]/g, "").replace(/\s+/g, " ").trim() || "Consulte o certificado";
   return [
     "ASSINADO DIGITALMENTE",
     nome,
     `CPF/CNPJ: ${documento || "Ver certificado"}`,
-    data.toLocaleString("pt-BR", { timeZone: "America/Fortaleza" }),
+    dataDaMarca(data),
   ];
 }
 
