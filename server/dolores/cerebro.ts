@@ -15,6 +15,7 @@ import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDaConversa, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { FUNCAO_REURB, comAvisoReurb } from "../../shared/dolores/reurb-conhecimento.js";
 import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
@@ -87,6 +88,7 @@ const PRAZO_CONSULTA_MS = 15_000;
 // Integração 2 (C5-COM + C5-MESAS + C5-E4 juntas): prefixo medido no pior caso (todas as ferramentas com ações, inclusive as de mesa)
 // = sistema 2.474 + ferramentas 14.527 = 17.001 (+500 da API = 17.501 > 17.000): piso 17.000 → 19.000 (folga ~1,5 mil). Sem pedido de
 // mesa, as 4 ações de mesa ficam fora (≈ 15,4 mil + 500).
+// Com a REURB (main #296, +1 leitura só do dono): pior caso 2.474 + 14.809 = 17.283 (+500 = 17.783): piso 19.000 mantido (folga ~1,2 mil).
 export const RESERVA_MINIMA_ENTRADA = 19_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
@@ -232,7 +234,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const tiposMesa = intencaoDeMesa(trechoDoDono(p.comando));
   const comAcoes = intencaoDeAcao(p.comando) || querMemoria || tiposMesa.length > 0 || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
-  // as leituras só do dono (mesas, maquete por lote) vão também no laço só de leitura ("quais mesas eu pedi?", "link do lote 4")
+  // as leituras só do dono (REURB, mesas, maquete por lote) vão também no laço só de leitura ("quais mesas eu pedi?", "link do lote 4")
   // Integração 2 (EPIC-027 C5): as AÇÕES de mesa só são oferecidas quando a mensagem do dono pede mesa por código (o mesmo
   // `pedidoDeMesa` sem o qual a porta as recusa): sem perda nenhuma, ~1,5 mil tokens a menos no prefixo das outras mensagens.
   const abreMesa = tiposMesa.length > 0 && !pareceColagem(p.comando) && !p.comMidia;
@@ -282,6 +284,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const pedidoDeMesa = abreMesa ? { texto: comando, tipos: tiposMesa } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
+  /** EPIC-027 C5 (REURB): a análise deu caso analisável — o aviso fixo vai no fim da resposta, por código. */
+  let analisouReurb = false;
   let voltas = 0;
   let parou: MotivoParada | null = null;
   let ultimoTexto = "";
@@ -394,6 +398,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       if (contamina && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
       // EPIC-027 C5 (E1): ids que a consulta devolveu do banco (por código) — para "ela", "esse grupo" no próximo pedido
       if (resp.body.ok === true) refsPorConsulta.push(referenciasDoResultado(resp.body));
+      if (u.name === FUNCAO_REURB && resp.body.ok === true && (resp.body.dados as { analisavel?: unknown } | undefined)?.analisavel === true) analisouReurb = true;
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
@@ -431,5 +436,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   }
   // EPIC-027 C5-COM: o que o modelo não repetiu exatamente vai intacto num quadro do sistema (sem repetir o mesmo texto)
   const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
+  // EPIC-027 C5 (REURB): o aviso fixo no fim da resposta, por código, quando a análise deu caso analisável
+  texto = comAvisoReurb(texto, analisouReurb);
   return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar, anexos };
 }

@@ -260,7 +260,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(400, { ok: false, erro: "Pedido inválido: envie { funcao, argumentos?, pedidoId? }.", campos });
   }
   const { funcao, argumentos = {}, pedidoId = null } = env.data;
-  // EPIC-027 C5 (mecanismo ÚNICO das leituras só do dono — mesas e mesa comercial): fora da conversa direta do dono no WhatsApp (ponte
+  // EPIC-027 C5 (mecanismo ÚNICO das leituras só do dono — REURB, mesas e mesa comercial): fora da conversa direta do dono no WhatsApp (ponte
   // HTTP, ou sem a mensagem dele), a recusa vem ANTES de olhar a etapa (nem diz se a função está liberada)
   const leitura = leituraPorNome(funcao);
   if (leitura?.soConversaDoDono && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
@@ -445,7 +445,7 @@ export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.n
 
 /**
  * EPIC-027 C5 — leituras da conversa direta do dono no WhatsApp (o ÚNICO lugar das leituras só do dono): as da ponte + as de
- * `LEITURAS_DO_DONO` (mesas e maquete por lote).
+ * `LEITURAS_DO_DONO` (REURB, mesas e maquete por lote).
  */
 export const ferramentasDaConversa = () => [...ferramentasLiberadas(), ...LEITURAS_DO_DONO.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta)];
 

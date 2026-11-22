@@ -9,6 +9,7 @@
 //   - ehPedidoDeEsquecer / pedeDetalhe: a mensagem do dono, reconhecida por código.
 import { ALFABETO_CODIGO } from "./fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "./grupos-tipo.js";
+import { AVISO_REURB } from "./reurb-conhecimento.js";
 
 /** Nome de gente de cada consulta e ação da Dolores (server/dolores/funcoes.ts e acoes/registro.ts; teste confere a lista). */
 export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
@@ -33,6 +34,7 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_notas_obra: "notas de obra",
   relatorio_diario: "relatório do dia",
   plano_de_atrasos: "plano dos atrasos",
+  analisar_regularizacao_reurb: "análise de REURB", // EPIC-027 C5 (REURB)
   criar_tarefa: "tarefa",
   registrar_acompanhamento: "anotação no cliente",
   preparar_cobranca: "cobrança",
@@ -128,7 +130,11 @@ function costurar(t: string): string {
 export function vozDaDolores(texto: string): { texto: string; correcoes: number } {
   let correcoes = 0;
   const marcar = () => { correcoes++; return MARCA; };
-  let t = String(texto ?? "").slice(0, MAX_ENTRADA_VOZ).replaceAll(MARCA, "");
+  // o aviso fixo da REURB fecha o parecer: o corte de tamanho leva o corpo, nunca o aviso (ele volta ao fim, intacto)
+  const bruto = String(texto ?? "");
+  const fecho = bruto.trimEnd().endsWith(AVISO_REURB) ? AVISO_REURB : "";
+  const corpo = fecho ? bruto.trimEnd().slice(0, -fecho.length).trimEnd() : bruto;
+  let t = corpo.slice(0, MAX_ENTRADA_VOZ - (fecho ? fecho.length + 2 : 0)).replaceAll(MARCA, "");
   t = t.replace(COLCHETE_DE_FERRAMENTA, marcar);
   t = t.replace(PARENTESE_DE_FONTE, m => (TEM_SNAKE.test(m) ? marcar() : m));
   t = t.replace(NOME_SOLTO, (_m, nome: string) => { correcoes++; return ROTULO_CONSULTA[nome] ?? ""; });
@@ -136,7 +142,8 @@ export function vozDaDolores(texto: string): { texto: string; correcoes: number 
   t = t.replace(APROVAR_CODIGO, marcar);
   t = t.replace(COMANDO_DE_GRUPO, marcar);
   t = t.replace(CODIGO_DE_GRUPO, marcar);
-  return { texto: correcoes ? costurar(t).trim() : t, correcoes };
+  const saida = correcoes ? costurar(t).trim() : t;
+  return { texto: fecho ? `${saida.trimEnd()}\n\n${fecho}` : saida, correcoes };
 }
 
 const ultimaPalavra = (m: string) => m.trim().split(/[ \t]+/).pop() ?? "";
