@@ -8,6 +8,9 @@
 // 2. Template da Central (Templates › "+ Novo template" / "Editar", só admin): marcado "Usar também em campanha pela API oficial", vira
 //    modelo (variáveis nomeadas → {{1}}, {{2}}… na ordem), vai para aprovação e o vínculo (nome na YCloud, posição → variável, resumo do
 //    texto enviado) fica em dashboard_settings (`ycloud.template.<id>`, sem migração).
+// C7.3: o estado do modelo padrão e cada vínculo guardam a WABA (`w`). Chave trocada por uma de OUTRA conta → estado/vínculo de outra
+// WABA conta como "nunca enviado" (o template vai à conta nova; as tentativas do padrão recomeçam, 1/dia e 3 no total por WABA).
+// Registro antigo sem `w` conta como da WABA atual (nada de reenvio em massa).
 // A chave só é lida por `chaveYcloud()` (config.ts) e só vai no cabeçalho (server/_core/ycloud.ts); nunca em log, erro, auditoria ou tela.
 import { createHash } from "node:crypto";
 import { and, eq, like } from "drizzle-orm";
@@ -78,7 +81,15 @@ function motivoDoErro(e: unknown, chave: string | null): string {
 type EstadoPadrao = {
   /** andamento | criado | ja_existia | recusado | incerto | falhou */
   s: string; t: number; d: string; em: string; m?: string | null; st?: string | null;
+  /** WABA (conta) a que este estado se refere; ausente = registro anterior a esta correção (conta como da WABA atual) */
+  w?: string;
 };
+
+/**
+ * O estado/vínculo gravado é da WABA atual? Registro antigo sem WABA gravada conta como da atual (não reenvia em massa na primeira
+ * execução depois da correção). WABA diferente → tratado como "nunca enviado" nesta conta.
+ */
+export const estadoEhDaWaba = (w: unknown, wabaAtual: string) => typeof w !== "string" || w === wabaAtual;
 export type ResultadoModeloPadrao =
   | "ja_feito" | "desistiu" | "hoje_ja_tentou" | "nao_pronta" | "ocupado" | "ja_existia" | "criado" | "recusado" | "incerto" | "falhou_listar";
 
@@ -94,18 +105,21 @@ export async function garantirModeloPadrao(p: { origem: "cron" | "listagem"; lis
   try {
     const agora = depsYcloud().agora();
     const bruto = await lerLinha(CHAVE_ESTADO_MODELO_PADRAO);
-    const est = jsonOu<EstadoPadrao>(bruto);
+    const cfg = await lerConfigYcloud();
+    // Estado de OUTRA conta (WABA trocada ao salvar outra chave) = nunca tentado nesta: as tentativas recomeçam (1/dia, 3 no total POR WABA).
+    const lido = jsonOu<EstadoPadrao>(bruto);
+    const est = lido && cfg.wabaId && !estadoEhDaWaba(lido.w, cfg.wabaId) ? null : lido;
     if (est && FINAIS.has(est.s)) return { r: "ja_feito" };
     if (est && est.t >= MAX_TENTATIVAS_MODELO_PADRAO) return { r: "desistiu" };
     const dia = diaDeBrasilia(agora);
     if (est && est.d === dia) return { r: "hoje_ja_tentou" };
     chave = await chaveYcloud();
-    const cfg = await lerConfigYcloud();
     if (!chave || !cfg.numeroConfere || !cfg.wabaId) return { r: "nao_pronta" };
     const tentativas = est?.t ?? 0;
     // Portão de QA (QA-1): a tentativa é somada JÁ NA RESERVA (antes de qualquer POST). Se o fechamento falhar, a reserva
     // "andamento" fica com a tentativa contada e o dia marcado: respeita 1 por dia e 3 no total. Só a falha ao LISTAR devolve.
-    const reserva: EstadoPadrao = { s: "andamento", t: tentativas + 1, d: dia, em: agora.toISOString() };
+    // A reserva compara com o valor LIDO (`bruto`), mesmo quando era de outra WABA: corrida continua dando um POST só.
+    const reserva: EstadoPadrao = { s: "andamento", t: tentativas + 1, d: dia, em: agora.toISOString(), w: cfg.wabaId };
     if (!(await trocarSe(CHAVE_ESTADO_MODELO_PADRAO, bruto, JSON.stringify(reserva)))) return { r: "ocupado" };
     const fechar = async (e: Partial<EstadoPadrao>) => {
       const v = serializarCabendo<EstadoPadrao>({ ...reserva, ...e }, "m") ?? JSON.stringify({ ...reserva, ...e, m: null });
@@ -164,7 +178,9 @@ export async function garantirModeloPadraoNoCron(prazoMs = 10_000): Promise<Resu
 
 /** Para o cartão de Integrações (só admin): o que o servidor fez com o modelo padrão. */
 export async function estadoModeloPadrao() {
-  const est = jsonOu<EstadoPadrao>(await lerLinha(CHAVE_ESTADO_MODELO_PADRAO).catch(() => null));
+  const lido = jsonOu<EstadoPadrao>(await lerLinha(CHAVE_ESTADO_MODELO_PADRAO).catch(() => null));
+  const waba = lido ? (await lerConfigYcloud().catch(() => null))?.wabaId ?? null : null;
+  const est = lido && waba && !estadoEhDaWaba(lido.w, waba) ? null : lido; // estado de outra conta: nesta, nada foi feito ainda
   return est ? { situacao: est.s, tentativas: est.t, motivo: est.m ?? null, ultimaEm: est.em, nome: MODELO_PADRAO.nome, maxTentativas: MAX_TENTATIVAS_MODELO_PADRAO }
     : { situacao: null, tentativas: 0, motivo: null, ultimaEm: null, nome: MODELO_PADRAO.nome, maxTentativas: MAX_TENTATIVAS_MODELO_PADRAO };
 }
@@ -181,6 +197,8 @@ export type VinculoTemplate = {
   /** resumo do texto enviado */ h: string; /** versão do nome (_v2…) */ ver: number; /** enviado em */ e: string;
   /** Portão de QA (QA-3): versões anteriores ainda podem estar aprovadas — nome do modelo → variáveis (a mais recente primeiro) */
   ant?: Array<[string, string[]]>;
+  /** WABA para a qual foi enviado; ausente = vínculo anterior a esta correção (conta como da WABA atual) */
+  w?: string;
 };
 
 /** Todos os nomes de modelo do vínculo (atual e anteriores) → variáveis. */
@@ -220,12 +238,13 @@ export async function enviarTemplateParaAprovacao(p: { templateId: number; nomeT
   const bruto = await lerLinha(k);
   const antigo = jsonOu<VinculoTemplate>(bruto);
   const h = resumoDoTexto(p.conteudo);
-  if (antigo && antigo.h === h && antigo.c === p.categoria) return { ok: true, nome: antigo.n, status: null, repetido: true, motivo: null };
+  // mesmo texto e categoria só é "repetido" se foi enviado à MESMA WABA (chave trocada por uma de outra conta → envia à conta nova)
+  if (antigo && antigo.h === h && antigo.c === p.categoria && estadoEhDaWaba(antigo.w, cfg.wabaId)) return { ok: true, nome: antigo.n, status: null, repetido: true, motivo: null };
   const ver = antigo ? antigo.ver + 1 : 1;
   const nome = nomeDoModeloDoTemplate(p.nomeTemplate, p.templateId, ver);
   const conv = converterTemplateParaModelo({ conteudo: p.conteudo, nomeModelo: nome, categoria: p.categoria });
   if (!conv.ok) return falha(`Para virar modelo da API oficial, ajuste: ${conv.problemas.join(" ")}`);
-  const base: VinculoTemplate = { n: nome, c: p.categoria, v: conv.variaveis, h, ver, e: depsYcloud().agora().toISOString() };
+  const base: VinculoTemplate = { n: nome, c: p.categoria, v: conv.variaveis, h, ver, e: depsYcloud().agora().toISOString(), w: cfg.wabaId };
   // QA-3: guarda também as versões anteriores (a v1 aprovada segue preenchendo {{nome}} na campanha); cabendo em 500, as mais
   // antigas saem primeiro
   let anteriores = antigo ? mapeamentosDoVinculo(antigo).filter(([n]) => n !== nome) : [];
