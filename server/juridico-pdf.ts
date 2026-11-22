@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { portalContractDocuments, portalContracts, type PortalContract } from "../drizzle/schema.js";
 import { gerarPdfModelo } from "../shared/contratos/pdf.js";
 import { modeloNovo, MODELOS_CONTRATO } from "../shared/contratos/modelos.js";
+import { nomeContrato } from "../shared/contratos/documentos.js";
 import { getDb } from "./db.js";
 
 export function pdfDoContrato(contrato: PortalContract | undefined) {
@@ -18,7 +19,7 @@ export function pdfDoContrato(contrato: PortalContract | undefined) {
 export async function gerarESalvarContratoPdf(id: number) {
   const db = getDb();
   const [contrato] = await db.select().from(portalContracts).where(eq(portalContracts.id, id)).limit(1);
-  const buffer = pdfDoContrato(contrato), nome = `${contrato.number}.pdf`;
+  const buffer = pdfDoContrato(contrato), nome = nomeContrato(contrato.partyB,"contrato_gerado");
   await db.batch([
     db.execute(sql`SELECT pg_advisory_xact_lock(18271, ${id})`),
     db.execute(sql`WITH novo AS (

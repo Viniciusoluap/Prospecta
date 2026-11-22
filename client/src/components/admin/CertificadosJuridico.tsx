@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { assinarPdf, definirCertificadoPadrao, importarCertificado, listarCertificados, removerCertificado, type CertificadoSalvo } from "@/lib/certificados-digitais";
+import { assinarPdf, guardarSenha, recuperarSenha, esquecerSenha, definirCertificadoPadrao, importarCertificado, listarCertificados, removerCertificado, type CertificadoSalvo, type PosicaoAssinatura } from "@/lib/certificados-digitais";
 import { bytesBase64 } from "@/lib/juridico-arquivos";
+
+import PosicionarAssinaturaPdf from "./PosicionarAssinaturaPdf";
 
 export default function CertificadosJuridico({ owner, documento, fechar, concluiu }: {
   owner: number; documento?: { id: number; contractId: number; name: string } | null;
@@ -17,6 +19,9 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
   const [certificados, setCertificados] = useState<CertificadoSalvo[]>([]);
   const [selecionado, setSelecionado] = useState("");
   const [senha, setSenha] = useState("");
+  const [pdfBytes,setPdfBytes]=useState<Uint8Array>();
+  const [posicao,setPosicao]=useState<PosicaoAssinatura|null>(null);
+  const [lembrada,setLembrada]=useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
   const atualizar = async () => {
@@ -24,7 +29,8 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
     setSelecionado(v => rows.some(x => x.id === v) ? v : rows.find(x => x.padrao)?.id || rows[0]?.id || "");
   };
   useEffect(() => { void atualizar().catch(e => setErro(e.message)); }, [owner]);
-  useEffect(() => { setSenha(""); }, [documento?.id, selecionado]);
+  useEffect(() => { setSenha("");setLembrada(false);const cert=certificados.find(c=>c.id===selecionado);if(cert)void recuperarSenha(cert).then(s=>{if(s){setSenha(s);setLembrada(true);}}); }, [documento?.id,selecionado,certificados]);
+  useEffect(()=>{setPdfBytes(undefined);setPosicao(null);if(documento)void utils.juridico.documentContent.fetch({id:documento.id}).then(c=>setPdfBytes(Uint8Array.from(atob(c.base64),x=>x.charCodeAt(0)))).catch(()=>setErro("Não foi possível carregar o PDF para assinatura."));},[documento?.id]);
 
   async function importar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = event.currentTarget, data = new FormData(form), file = data.get("certificado");
@@ -37,12 +43,12 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
     finally { const campo = form.elements.namedItem("senha") as HTMLInputElement | null; if (campo) campo.value = ""; setOcupado(false); }
   }
   async function assinar() {
-    const cert = certificados.find(x => x.id === selecionado); if (!cert || !documento) return;
+    const cert = certificados.find(x => x.id === selecionado); if (!cert || !documento || !pdfBytes || !posicao) return;
     setOcupado(true); setErro("");
-    const senhaAtual = senha; setSenha("");
+    const senhaAtual = senha;
     try {
-      const original = await utils.juridico.documentContent.fetch({ id: documento.id });
-      const { bytes } = await assinarPdf(Uint8Array.from(atob(original.base64), c => c.charCodeAt(0)), cert, senhaAtual);
+      await guardarSenha(cert,senhaAtual);
+      const { bytes } = await assinarPdf(pdfBytes,cert,senhaAtual,posicao);
       if (bytes.length > 3 * 1024 * 1024) throw new Error("O PDF assinado ultrapassa 3 MiB. Reduza o arquivo antes de assinar.");
       // Assinatura de uma parte não significa que todas as partes já assinaram o contrato.
       await upload.mutateAsync({ contractId: documento.contractId, type: "assinatura_digital",
@@ -53,7 +59,7 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
   }
   const data = (value: string) => new Date(value).toLocaleDateString("pt-BR");
   const conteudo = <div className="space-y-4">
-    <p className="text-sm text-gray-300">Certificados A1 (.pfx ou .p12) guardados com criptografia neste navegador e nesta conta. A senha é solicitada a cada assinatura e não é salva. Em outro aparelho, importe novamente.</p>
+    <p className="text-sm text-gray-300">Certificados A1 (.pfx ou .p12) guardados com criptografia neste navegador e nesta conta. A senha fica criptografada neste aparelho para as próximas assinaturas. Em outro aparelho, importe novamente.</p>
     {erro && <p role="alert" className="text-red-300">{erro}</p>}
     {documento ? <>
       <p className="break-all">Documento: {documento.name}</p>
@@ -62,18 +68,19 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
         <option value="" disabled>Selecione um certificado</option>{certificados.map(c => <option key={c.id} value={c.id}>{c.titular} · válido até {data(c.vencimento)}</option>)}
       </select>
       {certificados.find(c => c.id === selecionado) && <p className="text-sm text-gray-300">Emitido por {certificados.find(c => c.id === selecionado)!.emissor}</p>}
-      <Label htmlFor="senha-assinatura">Senha do certificado</Label><Input id="senha-assinatura" type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={e => setSenha(e.target.value)} />
+      {lembrada ? <p className="text-sm text-green-300">Senha salva neste aparelho.</p> : <><Label htmlFor="senha-assinatura">Senha do certificado (será salva neste aparelho)</Label><Input id="senha-assinatura" type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={e => setSenha(e.target.value)} /></>}
+      {pdfBytes ? <PosicionarAssinaturaPdf bytes={pdfBytes} mudou={setPosicao} /> : <p>Carregando PDF…</p>}
       <p className="text-sm text-gray-300">Confira o documento e o titular antes de assinar. Esta assinatura é do titular selecionado; as demais partes continuam pendentes. Sem carimbo de tempo ou validação de revogação automática.</p>
-      <Button onClick={() => void assinar()} disabled={ocupado || !selecionado || !senha}>{ocupado ? "Assinando e salvando…" : "Assinar digitalmente"}</Button>
+      <Button onClick={() => void assinar()} disabled={ocupado || !selecionado || !senha || !posicao || !pdfBytes}>{ocupado ? "Assinando e salvando…" : "Assinar digitalmente"}</Button>
     </> : <>
       {!certificados.length && <p>Nenhum certificado importado neste navegador.</p>}
       {certificados.map(c => <div key={c.id} className="space-y-2 rounded border border-slate-500 p-4">
         <p className="break-words font-semibold">{c.titular} {c.padrao && "· Padrão"}</p>
         {c.documento && <p>CPF/CNPJ: {c.documento}</p>}<p>Emitido por {c.emissor}</p>
         <p>Válido de {data(c.inicio)} até {data(c.vencimento)} · {new Date(c.vencimento) <= new Date() ? "Vencido" : new Date(c.inicio) > new Date() ? "Ainda não válido" : "Dentro da validade"}</p>
-        <p className="break-all text-xs text-gray-400">Serial: {c.serial}</p>
+        <p className="break-all text-xs text-gray-400">Serial: {c.serial}</p><p className="text-sm">{c.senhaSalva ? "Senha salva neste aparelho" : "A senha será salva na próxima assinatura"}</p>
         <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={ocupado || c.padrao} onClick={() => void definirCertificadoPadrao(owner, c.id).then(atualizar).catch(e => setErro(e.message))}>Usar como padrão</Button>
-          <Button variant="outline" disabled={ocupado} onClick={() => { if (confirm(`Remover ${c.titular} deste navegador?`)) void removerCertificado(owner, c.id).then(atualizar).catch(e => setErro(e.message)); }}>Remover certificado</Button></div>
+          <Button variant="outline" disabled={ocupado || !c.senhaSalva} onClick={()=>void esquecerSenha(c).then(atualizar).catch(e=>setErro(e.message))}>Esquecer senha</Button><Button variant="outline" disabled={ocupado} onClick={() => { if (confirm(`Remover ${c.titular} deste navegador?`)) void removerCertificado(owner, c.id).then(atualizar).catch(e => setErro(e.message)); }}>Remover certificado</Button></div>
       </div>)}
     </>}
     <form onSubmit={importar} className="space-y-3 rounded border border-slate-500 p-4">

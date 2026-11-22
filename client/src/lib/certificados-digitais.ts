@@ -1,4 +1,4 @@
-import { P12Signer, PDF } from "@libpdf/core";
+import { P12Signer, PDF, rgb } from "@libpdf/core";
 import { Certificate } from "pkijs";
 
 export type CertificadoInfo = {
@@ -8,6 +8,7 @@ export type CertificadoInfo = {
 export type CertificadoSalvo = CertificadoInfo & {
   owner: number; nomeArquivo: string; padrao: boolean;
   salt: Uint8Array; iv: Uint8Array; protegido: ArrayBuffer;
+  senhaSalva?: { iv: Uint8Array; data: ArrayBuffer };
 };
 const MAX_CERT = 1024 * 1024;
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
@@ -47,8 +48,11 @@ async function chave(senha: string, salt: Uint8Array) {
 
 function banco(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("prospecta-certificados-a1", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("certificados", { keyPath: "key" });
+    const request = indexedDB.open("prospecta-certificados-a1", 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("certificados")) request.result.createObjectStore("certificados", { keyPath: "key" });
+      if (!request.result.objectStoreNames.contains("chaves")) request.result.createObjectStore("chaves");
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new Error("Não foi possível acessar os certificados neste navegador."));
   });
@@ -76,6 +80,7 @@ export async function importarCertificado(owner: number, file: File, senha: stri
     const salvo: CertificadoSalvo = { ...info, owner, nomeArquivo: file.name,
       padrao: atuais.find(x => x.id === info.id)?.padrao ?? atuais.length === 0, salt, iv, protegido };
     await operar("readwrite", s => s.put({ ...salvo, key: `${owner}:${info.id}` }));
+    await guardarSenha(salvo, senha);
     return salvo;
   } finally { bytes.fill(0); }
 }
@@ -97,7 +102,41 @@ export async function definirCertificadoPadrao(owner: number, id: string) {
   });
 }
 
-export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string) {
+export type PosicaoAssinatura = { pagina: number; x: number; y: number; largura: number; altura: number };
+
+/** Chave não exportável, persistida por conta/aparelho; não há senha em texto puro no armazenamento. */
+async function chaveDoAparelho(owner: number): Promise<CryptoKey> {
+  const db = await banco();
+  try {
+    const candidata = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("chaves", "readwrite"), store = tx.objectStore("chaves"), request = store.get(owner);
+      let key: CryptoKey;
+      request.onsuccess = () => { key = request.result ?? candidata; if (!request.result) store.put(key, owner); };
+      tx.oncomplete = () => resolve(key); tx.onabort = tx.onerror = () => reject(new Error("Não foi possível proteger a senha neste aparelho."));
+    });
+  } finally { db.close(); }
+}
+export async function guardarSenha(cert: CertificadoSalvo, senha: string) {
+  const { info } = await abrirCertificado(new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(cert.iv) }, await chave(senha, cert.salt), cert.protegido)), senha).catch(() => { throw new Error("Senha do certificado incorreta."); });
+  if (info.id !== cert.id) throw new Error("Certificado diferente do selecionado.");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData:new TextEncoder().encode(`${cert.owner}:${cert.id}`) }, await chaveDoAparelho(cert.owner), new TextEncoder().encode(senha));
+  const saved = { ...cert, senhaSalva: { iv, data } };
+  await operar("readwrite", s => s.put({ ...saved, key:`${cert.owner}:${cert.id}` }));
+  return saved;
+}
+export async function recuperarSenha(cert: CertificadoSalvo): Promise<string | null> {
+  if (!cert.senhaSalva) return null;
+  try { const data = await crypto.subtle.decrypt({ name:"AES-GCM", iv:Uint8Array.from(cert.senhaSalva.iv), additionalData:new TextEncoder().encode(`${cert.owner}:${cert.id}`) }, await chaveDoAparelho(cert.owner), cert.senhaSalva.data); return new TextDecoder().decode(data); }
+  catch { return null; }
+}
+export async function esquecerSenha(cert: CertificadoSalvo) {
+  const { senhaSalva, ...resto } = cert;
+  await operar("readwrite", s => s.put({ ...resto, key:`${cert.owner}:${cert.id}` }));
+}
+
+export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura) {
   let aberto: ArrayBuffer;
   try { aberto = await crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(salvo.iv) }, await chave(senha, salvo.salt), salvo.protegido); }
   catch { throw new Error("Senha do certificado incorreta."); }
@@ -107,6 +146,17 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
     if (info.id !== salvo.id) throw new Error("O certificado selecionado não corresponde ao arquivo guardado.");
     conferirValidade(info);
     const pdf = await PDF.load(bytes);
+    if (posicao) {
+      const { pagina, x, y, largura, altura } = posicao;
+      if (!Number.isInteger(pagina) || pagina < 0 || pagina >= pdf.getPages().length || ![x,y,largura,altura].every(Number.isFinite) || largura < 50 || altura < 25) throw new Error("Escolha uma posição válida para a assinatura.");
+      const page = pdf.getPage(pagina)!;
+      if (x < 0 || y < 0 || x + largura > page.width + 1 || y + altura > page.height + 1) throw new Error("A assinatura deve ficar dentro da página.");
+      const nome = info.titular.replace(/[^\u0020-\u00ff]/g, "");
+      const linhas = ["ASSINADO DIGITALMENTE", ...nome.match(/.{1,48}(?:\s|$)|.{1,48}/g)!.map(x => x.trim()), `CPF/CNPJ: ${info.documento || "Ver certificado"}`, new Date().toLocaleString("pt-BR", { timeZone:"America/Fortaleza" })];
+      const size = Math.min(9, (altura - 8) / (linhas.length * 1.2), (largura - 8) / 30);
+      page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:0.6 });
+      linhas.forEach((linha, i) => page.drawText(linha, { x:x+4,y:y+altura-6-size-i*size*1.2,size,color:rgb(0.1,0.18,0.3),maxWidth:largura-8 }));
+    }
     const result = await pdf.sign({ signer, level: "B-B", digestAlgorithm: "SHA-256", reason: "Assinatura digital de documento no Jurídico Prospecta" });
     if (result.warnings.length) throw new Error("O PDF exige tratamento adicional para preservar suas assinaturas. Use o arquivo original ou um assinador compatível.");
     return { bytes: result.bytes, info };
