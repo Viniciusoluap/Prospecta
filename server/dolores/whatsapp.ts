@@ -62,7 +62,7 @@ import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.j
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
-import { FRASE_SEM_TAREFA, FRASE_VOU_LEVANTAR, criarTarefaDemorada, retomarTarefaDemorada, type ResultadoRetomada } from "./tarefa-demorada.js";
+import { FRASE_SEM_TAREFA, FRASE_VOU_LEVANTAR, criarTarefaDemorada, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -420,7 +420,9 @@ export async function retomarTarefasDemoradas(p: { prazoFinal: number; canal: "w
         return false;
       }
       const autor = await idDaDoloresSemCriar().catch(() => null);
-      return responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: ctx.mensagemId, autor, resumo: ctx.resumo, prazoFinal: p.prazoFinal, memoria: { referencias: ctx.referencias } });
+      // QA L1: o fecho fixo vai como quadro do sistema (nunca cortado, fora do texto do modelo)
+      return responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: ctx.mensagemId, autor, resumo: ctx.resumo, prazoFinal: p.prazoFinal, quadros: ctx.fecho,
+        memoria: { referencias: ctx.referencias, nota: "(Levantamento em segundo plano, só leitura: o sistema avisou ao dono que nada foi alterado.)" } });
     },
     contexto: async (mensagemId, agora) => {
       const { historico, memoriaLonga } = await contextoDaConversaDoDono(agora, mensagemId);
@@ -575,12 +577,21 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   try {
     // EPIC-027 C5 (E1 e memória de longo prazo): a conversa recente do dono (sem a mensagem atual) e as lembranças ativas
     const { historico, memoriaLonga } = await contextoDaConversaDoDono(deps.agora(), msg.id);
+    // EPIC-027 C5 (tarefa demorada): a tarefa é gravada no momento em que o laço vê que não cabe; sem conseguir, o laço fecha com o
+    // que já levantou (QA M1) e a resposta diz o porquê
+    let virouTarefa = false;
+    let semTarefa: Exclude<ResultadoCriacao, { ok: true }>["motivo"] | null = null;
+    const virarTarefa = async () => {
+      const t = await criarTarefaDemorada({ mensagemId: msg.id, comando: msg.texto, agora: deps.agora() });
+      if (t.ok) virouTarefa = true; else semTarefa = t.motivo;
+      return t.ok;
+    };
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
       memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia,
       // EPIC-027 C5 (tarefa demorada): SÓ aqui (conversa direta do número do dono) o pedido de leitura que não cabe vira tarefa
-      podeVirarTarefa: !msg.temMidia,
+      virarTarefa: msg.temMidia ? undefined : virarTarefa,
     });
     // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
     const voz = vozDaDolores(r.texto);
@@ -592,12 +603,8 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     // EPIC-027 C5 (tarefa demorada): o pedido de leitura não cabe → grava a tarefa e responde na hora; sem conseguir gravar, vai o
     // que deu para levantar, com o porquê
-    let virouTarefa = false;
-    if (r.parou === "virou_tarefa") {
-      const tarefa = await criarTarefaDemorada({ mensagemId: msg.id, comando: msg.texto, agora: deps.agora() });
-      virouTarefa = tarefa.ok;
-      texto = tarefa.ok ? FRASE_VOU_LEVANTAR : `${texto}\n\n(${FRASE_SEM_TAREFA[tarefa.motivo]})`;
-    }
+    if (r.parou === "virou_tarefa" && virouTarefa) texto = FRASE_VOU_LEVANTAR;
+    else if (semTarefa) texto = `${texto}\n\n(${FRASE_SEM_TAREFA[semTarefa]})`;
     // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
     // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.
     const pendencia = r.podeConfirmar

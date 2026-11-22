@@ -22,7 +22,17 @@ conversa travava ou estourava o prazo (a função da Vercel tem 60 s; o aviso us
 - [x] Só a conversa direta do dono cria tarefa (`podeVirarTarefa` é passado só em `whatsapp.ts#tratarComando`, depois de conferido
       o número do dono). Grupo, cliente, marcação, atendimento e ponte HTTP nunca criam (teste por código + teste pelo webhook).
 - [x] Pedido com intenção de ação (verbo de ação, "pode"/"sim", pedido de memória) **nunca** vira tarefa: segue o caminho da
-      proposta de sempre.
+      proposta de sempre. Exceção do portão de QA: "gera/prepara/monta/faz um relatório/levantamento/resumo/lista…"
+      (`shared/dolores/fila.ts#ehPedidoDeRelatorio`: o verbo seguido direto do objeto e NENHUM outro verbo de ação no resto) é
+      leitura — sem ferramenta de ação desde a 1ª chamada — e pode virar tarefa. "gera o PCI", "prepara a cobrança", "gera um
+      relatório e cria uma tarefa" continuam ação.
+- [x] Tarefa que não pode ser gravada (2 abertas, 10/dia, sem a 0153): o laço para como no teto de voltas e faz a chamada de
+      fechamento — o dono recebe o que deu para levantar e o porquê (QA M1). A tarefa é gravada no momento em que o laço vê que não
+      cabe (`virarTarefa`, passado só por `tratarComando`).
+- [x] Falha da IA (ou fim do tempo) na retomada sem texto nenhum devolve a tarefa à fila, respeitando as 2 tentativas; o dono nunca
+      recebe "aqui está o levantamento… não consegui concluir" (QA M2).
+- [x] Todo resultado em segundo plano termina com o fecho fixo "Nada foi alterado no sistema." (`FECHO_DA_TAREFA`), enviado como
+      quadro do sistema: fora do texto do modelo e nunca cortado (QA L1). Com a resposta em várias mensagens, o quadro vai na 1ª.
 - [x] A tarefa só LÊ: a retomada chama `executarComando({ somenteLeitura: true })` — sem ferramenta de ação no pedido ao modelo,
       `semAcoes` na porta (`ponte.ts` recusa ação), nada vira proposta (`podeConfirmar` falso), nada de memória longa é gravado.
       Ação continua só pelo "pode"/"confirmo" (`shared/dolores/confirmacao.ts`, `server/dolores/pendencia.ts`).
@@ -82,7 +92,9 @@ Situações: `aguardando → executando → enviando → concluida`; fora disso 
 - `server/dolores/whatsapp.ts` — criação em `tratarComando`, `retomarTarefasDemoradas`, `contextoDaConversaDoDono`, chamada no fim do aviso.
 - `server/dolores/rondas.ts` — retomada no fim do cron da Dolores.
 - `server/dolores/testes-banco.ts` — 0153 no banco de teste (duas vezes).
-- `server/dolores/c5-tarefa-demorada.test.ts` (novo) — 20 testes.
+- `server/dolores/c5-tarefa-demorada.test.ts` (novo) — 24 testes.
+- `server/dolores/c5-tarefa-demorada-qa.test.ts` (portão de QA, commit 1144cfe) — os 3 `it.fails` (M1, M2, L1) viraram `it`.
+- `shared/dolores/fila.ts` — `ehPedidoDeRelatorio` (a lista de verbos de ação não mudou).
 - `server/dolores/whatsapp.test.ts` — o teste do teto de voltas passa a chamar o laço direto (pela conversa do dono, 3 voltas de
   leitura agora viram tarefa; o teto continua valendo para o laço).
 
@@ -110,5 +122,14 @@ Situações: `aguardando → executando → enviando → concluida`; fora disso 
 - Aviso de vencimento durante a pausa geral é recusado pela pausa (fica só na auditoria).
 - Portão de QA de segurança (@qa) antes da `main` (regra da Dolores de 16/11).
 
+### Correções do portão de QA (22/11/2026)
+- `npx tsc --noEmit`: sem erros.
+- `npx vitest run server/dolores/c5-tarefa-demorada.test.ts server/dolores/c5-tarefa-demorada-qa.test.ts server/dolores/whatsapp.test.ts`:
+  3 arquivos, 83 testes passando (24 + 24 + 35).
+- Regressão de vizinhos (`c5-e2-resolve`, `acoes-whatsapp`, `e8-respostas-e-custo`, `c5-e2-qa`, `c5-integracao-qa`, `c5-e1-qa-r4`):
+  6 arquivos, 121 testes passando.
+
 ## Change Log
 - 22/11/2026 — @dev (Dex): implementação, migração 0153 e testes.
+- 22/11/2026 — @dev (Dex): correções do portão de QA (M1 fechamento sem tarefa, M2 falha da IA volta à fila, L1 fecho fixo,
+  "gera/prepara/monta um relatório" como leitura).

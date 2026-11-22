@@ -25,7 +25,7 @@ import { vozDaDolores } from "../../shared/dolores/voz.js";
 import { MAX_TEXTO_COMANDO, fraseDeBloqueio, type MotivoBloqueio } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { MAX_VOLTAS_TAREFA, executarComando, type PedidoComando } from "./cerebro.js";
+import { MAX_VOLTAS_TAREFA, NADA_ALTERADO, executarComando, type PedidoComando } from "./cerebro.js";
 import { lerPausa } from "./consumo.js";
 import { ehTabelaInexistente } from "./erro-de-banco.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -45,6 +45,8 @@ export const EXECUCAO_VENCIDA_MS = 3 * 60_000;
 /** Só retoma com ao menos isto de prazo pela frente (laço com várias voltas + envio). */
 export const MINIMO_PARA_RETOMAR_MS = 35_000;
 
+/** QA L1: fecho fixo de TODO resultado em segundo plano (a retomada é só leitura), por código — o modelo não o tira. */
+export const FECHO_DA_TAREFA = NADA_ALTERADO;
 export const FRASE_VOU_LEVANTAR = "Vou levantar isso e te mando em seguida. Pode continuar falando comigo enquanto isso.";
 const ABERTAS = ["aguardando", "executando", "enviando"] as const;
 
@@ -108,7 +110,9 @@ export type DependenciasRetomada = {
   /** A porta da chave (whatsapp.ts#bloqueioAtual com a função "dolores_whatsapp": pausa, IA, chave, modelo, limite, parte da conversa). */
   credencial: () => Promise<CredencialGrupo>;
   /** Resposta com o resultado, SÓ ao número do dono (whatsapp.ts#responderAoDono: destino conferido de novo, filtros de saída). */
-  responder: (texto: string, ctx: { mensagemId: number; tarefaId: number; referencias: ReferenciaConversa[]; resumo: Record<string, unknown> }) => Promise<boolean>;
+  responder: (texto: string, ctx: { mensagemId: number; tarefaId: number; referencias: ReferenciaConversa[]; resumo: Record<string, unknown>;
+    /** QA L1: fecho fixo do sistema, enviado como quadro (nunca cortado, fora do texto do modelo). */
+    fecho: string }) => Promise<boolean>;
   /**
    * A conversa recente do dono (sem a mensagem do pedido) e as lembranças ativas, como no pedido original. Quem lê a memória continua
    * sendo só whatsapp.ts (fronteira de c5-e1-qa-r4 e c5-memoria-longa): este módulo só recebe o que foi lido.
@@ -234,7 +238,9 @@ export async function retomarTarefaDemorada(d: DependenciasRetomada): Promise<Re
       if (back === "devolvida") await bloquearAguardando(d, motivo);
       return back === "devolvida" ? "bloqueada" : back;
     }
-    if (r.voltas === 0 && r.parou === "erro_modelo") return devolver(d, tarefa, "a IA não respondeu");
+    // QA M2: a IA falhou (ou o tempo acabou) sem devolver texto nenhum → volta à fila (respeitando as 2 tentativas); o dono nunca recebe
+    // "aqui está o levantamento… não consegui concluir"
+    if (!r.respondeu && (r.parou === "erro_modelo" || r.parou === "tempo")) return devolver(d, tarefa, r.parou === "tempo" ? "o tempo acabou sem resposta" : "a IA não respondeu");
     // pausa ligada no meio: não envia; volta (sem contar) para a próxima retomada, se ainda valer
     const pausaAgora = await lerPausa().catch(() => null);
     if (!pausaAgora || pausaAgora.pausada) { await devolver(d, tarefa, "pausa geral no meio da execução", { naoConta: true }); return "pausada"; }
@@ -243,10 +249,12 @@ export async function retomarTarefaDemorada(d: DependenciasRetomada): Promise<Re
       .where(and(eq(t.id, tarefa.id), eq(t.situacao, "executando"), eq(t.tentativas, tarefa.tentativas))).returning({ id: t.id });
     if (!enviar) return "concorrente";
     const voz = vozDaDolores(r.texto);
-    const texto = `Dolores: aqui está o levantamento ${fimDoPedido([horaFortaleza(new Date(tarefa.criadoEm))])}.\n\n${voz.texto}`;
+    const pedido = fimDoPedido([horaFortaleza(new Date(tarefa.criadoEm))]);
+    // sem texto do modelo (ex.: recusa), nunca "aqui está o levantamento": vai o aviso fixo do laço
+    const texto = r.respondeu ? `Dolores: aqui está o levantamento ${pedido}.\n\n${voz.texto}` : `Dolores: sobre o levantamento ${pedido}: ${voz.texto.replace(/^Dolores:\s*/, "")}`;
     const resumo = { tarefa: tarefa.id, voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida };
     let ok = false;
-    try { ok = await d.responder(texto, { mensagemId: tarefa.mensagemId, tarefaId: tarefa.id, referencias: r.referencias, resumo }); }
+    try { ok = await d.responder(texto, { mensagemId: tarefa.mensagemId, tarefaId: tarefa.id, referencias: r.referencias, resumo, fecho: FECHO_DA_TAREFA }); }
     catch (e) { console.error("[dolores/tarefa-demorada] falha no envio", erroParaLog(e)); ok = false; }
     // envio com erro pode ter chegado em parte: não reenvia (falhou), o dono pede de novo se faltar
     await getDb().update(t).set({ situacao: ok ? "concluida" : "falhou", concluidaEm: d.agora(), motivo: ok ? null : "o envio do resultado falhou" })

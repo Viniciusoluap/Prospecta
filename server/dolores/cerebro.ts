@@ -8,7 +8,7 @@ import { MAX_PARTES_RESPOSTA, type Limites } from "../../shared/dolores/whatsapp
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
-import { intencaoDeAcao, pareceColagem, trechoDoDono, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
@@ -153,6 +153,8 @@ export type ResultadoComando = {
   /** O comando leu dados antes de alguma ação (as ações diretas depois disso foram para a fila). */
   contaminado: boolean;
   tokens: { entrada: number; saida: number };
+  /** EPIC-027 C5 (tarefa demorada, QA M2): o modelo devolveu texto (false = só a frase fixa de "não consegui concluir"). */
+  respondeu: boolean;
   /** EPIC-027 C5 (E1): ids + nome curto das entidades que as consultas devolveram (por código), para a memória da conversa. */
   referencias: ReferenciaConversa[];
   /**
@@ -182,10 +184,11 @@ export type PedidoComando = {
   /** A mensagem do dono veio com anexo (a legenda não vale como pedido de memória). */
   comMidia?: boolean;
   /**
-   * EPIC-027 C5 (tarefa demorada): SÓ a conversa direta do dono (whatsapp.ts#tratarComando) passa true. Pedido só de leitura que não
-   * vai caber (VOLTAS_PARA_TAREFA / PRAZO_PARA_SEGUIR_MS) para com "virou_tarefa", sem a chamada de fechamento.
+   * EPIC-027 C5 (tarefa demorada): SÓ a conversa direta do dono (whatsapp.ts#tratarComando) passa. Pedido só de leitura que não
+   * vai caber (VOLTAS_PARA_TAREFA / PRAZO_PARA_SEGUIR_MS) chama isto para gravar a tarefa: gravou → para com "virou_tarefa", sem a
+   * chamada de fechamento; não gravou (tetos, sem a tabela) → para como no teto de voltas e FECHA com o que já levantou (QA M1).
    */
-  podeVirarTarefa?: boolean;
+  virarTarefa?: () => Promise<boolean>;
   /**
    * EPIC-027 C5 (tarefa demorada): a retomada em segundo plano (server/dolores/tarefa-demorada.ts). Só LEITURA, qualquer que seja o
    * texto: nenhuma ferramenta de ação é oferecida, a porta recusa ação (semAcoes), nada vira proposta e nada de memória é gravado.
@@ -238,9 +241,17 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // conversa) — o modelo pode PROPOR; nada executa sem a resposta dele à proposta, reconhecida por código.
   // EPIC-027 C5 (memória de longo prazo): "lembra que…", "guarda isso", "esquece que…" no trecho do DONO também é pedido de ação dele
   const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
-  const comAcoes = !p.somenteLeitura && (intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo");
+  // EPIC-027 C5 (tarefa demorada, QA): "gera/prepara/monta um relatório…" sem outro verbo de ação é pedido de LEITURA (sem ações)
+  const comAcoes = !p.somenteLeitura && !ehPedidoDeRelatorio(p.comando) && (intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo");
   // EPIC-027 C5 (tarefa demorada): só pedido de leitura vira tarefa (pedido com ação segue o caminho de sempre, com a proposta)
-  const podeVirarTarefa = p.podeVirarTarefa === true && !comAcoes && !p.somenteLeitura;
+  const podeVirarTarefa = !!p.virarTarefa && !comAcoes && !p.somenteLeitura;
+  /** Grava a tarefa (uma vez); sem conseguir, o pedido segue como antes da C5 e fecha com o que tem. */
+  let tentouTarefa = false;
+  const virouTarefa = async (): Promise<boolean> => {
+    if (!podeVirarTarefa || tentouTarefa || !consultas.length) return false;
+    tentouTarefa = true;
+    try { return await p.virarTarefa!(); } catch { return false; }
+  };
   const maxVoltas = Math.max(1, Math.min(MAX_VOLTAS_TAREFA, p.maxVoltas ?? MAX_VOLTAS));
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
   const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
@@ -337,8 +348,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   };
 
   laco: while (true) {
-    if (voltas >= maxVoltas) { parou = podeVirarTarefa && consultas.length ? "virou_tarefa" : "voltas"; break; }
-    if (restante() < MINIMO_PARA_CHAMAR_MS) { parou = podeVirarTarefa && consultas.length ? "virou_tarefa" : "tempo"; break; }
+    if (voltas >= maxVoltas) { parou = (await virouTarefa()) ? "virou_tarefa" : "voltas"; break; }
+    if (restante() < MINIMO_PARA_CHAMAR_MS) { parou = (await virouTarefa()) ? "virou_tarefa" : "tempo"; break; }
     if (tokens.entrada >= TETO_ENTRADA_POR_PEDIDO) { parou = "teto_tokens"; break; }
     if (!(await reservar())) break;
     const r = await umaChamada(false);
@@ -394,7 +405,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     }
     mensagens.push({ role: "user", content: resultados });
     // EPIC-027 C5 (tarefa demorada): o modelo ainda quer consultar e não vai caber (contagem de voltas ou prazo, por código)
-    if (podeVirarTarefa && (voltas >= VOLTAS_PARA_TAREFA || restante() < PRAZO_PARA_SEGUIR_MS)) { parou = "virou_tarefa"; break; }
+    // Sem conseguir gravar a tarefa: para como no teto de voltas, e a chamada de fechamento abaixo responde com o que já levantou.
+    if (podeVirarTarefa && !tentouTarefa && (voltas >= VOLTAS_PARA_TAREFA || restante() < PRAZO_PARA_SEGUIR_MS)) { parou = (await virouTarefa()) ? "virou_tarefa" : "voltas"; break; }
     continue laco;
   }
 
@@ -427,5 +439,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar };
+  return { texto, parou, voltas, consultas, tokens, respondeu: corpo.length > 0, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar };
 }

@@ -170,7 +170,7 @@ describe("QA 2/3 — rajada de avisos de terceiro: uma execução, um resultado,
   // (código morto para falha do modelo). Resultado: a tarefa fica "concluida" na 1ª tentativa e o dono recebe
   // "Dolores: aqui está o levantamento … Dolores: não consegui concluir. (Parei antes de terminar: a IA não respondeu …)".
   // As 2 tentativas da story (e a linha "Falha do modelo ou do laço → volta para a fila") não acontecem para o caso mais comum.
-  it.fails("M2: IA que falha na 1ª chamada da retomada devolve a tarefa à fila (2ª tentativa), sem 'aqui está o levantamento'", async () => {
+  it("M2: IA que falha na 1ª chamada da retomada devolve a tarefa à fila (2ª tentativa), sem 'aqui está o levantamento'", async () => {
     await criarTarefa();
     await situacaoDeEnvio(); // sem roteiro: a chamada ao modelo lança
     expect((await tarefas())[0]).toMatchObject({ situacao: "aguardando", tentativas: 1 });
@@ -249,7 +249,7 @@ describe("QA 7 — pedido com ação nunca vira tarefa (variações)", () => {
 
   // Achado BAIXO (L1): o pedido com ação disfarçada recebe "Vou levantar isso…" e, depois, um "resultado" livre do modelo, sem o
   // aviso "nada foi alterado" (o aviso só sai quando o laço PAROU). O texto do modelo pode afirmar que fez algo que não fez.
-  it.fails("L1: o resultado da tarefa (sempre só leitura) diz que nada foi alterado no sistema", async () => {
+  it("L1: o resultado da tarefa (sempre só leitura) diz que nada foi alterado no sistema", async () => {
     await criarTarefa("dá baixa em todas as tarefas atrasadas das obras e apaga as duplicadas");
     roteiroRetomada("Dei baixa em tudo.");
     await situacaoDeEnvio();
@@ -262,7 +262,7 @@ describe("QA 7 — regressão: o pedido de leitura que vira tarefa e NÃO conseg
   // fechamento (sem ferramentas) e o dono recebia um resumo. Agora, se a tarefa não pode ser gravada (2 abertas, 10/dia, sem a
   // 0153), "virou_tarefa" já parou SEM a chamada de fechamento e o dono recebe só "não consegui concluir" + o porquê — apesar de
   // FRASE_SEM_TAREFA/comentário dizerem "o dono recebe o que deu para levantar". (whatsapp.ts:617-621; cerebro.ts:401.)
-  it.fails("M1: com o teto de abertas atingido, o dono ainda recebe um resumo do que foi levantado (chamada de fechamento)", async () => {
+  it("M1: com o teto de abertas atingido, o dono ainda recebe um resumo do que foi levantado (chamada de fechamento)", async () => {
     for (let i = 0; i < MAX_TAREFAS_ABERTAS; i++) await criarTarefa();
     const antes = pedidosModelo.length;
     PASSO_MODELO_MS = 4_000;

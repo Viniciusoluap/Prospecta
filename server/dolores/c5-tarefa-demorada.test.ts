@@ -11,6 +11,7 @@ import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { ACOES } from "./acoes/registro.js";
+import { ehPedidoDeRelatorio, intencaoDeAcao } from "../../shared/dolores/fila.js";
 import { MAX_VOLTAS_TAREFA, VOLTAS_PARA_TAREFA, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
@@ -163,8 +164,8 @@ describe("criação — só a conversa direta do dono, só pedido de leitura", (
     const fim = whatsapp.indexOf("\n}\n", inicio);
     expect(whatsapp.indexOf("criarTarefaDemorada(")).toBeGreaterThan(inicio);
     expect(whatsapp.indexOf("criarTarefaDemorada(")).toBeLessThan(fim);
-    expect((whatsapp.match(/podeVirarTarefa:/g) ?? []).length).toBe(1);
-    for (const f of ["ponte.ts", "marcacao.ts", "atendimento.ts", "grupos.ts"]) expect(readFileSync(new URL(f, pasta), "utf8"), f).not.toMatch(/podeVirarTarefa|criarTarefaDemorada/);
+    expect((whatsapp.match(/virarTarefa:/g) ?? []).length).toBe(1);
+    for (const f of ["ponte.ts", "marcacao.ts", "atendimento.ts", "grupos.ts"]) expect(readFileSync(new URL(f, pasta), "utf8"), f).not.toMatch(/virarTarefa|criarTarefaDemorada/);
   });
 
   it("tetos: no máximo 2 abertas e 10 por dia — passou, vai o que deu para levantar, com o porquê", async () => {
@@ -369,5 +370,43 @@ describe("dados pessoais e segredos", () => {
     expect(auditoria).not.toContain("relatório completo");
     expect(JSON.stringify(erros.mock.calls)).not.toContain("123.456.789-01");
     expect((await tarefas())[0].comando).toBeNull();
+  });
+});
+
+describe("portão de QA — \"gera/prepara/monta um relatório\" é leitura; ação de verdade continua ação", () => {
+  it("regra pura: só verbo + relatório/levantamento/resumo/lista, sem outro verbo de ação no resto", () => {
+    for (const t of ["gera um relatório completo das obras", "Gere o relatório de financiamentos", "prepara um levantamento das medições",
+      "prepare uma lista das obras atrasadas", "monta um resumo de tudo que está parado", "me faz um levantamento das obras", "Dolores, gera uma listagem dos clientes"])
+      expect(ehPedidoDeRelatorio(t), t).toBe(true);
+    for (const t of ["gera o PCI da obra da Ana", "gera um relatório e cria uma tarefa para a Bianca", "prepara a cobrança do João",
+      "prepara um resumo da cobrança do João", "monta uma lista e lembra que a Ana atrasou", "registra um relatório no cliente",
+      "cria uma lista de tarefas", "gera um relatório e agenda a visita", "gera um relatório e salva na pasta", "o relatório: gera e cria tarefas"])
+      expect(ehPedidoDeRelatorio(t), t).toBe(false);
+    // a lista de verbos de ação não mudou (a regra nova não afrouxa nada para ação)
+    expect(intencaoDeAcao("gera o PCI da obra da Ana")).toBe(true);
+    expect(intencaoDeAcao("gera um relatório completo das obras")).toBe(true);
+  });
+
+  it("\"gera um relatório completo de todas as obras\": só ferramentas de leitura desde a 1ª chamada e vira tarefa", async () => {
+    await criarTarefa("gera um relatório completo de todas as obras e medições");
+    for (const p of pedidosModelo) expect(p.ferramentas.map(f => (f as { name: string }).name).filter(n => NOMES_ACOES.has(n))).toEqual([]);
+    expect(await tarefas()).toHaveLength(1);
+    expect(respostasAoDono()).toEqual([FRASE_VOU_LEVANTAR]);
+  });
+
+  it("\"gera o PCI da obra\" (ação de verdade) continua com as ações e nunca vira tarefa", async () => {
+    PASSO_MODELO_MS = 4_000;
+    for (let i = 0; i < 6; i++) roteiro.push(() => ferramenta(["listar_obras", {}]));
+    roteiro.push(() => texto("Consultei a obra."));
+    await dono("gera o PCI da obra da Ana");
+    expect(pedidosModelo[0].ferramentas.map(f => (f as { name: string }).name)).toContain("gerar_documento");
+    expect(await tarefas()).toHaveLength(0);
+  });
+
+  it("todo resultado em segundo plano termina com o fecho fixo, mesmo quando o modelo afirma ter feito algo", async () => {
+    await criarTarefa();
+    roteiroRetomada("Pronto, já criei as tarefas e cobrei os clientes.");
+    await situacaoDeEnvio();
+    expect(respostasAoDono().at(-1)!.trimEnd().endsWith("Nada foi alterado no sistema.")).toBe(true);
   });
 });
