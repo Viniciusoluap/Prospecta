@@ -13,7 +13,7 @@ import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
-import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { executarFuncao, ferramentasDaConversa, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
 import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
@@ -78,7 +78,9 @@ const PRAZO_CONSULTA_MS = 15_000;
 // EPIC-027 C5 (E2): as 4 ferramentas de grupo aumentaram o prefixo (~12,7 mil pela estimativa por cima): piso 12.000 → 14.000.
 // EPIC-027 C5 (memória de longo prazo): +3 ferramentas (~2,8 mil caracteres ≈ 1 mil tokens pela estimativa): o prefixo foi a ~13,8 mil;
 // piso 14.000 → 15.000 (mais rígido, com folga).
-export const RESERVA_MINIMA_ENTRADA = 15_000;
+// EPIC-027 C5-COM (mesa comercial ligada à maquete): +3 leituras e +1 ação (~4,6 mil caracteres ≈ 1,4 mil tokens pela estimativa): o
+// prefixo foi a ~14,7 mil (+500 da API = ~15,2 mil, acima do piso): 15.000 → 17.000 (mais rígido, com folga para as frentes em paralelo).
+export const RESERVA_MINIMA_ENTRADA = 17_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -149,6 +151,11 @@ export type ResultadoComando = {
    * código ou pela tela (como antes), e não substitui a proposta que já esperava a resposta dele.
    */
   podeConfirmar: boolean;
+  /**
+   * EPIC-027 C5-COM: textos montados pelo SISTEMA (link da maquete, rascunho ao cliente) que vão ao dono num quadro, intactos, quando a
+   * resposta do modelo não os traz exatamente. Só de leituras da conversa do dono (funcoes.ts#soConversaDoDono).
+   */
+  anexos: string[];
 };
 
 export type PedidoComando = {
@@ -216,7 +223,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
   const comAcoes = intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
-  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
+  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasDaConversa());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -254,6 +261,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // Só a mensagem do DONO pedindo memória (por código), direta, sem colagem e sem anexo, abre as ações de memória (o texto dela serve
   // para conferir que o fato saiu das palavras dele).
   const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando } : null;
+  // EPIC-027 C5-COM: o pedido do DONO (direto, sem colagem e sem anexo) para a leitura conferir o que ele ditou (nome/valor no rascunho)
+  const pedidoDoDono = !pareceColagem(p.comando) && !p.comMidia ? comando : null;
+  /** EPIC-027 C5-COM: textos do sistema para o dono (link da maquete, rascunho), na ordem em que vieram. */
+  const paraODono: Array<{ texto: string; seFaltar: string }> = [];
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -354,8 +365,13 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
           contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono },
       );
+      // EPIC-027 C5-COM: só das leituras da conversa do dono (texto montado pelo sistema, já pelo filtro da porta)
+      if (resp.body.ok === true && funcaoPorNome(String(u.name))?.soConversaDoDono) {
+        const d = (resp.body.dados as { paraODono?: { texto?: unknown; seFaltar?: unknown } } | undefined)?.paraODono;
+        if (d && typeof d.texto === "string" && typeof d.seFaltar === "string" && d.texto && d.seFaltar) paraODono.push({ texto: d.texto, seFaltar: d.seFaltar });
+      }
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o
       // registro da função para respostas ok (na dúvida, contamina)
@@ -398,5 +414,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar };
+  // EPIC-027 C5-COM: o que o modelo não repetiu exatamente vai intacto num quadro do sistema (sem repetir o mesmo texto)
+  const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar, anexos };
 }

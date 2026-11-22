@@ -202,6 +202,11 @@ export type OpcoesExecucao = {
    * ação para conferir que o fato saiu das palavras dele. Ausente: guardar/corrigir/esquecer_memoria recusam.
    */
   pedidoDeMemoria?: { texto: string } | null;
+  /**
+   * EPIC-027 C5-COM: o pedido do DONO nesta mensagem (conversa direta, sem colagem, sem anexo) — só para a leitura conferir o que
+   * ele ditou (nome e valor no rascunho ao cliente). Montado por cerebro.ts, por código.
+   */
+  pedidoDoDono?: string | null;
 };
 
 /**
@@ -261,6 +266,12 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos, motivo: motivoDaRecusa(nomeParaRegistro(funcao)), pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
+  // EPIC-027 C5-COM: leitura só da conversa direta do dono (maquete por lote) — nunca pela ponte HTTP nem sem a mensagem dele
+  if (leitura?.soConversaDoDono && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
+    const motivo = "Esta consulta só vale na conversa direta do dono no WhatsApp; por este canal, não.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
   // Etapa 3: AÇÃO só nasce de comando do dono no WhatsApp (mensagem conferida). A ponte HTTP não executa ação.
   if (acao && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
     const motivo = "Ações só por comando do dono no WhatsApp da Dolores; por este canal, só consultas.";
@@ -289,7 +300,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
     exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null });
   try {
-    const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
+    const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal, ...(leitura!.soConversaDoDono ? { pedidoDoDono: opcoes.pedidoDoDono ?? null } : {}) })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
     // bancários sempre; dados pessoais conforme o CANAL (QA r7 A3): no WhatsApp, mascarados só com
     // DOLORES_MASCARAR_DADOS_PESSOAIS=1 (opção B do dono, 16/11); na ponte HTTP, mascarados salvo DOLORES_PONTE_DADOS_PESSOAIS=1.
@@ -425,11 +436,14 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
  * Definições das funções de LEITURA liberadas (ponte HTTP e docs/dolores/ferramentas-etapa1.json). As ações não entram:
  * pela ponte, só consultas.
  */
-export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
+export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome) && !f.soConversaDoDono).map(definicaoDaFerramenta);
+
+/** EPIC-027 C5-COM — leituras da conversa direta do dono no WhatsApp: as da ponte + as que só valem nela (maquete por lote). */
+export const ferramentasDaConversa = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
 
 /** Etapa 3 — ferramentas do laço do WhatsApp (comando do dono): leituras + ações liberadas (lista fechada). */
 export const ferramentasDoWhatsapp = () => [
-  ...ferramentasLiberadas(),
+  ...ferramentasDaConversa(),
   ...ACOES.filter(a => funcaoLiberada(a.nome)).map(a => definicaoDaFerramenta({ nome: a.nome, descricao: a.descricao, entrada: a.entrada } as never)),
 ];
 

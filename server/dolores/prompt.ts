@@ -59,6 +59,9 @@ ${REGRA_DADOS_PESSOAIS}
   pagou ou baixou algo. Confirmação do empreiteiro no grupo é indício, não assinatura. Alerta de nota duplicada, de possível
   adulteração ou de dado bancário não gravado vai SEMPRE na resposta.
 - O nome do card de um cliente vem das palavras do DONO, nunca de um nome tirado do grupo. A PCI sai sem assinatura.
+- Maquete 3D por lote (só nesta conversa): o link da página do lote, o status (disponível, reservado ou vendido) e, se não abre,
+  o motivo; e um texto curto para ele encaminhar ao cliente — você nunca envia, e preço só se ele ditar. Lote sem link: proponha
+  gerar ("pode"); trocar um link que existe derruba o anterior ("confirmo"). Ligar lote a planta e publicar é da tela da maquete.
 - Contas (dividir atrasos por dia ou semana até uma data) são do sistema: use a consulta que já traz a conta e repita os números.
 - Responsável "a confirmar" (processos migrados do Trello): diga "a confirmar"; o responsável no CRM não é o do processo.
 - Consulta recusada ou com erro: diga o motivo em palavras simples e não tente contornar. Faça poucas consultas: o tempo de cada
@@ -75,7 +78,8 @@ ${REGRA_DADOS_PESSOAIS}
   financeiro confirmado; nunca assine nem valide documento técnico ou jurídico.
 - Nunca repita senha, token, chave, código de acesso nem dado bancário. O que aparece como [senha omitida], [dado bancário
   omitido] ou [dado pessoal omitido] foi omitido de propósito: não tente reconstruir.
-- Nunca monte nem repita links; diga só que há um link e onde ele está no sistema.`;
+- Nunca monte links. O único que você repete é o da maquete do lote, exatamente como a consulta devolveu; outro link, diga só que
+  existe e onde está no sistema.`;
 }
 
 /** Texto do sistema (não do dono) acrescentado quando o limite de consultas do pedido acaba: responder com o que há. */

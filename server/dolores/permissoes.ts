@@ -72,7 +72,15 @@ export const LIBERADAS_ETAPA_7 = ["classificar_grupo", "aceitar_grupo", "ignorar
  */
 export const LIBERADAS_ETAPA_7_MEMORIA = ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA] };
+/**
+ * Etapa 7 (cont.) — EPIC-027 C5-COM (mesa comercial ligada à maquete, aprovada pelo dono em 21/11): SÓ na conversa direta do dono.
+ * Duas leituras (o lote e a lista dos lotes com maquete: link, status, motivo), o rascunho de mensagem ao cliente (só texto devolvido
+ * ao dono; nada é enviado nem gravado) e a ação de gerar/trocar o link (de FILA: "pode" para gerar, "confirmo" para trocar). As
+ * leituras não entram na ponte HTTP nem nos grupos (funcoes.ts#soConversaDoDono).
+ */
+export const LIBERADAS_ETAPA_7_MAQUETE = ["consultar_maquete_lote", "listar_maquetes_lotes", "rascunhar_mensagem_lote", "gerar_link_maquete_lote"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_MAQUETE] };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};

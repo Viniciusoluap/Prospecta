@@ -19,12 +19,23 @@ import { entradaLerGrupoCliente, entradaListarGrupos, lerGrupoCliente, listarGru
 import { entradaListarNotasObra, listarNotasObra } from "./leitura/notas.js";
 import { entradaRelatorioDiario, relatorioDiario } from "./leitura/relatorio.js";
 import { entradaPlanoDeAtrasos, planoDeAtrasos } from "./leitura/plano-atrasos.js";
+import {
+  consultarMaqueteLote, entradaConsultarMaqueteLote, entradaListarMaquetesLotes, entradaRascunharMensagemLote, listarMaquetesLotes, rascunharMensagemLote,
+} from "./leitura/maquete-lotes.js";
+import { hashDaPlanta } from "./maquete-lote.js";
 
 /**
  * `canal` decide o interruptor dos dados pessoais dos campos estruturados (campoPessoal). Etapa 7: "grupo" (grupo interno, quando
  * a Dolores é marcada) mascara sempre.
  */
-export type ContextoFuncao = { agora: Date; canal: CanalDoFiltro };
+export type ContextoFuncao = {
+  agora: Date; canal: CanalDoFiltro;
+  /**
+   * EPIC-027 C5-COM: o pedido do DONO nesta mensagem (conversa direta, sem texto colado e sem anexo), só no laço do WhatsApp dele —
+   * o rascunho ao cliente confere nele o nome e o valor ditados. Ausente: nada de nome nem valor.
+   */
+  pedidoDoDono?: string | null;
+};
 export type FuncaoDolores = {
   nome: string;
   descricao: string;
@@ -37,7 +48,15 @@ export type FuncaoDolores = {
   contamina: boolean;
   entrada: z.ZodType;
   executar: (args: never, ctx: ContextoFuncao) => Promise<Resultado>;
+  /**
+   * EPIC-027 C5-COM: só na conversa direta do dono no WhatsApp (canal "whatsapp", com a mensagem dele). Fora da ponte HTTP
+   * (`ferramentasLiberadas`), dos grupos (marcacao.ts#LEITURAS_INTERNAS) e do atendimento ao cliente; a porta recusa nos outros canais.
+   */
+  soConversaDoDono?: boolean;
 };
+
+/** EPIC-027 C5-COM: marca a leitura como só da conversa direta do dono. */
+const soDoDono = (fn: FuncaoDolores): FuncaoDolores => ({ ...fn, soConversaDoDono: true });
 
 const f = <S extends z.ZodType>(nome: string, descricao: string, entrada: S, executar: (args: z.infer<S>, ctx: ContextoFuncao) => Promise<Resultado>): FuncaoDolores =>
   ({ nome, descricao: descricao + AVISO_DADOS, tipo: "leitura", contamina: CONTAMINA[nome] ?? true, entrada, executar: executar as FuncaoDolores["executar"] });
@@ -66,6 +85,8 @@ const CONTAMINA: Record<string, boolean> = {
   listar_notas_obra: true, // emitente, descrição e itens lidos de nota de TERCEIRO; respostas do empreiteiro
   relatorio_diario: true, // nomes de clientes e responsáveis nos destaques e no texto do relatório
   plano_de_atrasos: true, // nomes de clientes (os mesmos itens de listar_atrasos)
+  // EPIC-027 C5-COM: nomes de empreendimento/quadra/lote digitados pela equipe na tela da maquete
+  consultar_maquete_lote: true, listar_maquetes_lotes: true, rascunhar_mensagem_lote: true,
 };
 
 /**
@@ -125,6 +146,16 @@ export const FUNCOES: readonly FuncaoDolores[] = [
   f("plano_de_atrasos",
     "CONTA FEITA PELO SISTEMA: pega os mesmos itens de listar_atrasos (filtro opcional de módulo, ex.: só \"crm\"), do mais atrasado para o menos, e divide IGUALMENTE pelos dias que restam até a data-limite (padrão: fim do mês; só dias úteis seg–sex por padrão). Use SEMPRE que o dono pedir para dividir, distribuir, agendar ou planejar atrasos/processos por dia, semana ou até uma data — nunca faça essa conta você mesma. Devolve, por dia, a data, a quantidade e uma linha por item (nº, nome curto, dias de atraso), com total e conferência (soma dos dias = total). Não cria tarefa nem muda prazo.",
     entradaPlanoDeAtrasos, planoDeAtrasos),
+  // EPIC-027 C5-COM (mesa comercial ligada à maquete) — só na conversa direta do dono
+  soDoDono(f("consultar_maquete_lote",
+    "Maquete 3D de UM lote (busca como ele disse: \"lote 4 da quadra 18\", \"qd18 lt4\", \"Vila Esmeralda\"; ou loteId): se a página pública abre, o LINK completo (só quando abre), o status do lote (disponível, reservado ou vendido — só quando o lote está ligado a uma unidade da Incorporação) e, quando não abre, o motivo. Vários lotes → lista curta para ele escolher. Nunca traz comprador, preço nem dado pessoal. Repita o link exatamente como veio.",
+    entradaConsultarMaqueteLote, (a, ctx) => consultarMaqueteLote(a, ctx, hashDaPlanta))),
+  soDoDono(f("listar_maquetes_lotes",
+    "Lotes que têm maquete 3D: empreendimento, quadra, lote, status (só com unidade ligada), se tem link e se a página abre (e o motivo, quando não abre). Sem o link em si: para o link, consultar_maquete_lote.",
+    entradaListarMaquetesLotes, (a, ctx) => listarMaquetesLotes(a, ctx, hashDaPlanta))),
+  soDoDono(f("rascunhar_mensagem_lote",
+    "Monta um texto CURTO para o DONO copiar e encaminhar ao cliente, com o link da maquete do lote (loteId) — NÃO envia nada a ninguém nem grava nada. Modelo fixo do sistema; tom proximo (padrão) ou formal. Sem preço: valor e nome do cliente só se o dono os disse nesta mensagem. O sistema mostra o texto ao dono logo abaixo da sua resposta: não o reescreva.",
+    entradaRascunharMensagemLote, (a, ctx) => rascunharMensagemLote(a, ctx, hashDaPlanta))),
 ];
 
 export const funcaoPorNome = (nome: string) => FUNCOES.find(x => x.nome === nome) ?? null;
