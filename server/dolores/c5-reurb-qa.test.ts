@@ -214,3 +214,18 @@ describe("QA 6 — gasto", () => {
     expect(prefixo).toBeLessThan(RESERVA_MINIMA_ENTRADA);
   });
 });
+
+describe("revisor — o aviso atravessa o filtro de voz", () => {
+  it("parecer acima do limite do filtro de voz: o aviso continua inteiro, uma vez, fechando a última parte", () => {
+    const longo = comAvisoReurb("Etapa do rito e documento pendente. ".repeat(700), true);
+    expect(longo.length).toBeGreaterThan(20000);
+    const voz = vozDaDolores(longo).texto;
+    expect(voz.endsWith(AVISO_REURB)).toBe(true);
+    expect(voz.split(AVISO_REURB)).toHaveLength(2);
+    const partes = partesDaResposta(voz, null, MAX_CARACTERES_WHATSAPP, 3);
+    expect(partes.at(-1)!.endsWith(AVISO_REURB)).toBe(true);
+  });
+  it("texto sem o aviso passa pelo filtro de voz como antes", () => {
+    expect(vozDaDolores("Tudo certo por aqui.").texto).toBe("Tudo certo por aqui.");
+  });
+});
