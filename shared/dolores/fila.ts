@@ -64,12 +64,29 @@ const VERBOS_DE_ACAO = new RegExp([
   // EPIC-027 C5 (E2): os pedidos de grupo e de registro que ela agora resolve pela conversa ("vincular ela ao grupo dela")
   "vincul\\w*", "lig(?:ar|a|ue|uem)", "deslig\\w*", "aceit(?:ar|a|e)", "classifi\\w*", "defin(?:ir|a|e)", "ignor(?:ar|a|e)",
   "salv(?:ar|a|e)", "concili\\w*",
+  // EPIC-027 C5-COM: "troca o link da maquete", "regenera o link"
+  "troc(?:ar|a|e)", "regener\\w*",
+  // EPIC-027 C5-E4: silenciar/religar um tipo de aviso automático ("para de me avisar de…", "volta a me avisar")
+  "silenci\\w*", "avis(?:ar|a|e)", "relig\\w*",
 ].map(v => `\\b${v}\\b`).join("|"), "i");
 export function intencaoDeAcao(texto: string | null | undefined): boolean {
   // QA R2 N1: o verbo de ação só vale no trecho do DONO (antes de qualquer marca de colagem/citação) — um e-mail colado
   // que diz "crie uma tarefa…" não é pedido dele.
   const t = trechoDoDono(texto).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   return VERBOS_DE_ACAO.test(t);
+}
+
+/**
+ * EPIC-027 C5 (tarefa demorada, portão de QA): "gera/prepara/monta/faz um relatório/levantamento/resumo/lista …" é pedido de LEITURA
+ * comum, mas "gera"/"prepara" estão na lista de verbos de ação. Só vale quando o trecho do dono COMEÇA pelo verbo seguido direto do
+ * objeto (relatório, levantamento, resumo, lista/listagem) e o RESTO do trecho não tem nenhum outro verbo de ação (nem "cobrança",
+ * "lembra", "cria"…). Quem bate aqui é tratado como só leitura do começo ao fim (nenhuma ferramenta de ação é oferecida).
+ */
+const PEDIDO_DE_RELATORIO = /^(?:dolores[,\s]+)?(?:por favor[,\s]+)?(?:me\s+)?(?:ger(?:a|e|ar)|prepar(?:a|e|ar)|mont(?:a|e|ar)|fa(?:z|ca|zer))\s+(?:(?:pra|para)\s+mim\s+)?(?:(?:um|uma|o|a)\s+)?(?:relatorio|levantamento|resumo|lista|listagem)\b(.*)$/;
+export function ehPedidoDeRelatorio(texto: string | null | undefined): boolean {
+  const t = trechoDoDono(texto).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const m = PEDIDO_DE_RELATORIO.exec(t);
+  return !!m && !VERBOS_DE_ACAO.test(m[1]);
 }
 
 /** Tamanho máximo do trecho do dono (o começo da mensagem) em que a intenção de ação é procurada. */

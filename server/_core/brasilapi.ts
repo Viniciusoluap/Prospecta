@@ -9,10 +9,10 @@
 //   - nada de CNPJ/CPF em log: os erros guardam só o tipo do problema.
 // Formatos conferidos na documentação OpenAPI oficial da Brasil API (repositório BrasilAPI/BrasilAPI, pages/docs/doc/
 // cnpj.json e cep.json, lida em 22/11/2026). ViaCEP: formato conhecido ({ cep, logradouro, bairro, localidade, uf, ibge }
-// ou { erro: true }) — [NÃO CONFIRMADO] na documentação nesta sessão (sem acesso ao site); mapeado de forma tolerante.
+// ou { erro: true }) — formato real confirmado pelo portão de QA da S-1; mapeado de forma tolerante.
 import { z } from "zod";
 import {
-  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta, limparCep, limparTexto, situacaoDoCodigo,
+  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta, limparCep, limparCnpj, limparTexto, semCpf, situacaoDoCodigo,
   type DadosCep, type DadosCnpj, type FonteConsulta,
 } from "../../shared/consulta-cadastral.js";
 
@@ -82,6 +82,12 @@ async function lerJson(url: string, buscar: Buscar, tempoLimiteMs: number): Prom
     const resposta = await buscar(url, { signal: controle.signal, headers: { accept: "application/json", "user-agent": "Prospecta/1.0" } });
     if (resposta.status === 404 || resposta.status === 400) return { status: resposta.status, corpo: null };
     if (!resposta.ok) throw new FalhaConsultaCadastral("indisponivel", "O serviço de consulta não respondeu agora.");
+    // Recusa cedo pelo cabeçalho, sem ler o corpo (portão de QA da S-1); sem cabeçalho, vale a conferência do texto lido.
+    const tamanhoDeclarado = Number(resposta.headers.get("content-length") ?? NaN);
+    if (Number.isFinite(tamanhoDeclarado) && tamanhoDeclarado > TAMANHO_MAXIMO_RESPOSTA) {
+      await resposta.body?.cancel().catch(() => {});
+      throw new FalhaConsultaCadastral("resposta_invalida", "A resposta do serviço veio fora do formato.");
+    }
     const texto = await resposta.text();
     if (texto.length > TAMANHO_MAXIMO_RESPOSTA) throw new FalhaConsultaCadastral("resposta_invalida", "A resposta do serviço veio fora do formato.");
     try {
@@ -116,7 +122,11 @@ export function mapearCnpj(corpo: unknown, cnpj: string): DadosCnpj {
   const r = RespostaCnpj.safeParse(corpo);
   if (!r.success || typeof corpo !== "object" || corpo === null) throw new FalhaConsultaCadastral("resposta_invalida", "A resposta da Receita veio fora do formato.");
   const d = r.data;
-  const razaoSocial = so(d.razao_social, 150);
+  // Resposta de OUTRO CNPJ (trocada no caminho ou erro do serviço) é recusada e não vai para o cache (portão de QA da S-1).
+  const cnpjDaResposta = d.cnpj === null || d.cnpj === undefined ? "" : limparCnpj(String(d.cnpj));
+  if (cnpjDaResposta && cnpjDaResposta.padStart(14, "0") !== cnpj) throw new FalhaConsultaCadastral("resposta_invalida", "A Receita respondeu sobre outro CNPJ.");
+  // MEI: o CPF do dono vem dentro da razão social; sai antes de tudo (LGPD — CPF nunca vai à tela nem ao cache).
+  const razaoSocial = semCpf(so(d.razao_social, 150));
   if (!razaoSocial) throw new FalhaConsultaCadastral("resposta_invalida", "A resposta da Receita veio sem a razão social.");
   const situacao = situacaoDoCodigo(d.situacao_cadastral, d.descricao_situacao_cadastral);
   const tipoLogradouro = so(d.descricao_tipo_de_logradouro, 30);
@@ -128,7 +138,7 @@ export function mapearCnpj(corpo: unknown, cnpj: string): DadosCnpj {
   return {
     cnpj,
     razaoSocial,
-    nomeFantasia: so(d.nome_fantasia, 150),
+    nomeFantasia: semCpf(so(d.nome_fantasia, 150)),
     situacao,
     alerta: alertaDaSituacao(situacao),
     cnaePrincipal: cnae && /^\d{5,7}$/.test(cnae) ? { codigo: cnae.padStart(7, "0"), descricao: so(d.cnae_fiscal_descricao, 200) } : null,

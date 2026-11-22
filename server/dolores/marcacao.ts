@@ -396,7 +396,8 @@ export const LEITURAS_DO_PARCEIRO: readonly LeituraDoGrupo[] = [
  * ação, nunca: a lista só tem leituras de `FUNCOES` e cada chamada confere de novo o nome, a etapa liberada e a entrada (zod).
  */
 export const LEITURAS_INTERNAS: Record<"administrativo" | "juridico" | "engenharia", readonly string[]> = {
-  administrativo: FUNCOES.map(f => f.nome),
+  // EPIC-027 C5-COM: as leituras só da conversa do dono (maquete por lote: link, status, rascunho) nunca entram em grupo
+  administrativo: FUNCOES.filter(f => !f.soConversaDoDono).map(f => f.nome),
   juridico: ["listar_processos_regularizacao", "detalhar_processo_regularizacao", "listar_documentos"],
   engenharia: ["listar_obras", "listar_medicoes", "listar_notas_obra"],
 };

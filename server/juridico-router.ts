@@ -10,6 +10,9 @@ import { CAMPOS_MODELO, MODELOS_CONTRATO, modeloNovo, montarContrato, type Campo
 import { gerarPdfModelo } from "../shared/contratos/pdf.js";
 import { opcoesModelosContrato } from "./juridico-modelos.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
+import { nomeContrato } from "../shared/contratos/documentos.js";
+import { confirmarTodasAssinaturas, salvarRetornoContrato, conteudoContrato } from "./juridico-workflow.js";
+import { sendEmail } from "./_core/email-smtp.js";
 import { gerarESalvarContratoPdf } from "./juridico-pdf.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 
@@ -49,7 +52,7 @@ export const juridicoRouter = router({
 
   modelOptions: adminProcedure.query(() => opcoesModelosContrato()),
 
-  create: adminProcedure.input(z.record(z.enum(CAMPOS_MODELO), z.string().trim().max(1000))).mutation(async ({ input }) => {
+  create: adminProcedure.input(z.preprocess(raw=>raw&&typeof raw==="object"?{testemunha1Nome:"",testemunha1Cpf:"",testemunha2Nome:"",testemunha2Cpf:"",...raw}:raw,z.record(z.enum(CAMPOS_MODELO), z.string().trim().max(1000)))).mutation(async ({ input }) => {
     const campos = input as CamposModelo;
     if (!/^\d+$/.test(campos.obraId) || !Number.isSafeInteger(Number(campos.obraId))) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione uma obra." });
@@ -90,6 +93,7 @@ export const juridicoRouter = router({
     .mutation(async ({ input }) => {
       const [updated] = await getDb().update(portalContracts).set({
         ...input.data,
+        signatureStatus:undefined,
         number: input.data.number || undefined,
         partyADocument: input.data.partyADocument || null,
         partyBDocument: input.data.partyBDocument || null,
@@ -107,6 +111,7 @@ export const juridicoRouter = router({
     status: z.enum(CONTRATO_STATUS).optional(),
     signatureStatus: z.enum(ASSINATURA_STATUS).optional(),
   })).mutation(async ({ input }) => {
+    if(input.signatureStatus==="assinado")throw new TRPCError({code:"BAD_REQUEST",message:"Use a confirmação de todas as assinaturas no documento recebido."});
     const [updated] = await getDb().update(portalContracts).set({
       status: input.status,
       signatureStatus: input.signatureStatus,
@@ -116,13 +121,32 @@ export const juridicoRouter = router({
     return updated;
   }),
 
+  confirmarAssinaturas: adminProcedure.input(z.object({documentId:z.number().int().positive(),confirmado:z.literal(true)})).mutation(({ctx,input})=>confirmarTodasAssinaturas(input.documentId,ctx.user.role)),
+
+  enviarParaAssinatura: adminProcedure.input(z.object({id:z.number().int().positive(),email:z.boolean().default(true)})).mutation(async({input})=>{
+    const db=getDb();const [contract]=await db.select().from(portalContracts).where(eq(portalContracts.id,input.id)).limit(1);
+    if(!contract||!contract.leadId)throw new TRPCError({code:"BAD_REQUEST",message:"Vincule o contrato ao cliente para disponibilizar no portal."});
+    if(contract.signatureStatus==="assinado")throw new TRPCError({code:"BAD_REQUEST",message:"Este contrato já foi concluído."});
+    const [document]=await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.contractId,contract.id),eq(portalContractDocuments.type,"assinatura_digital"))).orderBy(desc(portalContractDocuments.createdAt)).limit(1);
+    if(!document)throw new TRPCError({code:"BAD_REQUEST",message:"Assine pela empresa antes de enviar ao cliente."});
+    if(input.email){
+      const [lead]=await db.select({email:leads.email}).from(leads).where(eq(leads.id,contract.leadId)).limit(1);
+      if(!lead?.email)throw new TRPCError({code:"BAD_REQUEST",message:"Preencha o e-mail do cliente no cadastro antes de enviar."});
+      const bytes=await conteudoContrato(document);if(!bytes)throw new TRPCError({code:"NOT_FOUND",message:"PDF não encontrado."});
+      const sent=await sendEmail({to:lead.email,subject:"Contrato para assinatura — Prospecta",html:'<p>Seu contrato está anexo, assinado pela empresa. Confira, assine e devolva pelo portal do cliente.</p><p><a href="https://www.prospectaconstrucoes.com/portal/documentos">Abrir documentos no portal</a></p>',templateType:"admin_notification",attachments:[{filename:nomeContrato(contract.partyB,"assinatura_digital"),content:bytes,contentType:"application/pdf"}]});
+      if(!sent)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"O e-mail não foi enviado. Confira a configuração de e-mail e tente novamente."});
+    }
+    await db.update(portalContracts).set({signatureStatus:"solicitado",updatedAt:new Date()}).where(eq(portalContracts.id,contract.id));
+    return {success:true,emailEnviado:input.email};
+  }),
+
   addDocument: adminProcedure.input(z.object({
     contractId: z.number().int().positive(),
     name: z.string().trim().min(1).max(255),
     url: z.string().url(),
     type: documentType.default("anexo"),
   })).mutation(async ({ input }) => {
-    const [document] = await getDb().insert(portalContractDocuments).values(input).returning();
+    const [document] = await getDb().insert(portalContractDocuments).values({...input,type:input.type === "assinado" ? "recebido_assinado" : input.type}).returning();
     return document;
   }),
 
@@ -140,6 +164,9 @@ export const juridicoRouter = router({
     if (!isValidContractPdf(buffer) || buffer.length > 3 * 1024 * 1024) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Envie um PDF válido de até 3 MiB" });
     }
+    if(input.type==="assinado")return salvarRetornoContrato(contract,buffer,false);
+    const nome=input.type==="anexo"?input.name:nomeContrato(contract.partyB,input.type);
+    if(input.type==="assinatura_digital"&&contract.signatureStatus==="assinado")throw new TRPCError({code:"BAD_REQUEST",message:"O contrato já está assinado por todos."});
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
     const leadId = contract.leadId;
     const { driveFileId } = leadId
@@ -147,23 +174,23 @@ export const juridicoRouter = router({
       : { driveFileId: null };
     if (driveFileId) {
       const [document] = await db.insert(portalContractDocuments).values({
-        contractId: input.contractId, name: input.name, type: input.type, driveFileId,
+        contractId: input.contractId, name: nome, type: input.type, driveFileId,
       }).returning();
-      if (input.type === "assinado") await db.update(portalContracts).set({
-        signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date(),
+      if (input.type === "assinatura_digital") await db.update(portalContracts).set({
+        signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
       }).where(eq(portalContracts.id, input.contractId));
       return document;
     }
     const reserved = await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents', 'id'))::int AS id`);
     const id = Number((reserved as unknown as { rows: { id: number }[] }).rows[0].id);
     const insert = db.insert(portalContractDocuments).values({
-      id, contractId: input.contractId, name: input.name, type: input.type,
+      id, contractId: input.contractId, name: nome, type: input.type,
     });
     const file = db.execute(sql`INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
       VALUES (${id}, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))`);
-    if (input.type === "assinado") {
+    if (input.type === "assinatura_digital") {
       await db.batch([insert, file, db.update(portalContracts).set({
-        signatureStatus: "assinado", signedDocumentUrl: null, updatedAt: new Date(),
+        signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
       }).where(eq(portalContracts.id, input.contractId))]);
     } else {
       await db.batch([insert, file]);

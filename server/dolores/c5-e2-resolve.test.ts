@@ -111,7 +111,10 @@ describe("regras puras", () => {
     // toda ação registrada tem um nível decidido (nenhuma cai no "desconhecido" por esquecimento, menos as sérias de propósito)
     const registro = ACOES.filter(a => nivelDoItem(a.nome, { tipo: "cliente", troca: false, ligado: false }) === "registro").map(a => a.nome).sort();
     // EPIC-027 C5 (memória de longo prazo): guardar/corrigir/esquecer_memoria também são "pode"
-    expect(registro).toEqual(["classificar_grupo", "corrigir_memoria", "criar_card_cliente", "criar_tarefa", "esquecer_memoria", "gerar_documento", "guardar_memoria", "ignorar_grupo", "ligar_resposta_grupo", "registrar_acompanhamento", "salvar_documentos_grupo", "salvar_nota_obra"]);
+    // EPIC-027 C5-COM: gerar_link_maquete_lote com `troca: false` (lote sem link) também é "pode"
+    // EPIC-027 C5-E4: silenciar_aviso também é "pode"
+    // EPIC-027 C5 (criadora de mesas): propor/revisar/recusar_mesa são "pode"; propor_aprovacao_mesa é sério ("confirmo")
+    expect(registro).toEqual(["classificar_grupo", "corrigir_memoria", "criar_card_cliente", "criar_tarefa", "esquecer_memoria", "gerar_documento", "gerar_link_maquete_lote", "guardar_memoria", "ignorar_grupo", "ligar_resposta_grupo", "propor_mesa", "recusar_mesa", "registrar_acompanhamento", "revisar_mesa", "salvar_documentos_grupo", "salvar_nota_obra", "silenciar_aviso"]);
   });
 
   it("a pergunta não tem código nem a palavra \"código\" (o filtro de saída a trataria como senha)", () => {

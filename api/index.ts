@@ -42,10 +42,10 @@ import doloresPonteRotas from "../server/dolores/ponte.js";
 import doloresWhatsappRotas from "../server/dolores/whatsapp.js";
 import { executarRotinaCentralVendas } from "../server/central-vendas/rotina.js";
 // EPIC-025 E6 (17/11): rondas e relatório diário da Dolores (cron próprio, CRON_SECRET em tempo constante).
-import { cronAutorizado, tratarCronDolores } from "../server/dolores/rondas.js";
+import { cronAutorizado, tratarCronAvisos, tratarCronDolores } from "../server/dolores/rondas.js";
 // EPIC-027 C7.2 (21/11): modelo padrão da API oficial (YCloud) enviado para aprovação pelo próprio servidor, uma vez, nos crons.
 import { garantirModeloPadraoNoCron } from "../server/ycloud/modelos.js";
-import { CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
+import { CAMINHOS_CRON_AVISOS, CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
 // EPIC-029 S-2: varredura de rascunhos de nota fiscal dentro dos crons que já existem.
 import { gerarRascunhosNoCron } from "../server/fiscal/gerador.js";
@@ -228,6 +228,20 @@ app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
   }
   return res.status(saida.status).json(saida.body);
+});
+
+// ── Cron: avisos automáticos da Dolores à tarde (EPIC-027 C5-E4) ─
+// 15h a 19h de Brasília (uma entrada diária por hora no vercel.json); de 07h a 14h os avisos rodam dentro da rotina acima. Mesmo
+// segredo do cron; query, corpo e o fim do caminho são ignorados. Desligados por padrão (Integrações › Dolores — operação contínua).
+app.get([...CAMINHOS_CRON_AVISOS], async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const saida = await tratarCronAvisos(req);
+    return res.status(saida.status).json(saida.body);
+  } catch (err) {
+    console.error("[cron/dolores-avisos]", erroParaLog(err));
+    return res.status(500).json({ error: "Falha nos avisos da Dolores" });
+  }
 });
 
 // ── All other routes (tRPC, uploads, webhooks) ─

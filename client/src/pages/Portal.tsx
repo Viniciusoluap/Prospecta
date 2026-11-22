@@ -3,6 +3,7 @@ import { formatarPercentual, progressoDaObra } from "@shared/financeiro/progress
 import { Link, useLocation } from "wouter";
 import { FINANCIAMENTO_STATUS } from "@shared/financiamento";
 import { obraStatusLabel } from "@shared/obra-status";
+import { nomeContrato, tituloContrato, faseDocumento } from "@shared/contratos/documentos";
 import { rotulo, rotuloAssinatura } from "@shared/rotulos";
 import {
   Box,
@@ -178,19 +179,19 @@ export default function Portal() {
   async function onContractFile(file?: File) {
     if (contractFileRef.current) contractFileRef.current.value = "";
     if (!file || !uploadContractId) return;
-    if (file.type !== "application/pdf" || file.size > 10 * 1024 * 1024) {
-      toast.error("Envie um PDF de até 10 MiB");
+    if (file.type !== "application/pdf" || file.size > 3 * 1024 * 1024) {
+      toast.error("Envie um PDF de até 3 MiB");
       return;
     }
     setEnviando(true);
     try {
-      await mutarComProgresso("portal.uploadSignedContract", {
+      const retorno = await mutarComProgresso<{message:string}>("portal.uploadSignedContract", {
         contractId: uploadContractId,
         fileName: file.name,
         mimeType: "application/pdf",
         base64: await toBase64(file),
       }, { item: "contrato" });
-      toast.success("Contrato assinado enviado");
+      toast.success(retorno.message || "Contrato recebido para conferência");
       await contracts.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao enviar o contrato");
@@ -631,7 +632,7 @@ export default function Portal() {
                   <CardHeader>
                     <div className="flex justify-between">
                       <CardTitle className="text-lg">
-                        Contrato {contract.number}
+                        {tituloContrato(contract.partyB)}
                       </CardTitle>
                       <Badge>{rotuloAssinatura(contract.signatureStatus)}</Badge>
                     </div>
@@ -649,7 +650,7 @@ export default function Portal() {
                         className="flex items-center gap-2 text-sm underline"
                       >
                         <Download className="h-4 w-4" />
-                        {document.name}
+                        {document.type === "anexo" ? document.name : nomeContrato(contract.partyB,document.type)} · {faseDocumento(document.type)}
                       </button>
                     ) : (
                       <a
@@ -660,10 +661,10 @@ export default function Portal() {
                         className="flex items-center gap-2 text-sm underline"
                       >
                         <Download className="h-4 w-4" />
-                        {document.name}
+                        {document.type === "anexo" ? document.name : nomeContrato(contract.partyB,document.type)} · {faseDocumento(document.type)}
                       </a>
                     ))}
-                    {contract.signatureStatus === "solicitado" && (
+                    {["solicitado","parcial","em_conferencia"].includes(contract.signatureStatus) && (
                       <div className="rounded bg-amber-50 p-4 text-sm space-y-2">
                         <p className="font-bold">Assine em 3 passos</p>
                         <p>Baixe, assine e envie o contrato em PDF.</p>

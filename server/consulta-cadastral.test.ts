@@ -5,7 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta, enderecoEmLinha, limparTexto, separarPreenchimento,
+  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta, enderecoEmLinha, limparTexto, semCpf, separarPreenchimento,
 } from "../shared/consulta-cadastral";
 import { buscarCep, buscarCnpjNaBrasilApi, FalhaConsultaCadastral, HOST_BRASIL_API, HOST_VIACEP, type Buscar } from "./_core/brasilapi";
 import { canAccessAdminProcedure } from "./_core/trpc";
@@ -92,6 +92,19 @@ describe("regras comuns (shared/consulta-cadastral)", () => {
     expect(r.conflitos).toEqual({ razaoSocial: "OUTRA LTDA" });
   });
 
+  it("tira o CPF (com ou sem pontuação) da razão social de MEI e não mexe em outros números", () => {
+    expect(semCpf("FULANO DE TAL 52998224725")).toBe("FULANO DE TAL");
+    expect(semCpf("52998224725 FULANO")).toBe("FULANO");
+    expect(semCpf("FULANO - 529.982.247-25 ME")).toBe("FULANO - ME");
+    expect(semCpf("CONSTRUTORA 2000 LTDA")).toBe("CONSTRUTORA 2000 LTDA");
+    expect(semCpf("12345678901234")).toBe("12345678901234");
+    expect(semCpf("52998224725")).toBeNull();
+  });
+
+  it("remove invisíveis de largura zero e de direção (bidi)", () => {
+    expect(limparTexto("EMPRESA\u202eATNOC\u202c LTDA\u200b\ufeff")).toBe("EMPRESA ATNOC LTDA");
+  });
+
   it("endereço em uma linha", () => {
     expect(enderecoEmLinha({ logradouro: "Rua A", numero: "10", complemento: "sala 2", bairro: "Centro" }, true)).toBe("Rua A, 10 - sala 2 - Centro");
     expect(enderecoEmLinha({ logradouro: null, numero: null, complemento: null, bairro: null })).toBeNull();
@@ -150,6 +163,34 @@ describe("CNPJ na Brasil API (fetch simulado)", () => {
     const inicio = Date.now();
     await expect(buscarCnpjNaBrasilApi(CNPJ, buscar, 30)).rejects.toMatchObject({ motivo: "indisponivel" });
     expect(Date.now() - inicio).toBeLessThan(2000);
+  });
+
+  it("MEI: CPF da razão social não vai à tela nem ao cache; cache antigo com CPF também é limpo na leitura", async () => {
+    const cache = cacheEmMemoria();
+    const { buscar } = simulado({ [HOST_BRASIL_API]: () => json(respostaCnpj({ razao_social: "FULANO DE TAL 52998224725", nome_fantasia: "529.982.247-25" })) });
+    const r = await consultarCnpj(CNPJ, { buscar, cache, agora: () => AGORA });
+    expect(r.dados.razaoSocial).toBe("FULANO DE TAL");
+    expect(r.dados.nomeFantasia).toBeNull();
+    expect(JSON.stringify([...cache.linhas.values()])).not.toMatch(/52998224725|529\.982/);
+    const antigo = cacheEmMemoria();
+    antigo.linhas.set(`cnpj:${CNPJ}`, { resposta: { ...r.dados, razaoSocial: "FULANO DE TAL 52998224725" }, fonte: "brasilapi", consultadoEm: AGORA });
+    const doCache = await consultarCnpj(CNPJ, { buscar, cache: antigo, agora: () => AGORA });
+    expect(doCache).toMatchObject({ doCache: true, dados: { razaoSocial: "FULANO DE TAL" } });
+  });
+
+  it("resposta sobre outro CNPJ é recusada e não vai para o cache", async () => {
+    const cache = cacheEmMemoria();
+    const { buscar } = simulado({ [HOST_BRASIL_API]: () => json(respostaCnpj({ cnpj: "11222333000181" })) });
+    await expect(consultarCnpj(CNPJ, { buscar, cache, agora: () => AGORA })).rejects.toMatchObject({ motivo: "resposta_invalida" });
+    expect(cache.linhas.size).toBe(0);
+  });
+
+  it("content-length acima de 200 KB é recusado antes de ler o corpo", async () => {
+    let leu = false;
+    const corpo = new ReadableStream({ pull() { leu = true; } }, { highWaterMark: 0 });
+    const buscar: Buscar = async () => new Response(corpo, { status: 200, headers: { "content-length": "300000" } });
+    await expect(buscarCnpjNaBrasilApi(CNPJ, buscar)).rejects.toMatchObject({ motivo: "resposta_invalida" });
+    expect(leu).toBe(false);
   });
 
   it("a mensagem de erro não leva o CNPJ", async () => {

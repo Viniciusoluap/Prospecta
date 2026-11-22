@@ -70,6 +70,18 @@ export const HORA_CRON_DOLORES_UTC = Number(CRON_DOLORES_AGENDA.split(" ")[1]);
 export const HORA_CRON_DOLORES_BRASILIA = (HORA_CRON_DOLORES_UTC + 21) % 24;
 /** Hora UTC da última chamada do dia: 17. */
 export const HORA_ULTIMO_CRON_DOLORES_UTC = Number(CRON_DOLORES_AGENDAS[CRON_DOLORES_AGENDAS.length - 1].schedule.split(" ")[1]);
+/**
+ * EPIC-027 C5-E4 — horas da TARDE (Brasília) em que o cron chama SÓ os avisos automáticos ao dono (a janela deles vai das 07h às 20h,
+ * de segunda a sábado). Das 07h às 14h, as chamadas da rotina da Dolores (acima) já rodam os avisos depois da ronda/relatório. Uma
+ * entrada DIÁRIA por hora (15h a 19h de Brasília = 18h a 22h UTC), em caminhos próprios ("/api/cron/dolores-avisos/HH"): o servidor
+ * IGNORA o fim do caminho (a hora vem do relógio) e o domingo é recusado pela regra da janela (shared/dolores/avisos.ts).
+ */
+export const HORAS_SO_AVISOS: readonly number[] = [15, 16, 17, 18, 19];
+export const CRON_AVISOS_AGENDAS: ReadonlyArray<{ path: string; schedule: string; horaBrasilia: number }> = HORAS_SO_AVISOS.map(h => ({
+  path: `/api/cron/dolores-avisos/${doisDigitos(h)}`, schedule: `0 ${(h + 3) % 24} * * *`, horaBrasilia: h,
+}));
+/** Caminhos que o servidor atende com a rotina SÓ dos avisos. */
+export const CAMINHOS_CRON_AVISOS: readonly string[] = CRON_AVISOS_AGENDAS.map(a => a.path);
 /** Janela da ronda refeita na hora do relatório (dados frescos quando a hora escolhida é depois da ronda da manhã). */
 export const janelaRondaDoRelatorio = (agora: Date) => `relatorio:${relogioBrasilia(agora).dia}`;
 

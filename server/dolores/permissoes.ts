@@ -73,12 +73,33 @@ export const LIBERADAS_ETAPA_7 = ["classificar_grupo", "aceitar_grupo", "ignorar
 export const LIBERADAS_ETAPA_7_MEMORIA = ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"] as const;
 
 /**
+ * Etapa 7 (cont.) — EPIC-027 C5-COM (mesa comercial ligada à maquete, aprovada pelo dono em 21/11): SÓ na conversa direta do dono.
+ * Duas leituras (o lote e a lista dos lotes com maquete: link, status, motivo), o rascunho de mensagem ao cliente (só texto devolvido
+ * ao dono; nada é enviado nem gravado) e a ação de gerar/trocar o link (de FILA: "pode" para gerar, "confirmo" para trocar). As
+ * leituras não entram na ponte HTTP nem nos grupos (funcoes.ts#LEITURAS_DO_DONO, mecanismo único com as mesas).
+ */
+export const LIBERADAS_ETAPA_7_MAQUETE = ["consultar_maquete_lote", "listar_maquetes_lotes", "rascunhar_mensagem_lote", "gerar_link_maquete_lote"] as const;
+
+/**
+ * Etapa 7 (cont.) — EPIC-027 C5 (criadora de mesas, pedido do dono aprovado em 21/11): o dono pede uma função nova e a Dolores só escreve a
+ * PROPOSTA (nada passa a funcionar). Todas só na conversa direta dele: propor/revisar/recusar com "pode", aprovar com "confirmo" — e aprovar
+ * não liga nada (só muda a situação; a função é construída pelo processo normal de desenvolvimento). listar_mesas fica fora da ponte HTTP.
+ */
+export const LIBERADAS_ETAPA_7_MESAS = ["listar_mesas", "propor_mesa", "revisar_mesa", "propor_aprovacao_mesa", "recusar_mesa"] as const;
+
+/**
+ * Etapa 7 (cont.) — EPIC-027 C5-E4 (avisos automáticos, decisão do dono de 21/11: "ele pode silenciar um tipo"): silenciar ou religar um
+ * tipo de aviso pela conversa. De FILA, nível "registro" ("pode"); é configuração dela, reversível. Nunca envia nada a ninguém.
+ */
+export const LIBERADAS_ETAPA_7_AVISOS = ["silenciar_aviso"] as const;
+
+/**
  * Etapa 7 (cont.) — EPIC-027 C5 (REURB, plano aprovado pelo dono em 21–22/11): análise de regularização fundiária de um processo
  * cadastrado. SOMENTE LEITURA e só na conversa direta do dono (ponte HTTP, grupo e cliente recusam — ponte.ts e funcoes.ts).
  */
 export const LIBERADAS_ETAPA_7_REURB = ["analisar_regularizacao_reurb"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_REURB] };
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_MAQUETE, ...LIBERADAS_ETAPA_7_MESAS, ...LIBERADAS_ETAPA_7_AVISOS, ...LIBERADAS_ETAPA_7_REURB] };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};

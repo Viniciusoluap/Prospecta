@@ -62,6 +62,7 @@ import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.j
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
+import { FRASE_SEM_TAREFA, criarTarefaDemorada, fraseVouLevantar, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -274,7 +275,9 @@ const comAvisoDeFalta = (t: string) => {
  */
 export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown>;
   /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
-  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null;
+  pendenciaId?: number | null;
+  /** EPIC-027 C5-E4: referências (ids do banco, por código) que o aviso cita, para a memória da conversa ("e esse atraso aí?"). */
+  referencias?: readonly ReferenciaConversa[] }): Promise<{ ok: boolean; motivo: string | null;
   /** QA C5 (B1): false = recusado ANTES do envio (com certeza não saiu); true = o envio foi tentado (com erro, pode ter chegado). */
   tentou: boolean }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
@@ -306,7 +309,7 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   if (ok) {
     const doGrupo = ctx.funcao.startsWith("grupo_");
     await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
-      referencias: await referenciaDoGrupo(ctx.resumo?.grupoId) });
+      referencias: [...(ctx.referencias ?? []), ...(await referenciaDoGrupo(ctx.resumo?.grupoId))] });
   }
   return { ok, motivo, tentou: true };
 }
@@ -316,9 +319,11 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
 /** EPIC-027 C5-E5: a parte do gasto de cada função da Anthropic (documentos e notas dividem a mesma parte). */
-const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes" } as const;
+const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes",
+  // EPIC-027 C5-E4: o texto dos avisos automáticos (só quando a IA no texto está ligada na tela de avisos)
+  dolores_avisos: "avisos" } as const;
 
-async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" | "dolores_cliente" = "dolores_whatsapp"): Promise<
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: keyof typeof PARTE_DA_FUNCAO = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
   if (!pausa) return { motivo: "indisponivel" };
@@ -394,6 +399,58 @@ export async function credencialDoAtendimento(): Promise<CredencialGrupo> {
  */
 export const credencialDaLeituraDeNota = () => credencialDaClassificacao("dolores_notas");
 
+/**
+ * EPIC-027 C5-E4 — o texto dos avisos automáticos ao dono (server/dolores/avisos.ts), quando a IA no texto está ligada: a MESMA porta
+ * da chave (bloqueioAtual, na mesma ordem: pausa, interruptor da IA, chave, modelo da função "dolores_avisos", limite mensal, parte
+ * "avisos" do gasto, usuária ativa). Bloqueado → o aviso sai com o texto fixo (nada deixa de ser avisado por falta de IA).
+ */
+export async function credencialDosAvisos(): Promise<CredencialGrupo> {
+  let cfg: DoloresWhatsappConfig | null;
+  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  if (!cfg) return { motivo: "indisponivel" };
+  const mes = mesFortaleza(deps.agora());
+  const estado = await bloqueioAtual(cfg, mes, "dolores_avisos");
+  if (estado.motivo !== null) return estado;
+  return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
+}
+
+/**
+ * EPIC-027 C5 (tarefa demorada) — a retomada em segundo plano usa a MESMA porta da chave da conversa do dono (bloqueioAtual com
+ * "dolores_whatsapp": pausa, interruptor da IA, chave, modelo, limite do mês, parte da conversa, usuária ativa) e manda o resultado
+ * pela MESMA resposta ao dono (destino = número do dono da configuração, conferido de novo; filtros de saída). Chamada no fim de cada
+ * aviso autenticado da instância (tratarWebhookDolores) e no cron da Dolores (rondas.ts). Nunca lança.
+ */
+export async function retomarTarefasDemoradas(p: { prazoFinal: number; canal: "whatsapp" | "cron" }): Promise<ResultadoRetomada> {
+  return retomarTarefaDemorada({
+    prazoFinal: p.prazoFinal, canal: p.canal, agora: deps.agora, ms: deps.ms,
+    credencial: async () => {
+      let cfg: DoloresWhatsappConfig | null;
+      try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+      if (!cfg) return { motivo: "indisponivel" };
+      const mes = mesFortaleza(deps.agora());
+      const estado = await bloqueioAtual(cfg, mes, "dolores_whatsapp");
+      if (estado.motivo !== null) return estado;
+      return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
+    },
+    responder: async (texto, ctx) => {
+      const cfg = await lerConfigWhatsapp().catch(() => null);
+      if (!cfg?.numeroDono || !cfg.instancia || cfg.statusConexao !== "conectado") {
+        await registrarAcao({ funcao: "whatsapp_resposta", resultado: "recusada", motivo: "resultado da tarefa demorada: Dolores desconectada ou sem número do dono", autorUserId: null, canal: p.canal, pedidoId: `tarefa:${ctx.tarefaId}` });
+        return false;
+      }
+      const autor = await idDaDoloresSemCriar().catch(() => null);
+      // QA L1: o fecho fixo vai como quadro do sistema (nunca cortado, fora do texto do modelo)
+      return responderAoDono(cfg, cfg.numeroDono, texto, { mensagemId: ctx.mensagemId, autor, resumo: ctx.resumo, prazoFinal: p.prazoFinal, quadros: ctx.fecho,
+        memoria: { referencias: ctx.referencias, nota: "(Levantamento em segundo plano, só leitura: o sistema avisou ao dono que nada foi alterado.)" } });
+    },
+    contexto: async (mensagemId, agora) => {
+      const { historico, memoriaLonga } = await contextoDaConversaDoDono(agora, mensagemId);
+      return { historico, memoriaLonga: memoriaLonga?.bloco ?? null };
+    },
+    avisar: (texto, ctx) => enviarAvisoAoDono(texto, { ...ctx, prazoFinal: p.prazoFinal, canal: p.canal }),
+  });
+}
+
 /** QA C5-E1 (achado 3): o que fica na memória quando o dono responde com um comando de confirmação (sem o código). */
 export const FRASE_DECISAO_NA_MEMORIA = "(o dono respondeu a um pedido de confirmação do sistema)";
 /**
@@ -409,6 +466,16 @@ export function semOsCodigos(texto: string, codigos: readonly string[]): string 
   // os códigos conhecidos (os do próprio comando), como o sistema os escreve: EM MAIÚSCULAS ("Nada mudou" fica)
   for (const c of codigos) if (/^[A-Za-z0-9]{4,5}$/.test(c)) t = t.replace(new RegExp(`\\b${c.toUpperCase()}\\b`, "g"), "(código)");
   return t;
+}
+
+/**
+ * EPIC-027 C5 (E1 e memória de longo prazo): a conversa recente do dono (sem a mensagem `mensagemId`, que vai como o pedido) e as
+ * lembranças ativas — SÓ para a conversa direta do número do dono (o comando e a retomada da tarefa demorada dele); grupo e cliente não.
+ */
+async function contextoDaConversaDoDono(agora: Date, mensagemId: number) {
+  const historico = await lerJanela(agora, mensagemId);
+  const memoriaLonga = await blocoParaConversaDoDono(historico.referencias);
+  return { historico, memoriaLonga };
 }
 
 async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; numero: string; texto: string; temMidia: boolean; encaminhada: boolean;
@@ -527,14 +594,23 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   }
   autor = estado.autor;
   try {
-    // EPIC-027 C5 (E1): a conversa recente do dono (sem a mensagem atual, que vai como o pedido)
-    const historico = await lerJanela(deps.agora(), msg.id);
-    // EPIC-027 C5 (memória de longo prazo): as lembranças ativas — SÓ aqui, na conversa direta do número do dono (grupo e cliente não)
-    const memoriaLonga = await blocoParaConversaDoDono(historico.referencias);
+    // EPIC-027 C5 (E1 e memória de longo prazo): a conversa recente do dono (sem a mensagem atual) e as lembranças ativas
+    const { historico, memoriaLonga } = await contextoDaConversaDoDono(deps.agora(), msg.id);
+    // EPIC-027 C5 (tarefa demorada): a tarefa é gravada no momento em que o laço vê que não cabe; sem conseguir, o laço fecha com o
+    // que já levantou (QA M1) e a resposta diz o porquê
+    let virouTarefa = false;
+    let semTarefa: Exclude<ResultadoCriacao, { ok: true }>["motivo"] | null = null;
+    const virarTarefa = async () => {
+      const t = await criarTarefaDemorada({ mensagemId: msg.id, comando: msg.texto, agora: deps.agora() });
+      if (t.ok) virouTarefa = true; else semTarefa = t.motivo;
+      return t.ok;
+    };
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
       memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia,
+      // EPIC-027 C5 (tarefa demorada): SÓ aqui (conversa direta do número do dono) o pedido de leitura que não cabe vira tarefa
+      virarTarefa: msg.temMidia ? undefined : virarTarefa,
     });
     // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
     const voz = vozDaDolores(r.texto);
@@ -544,17 +620,24 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     // EPIC-027 C5-E5: só a parte da conversa acabou — frase própria (os grupos e os documentos seguem)
     if (r.parou === "limite_da_conversa" && r.voltas === 0) texto = FRASE_LIMITE_DA_CONVERSA;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
+    // EPIC-027 C5 (tarefa demorada): o pedido de leitura não cabe → grava a tarefa e responde na hora; sem conseguir gravar, vai o
+    // que deu para levantar, com o porquê
+    // (revisor do PR #298: à noite, sem cron até a manhã, a frase diz quando chega — fraseVouLevantar, por código)
+    if (r.parou === "virou_tarefa" && virouTarefa) texto = fraseVouLevantar(deps.agora());
+    else if (semTarefa) texto = `${texto}\n\n(${FRASE_SEM_TAREFA[semTarefa]})`;
     // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
     // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.
     const pendencia = r.podeConfirmar
       ? await abrirPendencia({ mensagemId: msg.id, codigos: r.codigosNaFila, agora: deps.agora(), autor }).catch(e => { console.error("[dolores/whatsapp] falha ao abrir a proposta", erroCurto(e)); return null; })
       : null;
-    const quadros = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
+    const quadrosDoPedido = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
+    // EPIC-027 C5-COM: link da maquete e rascunho ao cliente, montados pelo sistema, vão intactos num quadro (nunca cortado), antes da pergunta
+    const quadros = [...(r.anexos ?? []), ...(quadrosDoPedido ? [quadrosDoPedido] : [])].join("\n\n") || null;
     const envio = { enviadas: 0 };
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
-    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
+    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: virouTarefa ? "virou tarefa demorada" : r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {
     console.error("[dolores/whatsapp] falha no laço", erroCurto(e));
@@ -860,7 +943,11 @@ export async function tratarWebhookDolores(req: Pedido): Promise<RespostaWebhook
     return { status: 200, body: { ok: true, r: "instancia-desconhecida" } };
   }
   try {
-    return await tratarAvisoDaInstancia(cfg as DoloresWhatsappConfig & { instancia: string }, ev, evento, itens, registro, { inicio, agora });
+    const r = await tratarAvisoDaInstancia(cfg as DoloresWhatsappConfig & { instancia: string }, ev, evento, itens, registro, { inicio, agora });
+    // EPIC-027 C5 (tarefa demorada): no fim de todo aviso autenticado da instância (inclusive os de situação de envio, que chegam
+    // segundos depois do "vou levantar"), com o tempo que sobra do prazo, retoma no máximo UMA tarefa do dono. Nunca lança.
+    const tarefa = await retomarTarefasDemoradas({ prazoFinal: inicio + PRAZO_TOTAL_MS, canal: "whatsapp" });
+    return tarefa === "nada" || tarefa === "indisponivel" ? r : { ...r, body: { ...r.body, tarefa } };
   } finally {
     await registro.gravar();
   }

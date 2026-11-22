@@ -402,11 +402,13 @@ describe("injeção de instruções (dados envenenados)", () => {
 describe("tetos do laço (60 s)", () => {
   it("teto de voltas: fecha com uma chamada sem ferramentas e diz que parou", async () => {
     roteiro = [...Array.from({ length: MAX_VOLTAS }, (_, i) => () => ferramenta("listar_tarefas", {}, `tu_${i}`)), () => texto("Resumo parcial das tarefas.")];
-    await chamar(aviso());
+    // EPIC-027 C5 (tarefa demorada): pela conversa do dono, o pedido de leitura que passa de 3 voltas vira tarefa
+    // (c5-tarefa-demorada.test.ts); o teto de voltas do laço continua valendo para quem não pode virar tarefa (e para a retomada)
+    const r = await executarComando({ comando: "quais tarefas estão abertas?", mensagemId: 1, apiKey: CHAVE, modelo: "m", mes: "2026-11", limites: { entrada: 1e6, saida: 1e6 }, prazoFinal: Date.now() + 45_000 });
     expect(pedidosModelo).toHaveLength(MAX_VOLTAS + 1);
     expect(pedidosModelo[MAX_VOLTAS].semFerramentas).toBe(true);
     expect(JSON.stringify(pedidosModelo[MAX_VOLTAS].mensagens.at(-1))).toMatch(/Aviso do sistema Prospecta, não do dono/);
-    const t = enviar.mock.calls[0][0].texto as string;
+    const t = r.texto;
     expect(t).toMatch(/^Resumo parcial das tarefas\.\n\n\(Parei antes de terminar: limite de consultas por pedido\. Já olhei: tarefas\./);
   });
   it("sem tempo para chamar o modelo: não chama e diz que parou", async () => {

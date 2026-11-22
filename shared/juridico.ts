@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const CONTRATO_STATUS = ["rascunho", "ativo", "vencido", "cancelado", "concluido"] as const;
-export const ASSINATURA_STATUS = ["pendente", "solicitado", "assinado", "rejeitado"] as const;
+export const ASSINATURA_STATUS = ["pendente", "parcial", "solicitado", "em_conferencia", "assinado", "rejeitado"] as const;
 export const CONTRATO_TIPOS = [
   "compra_venda", "construcao", "prestacao_servicos", "corretagem",
   "locacao", "permuta", "consultoria_juridica", "outro",

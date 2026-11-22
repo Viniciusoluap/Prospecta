@@ -113,8 +113,32 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const memoriaLonga = MIGRACAO_0149();
   await pg.exec(memoriaLonga);
   await pg.exec(memoriaLonga);
+  // EPIC-027 C5-E4 (avisos da Dolores ao dono): migração 0150, também duas vezes.
+  const avisos = MIGRACAO_0150();
+  await pg.exec(avisos);
+  await pg.exec(avisos);
+  // EPIC-027 C5 (criadora de mesas da Dolores): migração 0151, também duas vezes.
+  const mesas = MIGRACAO_0151();
+  await pg.exec(mesas);
+  await pg.exec(mesas);
+  // EPIC-027 C5 (tarefa demorada sem travar a conversa): migração 0153, também duas vezes.
+  const tarefas = MIGRACAO_0153();
+  await pg.exec(tarefas);
+  await pg.exec(tarefas);
+  // EPIC-027 C5 (integração 2, revisor do PR #298): reserva do aviso proativo, migração 0160, também duas vezes.
+  const reservaDosAvisos = MIGRACAO_0160();
+  await pg.exec(reservaDosAvisos);
+  await pg.exec(reservaDosAvisos);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0160 = () => readFileSync(new URL("../../drizzle/0160_dolores_avisos_reserva.sql", import.meta.url), "utf8");
+
+export const MIGRACAO_0153 = () => readFileSync(new URL("../../drizzle/0153_dolores_tarefas_demoradas.sql", import.meta.url), "utf8");
+
+export const MIGRACAO_0151 = () => readFileSync(new URL("../../drizzle/0151_dolores_mesas.sql", import.meta.url), "utf8");
+
+export const MIGRACAO_0150 = () => readFileSync(new URL("../../drizzle/0150_dolores_avisos.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0149 = () => readFileSync(new URL("../../drizzle/0149_dolores_memoria_longa.sql", import.meta.url), "utf8");
 
