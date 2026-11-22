@@ -93,6 +93,7 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
   const pontos: [number, number][] = [], textos: { x: number; y: number; tamanho: number; texto: string }[] = [];
   let larguraLinha = 1, nivel = 0, emTexto = false, fonte = 12, entrelinha = 0, tx = 0, ty = 0, linhaX = 0, linhaY = 0, contornos = 0;
   const espessuras: number[] = [], estadoGrafico: number[] = [];
+  const caminho: string[] = [];
   let textoDesenhado = false;
   let fonteDefinida = false, posicaoDefinida = false;
   for (const fluxo of acrescentados) {
@@ -109,9 +110,10 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
         case "RG": case "rg": if (nums.length !== 3 || nums.some(n => !Number.isFinite(n) || n < 0 || n > 0.5)) return false; break;
         case "G": case "g": if (nums.length !== 1 || !Number.isFinite(nums[0]) || nums[0] < 0 || nums[0] > 0.5) return false; break;
         case "K": case "k": return false;
-        case "m": case "l": if (emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]]); break;
-        case "re": if (emTexto || nums.length !== 4 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]], [nums[0] + nums[2], nums[1] + nums[3]]); break;
-        case "S": contornos++; espessuras.push(larguraLinha); break;
+        case "m": case "l": if (emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; caminho.push(op); pontos.push([nums[0], nums[1]]); break;
+        case "re": if (emTexto || nums.length !== 4 || nums.some(n => !Number.isFinite(n))) return false; caminho.push(op); pontos.push([nums[0], nums[1]], [nums[0] + nums[2], nums[1] + nums[3]]); break;
+        case "h": if (emTexto || args.length) return false; caminho.push(op); break;
+        case "S": if (emTexto || args.length) return false; contornos++; espessuras.push(larguraLinha); break;
         case "BT": if (emTexto) return false; emTexto = true; textoDesenhado = false; fonteDefinida = false; posicaoDefinida = false; tx = ty = linhaX = linhaY = 0; break;
         case "ET": if (!emTexto) return false; emTexto = false; break;
         case "Tf": if (!emTexto || args.length !== 2 || args[0].t !== "nome" || fontesPermitidas && !fontesPermitidas.has(args[0].v) || !Number.isFinite(nums[1]) || !(nums[1] > 0)) return false; fonte = nums[1]; fonteDefinida = true; break;
@@ -134,6 +136,17 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
     if (pilha.length) return false;
   }
   if (nivel !== 0 || emTexto || contornos !== 1 || pontos.length < 2 || !textos.length) return false;
+  // Só o perímetro de um retângulo, sem subcaminhos ou segmentos interiores.
+  const formato = caminho.join(" ");
+  if (formato !== "re" && formato !== "m l l l h") return false;
+  if (formato === "m l l l h") {
+    const [a, b, c, d] = pontos;
+    if (!a || !b || !c || !d || pontos.length !== 4) return false;
+    const horizontal = (p: number[], q: number[]) => p[1] === q[1] && p[0] !== q[0];
+    const vertical = (p: number[], q: number[]) => p[0] === q[0] && p[1] !== q[1];
+    if (!(horizontal(a, b) && vertical(b, c) && horizontal(c, d) && vertical(d, a))
+      && !(vertical(a, b) && horizontal(b, c) && vertical(c, d) && horizontal(d, a))) return false;
+  }
   void entrelinha;
   const xs = pontos.map(p => p[0]), ys = pontos.map(p => p[1]);
   const caixa = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };

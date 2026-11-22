@@ -77,6 +77,15 @@ describe("conferência das assinaturas do PDF (ICP sintética)", () => {
     expect(desenhoSoDaMarca([borda + "BT /F1 10 Tf q Q 1 0 0 1 60 70 Tm (999) Tj ET"], "EMPRESA TESTE", pagina)).toBe(false);
     expect(desenhoSoDaMarca([borda + "BT /F1 10 Tf (999) Tj ET"], "EMPRESA TESTE", pagina)).toBe(false);
   });
+  it("P1: aceita apenas o perímetro retangular, sem linhas sobrepostas para ocultar cláusulas", () => {
+    const pagina = { x: 0, y: 0, width: 595, height: 842 };
+    const texto = " BT /F1 10 Tf 1 0 0 1 60 80 Tm (999) Tj ET";
+    const faixa = Array.from({ length: 70 }, (_, i) => `50 ${70 + i * 0.3} m 250 ${70 + i * 0.3} l`).join(" ");
+    for (const caminho of [faixa, "50 50 200 60 re 50 70 m 250 70 l", "50 50 m 250 110 l 250 50 l 50 110 l h"])
+      expect(desenhoSoDaMarca(["0.4 w " + caminho + " S" + texto], "EMPRESA TESTE", pagina)).toBe(false);
+    for (const caminho of ["50 50 200 60 re", "50 50 m 250 50 l 250 110 l 50 110 l h"])
+      expect(desenhoSoDaMarca(["0.4 w " + caminho + " S" + texto], "EMPRESA TESTE", pagina)).toBe(true);
+  });
   it("múltiplas assinaturas íntegras e válidas: todas as partes conferidas", async () => {
     const final = await assinar(await assinar(contratoBase(), "empresa"), "cliente");
     const r = await conferirAssinaturas(final, partes);
