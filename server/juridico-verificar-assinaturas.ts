@@ -1,6 +1,6 @@
 import { PDF, PdfNumber } from "@libpdf/core";
 import { Certificate, ContentInfo, SignedData, type SignedDataVerifyResult } from "pkijs";
-import raizes from "./certificados/icp-raizes.json";
+import raizes from "./certificados/icp-raizes.json" with { type: "json" };
 
 const trustedCerts=raizes.map(x=>Certificate.fromBER(Uint8Array.from(Buffer.from(x.pem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s/g,""),"base64")).buffer));
 export type ConferenciaAssinaturas={todos:boolean; validas:number; documentos:string[]; motivo:string};
