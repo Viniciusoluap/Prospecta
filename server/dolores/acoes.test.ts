@@ -111,9 +111,16 @@ describe("registro fechado e níveis", () => {
       criar_card_cliente: "fila", salvar_documentos_grupo: "fila", conciliar_nota_obra: "fila", salvar_nota_obra: "fila",
       classificar_grupo: "fila", aceitar_grupo: "fila", ignorar_grupo: "fila", ligar_resposta_grupo: "fila",
       // EPIC-027 C5 (memória de longo prazo): de fila, só com o "pode" do dono
-      guardar_memoria: "fila", corrigir_memoria: "fila", esquecer_memoria: "fila" });
+      guardar_memoria: "fila", corrigir_memoria: "fila", esquecer_memoria: "fila",
+      // EPIC-027 C5-COM: gerar/trocar o link da maquete do lote — de fila ("pode" / "confirmo")
+      gerar_link_maquete_lote: "fila",
+      // EPIC-027 C5 (criadora de mesas): só a PROPOSTA, de fila ("pode"; aprovar = "confirmo")
+      propor_mesa: "fila", revisar_mesa: "fila", propor_aprovacao_mesa: "fila", recusar_mesa: "fila",
+      // EPIC-027 C5-E4: silenciar/religar um tipo de aviso automático, também com o "pode"
+      silenciar_aviso: "fila" });
     expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3, "criar_card_cliente", "salvar_documentos_grupo", "conciliar_nota_obra", "salvar_nota_obra",
-      "classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo", "guardar_memoria", "corrigir_memoria", "esquecer_memoria"].sort());
+      "classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo", "guardar_memoria", "corrigir_memoria", "esquecer_memoria",
+      "gerar_link_maquete_lote", "propor_mesa", "revisar_mesa", "propor_aprovacao_mesa", "recusar_mesa", "silenciar_aviso"].sort());
     for (const nome of Object.keys(PROIBIDAS)) { expect(funcaoLiberada(nome)).toBe(false); expect(ACOES.some(a => a.nome === nome)).toBe(false); }
     expect(ferramentasLiberadas().map(f => f.name)).not.toContain("criar_tarefa");
     const wa = ferramentasDoWhatsapp().map(f => f.name);

@@ -27,6 +27,7 @@ import { lerConfigNotas } from "./notas-obra.js";
 import { lerConfigMarcacoes } from "./marcacao.js";
 import { lerConfigOperacao } from "./operacao.js";
 import { executarRonda, historicoParaTela, reenviarRelatorioDoDia, relatorioSobDemanda } from "./rondas.js";
+import { avisosRouter } from "./avisos-router.js";
 
 /** adminProcedure confere o módulo; aqui vale o PAPEL: só admin. */
 const soAdmin = adminProcedure.use(({ ctx, next }) => {
@@ -142,6 +143,9 @@ async function modelosParaPreco(doConsumo: readonly string[], anteriorDaConversa
 
 export const operacaoRouter = router({
   situacao: soAdmin.query(() => situacao()),
+
+  /** EPIC-027 C5-E4 — avisos automáticos ao dono (só admin; ver server/dolores/avisos-router.ts). */
+  avisos: avisosRouter,
 
   /** PAUSA GERAL: para tudo na hora (IA, ponte, fila, rondas, relatório, classificação, notas, resposta do empreiteiro). */
   pausar: soAdmin.input(z.object({ pausada: z.boolean(), motivo: z.string().trim().max(200).optional() }).strict()).mutation(async ({ ctx, input }) => {

@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { DoloresMesasSecao } from "@/components/admin/DoloresMesasSecao";
+import { DoloresAvisosSecao } from "./DoloresAvisosSecao";
 
 const botaoSec = "min-h-10 border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const campo = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -303,6 +305,11 @@ export function DoloresOperacaoCard() {
               </div>
             )}
           </section>
+
+          {/* EPIC-027 C5 (criadora de mesas): propostas de função nova (só admin; o servidor confere o papel) */}
+          <DoloresMesasSecao />
+          {/* EPIC-027 C5-E4 — avisos automáticos ao dono (regras do sistema; a IA, se ligada, só redige) */}
+          <DoloresAvisosSecao pausada={pausada} />
         </>}
       </CardContent>
     </Card>

@@ -11,6 +11,7 @@ import { users } from "../../drizzle/schema.js";
 import { getDb } from "../db.js";
 import { FUNCOES } from "./funcoes.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
+import { criarTabelasDaMaquete } from "./testes-maquete.js";
 
 const PASTA = new URL("./leitura/", import.meta.url);
 const arquivos = readdirSync(PASTA).filter(a => a.endsWith(".ts"));
@@ -66,6 +67,8 @@ describe("leitura: em tempo de execução", () => {
   beforeEach(async () => {
     const banco = await criarBanco();
     await banco.pg.exec(CENARIO);
+    // EPIC-027 C5-COM: as leituras da maquete por lote leem maquete_3d_lotes/itens (0146/0147)
+    await criarTabelasDaMaquete(banco.pg);
     tentativas = [];
     bancoLeitura = drizzle(somenteLeitura(banco.pg, tentativas) as never);
     vi.mocked(getDb).mockReturnValue(bancoLeitura as never);
@@ -92,6 +95,9 @@ describe("leitura: em tempo de execução", () => {
       listar_processos_regularizacao: [{}, { situacao: "todos" }],
       listar_grupos: [{}, { situacao: "todos" }],
       ler_grupo_cliente: [{ grupoId: 1 }, { grupoId: 1, conteudo: "documentos" }],
+      // EPIC-027 C5-COM
+      consultar_maquete_lote: [{ busca: "lote 4 da quadra 18" }, { loteId: 1 }],
+      rascunhar_mensagem_lote: [{ loteId: 1 }],
     };
     for (const fn of FUNCOES) {
       for (const a of argumentos[fn.nome] ?? [{}]) {

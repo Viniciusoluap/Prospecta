@@ -25,6 +25,7 @@ import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
 import { memoriaLongaRouter } from "./memoria-longa-router.js";
+import { mesasRouter } from "./mesas-router.js";
 import { atendimentoRouter } from "./atendimento-router.js";
 import { resumoDoRecebimento } from "../whatsapp-recebimento.js";
 import { agoraDoRoteamento } from "./roteamento.js";
@@ -170,6 +171,8 @@ export const doloresRouter = router({
   operacao: operacaoRouter,
   // EPIC-027 C5 (memória de longo prazo): a tela "Memória da Dolores" (só admin)
   memoriaLonga: memoriaLongaRouter,
+  // EPIC-027 C5 (criadora de mesas): a seção "Mesas" do cartão de operação da Dolores (só admin)
+  mesas: mesasRouter,
   atendimento: atendimentoRouter,
   status: soAdmin.query(() => situacao()),
 

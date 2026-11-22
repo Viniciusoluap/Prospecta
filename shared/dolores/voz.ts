@@ -16,6 +16,8 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_processos_regularizacao: "processos de regularização",
   // EPIC-027 C5 (memória de longo prazo)
   guardar_memoria: "memória", corrigir_memoria: "memória", esquecer_memoria: "memória",
+  // EPIC-027 C5-E4
+  silenciar_aviso: "avisos automáticos",
   detalhar_processo_regularizacao: "detalhe do processo",
   consultar_cliente: "cadastro do cliente",
   historico_atendimento: "histórico de atendimento",
@@ -46,6 +48,13 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   aceitar_grupo: "aceite do grupo",
   ignorar_grupo: "grupo deixado de lado",
   ligar_resposta_grupo: "resposta no grupo",
+  // EPIC-027 C5-COM (mesa comercial ligada à maquete)
+  consultar_maquete_lote: "maquete do lote",
+  listar_maquetes_lotes: "lotes com maquete",
+  rascunhar_mensagem_lote: "texto para o cliente",
+  gerar_link_maquete_lote: "link da maquete",
+  // EPIC-027 C5 (criadora de mesas)
+  listar_mesas: "mesas", propor_mesa: "proposta de mesa", revisar_mesa: "proposta de mesa", propor_aprovacao_mesa: "aprovação de mesa", recusar_mesa: "proposta de mesa",
 });
 
 /** "tarefas, obras" — os rótulos das consultas feitas, sem repetir e na ordem; nome desconhecido vira "outra consulta". */

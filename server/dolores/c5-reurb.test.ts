@@ -14,11 +14,11 @@ import {
 } from "../../shared/dolores/reurb-conhecimento.js";
 import { MAX_CARACTERES_WHATSAPP, partesDaResposta } from "../../shared/dolores/whatsapp.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
-import { FUNCOES, funcaoPorNome } from "./funcoes.js";
+import { FUNCOES, leituraPorNome } from "./funcoes.js";
 import { LEITURAS_INTERNAS } from "./marcacao.js";
 import { funcaoLiberada } from "./permissoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
-import { definirDependenciasPonte, executarFuncao, ferramentasDaConversaDoDono, ferramentasDoWhatsapp, ferramentasLiberadas, tratarChamada, tratarFerramentas } from "./ponte.js";
+import { definirDependenciasPonte, executarFuncao, ferramentasDaConversa, ferramentasDoWhatsapp, ferramentasLiberadas, tratarChamada, tratarFerramentas } from "./ponte.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -140,9 +140,9 @@ describe("escopo: só a conversa direta do dono", () => {
   it("grupos (inclusive administrativo) e cliente não recebem a ferramenta; FUNCOES não a contém", () => {
     expect(FUNCOES.map(f => f.nome)).not.toContain(FUNCAO_REURB);
     for (const tipo of Object.keys(LEITURAS_INTERNAS) as Array<keyof typeof LEITURAS_INTERNAS>) expect(LEITURAS_INTERNAS[tipo]).not.toContain(FUNCAO_REURB);
-    expect(funcaoPorNome(FUNCAO_REURB)?.soConversaDoDono).toBe(true);
+    expect(leituraPorNome(FUNCAO_REURB)?.soConversaDoDono).toBe(true);
     expect(funcaoLiberada(FUNCAO_REURB)).toBe(true);
-    expect(ferramentasDaConversaDoDono().map(f => f.name)).toContain(FUNCAO_REURB);
+    expect(ferramentasDaConversa().map(f => f.name)).toContain(FUNCAO_REURB);
     expect(ferramentasDoWhatsapp().map(f => f.name)).toContain(FUNCAO_REURB);
     // o código das leituras do cliente atendido e do grupo marcado não cita a função
     for (const arq of ["./leitura/cliente-atendido.ts", "./leitura/grupo-marcado.ts", "./atendimento.ts", "./marcacao.ts"]) {
@@ -151,7 +151,7 @@ describe("escopo: só a conversa direta do dono", () => {
   });
 
   it("a própria leitura recusa fora do canal do dono (segunda trava)", async () => {
-    const fn = funcaoPorNome(FUNCAO_REURB)!;
+    const fn = leituraPorNome(FUNCAO_REURB)!;
     for (const canal of ["ponte", "grupo", "cliente"] as const) {
       const r = await fn.executar({ id: REURB_ID } as never, { agora: AGORA, canal }) as { dados: any };
       expect(r.dados.analisavel).toBe(false);
@@ -224,7 +224,7 @@ describe("conhecimento: sem invenção", () => {
 
   it("QA B2: REURB pelo nome da etapa vale; pela observação, não", async () => {
     await banco.pg.exec(`UPDATE regularizacoes SET notes = 'é REURB, sim' WHERE id = 2`);
-    const fn = funcaoPorNome(FUNCAO_REURB)!;
+    const fn = leituraPorNome(FUNCAO_REURB)!;
     const ver = async () => ((await fn.executar({ id: 2 } as never, { agora: AGORA, canal: "whatsapp" })) as { dados: any }).dados.analisavel;
     expect(await ver()).toBe(false);
     await banco.pg.exec(`UPDATE regularizacao_etapas SET nome = 'Projeto de regularização fundiária' WHERE regularizacao_id = 2`);
