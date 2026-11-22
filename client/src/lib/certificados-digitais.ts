@@ -150,8 +150,9 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
       const { pagina, x, y, largura, altura } = posicao;
       if (!Number.isInteger(pagina) || pagina < 0 || pagina >= pdf.getPages().length || ![x,y,largura,altura].every(Number.isFinite) || largura < 50 || altura < 25) throw new Error("Escolha uma posição válida para a assinatura.");
       const page = pdf.getPage(pagina)!;
-      if (x < 0 || y < 0 || x + largura > page.width + 1 || y + altura > page.height + 1) throw new Error("A assinatura deve ficar dentro da página.");
-      const nome = info.titular.replace(/[^\u0020-\u00ff]/g, "");
+      const limite=page.getCropBox();
+      if (x < limite.x || y < limite.y || x + largura > limite.x+limite.width + 1 || y + altura > limite.y+limite.height + 1) throw new Error("A assinatura deve ficar dentro da página.");
+      const nome = info.titular.replace(/[^\u0020-\u00ff]/g, "") || "Consulte o certificado";
       const linhas = ["ASSINADO DIGITALMENTE", ...nome.match(/.{1,48}(?:\s|$)|.{1,48}/g)!.map(x => x.trim()), `CPF/CNPJ: ${info.documento || "Ver certificado"}`, new Date().toLocaleString("pt-BR", { timeZone:"America/Fortaleza" })];
       const size = Math.min(9, (altura - 8) / (linhas.length * 1.2), (largura - 8) / 30);
       page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:0.6 });

@@ -47,13 +47,21 @@ describe("certificados A1 e assinatura real", () => {
     expect(result.todos).toBe(false);
   });
   it("reconhece todas as partes somente com assinaturas íntegras e raízes confiáveis",async()=>{
-    const {conferirAssinaturas}=await import("./juridico-verificar-assinaturas");const {Certificate}=await import("pkijs");const {PDF}=await import("@libpdf/core");
+    const {conferirAssinaturas}=await import("./juridico-verificar-assinaturas");const {Certificate}=await import("pkijs");const {PDF,rgb}=await import("@libpdf/core");
     execFileSync("openssl",["req","-x509","-newkey","rsa:2048","-keyout",join(dir,"cliente-key.pem"),"-out",join(dir,"cliente.pem"),"-days","7","-nodes","-subj","/C=BR/O=TESTE SEM VALIDADE/CN=CLIENTE TESTE:12345678901"],{stdio:"ignore"});
     execFileSync("openssl",["pkcs12","-export","-inkey",join(dir,"cliente-key.pem"),"-in",join(dir,"cliente.pem"),"-out",join(dir,"cliente.pfx"),"-passout","pass:teste-somente"]);
     const a=await abrirCertificado(new Uint8Array(await file.arrayBuffer()),"teste-somente");
     const b=await abrirCertificado(new Uint8Array(readFileSync(join(dir,"cliente.pfx"))),"teste-somente");
     const base=new jsPDF();base.text("CONTRATO TESTE",20,20);const pdf=await PDF.load(new Uint8Array(base.output("arraybuffer")));
-    await pdf.sign({signer:a.signer});const final=await pdf.sign({signer:b.signer});
+    const primeira=await pdf.sign({signer:a.signer});const final=await pdf.sign({signer:b.signer});
+    const {mesmoConteudo}=await import("./juridico-workflow");
+    expect(await mesmoConteudo(Buffer.from(primeira.bytes),Buffer.from(final.bytes))).toBe(true);
+    const mudado=await PDF.load(primeira.bytes);mudado.getPage(0)!.drawText("TEXTO ALTERADO",{x:20,y:400});const alterado=await mudado.sign({signer:b.signer});
+    expect(await mesmoConteudo(Buffer.from(primeira.bytes),Buffer.from(alterado.bytes))).toBe(false);
+    const sobreposto=await PDF.load(primeira.bytes);
+    sobreposto.getPage(0)!.addSquareAnnotation({rect:{x:0,y:0,width:500,height:700},color:rgb(1,1,1),fillColor:rgb(1,1,1)});
+    const opaco=await sobreposto.sign({signer:b.signer});
+    expect(await mesmoConteudo(Buffer.from(primeira.bytes),Buffer.from(opaco.bytes))).toBe(false);
     const roots=[a,b].map(c=>Certificate.fromBER(Uint8Array.from(c.signer.certificate).buffer));
     const partes={partyADocument:"12345678000190",partyBDocument:"12345678901",signers:[]};
     const r=await conferirAssinaturas(Buffer.from(final.bytes),partes,roots);expect(r).toMatchObject({todos:true,validas:2});
@@ -86,7 +94,7 @@ describe("certificados A1 e assinatura real", () => {
     const original = new Uint8Array(pdf.output("arraybuffer"));
     await expect(assinarPdf(original,cert,"errada")).rejects.toThrow("Senha");
     const primeira = await assinarPdf(original,cert,"teste-somente",{pagina:0,x:50,y:90,largura:300,altura:70});
-    const {PDF}=await import("@libpdf/core");const loaded=await PDF.load(primeira.bytes);
+    const {PDF,rgb}=await import("@libpdf/core");const loaded=await PDF.load(primeira.bytes);
     expect(loaded.getPage(0)!.extractText().text).toContain("ASSINADO DIGITALMENTE");
     expect(loaded.getPage(0)!.extractText().text).toContain("EMPRESA TESTE");
     await expect(assinarPdf(original,cert,"teste-somente",{pagina:0,x:-10,y:90,largura:300,altura:70})).rejects.toThrow("dentro");

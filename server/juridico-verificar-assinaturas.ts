@@ -32,7 +32,7 @@ export async function conferirAssinaturas(bytes:Buffer,partes:Partes,roots:Certi
     }
     if(integroAte!==bytes.length)throw Error("Há conteúdo fora da última assinatura ou o PDF não contém assinatura digital conferível.");
     const obrigatorios=[digitos(partes.partyADocument),digitos(partes.partyBDocument)];
-    let semIdentificacao=obrigatorios.some(x=>x.length!==11&&x.length!==14);
+    let semIdentificacao=obrigatorios.some(x=>x.length!==11&&x.length!==14)||new Set(obrigatorios).size<2;
     for(const signer of partes.signers||[]) {
       if(/testemunha/i.test(signer)) {
         const match=signer.match(/\d{3}\.\d{3}\.\d{3}-\d{2}|\b\d{11}\b/);

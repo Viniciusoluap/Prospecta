@@ -6,7 +6,7 @@ import { getDb } from "./db.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { readPrivateDocument } from "./drive-documents.js";
 import { conferirAssinaturas } from "./juridico-verificar-assinaturas.js";
-import { PDF } from "@libpdf/core";
+import { PDF, PdfDict, PdfRef } from "@libpdf/core";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
@@ -30,19 +30,34 @@ export async function salvarRetornoContrato(contract:typeof portalContracts.$inf
   ]);
   return {id,todos:tipo==="assinado",conferencia:conf};
 }
-async function mesmoConteudo(antes:Buffer,depois:Buffer) {
+export async function mesmoConteudo(antes:Buffer,depois:Buffer) {
   try {
     const a=await PDF.load(new Uint8Array(antes)),b=await PDF.load(new Uint8Array(depois));
     const ap=a.getPages(),bp=b.getPages();if(ap.length!==bp.length)return false;
     // Qualquer edição de conteúdo/recursos exige conferência humana; widgets de assinatura podem ser acrescentados.
-    const serial=(pdf:PDF,obj:unknown,seen=new Set<string>()):unknown=>{
+    const nome=(key:unknown)=>(key as {value?:string}).value??String(key);
+    const serial=(pdf:PDF,obj:unknown,seen=new Set<string>(),ignorePages=false):unknown=>{
       if(!obj||typeof obj!=="object")return obj;
       const v=obj as {type:string;toString():string;value?:unknown;bytes?:Uint8Array;toArray?:()=>unknown[];getDecodedData?:()=>Uint8Array;[Symbol.iterator]?:()=>Iterator<[unknown,unknown]>};
-      if(v.type==="ref"){const key=v.toString();if(seen.has(key))return key;const next=new Set(seen);next.add(key);return serial(pdf,pdf.getObject(obj as never),next);}
-      if(v.type==="array")return v.toArray!().map(x=>serial(pdf,x,seen));
-      if(v.type==="dict"||v.type==="stream")return {data:v.getDecodedData?Buffer.from(v.getDecodedData()).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(String(k)))).map(([k,val])=>[String(k),serial(pdf,val,seen)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
+      if(v.type==="ref"){const target=pdf.getObject(obj as never);if(ignorePages&&target instanceof PdfDict&&target.getName("Type")?.value==="Page")return "[page]";const key=v.toString();if(seen.has(key))return key;const next=new Set(seen);next.add(key);return serial(pdf,target,next,ignorePages);}
+      if(v.type==="array")return v.toArray!().map(x=>serial(pdf,x,seen,ignorePages));
+      if(v.type==="dict"||v.type==="stream")return {data:v.getDecodedData?Buffer.from(v.getDecodedData()).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(nome(k)))).map(([k,val])=>[nome(k),serial(pdf,val,seen,ignorePages)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
       return v.bytes?Buffer.from(v.bytes).toString("hex"):v.value??String(v);
     };
+    const novosWidgets=new Set(b.getForm()?.getSignatureFields().filter(f=>f.isSigned()).flatMap(f=>f.getWidgets().map(w=>w.dict))||[]);
+    for(let i=0;i<ap.length;i++) {
+      const anotacoes=(pdf:PDF,page:typeof ap[number])=>(page.dict.getArray("Annots")?.toArray()||[]).map(v=>v instanceof PdfRef?pdf.getObject(v):v);
+      const antigas=anotacoes(a,ap[i]),novas=anotacoes(b,bp[i]);
+      const restantes=[...novas];
+      for(const old of antigas) {
+        const digest=JSON.stringify(serial(a,old,new Set(),true));
+        const index=restantes.findIndex(current=>JSON.stringify(serial(b,current,new Set(),true))===digest);
+        if(index<0)return false;restantes.splice(index,1);
+      }
+      if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")))return false;
+    }
+    if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k)))!==JSON.stringify(serial(b,b.getCatalog().get(k)))))return false;
+    if(ap.some((p,i)=>!p.dict.get("Resources")||!bp[i].dict.get("Resources")))return false;
     return ap.every((p,i)=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation,serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([bp[i].getMediaBox(),bp[i].getCropBox(),bp[i].rotation,serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
   }catch{return false;}
 }
