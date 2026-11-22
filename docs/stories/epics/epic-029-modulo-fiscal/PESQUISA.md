@@ -9,6 +9,11 @@ hosts `*.nfse.gov.br` (Swagger da Sefin e do ADN), os sites das prefeituras (`im
 `parauapebas.pa.gov.br`), `servicodados.ibge.gov.br` e a calculadora (`consumo.tributos.gov.br`,
 `piloto-cbs.tributos.gov.br`). O que dependia deles segue [NÃO CONFIRMADO], com o motivo.
 
+**3ª rodada (22/11/2026, noite):** liberados `sefin[.producaorestrita].nfse.gov.br`, `adn[.producaorestrita].nfse.gov.br`
+e `consumo.tributos.gov.br`. Só leitura (GET sem certificado, nenhuma emissão). Os Swagger da Sefin e do ADN **exigem
+certificado de cliente** (Sefin: 403; ADN: recusa no aperto de mão TLS) — o que dependia do conteúdo deles continua
+pendente; a base da Sefin e a API da calculadora foram fechadas (§1.1, §5). Corrigida a posição do `<Signature>` (§3.3).
+
 Regra (Constituição, Artigo IV): o que não foi confirmado está escrito **[NÃO CONFIRMADO]** e precisa ser conferido antes
 de virar código — na S-4, com o Swagger da produção restrita aberto com o certificado do dono.
 
@@ -45,14 +50,19 @@ Legenda: **[OFICIAL]** = lido no documento oficial citado; **[TERCEIROS]** = só
 | ADN — DANFSe (suspensa, ver 1.6) | `https://adn.producaorestrita.nfse.gov.br/danfse/docs/index.html` | `https://adn.nfse.gov.br/danfse/docs/index.html` |
 | ADN — parâmetros municipais | `https://adn.producaorestrita.nfse.gov.br/parametrizacao/docs/index.html` | `https://adn.nfse.gov.br/parametrizacao/docs/index.html` |
 
-**Base das chamadas (dedução):** pelo caminho dos Swagger, a base da Sefin seria
-`https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional` (produção restrita — **com** `/API`) e
-`https://sefin.nfse.gov.br/SefinNacional` (produção — **sem** `/API`). Um projeto de terceiros (rustnf) usa
-`https://sefin.producaorestrita.nfse.gov.br/SefinNacional` para a produção restrita — **divergente**.
-**[NÃO CONFIRMADO]** a base exata: o Swagger está em `*.nfse.gov.br`, bloqueado nesta sessão. Na S-4, deixar a base em
-configuração por ambiente e conferir no Swagger antes do 1º envio. ADN contribuintes: base
+**Base das chamadas — 3ª rodada (22/11/2026, noite, hosts `*.nfse.gov.br` liberados; só GET sem certificado):**
+os Swagger **não abrem sem certificado de cliente**. A Sefin (IIS) responde **403 "Access is denied … credentials that you
+supplied"** em qualquer caminho existente; o ADN **recusa o próprio aperto de mão TLS** ("handshake failure": exige o
+certificado já na conexão, até para a página de documentação). Pela diferença entre 403 (caminho existe) e 404 (não existe):
+
+| Ambiente | `/SefinNacional/...` | `/API/SefinNacional/...` | Conclusão |
+|---|---|---|---|
+| Produção (`sefin.nfse.gov.br`) | `docs/index` e `nfse` → **403** | `docs/index` e `nfse` → **404** | Base = **`https://sefin.nfse.gov.br/SefinNacional`** (sem `/API`) — confirmado pelo servidor |
+| Produção restrita (`sefin.producaorestrita.nfse.gov.br`) | `docs/index` → **403** | `docs/index` → **403** (`/API/naoexiste/...` → 404) | **Os dois caminhos existem.** O oficial (APIS) publica `/API/SefinNacional`; terceiros usam `/SefinNacional`. Usar **`https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional`** (o do portal) e, se o 1º envio falhar por rota, o outro |
+
+Mantém-se a base em configuração por ambiente. ADN contribuintes: base
 `https://adn[.producaorestrita].nfse.gov.br/contribuintes` (os métodos do MAN-ADN ficam sob esse prefixo) — consistente com
-o projeto akretion/nfelib (TERCEIROS).
+o projeto akretion/nfelib (TERCEIROS); o servidor não deixa conferir sem certificado.
 
 ### 1.2 Métodos da Sefin Nacional — [OFICIAL, MAN-API §1.2–1.5]
 
@@ -70,14 +80,16 @@ o projeto akretion/nfelib (TERCEIROS).
 `{"dpsXmlGZipB64": "..."}` no `POST /nfse`, resposta com `chaveAcesso` e `nfseXmlGZipB64`; `{"pedidoRegistroEventoXmlGZipB64":
 "..."}` no evento, resposta com `eventoXmlGZipB64` — **[TERCEIROS]**, iguais em dois projetos independentes
 (https://github.com/akretion/nfelib — `nfelib/nfse/client/v1_0/nfse.py`; https://github.com/nfse-nacional/nfse-php —
-`src/Http/Client/SefinClient.php`). Nome exato **[NÃO CONFIRMADO no Swagger]** (bloqueado).
+`src/Http/Client/SefinClient.php`). Nome exato **[NÃO CONFIRMADO no Swagger]** — o Swagger só abre com certificado de
+cliente (3ª rodada). Fechar na S-4 abrindo `.../docs/index` com o A1 do dono (só leitura, antes do 1º envio).
 
 ### 1.3 ADN — distribuição — [OFICIAL]
 
 - `GET /DFe/{NSU}` e `GET /NFSe/{ChaveAcesso}/Eventos` (MAN-ADN §1.1.1). Devolve documentos em que o CNPJ é **emitente,
   tomador ou intermediário**; aceita certificado com o **mesmo CNPJ raiz**, e há um parâmetro para informar o CNPJ
   consultado diferente do CNPJ do certificado (MAN-ADN §1.1). Nome do parâmetro: `cnpjConsulta`, e `lote=true` para pedir
-  o lote — **[TERCEIROS]** (nfelib).
+  o lote — **[TERCEIROS]** (nfelib); o ADN exige certificado no aperto de mão TLS, então o Swagger não pôde ser lido
+  (3ª rodada).
 - **Até 50 documentos por chamada**, em ordem crescente de NSU, devolvendo o último NSU para a próxima chamada
   (MANINT §17.2.2; FAQ 19.2). **Confirmado o limite de 50.**
 - **Quando não há documento novo** (NSU informado = maior NSU disponível): **esperar no mínimo 1 hora** antes de nova
@@ -157,8 +169,12 @@ antes de usar [NÃO CONFIRMADO]).
 consultar para os códigos 07.xx da construção civil.
 
 ### 3.3 Assinatura — [OFICIAL, MANINT §6.1.4; FAQ 17.1; AI-PR]
-- XML-DSig **enveloped**, dentro da tag que contém o atributo `Id` (`infDPS`, e `infPedReg` no evento); `Reference
-  URI="#<Id>"`; transformações **enveloped-signature + C14N** `http://www.w3.org/TR/2001/REC-xml-c14n-20010315`
+- XML-DSig **enveloped**, que **assina** o elemento que tem o atributo `Id` (`infDPS`; `infPedReg` no evento), mas o
+  elemento `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` fica **fora** dele: é **filho de `DPS`, irmão logo
+  depois de `infDPS`** (XSD `TCDPS` = `infDPS` + `ds:Signature`; exemplo do MANINT §6.1.4, p. 26); no evento, filho de
+  `pedRegEvento`, irmão de `infPedReg` (XSD `TCPedRegEvt`). Ou seja: `<DPS versao="1.01"><infDPS Id="DPS…">…</infDPS>
+  <Signature>…</Signature></DPS>`. (O FAQ 17.1 diz "na tag que contém o atributo ID" — no sentido do elemento
+  referenciado, não do local do `<Signature>`.) `Reference URI="#<Id de infDPS>"`; transformações **enveloped-signature + C14N** `http://www.w3.org/TR/2001/REC-xml-c14n-20010315`
   (canonicalização **inclusiva**, sem comentários); `CanonicalizationMethod` igual; só o certificado do usuário final em
   `X509Data/X509Certificate` (EndCertOnly); sem LCR no XML.
 - **Algoritmo:** o texto oficial (MANINT, 2022) fixa **RSA-SHA1** (`xmldsig#rsa-sha1`) e digest **SHA-1**
@@ -175,7 +191,8 @@ consultar para os códigos 07.xx da construção civil.
   município defere/indefere (FAQ 9.4). O município também pode limitar o valor (E0823), proibir cancelar nota sem tomador
   (E0824) e com tributo já recolhido (E0827), e bloquear cancelamento por ofício (E0844).
 - **Na tela da S-4:** mostrar "prazo definido pela prefeitura (até 2 anos)" e o erro da Sefin quando vier; o prazo real de
-  cada município pode ser lido pela API de parâmetros municipais [campo exato NÃO CONFIRMADO — Swagger bloqueado].
+  cada município pode ser lido pela API de parâmetros municipais [campo exato NÃO CONFIRMADO — o Swagger de parâmetros
+  (`adn…/parametrizacao/docs`) exige certificado no aperto de mão TLS, 3ª rodada]. Até lá, a tela trata o E0822.
 - **Substituição** (DPS com `subst/chSubstda` + `cMotivo` 01–05/99 e `xMotivo` obrigatório se 99 — E0078): a Sefin cancela
   a original com o evento 105102 e gera a nova no mesmo `POST /nfse`. Prazo também parametrizado pelo município, **máximo
   2 anos** (E0050; exceto enquadramento/desenquadramento no Simples). Não substitui nota cancelada (E0046), nota com
@@ -204,12 +221,24 @@ consultar para os códigos 07.xx da construção civil.
   (= https://github.com/ReceitaFederal/calculadora-rtc-regime-regular); tabela CST/cClassTrib em
   https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/classificacoes-tributarias (NT009 p. 22-23).
   O Anexo I cita a documentação da API em `https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/calculadora/documentacao`
-  e um endereço interno do Serpro (`*.estaleiro.serpro`, não público). **API HTTP pública utilizável: [NÃO CONFIRMADO]** —
-  os hosts `consumo.tributos.gov.br` e `piloto-cbs.tributos.gov.br` estão bloqueados nesta sessão; continua valendo a
-  observação da 1ª rodada (pacote não oficial `rfbcalc` aponta para a API piloto sem chave).
+  e um endereço interno do Serpro (`*.estaleiro.serpro`, não público).
+- **API HTTP pública da calculadora — CONFIRMADA (3ª rodada, OpenAPI oficial lido):** base
+  **`https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/api`**; especificação OpenAPI 3.1 em
+  `.../api/api-docs` e Swagger em `.../api/swagger-ui/index.html` (o próprio site da calculadora aponta para eles, junto
+  com `api-simples-nacional` e `api-split`). **Sem esquema de segurança** declarado (sem chave). Todas as rotas marcadas
+  **"VERSÃO BETA"**. `GET .../calculadora/dados-abertos/versao` respondeu `ambiente: "pro"`, app 1.7.2, banco V0073 de
+  09/11/2026 (tabela de cClassTrib publicada em 30/10/2026). Rotas úteis à NFS-e: `POST /calculadora/nfse/base-calculo`
+  ("afere a base de cálculo de uma NFS-e no período de transição"), `POST /calculadora/regime-geral`,
+  `POST /calculadora/nfse/indicador-operacao/validate`, `GET /calculadora/nfse/indicador-operacao`,
+  `GET /calculadora/nfse/situacoes-classificacoes-tributarias` (por NBS), `GET /calculadora/nfse/locais-incidencia`,
+  `GET /calculadora/dados-abertos/classificacoes-tributarias/cbs-ibs/{siglaDfe}/{cClassTrib}` (devolve o `ind_gIBSCBS`
+  que decide se `gIBSCBS`/`cIndOp` vão na DPS), `POST /calculadora/xml/validate`. Limite de uso e termos: **não
+  publicados** na especificação [NÃO CONFIRMADO]. Nenhuma chamada de cálculo foi feita nesta pesquisa (só a de versão).
 - **Decisão que isto permite para a S-4:** não hospedar a calculadora. A DPS leva `CST`/`cClassTrib`/`indDest` (e `cIndOp`
   quando exigido) definidos pelo contador por tipo de serviço; os valores de IBS/CBS vêm da NFS-e devolvida e são guardados
-  como memória de cálculo. A prévia na tela, se quiserem, fica opcional e desligada.
+  como memória de cálculo. A prévia na tela, se quiserem, pode usar a API pública acima (beta, sem chave), atrás de
+  interruptor desligado por padrão; a consulta `classificacoes-tributarias/cbs-ibs/NFSE/{cClassTrib}` serve para validar a
+  configuração do contador antes de emitir.
 
 ## 6. Adesão dos municípios
 
@@ -285,7 +314,8 @@ adotar).
    JURÍDICA" na homologação).
 3. **S-4 item 2:** gerar a DPS nas duas variantes de leiaute (produção 09/02/2026 × produção restrita 20/10/2026) e validar
    contra o XSD do ambiente; grupo IBSCBS = classificação, sem valores.
-4. **S-4 item 3:** assinatura RSA-SHA1/C14N inclusiva conforme o manual; testar SHA-256 na homologação.
+4. **S-4 item 3:** assinatura RSA-SHA1/C14N inclusiva conforme o manual, com `<Signature>` **irmão** de `infDPS` (filho de
+   `DPS`) e de `infPedReg` (filho de `pedRegEvento`); testar SHA-256 na homologação.
 5. **S-4 (novo passo):** consultar `parametros_municipais/{IBGE}/convenio` do município sede de cada emissor e só liberar a
    emissão pela API nacional com `aderenteEmissorNacional = 1`.
 6. **S-5:** CHECK de `chave_acesso` deve aceitar letras nas posições 7–20; distribuição com até 50 por chamada e pausa de
@@ -295,11 +325,11 @@ adotar).
 
 | Item | Motivo | Como fechar |
 |---|---|---|
-| Base exata da Sefin (com/sem `/API`) | Swagger em `*.nfse.gov.br` bloqueado (403) | Abrir o Swagger na S-4 |
-| Nomes dos campos JSON (`dpsXmlGZipB64` etc.) e parâmetros `lote`/`cnpjConsulta` | Idem; só terceiros | Swagger |
+| ~~Base exata da Sefin~~ — **fechado** na 3ª rodada: produção `/SefinNacional` (sem `/API`, servidor confirmou); produção restrita: os dois caminhos existem, usar `/API/SefinNacional` (portal) | — | — |
+| Nomes dos campos JSON (`dpsXmlGZipB64` etc.) e parâmetros `lote`/`cnpjConsulta` | Swagger da Sefin e do ADN só abre com certificado de cliente (403 / TLS handshake failure) | Abrir o Swagger com o A1 do dono na S-4 (só leitura) |
 | Aceitação de RSA-SHA256 | Oficial só cita SHA-1 | Teste na produção restrita |
 | E0855 (IBS/CBS obrigatório desde 01/10/2026) e NT 009 em produção | Só no anexo de produção restrita; IMPL sem data para produção | Acompanhar IMPL |
-| API pública da calculadora | Hosts bloqueados | Não é necessária para emitir |
+| ~~API pública da calculadora~~ — **fechado**: existe, sem chave, beta (§5) | Limites de uso não publicados | — |
 | Adesão de Parauapebas, Canaã e Santa Inês; texto do decreto de Imperatriz | Sites municipais bloqueados; Power BI de adesões não acessível | `parametros_municipais/{IBGE}/convenio` com o certificado |
-| Campo do prazo de cancelamento na API de parâmetros | Swagger bloqueado | Swagger |
+| Campo do prazo de cancelamento na API de parâmetros | Swagger de parâmetros exige certificado no TLS | Swagger com o A1 |
 | Limites numéricos da Brasil API e do ViaCEP | Não publicados | — (cache de 30 dias e consulta por digitação completa) |
