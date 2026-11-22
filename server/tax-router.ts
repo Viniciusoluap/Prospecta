@@ -104,6 +104,28 @@ export function receitaRealizada(
   return { total: (financeiro + bpo) / 100, financeiro: financeiro / 100, bpo: bpo / 100 };
 }
 
+/**
+ * Linhas da "Receita realizada" (mesma fonte do cartão da aba). EPIC-029 S-2: o relatório "Notas × receita do mês" usa
+ * EXATAMENTE estas linhas, para fechar com o cartão sem número divergente.
+ */
+export async function linhasDaReceitaRealizada(database: ReturnType<typeof getDb>, from: Date, to: Date) {
+  const movements = await database
+    .select()
+    .from(financialTransactions)
+    .where(
+      and(
+        eq(financialTransactions.status, "paid"),
+        gte(financialTransactions.paidAt, from),
+        lte(financialTransactions.paidAt, to)
+      )
+    );
+  const lancamentosBpo = await database
+    .select({ id: bpoLancamentos.id, tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor, descricao: bpoLancamentos.descricao, pagoEm: bpoLancamentos.pagoEm })
+    .from(bpoLancamentos)
+    .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false), eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to)));
+  return { movements, lancamentosBpo };
+}
+
 export const taxRouter = router({
   overview: adminProcedure
     .input(
@@ -111,6 +133,7 @@ export const taxRouter = router({
         .object({
           from: z.coerce.date().optional(),
           to: z.coerce.date().optional(),
+          cnpj: z.string().trim().max(20).optional(),
         })
         .optional()
     )
@@ -119,22 +142,22 @@ export const taxRouter = router({
       const database = getDb();
       const from = input?.from ?? new Date(new Date().getFullYear(), 0, 1);
       const to = input?.to ?? new Date();
-      const movements = await database
-        .select()
-        .from(financialTransactions)
-        .where(
-          and(
-            eq(financialTransactions.status, "paid"),
-            gte(financialTransactions.paidAt, from),
-            lte(financialTransactions.paidAt, to)
-          )
-        );
-      const [profile] = await database
-        .select()
-        .from(taxProfiles)
-        .where(eq(taxProfiles.isActive, true))
-        .orderBy(desc(taxProfiles.effectiveFrom))
-        .limit(1);
+      const { movements, lancamentosBpo } = await linhasDaReceitaRealizada(database, from, to);
+      // EPIC-029 S-2: filtro "Empresa" (multi-CNPJ) — perfil vigente daquele CNPJ; sem filtro, o ativo mais recente.
+      const cnpjFiltro = input?.cnpj ? input.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") : "";
+      const [profile] = cnpjFiltro
+        ? await database
+            .select()
+            .from(taxProfiles)
+            .where(sql`upper(regexp_replace(coalesce(${taxProfiles.cnpj}, ''), '[^0-9A-Za-z]', '', 'g')) = ${cnpjFiltro}`)
+            .orderBy(desc(taxProfiles.isActive), desc(taxProfiles.effectiveFrom))
+            .limit(1)
+        : await database
+            .select()
+            .from(taxProfiles)
+            .where(eq(taxProfiles.isActive, true))
+            .orderBy(desc(taxProfiles.effectiveFrom))
+            .limit(1);
       const obligations = await database
         .select()
         .from(taxObligations)
@@ -143,10 +166,6 @@ export const taxRouter = router({
         .select()
         .from(retProjects)
         .orderBy(desc(retProjects.createdAt));
-      const lancamentosBpo = await database
-        .select({ tipo: bpoLancamentos.tipo, valor: bpoLancamentos.valor })
-        .from(bpoLancamentos)
-        .where(and(isNull(bpoLancamentos.exclusaoLoteBackupId), eq(bpoLancamentos.aClassificar, false), eq(bpoLancamentos.pago, true), gte(bpoLancamentos.pagoEm, from), lte(bpoLancamentos.pagoEm, to)));
       const receita = receitaRealizada(movements, lancamentosBpo);
       const revenue = receita.total;
       const rate = Number(profile?.estimatedRate || 0);
@@ -214,9 +233,17 @@ export const taxRouter = router({
       .mutation(async ({ input }) => {
         await ensureTaxSchema();
         const database = getDb();
+        // EPIC-029 S-2 (multi-CNPJ): a versão nova desativa só os perfis da MESMA empresa (mesmo CNPJ; sem CNPJ, os sem
+        // CNPJ). Antes desativava todos — com dois CNPJs (ex.: Prospecta e Efficaz) cada um precisa do seu perfil vigente.
+        const cnpjNovo = (input.cnpj ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "");
         await database
           .update(taxProfiles)
-          .set({ isActive: false, updatedAt: new Date() });
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(
+            cnpjNovo
+              ? sql`upper(regexp_replace(coalesce(${taxProfiles.cnpj}, ''), '[^0-9A-Za-z]', '', 'g')) = ${cnpjNovo}`
+              : sql`coalesce(${taxProfiles.cnpj}, '') = ''`
+          );
         const [created] = await database
           .insert(taxProfiles)
           .values({

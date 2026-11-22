@@ -1,6 +1,6 @@
 # S-2 — Rascunhos de nota dentro da aba "Contabilidade" (sem emitir nada)
 
-**Status:** Draft · **Epic:** EPIC-029 · **Etapa:** 2 · **Tamanho:** L · **Migração:** `0154_fiscal_notas.sql` · **Depende de:** S-1
+**Status:** InReview (ramo `epic029-s2`, criado de `epic029-s1` + `epic029-fiscal-plano`; implementada, aguarda o portão de QA) · **Epic:** EPIC-029 · **Etapa:** 2 · **Tamanho:** L · **Migração:** `0154_fiscal_notas.sql` · **Depende de:** S-1
 
 ## Por quê
 Cada recebimento de serviço precisa de uma decisão do dono: emitir nota, não emitir (com motivo) ou decidir depois. Nada
@@ -72,19 +72,19 @@ existente e nos crons da Dolores, no botão "Atualizar" e logo após a baixa man
 **Fora:** emissão, XML, certificado (S-4); Dolores (S-3); regra `automatico`; aba ou menu novo.
 
 ## Critérios de aceite
-1. Um lançamento de honorário pago vira **um** rascunho `A_DECIDIR`; rodar o gerador 3× não cria outro (teste PGlite).
-2. Recebimento de regularização ligado a lançamento do BPO gera **uma** nota (origem = regularização) — teste R8.
-3. Recebimento da Caixa de uma obra em Parauapebas → município de incidência = Parauapebas, não Imperatriz.
-4. Item ITBI nasce com motivo sugerido "ITBI repassado" e status `A_DECIDIR` (não decidido).
-5. **Sem redundância:** nenhum formulário do fiscal pede razão social, CNPJ, regime, nome/CPF/CNPJ do tomador, competência ou
+- [x] 1. Um lançamento de honorário pago vira **um** rascunho `A_DECIDIR`; rodar o gerador 3× não cria outro (teste PGlite).
+- [x] 2. Recebimento de regularização ligado a lançamento do BPO gera **uma** nota (origem = regularização) — teste R8.
+- [x] 3. Recebimento da Caixa de uma obra em Parauapebas → município de incidência = Parauapebas, não Imperatriz.
+- [x] 4. Item ITBI nasce com motivo sugerido "ITBI repassado" e status `A_DECIDIR` (não decidido).
+- [x] 5. **Sem redundância:** nenhum formulário do fiscal pede razão social, CNPJ, regime, nome/CPF/CNPJ do tomador, competência ou
    centro de custo (teste de componente lista os campos); trocar o CNPJ do cliente no BPO aparece no rascunho sem editar a nota.
-6. "Não emitir" sem motivo é recusado no servidor; com `outro` exige texto.
-7. Toda mudança grava histórico; `UPDATE`/`DELETE` no histórico ou `DELETE` em `fiscal_notas` falha no banco.
-8. Edição concorrente com `versao` antiga é recusada.
-9. PDF com a marca d'água em todas as páginas (teste lendo o PDF com `unpdf`).
-10. Relatório: com nota + sem nota + a decidir + diferença listada = "Receita realizada" do mesmo período e empresa.
-11. Com dois perfis (Prospecta e outro CNPJ), o filtro "Empresa" separa cartões, notas e relatório.
-12. Colaborador não decide (403); "Emitir" não tem rota ativa; nenhuma chamada de rede (teste vigia de `fetch`).
+- [x] 6. "Não emitir" sem motivo é recusado no servidor; com `outro` exige texto.
+- [x] 7. Toda mudança grava histórico; `UPDATE`/`DELETE` no histórico ou `DELETE` em `fiscal_notas` falha no banco.
+- [x] 8. Edição concorrente com `versao` antiga é recusada.
+- [x] 9. PDF com a marca d'água em todas as páginas (teste lendo o PDF com `unpdf`).
+- [x] 10. Relatório: com nota + sem nota + a decidir + diferença listada = "Receita realizada" do mesmo período e empresa.
+- [x] 11. Com dois perfis (Prospecta e outro CNPJ), o filtro "Empresa" separa cartões, notas e relatório.
+- [x] 12. Colaborador não decide (403); "Emitir" não tem rota ativa; nenhuma chamada de rede (teste vigia de `fetch`).
 
 ## Dependências do dono
 Nenhuma para construir. Ligar o gerador e escolher a data de corte: na aba, pelo dono.
@@ -92,3 +92,81 @@ Nenhuma para construir. Ligar o gerador e escolher a data de corte: na aba, pelo
 ## Riscos
 Classificação de receita (R9); volume inicial (data de corte); `ensureTaxSchema` cria `tax_*` em tempo de execução — colunas
 novas só por migração numerada, e o teste de migração confere que as duas coexistem.
+
+---
+
+## Implementação (dev — 22/11/2026)
+
+### Decisões tomadas sem perguntar (registradas)
+- [AUTO-DECISION] Botão "Atualizar" com o gerador desligado → roda mesmo assim (é pedido explícito do admin); o cron só roda
+  com o gerador **ligado** na aba (padrão desligado). Motivo: o dono liga o automático quando quiser, mas pode conferir antes.
+- [AUTO-DECISION] Onde roda a varredura → dentro de `/api/cron/lead-card-due` (diário) e dos `/api/cron/dolores/08…14`
+  (de hora em hora, só com o segredo do cron), sem cron novo, idempotente, nunca lança. Motivo: `vercel.json` no limite.
+- [AUTO-DECISION] Chamada imediata após a baixa manual do BPO e o recebimento de regularização → **não feita nesta etapa**
+  (fica como pendência). Motivo: não mexer nas transações de baixa; o botão "Atualizar" e o cron de hora em hora cobrem.
+- [AUTO-DECISION] Sem chave estrangeira para tabelas existentes (`users`, `bpo_clients`, `leads`, obra…) → as referências
+  são conferidas pelo servidor. Motivo: migração 100% aditiva, sem travar tabela de produção e sem `ON DELETE SET NULL`
+  esbarrar no histórico imutável.
+- [AUTO-DECISION] Município de incidência → nome + UF (a obra ainda não tem código IBGE; S-1 não criou as colunas). Ordem:
+  ajuste do dono → cidade da obra → cidade do tomador → município do emissor. Código IBGE fica nulo até haver a coluna.
+- [AUTO-DECISION] Empresa (emissor) do rascunho → a do tipo de serviço; se não houver e existir **um só** emissor, ele; com dois
+  ou mais, fica "a escolher" (o dono escolhe em Editar). Motivo: o lançamento do BPO não indica a empresa.
+- [AUTO-DECISION] "Reabrir" (SEM_NOTA/ADIADA → A_DECIDIR) existe para corrigir uma decisão; fica no histórico.
+- [AUTO-DECISION] Multi-CNPJ: `tax.profiles.create` passa a desativar só os perfis do **mesmo CNPJ** (antes desativava todos,
+  o que impedia dois CNPJs vigentes). `tax.overview` ganhou `cnpj` opcional (filtro "Empresa"); sem filtro, igual a antes.
+- [AUTO-DECISION] "Receita realizada" com filtro de empresa → continua de todas as empresas (o lançamento não indica a empresa) e
+  a tela diz isso; no relatório, o que é de outra empresa aparece separado ("outra empresa"), e a soma continua fechando.
+- [AUTO-DECISION] Origem cancelada depois → volta a A_DECIDIR com alerta **uma vez** (o alerta fica; o dono decide de novo sem
+  o sistema desfazer a decisão dele na passada seguinte).
+- [AUTO-DECISION] Ambiente do emissor → só "desligado" nesta etapa (o servidor não aceita outro valor).
+- [AUTO-DECISION] Tipos de serviço iniciais (6, todos "sempre perguntar", códigos nulos) semeados pela própria 0154 na tabela nova.
+
+### IDS (reaproveitar antes de criar)
+| Peça | Decisão | Base |
+|---|---|---|
+| Histórico imutável | ADAPT | gatilho de `obra_movimentos_historico` (0035) e guarda de `obra_notas` (0128) |
+| Receita realizada | REUSE | `receitaRealizada` + consulta extraída para `linhasDaReceitaRealizada` (`server/tax-router.ts`) |
+| PDF | REUSE | `jspdf` no servidor (padrão de `server/caixa/medicao-pdf.ts`) |
+| Permissão | REUSE | `adminProcedure` + mapa de módulos (`fiscal: "bpo"`) + "admin por papel" (padrão de `integracoes-router.ts`) |
+| Teste com banco | REUSE | PGlite + DDL gerado do schema Drizzle (padrão de `server/dolores/testes-banco.ts`) |
+| Telas | CREATE | 4 seções novas em `client/src/components/fiscal/`, dentro da aba (sem aba nem menu novo) |
+
+### Arquivos
+- Criados: `drizzle/0154_fiscal_notas.sql`, `drizzle/schema-fiscal.ts`, `shared/fiscal/status.ts`, `shared/fiscal/motivos.ts`,
+  `shared/fiscal/origens.ts`, `server/fiscal/gerador.ts`, `server/fiscal/notas.ts`, `server/fiscal/previa-pdf.ts`,
+  `server/fiscal/relatorio-mensal.ts`, `server/fiscal/router.ts`, `server/fiscal/rascunhos.test.ts`,
+  `client/src/components/fiscal/NotasADecidir.tsx`, `…/DadosFiscaisDoPerfil.tsx`, `…/TiposServico.tsx`, `…/NotasReceitaMes.tsx`.
+- Alterados: `client/src/pages/admin/TaxAccountingPanel.tsx` (filtro Empresa, cartão "Notas a decidir", seções novas),
+  `server/tax-router.ts` (`linhasDaReceitaRealizada`, `overview` por CNPJ, perfil vigente por CNPJ), `server/routers.ts`
+  (`fiscal`), `server/_core/trpc.ts` (`fiscal: "bpo"`), `api/index.ts` (varredura nos crons existentes), `drizzle.config.ts`.
+- `EditarRascunho.tsx` do diagnóstico ficou dentro de `NotasADecidir.tsx` (diálogos da própria lista).
+
+### Testes
+- (a) Automáticos: `server/fiscal/rascunhos.test.ts` — 24 testes (gerador idempotente 3×, data de corte e padrão, cron
+  desligado/ligado, R8 nos dois sentidos, ITBI sugerido, Parauapebas, avaliação/comissão, `nunca_gerar`, origem cancelada,
+  transições, motivo obrigatório e "outro" com texto (servidor e CHECK), versão antiga, histórico e gatilhos de imutabilidade,
+  Emitir recusado (rota e banco), CNPJ do cliente lido ao vivo, formulários sem campos redundantes, permissões, PDF com marca em
+  todas as páginas via `unpdf`, relatório = `tax.overview.revenue`, CSV sem CPF/CNPJ, multi-CNPJ). Vigia de `fetch` em todos.
+  Vizinhos: `consulta-cadastral`, `imports-esm`, `auth-session`, `lote-18-10`, `operacional`, `operational-consolidation`,
+  `dolores/c4-horario-relatorio`, `ycloud/ycloud-c72` — 176 testes, todos passando. `npx tsc --noEmit` e `npx vite build` ok.
+- (b) Manuais: não feitos nesta sessão (sem banco real).
+- (c) Pendentes em produção: aplicar a 0154 no Neon; abrir a aba e conferir.
+
+### Como testar (3–5 passos)
+1. Aplicar `drizzle/0154_fiscal_notas.sql` (aditiva; pode rodar duas vezes).
+2. BPO › Contabilidade: "Configurar tributação" com o CNPJ da empresa; em "Dados fiscais do perfil", "Preencher dados fiscais".
+3. Em "Notas a decidir", clicar **Atualizar**: cada honorário/receita recebido desde o 1º dia do mês vira um rascunho
+   "A decidir" (clicar de novo não duplica). **Prévia** baixa o PDF com "RASCUNHO — SEM VALOR FISCAL".
+4. Num rascunho: **Não emitir** (sem motivo o botão não libera; "Outro" pede texto), **Depois**, **Editar**; abrir **Histórico**.
+   **Emitir** aparece desabilitado.
+5. Em "Notas × receita do mês", conferir que "Receita realizada do mês" = com nota + sem nota + a decidir + diferença; baixar o CSV.
+
+### Pendências
+- Chamada imediata do gerador logo após a baixa manual do BPO e o recebimento de regularização (hoje: botão + cron de hora em hora).
+- Avaliação recebida pelo BPO sem ligação com a avaliação pode gerar dois rascunhos (não há coluna de ligação); o dono marca um
+  como "sem nota — emitida fora"/"outro". Resolver com a ligação na S-3/S-4 se aparecer.
+- Código IBGE do município de incidência (depende de coluna na obra/tomador).
+- Paridade Santa Fé: já registrada no ROADMAP (porte adiado pelo dono).
+
+## Change Log
+- 22/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementação completa da S-2 no ramo `epic029-s2`; migração 0154 NÃO aplicada.

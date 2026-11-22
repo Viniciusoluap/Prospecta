@@ -89,6 +89,8 @@ const procedureModules: Record<string, AdminModule | AdminModule[]> = {
   // EPIC-029 S-1: consulta de CNPJ nas telas de cadastro que têm CNPJ (BPO e Contabilidade; investidor da obra).
   // O CEP desse router é protectedProcedure (também usado em "Meu perfil"), fora deste mapa.
   consultaCadastral: ["bpo", "obras"],
+  // EPIC-029 S-2: rascunhos de nota na aba Contabilidade do BPO. Colaborador com BPO só VÊ; decidir é do admin (no router).
+  fiscal: "bpo",
 };
 
 /** A fila de serviços do CRM aparece dentro de cada módulo operacional. */

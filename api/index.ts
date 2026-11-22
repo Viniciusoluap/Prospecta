@@ -47,6 +47,8 @@ import { cronAutorizado, tratarCronDolores } from "../server/dolores/rondas.js";
 import { garantirModeloPadraoNoCron } from "../server/ycloud/modelos.js";
 import { CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
+// EPIC-029 S-2: varredura de rascunhos de nota fiscal dentro dos crons que já existem.
+import { gerarRascunhosNoCron } from "../server/fiscal/gerador.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -191,8 +193,11 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     });
     // EPIC-027 C7.2: modelo padrão da API oficial, DEPOIS de tudo e só com o tempo que sobra (no máximo 10 s, abortando as
     // chamadas à YCloud). Uma vez; no máximo 1 tentativa por dia e 3 no total; nunca lança nem muda a resposta deste cron.
+    // EPIC-029 S-2: rascunhos de nota fiscal no mesmo cron diário (sem cron novo). Só com o gerador LIGADO na aba;
+    // idempotente; nunca lança nem muda a resposta deste cron.
+    const fiscal = await gerarRascunhosNoCron(getDb);
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
-    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });
@@ -215,7 +220,12 @@ app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
   // EPIC-027 C7.2: de hora em hora (07h–14h de Brasília), só com o segredo do cron e DEPOIS da Dolores, com o tempo que sobra
   // (no máximo 10 s, abortando as chamadas): o modelo padrão sai na primeira hora em que a integração está pronta. Nunca lança
   // nem muda a resposta (nem o erro) da Dolores.
-  if (cronAutorizado(req.headers.authorization)) await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
+  if (cronAutorizado(req.headers.authorization)) {
+    // EPIC-029 S-2: rascunhos de nota fiscal também de hora em hora, nos crons que já existem (sem cron novo). Só com o
+    // gerador ligado; idempotente; nunca lança nem muda a resposta (nem o erro) da Dolores.
+    await gerarRascunhosNoCron(getDb);
+    await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
+  }
   return res.status(saida.status).json(saida.body);
 });
 
