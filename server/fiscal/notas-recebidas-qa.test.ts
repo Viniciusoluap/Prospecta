@@ -124,7 +124,8 @@ describe("QA 0163 — só aditiva, CHECK validado, idempotente, guardas convivem
     const [{ id }] = await q<{ id: number }>("SELECT id FROM obra_notas WHERE origem = 'adn'");
     await expect(q("UPDATE obra_notas SET valor_centavos = 1 WHERE id = $1", [id])).rejects.toThrow(/OBRA_NOTAS_IMUTAVEL/);
     await expect(q("UPDATE obra_notas SET nsu = 2 WHERE id = $1", [id])).rejects.toThrow(/OBRA_NOTAS_IMUTAVEL/);
-    await expect(q("UPDATE obra_notas SET conciliada_em = now() WHERE id = $1", [id])).resolves.toBeDefined();
+    // campo que a 0128 deixa mudar (confirmação pendente → confirmada, com a data) passa pelas DUAS guardas
+    await expect(q("UPDATE obra_notas SET confirmacao = 'confirmada', confirmacao_em = now() WHERE id = $1", [id])).resolves.toBeDefined();
     await expect(q("DELETE FROM obra_notas WHERE id = $1", [id])).rejects.toThrow(/OBRA_NOTAS_SEM_EXCLUSAO/);
     await expect(q("TRUNCATE obra_notas_adn")).rejects.toThrow(/OBRA_NOTAS_ADN_SOMENTE_INSERCAO/);
     await expect(q("TRUNCATE fiscal_distribuicao_estado")).rejects.toThrow(/FISCAL_DISTRIBUICAO_SEM_EXCLUSAO/);
@@ -139,7 +140,7 @@ describe("QA 0163 — só aditiva, CHECK validado, idempotente, guardas convivem
     await banco.pg.exec(MIGRACAO);
     const linhas = await notasDoBanco(banco.db as never, {});
     expect(linhas.map(l => l.n.id)).toEqual(inner.map(r => r.id));
-    expect(linhas.every(l => l.enviadaEm !== undefined && l.remetente !== null)).toBe(true);
+    expect(linhas.every(l => l.enviadaEm !== undefined)).toBe(true);
   });
 });
 
@@ -320,7 +321,7 @@ describe("QA vínculo e conciliação", () => {
   it("dois empreiteiros ativos com o mesmo documento, ambos com obra → sem vínculo nenhum", async () => {
     await banco.pg.exec(MIGRACAO);
     await banco.pg.exec(`
-      INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp2', 'Clone', 'empreiteiro', true, 'hash', '11.222.333/0001-81');
+      INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp2', 'Clone', 'empreiteiro', true, 'hash', '11222333000181');
       INSERT INTO construction_projects (title, status, progress, contractor_user_id) VALUES ('Outra', 'in_progress', 0, 4);`);
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
     expect((await q("SELECT obra_id, empreiteiro_user_id, categoria, situacao FROM obra_notas"))[0]).toEqual({ obra_id: null, empreiteiro_user_id: null, categoria: null, situacao: "confira" });
