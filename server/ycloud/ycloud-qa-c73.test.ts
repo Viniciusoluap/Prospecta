@@ -20,8 +20,8 @@ describe("QA C7.3 — filtro do texto fixo do colaborador", () => {
     ]) expect(filtro(t), t).not.toBeNull();
   });
 
-  // Achado INFORMATIVO do portão: "1-" repetido é quadrático (lookbehind de DATA/CEP): 100k caracteres ~4,5 s. Hoje só é
-  // alcançável até 1024 (router: z.string().max(1024); problemaDoParametro roda antes) — no limite e no dobro, < 1 s com folga.
+  // Achado INFORMATIVO do portão: "1-" repetido era quadrático (lookbehind de DATA/CEP). Corrigido: a parte de telefone é uma
+  // varredura linear e o filtro recusa acima de 2.000 caracteres (o router já limita a 1024).
   it("sem ReDoS: entradas adversariais no limite do campo (1024) e no dobro terminam rápido", () => {
     const entradas = ["1" + "/".repeat(1023), "1/".repeat(512), "a.".repeat(512), "1 ".repeat(512) + "x", "ponto ".repeat(170),
       "(".repeat(1023) + "1", "1-".repeat(512), "1-".repeat(1024), "1/1 ".repeat(512), "1" + "/".repeat(100_000) + "x"];
@@ -30,11 +30,28 @@ describe("QA C7.3 — filtro do texto fixo do colaborador", () => {
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 
-  // Falsos positivos conhecidos (achado BAIXO do portão C7.3): texto comum recusado com a mensagem de "telefone"/"link".
-  it.todo("intervalo de datas com traço ('Plantão 25/11 - 30/11', '25/11/2026 - 30/11/2026') não deveria ser telefone");
-  it.todo("data seguida de hora sem 'às' ('dia 25/11/2026 14h') não deveria ser telefone");
-  it.todo("lista de unidades ('aptos 101 102 103') e faixa de valores ('R$ 250.000 - 300.000') não deveriam ser telefone");
-  it.todo("abreviação sem espaço ('Av.Brasil', 'Sr.João') é recusada como link");
+  // Falsos positivos do portão C7.3 (achado BAIXO), corrigidos: texto comum que era recusado como "telefone"/"link".
+  it("intervalo de datas, data com hora, unidades, valores, abreviação colada e medidas passam", () => {
+    for (const t of [
+      "Plantão 25/11 - 30/11", "25/11/2026 - 30/11/2026", "dia 25/11/2026 14h", "aptos 101 102 103", "R$ 250.000 - 300.000",
+      "R$ 15.000.000,00", "Av.Brasil", "Sr.João", "de 8h às 18h", "Qd 18 Lt 4", "3 quartos 2 vagas 68 m²",
+    ]) expect(filtro(t), t).toBeNull();
+  });
+
+  it("as exceções não abrem brecha: link, @perfil e telefone continuam recusados", () => {
+    for (const t of [
+      "http://x.y", "https://x.y", "www.exemplo", "exemplo.com", "exemplo . com", "wa.me/5511", "t.me/x", "bit.ly/abc",
+      "exemplo ponto com", "lojaxyz dot com", "exemplo·com", "exemplo\u200b.com", "Av.Com", "Sr.Br", "Av.brasil.com", "@perfil",
+      "(99) 98139-2210", "99 9 8139 2210", "99981392210", "+55 99 98139-2210", "11/9999/8888", "\uFF19\uFF19\uFF19\uFF18\uFF11\uFF13\uFF19\uFF12\uFF12\uFF11\uFF10",
+      "25/11/2026 99999 8888", "25/11 - 30/11 98139-2210", "R$ 99.981.392.210", "99.981.392.210", "99.981 392.210",
+      "101 102 103 104 98139", "981 392 210", "25/11/2026 14 98139", "12345-678 9813-9221",
+    ]) expect(filtro(t), t).not.toBeNull();
+  });
+
+  it("acima de 2.000 caracteres é recusado sem análise", () => {
+    expect(filtro("a ".repeat(1001))).toMatch(/passa de 2000/);
+    expect(filtro("a ".repeat(1000))).toBeNull();
+  });
 });
 
 describe("QA C7.3 — eco: mensagem manual da equipe nunca vira eco", () => {
