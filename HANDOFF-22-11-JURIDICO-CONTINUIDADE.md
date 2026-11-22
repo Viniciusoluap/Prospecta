@@ -119,3 +119,18 @@ Achado P1 (thread PRRT_kwDOR_rShc66mxhV): a largura final do traço podia escond
 ### Terceira rodada da revisão de marca
 
 P1 PRRT_kwDOR_rShc66m3hH: o estado da fonte podia ser herdado após Q. A marca suportada passa a exigir Tf e Tm explícitos em cada BT/ET e recusa q/Q dentro de texto. Isso elimina herança não modelada de fonte e posição. Regressões P1 (traçado, TJ, avanço Tj, fonte e estado Q) + marca legítima aprovadas (4/4). TypeScript novamente em execução. Nenhum serviço pago foi chamado por estes testes. Suíte geral continua com rede externa bloqueada; tempo excedido do teste de logotipo foi refeito isoladamente e 17/17 passaram.
+
+### Conferência da marca e resultado da suíte
+
+- PR #308. O desenho usa o controle de tamanho proporcional e o formulário de importação fica na aba Certificados digitais.
+- A validação passou a exigir o perímetro de um único retângulo e o conjunto exato de textos, tamanhos, posições e espessura do layout compartilhado com o assinador. Isso recusa texto sobreposto e reconhece a quebra de nomes longos que o assinador produz. Regressões dos arquivos afetados: 45/45. A bateria focada anterior ao último ajuste passou 105/105 em 10 arquivos, incluindo PKI e imports ESM. TypeScript sem erros no último ajuste. Preview do commit 351e50f READY.
+- Na suíte geral houve 22 falhas da Central de Vendas reproduzidas na main 9e8a7e3, além de uma falha preexistente de rótulo ajustada no teste. A falha do aviso de grupo da Dolores também foi reproduzida na mesma main. Um teste do transporte PKI barrado pelo isolador geral passou no teste focado que usa servidor de loopback.
+- Último lote da suíte geral reaproveita resultados dos arquivos concluídos e repete com dois workers os arquivos que o primeiro lote interrompeu. O relatório não deve descrever a suíte geral como verde.
+- A migração 0161 está aplicada. A API atual, antes do merge, respondeu 200 com Neon conectado. Falta revisar o commit atual, mesclar e verificar a produção dessa versão.
+
+### Publicação do Jurídico
+
+- PR #308 mesclado em `27c4ed170feb33863b7012874f301abcfc1ccefc` após revisão Codex Completed sem apontamentos abertos. Produção Vercel `dpl_5RHRmycy9qgXomsZeEfxdPmEcGZH` READY com esse commit.
+- Migração 0161 aditiva aplicada no Neon. No domínio oficial, `/login`, `/admin/juridico`, `/api/health` (Neon conectado) e `/api/trpc/auth.me` (sem sessão) responderam 200. Sem erros fatais ou de execução no período consultado para este deploy.
+- A conferência automática funciona para novos documentos no fluxo do Jurídico. Falhas temporárias ficam pendentes e retornos externos ainda exigem confirmação. Os testes usaram certificados sintéticos e a checagem de produção não usou credenciais pessoais nem assinou contratos reais.
+- Decisão de 22/11/2026: Prospecta e Santa Fé independentes. A documentação de ambos registra a decisão. O Jurídico foi entregue na Prospecta.
