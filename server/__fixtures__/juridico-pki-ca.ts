@@ -128,7 +128,7 @@ crlDistributionPoints = URI:${URLS.interCrl}
 [ v3_folha_san ]
 basicConstraints = critical, CA:false
 keyUsage = critical, digitalSignature, nonRepudiation
-subjectAltName = otherName:2.16.76.1.3.3;PRINTABLESTRING:12345678000190
+subjectAltName = otherName:2.16.76.1.3.3;PRINTABLESTRING:12345678000190,otherName:2.16.76.1.3.1;PRINTABLESTRING:0101199012345678901000000000000000000000000000000000000000000
 authorityInfoAccess = caIssuers;URI:${URLS.interCert}
 crlDistributionPoints = URI:${URLS.interCrl}
 [ crl_idp_ok ]

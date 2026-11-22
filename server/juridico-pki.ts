@@ -113,7 +113,7 @@ export function politicaAssinaturaIcp(cert: Certificate): boolean {
 export function documentoDoCertificado(cert: Certificate): string {
   const cn = cert.subject.typesAndValues.filter(t => t.type === "2.5.4.3").map(t => String(t.value.valueBlock.value)).join(" ");
   const doCn = /(?:^|:)\s*(\d{14}|\d{11})\s*$/.exec(cn)?.[1] || "";
-  let doSan = "";
+  const cnpjs = new Set<string>(), cpfs = new Set<string>();
   try {
     const nomes: { type: number; value: { valueBlock?: { value?: unknown[] } } }[] = cert.extensions?.find(e => e.extnID === "2.5.29.17")?.parsedValue?.altNames || [];
     for (const nome of nomes) {
@@ -122,10 +122,14 @@ export function documentoDoCertificado(cert: Certificate): string {
       const oid = partes[0]?.valueBlock?.toString?.() || "";
       const conteudo = ((partes[1]?.valueBlock?.value || [])[0] as { valueBlock?: { value?: string; valueHexView?: Uint8Array } } | undefined)?.valueBlock;
       const texto = typeof conteudo?.value === "string" ? conteudo.value : conteudo?.valueHexView ? Buffer.from(conteudo.valueHexView).toString("latin1") : "";
-      if (oid === "2.16.76.1.3.3" && /^\d{14}$/.test(texto.trim())) doSan = texto.trim();
-      if (oid === "2.16.76.1.3.1" && /^\d{19}/.test(texto.trim())) doSan = texto.trim().slice(8, 19);
+      if (oid === "2.16.76.1.3.3" && /^\d{14}$/.test(texto.trim())) cnpjs.add(texto.trim());
+      if (oid === "2.16.76.1.3.1" && /^\d{19}/.test(texto.trim())) cpfs.add(texto.trim().slice(8, 19));
     }
   } catch { /* SAN ilegível: usa só o nome comum */ }
+  // Um e-CNPJ também contém o CPF do responsável. A identidade da empresa prevalece, em qualquer ordem do SAN.
+  const documentos = cnpjs.size ? cnpjs : cpfs;
+  if (documentos.size > 1) return "";
+  const doSan = [...documentos][0] || "";
   if (doSan && doCn && doSan !== doCn) return "";
   return doSan || doCn;
 }

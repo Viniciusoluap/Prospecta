@@ -96,3 +96,12 @@ correções do QA e da marca está no último commit de cada branch. (b) manuais
 - Automáticos até este checkpoint: 98/98 testes focados aprovados antes do ajuste da corrida. Regressão após ajuste, suíte completa, TypeScript e build em execução.
 - Ambiente local reaproveita dependências existentes e versões declaradas. Instalação frozen com pnpm 10.4.1 interrompida por lentidão de download, sem mudança de lock. Pacotes faltantes locais instalados fora do checkout.
 - Migração 0161 ainda NÃO aplicada. Produção ainda sem esta frente. Próximo passo: terminar checks, revisão automática do PR Completed e achados, aplicar migração, merge e validar produção/API/login. Docs de independência ainda pendentes.
+
+### Checkpoint da verificação e migração
+
+- 98/98 testes focados originais aprovados. Novas regressões de concorrência e CMS não suportado aprovadas. PKI atualizado 28/28, incluindo e-CNPJ com CPF do responsável no SAN (CNPJ prevalece em ambas as ordens).
+- Checagem TypeScript concluída sem erros. Primeiro preview da integração e preview 6ea7928 READY na Vercel, com build completo aprovado. Build local interrompido por limite de memória, sem mudança de configuração do projeto.
+- Marca rasterizada em PDF sintético em 50%, 100% e 160% e inspecionada visualmente. Texto, margem e borda acompanham a escala. Nenhum certificado/contrato real foi usado.
+- Migração 0161 APLICADA no Neon plain-cake-26372935/neondb. Tabela e ambos os índices confirmados. Só CREATE TABLE/INDEX IF NOT EXISTS.
+- PR #308 aberto. Revisão Codex da versão atual solicitada. Suíte completa em execução, por lotes: 13 arquivos iniciais aprovados preservados e restantes com quatro workers; resultados ficam nos logs temporários. Não afirmar suíte completa aprovada até terminar.
+- Próximo passo: terminar suíte, resolver achados da revisão, atualizar preview se preciso, merge/produção e smoke da API. Depois PRs de docs de independência dos sistemas.

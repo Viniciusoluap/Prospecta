@@ -123,6 +123,12 @@ describe("regras extras (portão de QA de 22/11)", () => {
     expect(documentoDoCertificado(pki.cert("empresa"))).toBe("12345678000190");
     expect(politicaAssinaturaIcp(pki.cert("empresa"))).toBe(false);
   });
+  it("e-CNPJ conserva a identidade da empresa quando o SAN também informa o CPF do responsável", () => {
+    const cert = pki.cert("san");
+    expect(documentoDoCertificado(cert)).toBe("12345678000190");
+    cert.extensions!.find(e => e.extnID === "2.5.29.17")!.parsedValue.altNames.reverse();
+    expect(documentoDoCertificado(cert)).toBe("12345678000190");
+  });
   it("algoritmo não suportado pelo WebCrypto (ECDSA secp256k1) fica pendente para conferência manual, não inválido", async () => {
     const r = await validarCertificado(pki.cert("sob_interec"), [pki.cert("interec")], [pki.raiz], sessao(rede(pki)));
     expect(r).toMatchObject({ estado: "pendente", transitoria: false });
