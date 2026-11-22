@@ -180,7 +180,7 @@ describe("C5-E5 — banco (PGlite)", () => {
 
   it("a conversa no limite da parte dela para ('orcamento_conversa') e grupos, clientes e documentos continuam", async () => {
     const m = await novaMensagem("CONV-2");
-    await consumir({ funcao: "conversa", mensagemId: m, entrada: 540_000 }); // 55% = 550.000
+    await consumir({ funcao: "conversa", mensagemId: m, entrada: 550_000 }); // 55% = 550.000
     expect(await reservarChamada({ mes: MES, mensagemId: m, limites: LIMITES, reserva: { entrada: 14_000, saida: 3_000 }, validadeMs: VALIDADE })).toBe("orcamento_conversa");
     expect((await q("SELECT reserva_entrada FROM dolores_mensagens WHERE id = " + m))[0]).toEqual({ reserva_entrada: 0 });
     expect(await reservarMarcacao({ mes: MES, marcacaoId: 1, limites: LIMITES, reserva: { entrada: 6_000, saida: 400 }, validadeMs: VALIDADE })).toBeNull();
@@ -216,8 +216,10 @@ describe("C5-E5 — banco (PGlite)", () => {
     const porFuncao = await usoPorFuncaoNoMes(MES);
     for (const f of FUNCOES_DO_GASTO) {
       const parte = limiteDaParte(LIMITES, PARTES_PADRAO[f]);
-      expect(porFuncao[f].entrada).toBeLessThanOrEqual(parte.entrada);
-      expect(porFuncao[f].saida).toBeLessThanOrEqual(parte.saida);
+      // terceiros contam a própria reserva; a conversa segue a regra do limite inteiro (a 1ª chamada passa no máximo uma reserva)
+      const folga = f === "conversa" ? reserva : { entrada: 0, saida: 0 };
+      expect(porFuncao[f].entrada).toBeLessThanOrEqual(parte.entrada + folga.entrada);
+      expect(porFuncao[f].saida).toBeLessThanOrEqual(parte.saida + folga.saida);
     }
     const total = FUNCOES_DO_GASTO.reduce((s, f) => ({ e: s.e + porFuncao[f].entrada, s: s.s + porFuncao[f].saida }), { e: 0, s: 0 });
     expect(total.e).toBeLessThanOrEqual(LIMITES.entrada);
@@ -230,7 +232,7 @@ describe("C5-E5 — banco (PGlite)", () => {
 
   it("concorrência nas reservas: duas mensagens do dono ao mesmo tempo no fim da parte da conversa — só uma reserva", async () => {
     const [a, b] = [await novaMensagem("CONC-A"), await novaMensagem("CONC-B")];
-    await consumir({ funcao: "conversa", mensagemId: a, entrada: 500_000 });
+    await consumir({ funcao: "conversa", mensagemId: a, entrada: 515_000 }); // 515 mil + 40 mil da outra reserva passa dos 550 mil
     const r = await Promise.all([a, b].map(id => reservarChamada({ mes: MES, mensagemId: id, limites: LIMITES, reserva: { entrada: 40_000, saida: 3_000 }, validadeMs: VALIDADE })));
     expect(r.filter(x => x === null)).toHaveLength(1);
     expect(r.filter(x => x === "outro_pedido")).toHaveLength(1);

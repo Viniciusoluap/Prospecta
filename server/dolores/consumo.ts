@@ -221,11 +221,12 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
-    // C5-E5: a PARTE da conversa (padrão 55%). Esgotada pelo uso real da conversa (ou sem lugar para esta chamada, sem contar as
-    // outras reservas) → só a conversa para ("orcamento_conversa"); grupos, clientes e documentos seguem com as partes deles.
+    // C5-E5: a PARTE da conversa (padrão 55%), pela MESMA regra do limite inteiro: esgotada pelo uso REAL da conversa → só a
+    // conversa para ("orcamento_conversa"); grupos, clientes e documentos seguem com as partes deles. Como no limite inteiro, a
+    // reserva da própria chamada não barra a primeira que chega (uma chamada pode passar da parte em no máximo o teto por pedido);
+    // a de OUTRA mensagem em andamento barra ("outro_pedido"). Os terceiros, ao contrário, contam a própria reserva (abaixo).
     const [porFuncao, { partes }] = await Promise.all([usoPorFuncaoNoMes(p.mes, tx), lerPartesDoGasto(tx)]);
-    const nada = { entrada: 0, saida: 0 };
-    if (parteEsgotada(porFuncao.conversa, p.limites, partes.conversa) || !cabeNaParte(porFuncao.conversa, nada, p.reserva, p.limites, partes.conversa)) return "orcamento_conversa" as const;
+    if (parteEsgotada(porFuncao.conversa, p.limites, partes.conversa)) return "orcamento_conversa" as const;
     const comReservas = bloqueioDoLimite({
       entrada: Number(usado?.entrada ?? 0) + Number(reservado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) + Number(reservado?.saida ?? 0),
     }, p.limites);
@@ -235,7 +236,8 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
       entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
       saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
     }).from(doloresMensagens).where(and(gt(doloresMensagens.reservaAte, agora), ne(doloresMensagens.id, p.mensagemId)));
-    if (!cabeNaParte(porFuncao.conversa, { entrada: Number(daConversa?.entrada ?? 0), saida: Number(daConversa?.saida ?? 0) }, p.reserva, p.limites, partes.conversa)) return "outro_pedido" as const;
+    if (parteEsgotada({ entrada: porFuncao.conversa.entrada + Number(daConversa?.entrada ?? 0), saida: porFuncao.conversa.saida + Number(daConversa?.saida ?? 0) },
+      p.limites, partes.conversa)) return "outro_pedido" as const;
     await tx.update(doloresMensagens).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),

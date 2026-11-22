@@ -73,6 +73,8 @@ marcada) 10% · clientes (atendimento a cliente cadastrado) 10% · avisos (proat
 - `server/dolores/whatsapp.ts` (pré-conferência da parte em `bloqueioAtual` e frase da conversa — pontos mínimos)
 - `server/dolores/testes-banco.ts` (aplica a 0148)
 - `client/src/components/admin/DoloresOperacaoCard.tsx` (barras por função, alertas, divisão)
+- `docs/dolores/como-ligar.md` (seção C5-E5)
+- testes antigos ajustados à parte de cada função: `server/dolores/{whatsapp,marcacao,grupos-qa-r2}.test.ts`
 - `server/dolores/c5-e5-gasto-por-funcao.test.ts` (novo)
 
 ## Change Log
