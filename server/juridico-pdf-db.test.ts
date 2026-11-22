@@ -63,7 +63,9 @@ describe("geração salva o contrato no mesmo clique", () => {
   it("assinatura digital de uma parte não altera a conclusão de todas as partes", async () => {
     const pg = await preparar();
     try {
-      const result = await caller().uploadDocument({ contractId:1,name:"teste-assinado.pdf",type:"assinatura_digital",base64:Buffer.from("%PDF-1.7 teste").toString("base64") });
+      // Desde o portão de QA de 22/11 (A2), a assinatura da empresa sempre informa o documento de origem.
+      await pg.exec("INSERT INTO portal_contract_documents (id,contract_id,name,type) VALUES (900,1,'gerado.pdf','contrato_gerado')");
+      const result = await caller().uploadDocument({ contractId:1,name:"teste-assinado.pdf",type:"assinatura_digital",documentoOrigemId:900,base64:Buffer.from("%PDF-1.7 teste").toString("base64") });
       expect(result.type).toBe("assinatura_digital");
       expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status:"parcial" });
     } finally { await pg.close(); }
@@ -92,7 +94,8 @@ describe("geração salva o contrato no mesmo clique", () => {
   it("envio usa e-mail cadastrado, PDF certo e deixa o cliente aguardando assinatura",async()=>{
     const pg=await preparar();try{
       await pg.exec("CREATE TABLE leads(id integer primary key,email text);INSERT INTO leads VALUES(20,'cliente@example.test');UPDATE portal_contracts SET lead_id=20,party_b='Cliente Teste'");
-      await caller().uploadDocument({contractId:1,name:"empresa.pdf",type:"assinatura_digital",base64:Buffer.from("%PDF-1.7 EMPRESA TESTE").toString("base64")});
+      await pg.exec("INSERT INTO portal_contract_documents (id,contract_id,name,type) VALUES (900,1,'gerado.pdf','contrato_gerado')");
+      await caller().uploadDocument({contractId:1,name:"empresa.pdf",type:"assinatura_digital",documentoOrigemId:900,base64:Buffer.from("%PDF-1.7 EMPRESA TESTE").toString("base64")});
       const mail=vi.spyOn(email,"sendEmail").mockResolvedValue(true);
       await caller().enviarParaAssinatura({id:1,email:true});
       expect(mail).toHaveBeenCalledWith(expect.objectContaining({to:"cliente@example.test",attachments:[expect.objectContaining({filename:"Contrato - Cliente Teste - Assinado pela empresa.pdf"})]}));
