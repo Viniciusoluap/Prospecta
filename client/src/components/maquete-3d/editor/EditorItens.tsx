@@ -10,7 +10,7 @@ import type { FontePlanta, ItemFonte } from "@shared/maquete-3d/fonte";
 import { ambienteEm, cenaDaFonte, ehAuxiliar, pecasDaFonte, type PecaFonte } from "@shared/maquete-3d/fonte-cena";
 import type { TipoMovel } from "@shared/maquete-3d/mobilia";
 import {
-  alterarItem, ambientesEditaveis, canonico, converterTipo, criarHistorico, desfazer, fecharGesto, girar, itensDoProblema, novoItem,
+  alterarItem, ambientesEditaveis, canonico, comTravaDaFonte, converterTipo, criarHistorico, desfazer, fecharGesto, girar, itensDoProblema, novoItem,
   portasBloqueadas, posicaoArrastada, problemasDaEdicao, refazer, registrar, rotuloDoTipo, vistaDoAmbiente, type Historico,
 } from "@shared/maquete-3d/edicao";
 import { Planta2D } from "../planta2d/Planta2D";
@@ -63,15 +63,20 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   /** Ambiente em que o 3D está enquadrado (computador); null = visão geral. */
   const [foco, setFoco] = useState<string | null>(null);
   const [plantaGrande, setPlantaGrande] = useState(false);
+  /** A versão carregada é de outra estrutura da planta: Salvar fica liberado mesmo sem mudança nos itens. */
+  const [precisaRegravar, setPrecisaRegravar] = useState(false);
   const computador = usarComputador();
 
   const abrir = useCallback(async () => {
     setErroAbrir(null);
     try {
       const d = await conexao.abrir(planta);
-      setDados(d); setH(criarHistorico(d.fonte.itens)); setSalvos(d.fonte.itens);
-      setVersaoBase(d.versaoBase); setVersaoPublicada(d.versaoPublicada); setSel(null); setMsg(d.estruturaMudou
-        ? { tipo: "erro", texto: "A planta (estrutura) mudou depois do último salvamento: confira os avisos e salve de novo antes de publicar." } : null);
+      // A trava de cada item é a da planta (servidor), nunca a que veio gravada na versão.
+      const carregados = comTravaDaFonte(d.padrao, d.fonte.itens);
+      setDados(d); setH(criarHistorico(carregados)); setSalvos(carregados);
+      setVersaoBase(d.versaoBase); setVersaoPublicada(d.versaoPublicada); setSel(null);
+      setPrecisaRegravar(!!d.precisaRegravar);
+      setMsg(d.precisaRegravar ? { tipo: "erro", texto: "A planta mudou desde o último salvar. Salve de novo para poder publicar." } : null);
     } catch (e) { setErroAbrir(lerErro(e).mensagem); }
   }, [conexao, planta]);
   useEffect(() => { void abrir(); }, [abrir]);
@@ -83,14 +88,14 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   const vista = useMemo(() => (base && geral && foco && computador ? vistaDoAmbiente(base, geral, foco) ?? geral : geral), [base, geral, foco, computador]);
   const fonte = useMemo(() => (base ? { ...base, itens } : null), [base, itens]);
   const pecas = usarPecas(base ?? ({ estrutura: { ambientes: [] } } as unknown as FontePlanta), base ? itens : []);
-  const problemas = useMemo(() => (base ? problemasDaEdicao(base, itens) : []), [base, itens]);
+  const problemas = useMemo(() => (base ? problemasDaEdicao(base, itens, dados?.padrao ?? base.itens) : []), [base, itens, dados]);
   const erros = useMemo(() => problemas.filter(p => p.nivel === "erro"), [problemas]);
   const avisos = useMemo(() => problemas.filter(p => p.nivel === "aviso"), [problemas]);
   const comErro = useMemo(() => new Set(erros.flatMap(p => itensDoProblema(p, itens))), [erros, itens]);
   const bloqueadas = useMemo(() => (base ? portasBloqueadas(base, itens) : []), [base, itens]);
   const zonas = useMemo(() => bloqueadas.flatMap(b => b.zonas), [bloqueadas]);
   const ambientes = useMemo(() => (base ? ambientesEditaveis(base).map(a => a.nome) : []), [base]);
-  const editaveis = useMemo(() => new Set(itens.filter(i => i.editavel).map(i => i.id)), [itens]);
+  const editaveis = useMemo(() => new Set(comTravaDaFonte(dados?.padrao ?? [], itens).filter(i => i.editavel).map(i => i.id)), [itens, dados]);
   const sujo = useMemo(() => canonico(itens) !== canonico(salvos), [itens, salvos]);
   const item = itens.find(i => i.id === sel) ?? null;
   const itensRef = useRef(itens);
@@ -218,7 +223,7 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
     setOcupado("salvar"); setMsg(null);
     try {
       const r = await conexao.salvar(planta, versaoBase, itens);
-      setVersaoBase(r.versao); setSalvos(itens);
+      setVersaoBase(r.versao); setSalvos(itens); setPrecisaRegravar(false);
       setMsg({ tipo: "ok", texto: `Rascunho salvo (versão ${r.versao}). O cliente continua vendo a versão publicada até você publicar.` });
     } catch (e) { const x = lerErro(e); setMsg({ tipo: "erro", texto: x.mensagem, conflito: x.conflito }); }
     finally { setOcupado(null); }
@@ -247,6 +252,7 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
 
   const semNada = versaoBase === 0;
   const estado = sujo ? "Alterações não salvas"
+    : precisaRegravar ? "A planta mudou: salve de novo para poder publicar"
     : semNada ? "Itens padrão da planta (nada salvo ainda)"
     : versaoBase !== versaoPublicada ? `Rascunho não publicado (versão ${versaoBase})${versaoPublicada ? ` · o cliente vê a versão ${versaoPublicada}` : " · nada publicado ainda"}`
     : `Publicado · versão ${versaoPublicada}`;
@@ -258,8 +264,8 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
       <BarraEdicao
         e={{
           podeDesfazer: h.passado.length > 0, podeRefazer: h.futuro.length > 0,
-          podeSalvar: !ocupado && sujo && !erros.length, podePublicar: !ocupado && !sujo && !semNada && versaoBase !== versaoPublicada && !erros.length,
-          ocupado, estado, tomEstado: sujo || (!semNada && versaoBase !== versaoPublicada) ? "pendente" : !semNada ? "ok" : "neutro", motivoBloqueio: motivo,
+          podeSalvar: !ocupado && (sujo || precisaRegravar) && !erros.length, podePublicar: !ocupado && !sujo && !precisaRegravar && !semNada && versaoBase !== versaoPublicada && !erros.length,
+          ocupado, estado, tomEstado: sujo || precisaRegravar || (!semNada && versaoBase !== versaoPublicada) ? "pendente" : !semNada ? "ok" : "neutro", motivoBloqueio: motivo,
         }}
         aoDesfazer={desfazerUm} aoRefazer={refazerUm} aoRestaurar={restaurar} aoSalvar={() => void salvar()} aoPublicar={() => void publicar()}
         aoSair={() => aoSair(itens)} />

@@ -204,11 +204,11 @@ export const TIPOS_QUE_ALCANCAM: readonly TipoMovel[] = ["balcao"];
 
 /**
  * Itens com `alcanca` derivado (nunca o valor vindo da tela): tipo que alcança → os outros ambientes sobre os quais o
- * contorno dele fica de fato (no máximo 4, na ordem da planta); outro tipo → sem `alcanca`. Itens travados ficam
- * como estão (o servidor já exige que sejam iguais aos da planta).
+ * contorno dele fica de fato (no máximo 4, na ordem da planta); outro tipo → sem `alcanca`. Itens travados NA FONTE
+ * (`padrao`, nunca o `editavel` da tela: `comTravaDaFonte`) ficam como estão (o servidor exige que sejam iguais aos da planta).
  */
-export function comAlcanceDerivado(f: FontePlanta, itens: ItemFonte[]): ItemFonte[] {
-  return itens.map(i => {
+export function comAlcanceDerivado(f: FontePlanta, itens: ItemFonte[], padrao: ItemFonte[] = f.itens): ItemFonte[] {
+  return comTravaDaFonte(padrao, itens).map(i => {
     if (!i.editavel) return i;
     const { alcanca: _a, ...sem } = i;
     if (!TIPOS_QUE_ALCANCAM.includes(i.tipo)) return sem;
@@ -296,8 +296,8 @@ export function alterarItem(f: FontePlanta, itens: ItemFonte[], id: string, muda
 export const fonteComItens = (f: FontePlanta, itens: ItemFonte[]): FontePlanta => ({ ...f, itens });
 
 /** Problemas da planta com estes itens (`validarFonte`). Qualquer erro bloqueia salvar e publicar. */
-export function problemasDaEdicao(f: FontePlanta, itens: ItemFonte[]): ProblemaFonte[] {
-  const derivados = comAlcanceDerivado(f, itens);
+export function problemasDaEdicao(f: FontePlanta, itens: ItemFonte[], padrao: ItemFonte[] = f.itens): ProblemaFonte[] {
+  const derivados = comAlcanceDerivado(f, itens, padrao);
   const elevados: ProblemaFonte[] = derivados.filter(i => i.editavel && (i.elev ?? 0) > 0 && !podeTerElevacao(i.tipo)).map(i => ({
     nivel: "erro", codigo: "item_elevado", onde: i.id,
     mensagem: `O item "${i.id}" (${i.tipo}) é de piso e não pode ficar elevado do chão (${String(i.elev).replace(".", ",")} m). Só itens de parede ou teto têm elevação.`,
@@ -361,6 +361,20 @@ export function refazer<T>(h: Historico<T>): Historico<T> {
 export const fecharGesto = <T>(h: Historico<T>): Historico<T> => (h.chave ? { ...h, chave: null } : h);
 
 // ── Itens vindos do servidor × padrão ──
+
+/**
+ * `editavel` NUNCA vem da tela: quem decide se um item é travado (e por isso fica fora da regra de elevação e da
+ * derivação de `alcanca`) é a FONTE do servidor — o item de mesmo `id` com `editavel: false` no JSON do repositório.
+ * Qualquer outro item (inclusive o novo, que não existe na fonte) é editável e passa por todas as regras. Devolve o
+ * mesmo objeto quando o valor já está certo (a tela reaproveita a peça já montada).
+ */
+export function comTravaDaFonte(padrao: ItemFonte[], itens: ItemFonte[]): ItemFonte[] {
+  const travados = new Set(padrao.filter(p => !p.editavel).map(p => p.id));
+  return itens.map(i => {
+    const editavel = !travados.has(i.id);
+    return i.editavel === editavel ? i : { ...i, editavel };
+  });
+}
 
 /** Itens não editáveis da planta padrão precisam continuar iguais (o servidor recusa se mudarem ou sumirem). */
 export function travadosAlterados(padrao: ItemFonte[], itens: ItemFonte[]): string[] {

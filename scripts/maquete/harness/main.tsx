@@ -25,7 +25,7 @@ function conexaoEmMemoria(): ConexaoEditor {
       return {
         maqueteId: 1, fonte: { ...fonte, itens: ultima?.itens ?? fonte.itens }, padrao: fonte.itens, versaoBase: ultima?.versao ?? 0,
         situacao: ultima ? (ultima.versao === publicada ? "publicada" : "rascunho") : "padrao", versaoPublicada: publicada,
-        rascunhoNaoPublicado: !!ultima && ultima.versao !== publicada, estruturaMudou: false, ultimaSalva: null,
+        rascunhoNaoPublicado: !!ultima && ultima.versao !== publicada, estruturaMudou: false, precisaRegravar: false, ultimaSalva: null,
       };
     },
     salvar: async (_p, base, itens) => {

@@ -14,6 +14,8 @@ export type DadosEdicao = {
   versaoPublicada: number | null;
   rascunhoNaoPublicado: boolean;
   estruturaMudou: boolean;
+  /** A versão carregada foi salva com outra estrutura: o Salvar fica liberado mesmo sem mudança nos itens. */
+  precisaRegravar: boolean;
   ultimaSalva: { versao: number; em: Date | string; autor: string | null } | null;
 };
 
