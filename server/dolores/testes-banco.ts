@@ -121,8 +121,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const mesas = MIGRACAO_0151();
   await pg.exec(mesas);
   await pg.exec(mesas);
+  // EPIC-027 C5 (tarefa demorada sem travar a conversa): migração 0153, também duas vezes.
+  const tarefas = MIGRACAO_0153();
+  await pg.exec(tarefas);
+  await pg.exec(tarefas);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0153 = () => readFileSync(new URL("../../drizzle/0153_dolores_tarefas_demoradas.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0151 = () => readFileSync(new URL("../../drizzle/0151_dolores_mesas.sql", import.meta.url), "utf8");
 

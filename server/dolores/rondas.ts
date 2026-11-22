@@ -43,7 +43,7 @@ import { bancoDaLeitura, emTransacaoSomenteLeitura } from "./somente-leitura.js"
 import { bloqueioDaOperacao, lerConfigOperacao, registrarEvento, type ConfigOperacao } from "./operacao.js";
 import { idDaDoloresSemCriar } from "./perfil.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
-import { enviarAvisoAoDono } from "./whatsapp.js";
+import { enviarAvisoAoDono, retomarTarefasDemoradas } from "./whatsapp.js";
 import { DIAS_PARADO_PADRAO } from "../../shared/dolores/regras.js";
 
 /** Prazo da rota do cron (a função da Vercel tem 60 s). */
@@ -456,6 +456,10 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   // QA C5 (B1/B2): alertas de gasto que ficaram pendentes (proposta aberta, sem tempo no aviso, envio que não saiu) saem aqui, no
   // tempo que sobrar — depois da ronda e do relatório. A pausa geral e a conexão são conferidas no envio (enviarAvisoAoDono).
   await enviarAlertasPendentes({ prazoFinal, canal: "cron", agora, relogio: relogio.ms });
+  // EPIC-027 C5 (tarefa demorada): rede de segurança do aviso da Evolution — vence/avisa as paradas e, com tempo de sobra, retoma
+  // no máximo UMA tarefa do dono (as mesmas travas: pausa, limite, só leitura, só ao número do dono). Nunca lança nem muda a resposta.
+  // Integração 2: depois dos alertas de gasto e ANTES dos avisos proativos (o dono está esperando a resposta; o aviso cabe na próxima hora).
+  await retomarTarefasDemoradas({ prazoFinal, canal: "cron" }).catch(() => undefined);
   // EPIC-027 C5-E4: depois (os alertas de gasto têm a vez: prazo curto e o de 100% avisa que uma função parou), com o tempo que sobra,
   // os avisos automáticos ao dono (desligados por padrão; janela, teto, vaga única e proposta aberta conferidos em
   // server/dolores/avisos.ts). Nunca mudam a resposta nem o erro da ronda.

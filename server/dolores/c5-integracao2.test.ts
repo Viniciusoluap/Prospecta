@@ -26,7 +26,9 @@ import { definirDependenciasPonte, executarFuncao, ferramentasDaConversa, ferram
 import { definirRelogioCron, tratarCronAvisos, tratarCronDolores } from "./rondas.js";
 import { CENARIO, criarBanco } from "./testes-banco.js";
 import { criarTabelasDaMaquete } from "./testes-maquete.js";
-import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { definirDependenciasWhatsapp, retomarTarefasDemoradas, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { FECHO_DA_TAREFA } from "./tarefa-demorada.js";
+import { AVISO_REURB, FUNCAO_REURB } from "../../shared/dolores/reurb-conhecimento.js";
 
 const DONO = "5599991234567";
 const SITE = "https://www.prospectaconstrucoes.com";
@@ -308,4 +310,82 @@ describe("integração 2 — alerta de gasto único com as duas frentes ligadas"
 it("ações novas das três frentes classificadas (nenhuma sem nível), registradas uma vez", () => {
   const nomes = ACOES.map(a => a.nome);
   for (const n of ["silenciar_aviso", "gerar_link_maquete_lote", "propor_mesa", "revisar_mesa", "propor_aprovacao_mesa", "recusar_mesa"]) expect(nomes.filter(x => x === n), n).toHaveLength(1);
+});
+
+// ── Tarefa demorada (epic027-c5longa) × mesas, maquete, avisos e REURB ──────────────────────────────────────────────────────────
+describe("integração 2 — tarefa demorada (retomada em segundo plano, só leitura)", () => {
+  /** Grava a mensagem do dono e a tarefa aguardando, como whatsapp.ts#tratarComando grava (o comando é o texto dele). */
+  async function tarefaDoDono(comando: string) {
+    const [m] = (await banco.pg.query<{ id: number }>(`INSERT INTO dolores_mensagens (instancia, external_id, remetente, do_dono, situacao) VALUES ('prospecta-dolores', 'TD-INT2-${++seq}', '${DONO}', true, 'respondida') RETURNING id`)).rows;
+    await banco.pg.exec(`INSERT INTO dolores_tarefas_demoradas (mensagem_id, comando, dia, criado_em, expira_em) VALUES (${m.id}, '${comando.replace(/'/g, "''")}', '2026-11-16', '${agora.toISOString()}', '${new Date(agora.getTime() + 3_600_000).toISOString()}')`);
+    return m.id;
+  }
+  const retomar = () => retomarTarefasDemoradas({ prazoFinal: Date.now() + 55_000, canal: "cron" });
+  const NOMES_ACOES = new Set(ACOES.map(a => a.nome));
+  const multi = (...chamadas: Array<[string, unknown]>): RespostaModelo => ({ stop_reason: "tool_use", usage: uso,
+    content: chamadas.map(([name, input], i) => ({ type: "tool_use", id: `tu_${name}_${i}_${++seq}`, name, input })) });
+
+  it("retomada só leitura: nenhuma ação é oferecida (nem mesa, maquete ou avisos), a porta as recusa; as leituras só do dono valem com a mensagem da tarefa", async () => {
+    await semearMaquete();
+    const mensagemId = await tarefaDoDono("aprova a mesa 1, gera o link da maquete do lote 5 da quadra 18, para de me avisar de obras e me manda o link do lote 4 da quadra 18");
+    roteiro.push(p => {
+      const nomes = (p.ferramentas as Array<{ name: string }>).map(f => f.name);
+      for (const n of nomes) expect(NOMES_ACOES.has(n), n).toBe(false);
+      for (const n of ["propor_aprovacao_mesa", "propor_mesa", "gerar_link_maquete_lote", "silenciar_aviso", "criar_tarefa"]) expect(nomes).not.toContain(n);
+      expect(nomes).toEqual(expect.arrayContaining(SO_DO_DONO));
+      return multi(["propor_aprovacao_mesa", { mesaId: 1 }], ["gerar_link_maquete_lote", { loteId: 2 }], ["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }],
+        ["consultar_maquete_lote", { busca: "lote 4 da quadra 18" }]);
+    }, () => textoModelo("Segue o que levantei sobre o lote 4."));
+    expect(await retomar()).toBe("concluida");
+    // os resultados das ferramentas que o modelo recebeu: ações recusadas, a leitura do dono executada com a mensagem da tarefa
+    const resultados = (pedidosModelo[1].mensagens.at(-1)!.content as any[]).map(b => JSON.parse(b.content));
+    expect(resultados.slice(0, 3).every(r => r.ok === false)).toBe(true);
+    expect(resultados[3]).toMatchObject({ ok: true });
+    expect(JSON.stringify(resultados[3])).toContain("k3m9x2pq7a");
+    expect(await q<any>(`SELECT funcao, canal, resultado FROM dolores_acoes WHERE funcao = 'consultar_maquete_lote'`)).toEqual([{ funcao: "consultar_maquete_lote", canal: "whatsapp", resultado: "ok" }]);
+    expect(mensagemId).toBeGreaterThan(0);
+    // nada mudou: sem fila, sem proposta, sem link novo, sem silêncio
+    expect(await q("SELECT id FROM dolores_aprovacoes")).toEqual([]);
+    expect(await q("SELECT id FROM dolores_conversa_pendencia")).toEqual([]);
+    expect((await q<any>("SELECT codigo_link FROM maquete_3d_lotes WHERE id = 2"))[0].codigo_link).toBeNull();
+    expect(await q("SELECT tipo FROM dolores_avisos_tipos WHERE silenciado = true")).toEqual([]);
+    // o resultado vai só ao dono, com o link (quadro do sistema) e o fecho fixo
+    const ultima = mensagens().at(-1)!;
+    expect(ultima.numero).toBe(DONO);
+    expect(ultima.texto).toContain(`${SITE}/maquete/vila-esmeralda/qd18-lote4-k3m9x2pq7a`);
+    expect(ultima.texto).toContain(FECHO_DA_TAREFA);
+  });
+
+  it("parecer de REURB vindo por tarefa leva o aviso da REURB E o fecho da tarefa", async () => {
+    const [reurb] = (await banco.pg.query<{ id: number }>(`INSERT INTO regularizacoes (client_name, client_phone, type, status, address, responsible, created_at, updated_at) VALUES
+      ('Associação Vila Esperança', '99955554444', 'REURB-S Vila Esperança', 'em_andamento', 'Vila Esperança', 'Bianca Souza', '2026-08-01 12:00', '2026-11-10 12:00') RETURNING id`)).rows;
+    await tarefaDoDono("me faz um levantamento da REURB da Vila Esperança com o parecer");
+    roteiro.push(p => { expect((p.ferramentas as Array<{ name: string }>).map(f => f.name)).toContain(FUNCAO_REURB); return ferramenta(FUNCAO_REURB, { id: reurb.id }); },
+      () => textoModelo("*Enquadramento provável*: REURB-S [CONFERIR com o município]."));
+    expect(await retomar()).toBe("concluida");
+    const ultima = mensagens().at(-1)!.texto;
+    expect(ultima).toContain(AVISO_REURB.slice(0, 40));
+    expect(ultima).toContain(FECHO_DA_TAREFA);
+  });
+
+  it("resultado da tarefa e aviso proativo esperam proposta aberta; no cron: alertas → tarefa → avisos, cada um uma vez", async () => {
+    const ordem: string[] = [];
+    definirEnvioDosAlertas(async () => { ordem.push("alerta"); return { ok: true, motivo: null, tentou: true }; });
+    enviar.mockImplementation(async (m: { texto: string }) => { ordem.push(m.texto.includes("levantamento") ? "tarefa" : m.texto.includes("Dolores — avisos de") ? "aviso" : "outro"); return true; });
+    await ligarAvisos();
+    await banco.pg.exec("INSERT INTO dolores_consumo (mes, modelo, volta, tokens_entrada, tokens_saida, funcao, parada) VALUES ('2026-11', 'm', 1, 85000, 0, 'grupos', 'grupo:end_turn')");
+    await registrarAlertasDevidos("2026-11");
+    await tarefaDoDono("me faz um relatório das obras");
+    await abrirPropostaNaMao();
+    expect(await retomar()).toBe("proposta-aberta");
+    expect((await executarAvisos({ agora: SEG_9H })).r).toBe("proposta-aberta");
+    expect(ordem).toEqual([]);
+    agora = hora("2026-11-16T12:15:00Z"); // a proposta venceu
+    definirRelogioCron({ agora: () => agora });
+    roteiro.push(() => ferramenta("listar_obras", {}), () => textoModelo("Relatório: a obra Casa Ana está atrasada."));
+    const r = await tratarCronDolores({ headers: { authorization: `Bearer ${SEGREDO_CRON}` } } as never);
+    expect(r.body).toMatchObject({ avisos: "enviado" });
+    expect(ordem).toEqual(["alerta", "tarefa", "aviso"]);
+    expect(await q<any>("SELECT situacao FROM dolores_tarefas_demoradas")).toEqual([{ situacao: "concluida" }]);
+  });
 });
