@@ -136,7 +136,23 @@ export async function esquecerSenha(cert: CertificadoSalvo) {
   await operar("readwrite", s => s.put({ ...resto, key:`${cert.owner}:${cert.id}` }));
 }
 
-export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura) {
+/**
+ * Monta a cadeia antes de assinar: recebe SÓ o certificado público (DER) e a cadeia que veio no A1 e devolve os
+ * intermediários (DER) — no Jurídico, pela rota autenticada `juridico.montarCadeia`. Senha, PFX e chave nunca saem daqui.
+ */
+export type MontarCadeia = (certificado: Uint8Array, cadeia: Uint8Array[]) => Promise<Uint8Array[]>;
+
+/** Acrescenta à cadeia do assinante os intermediários que ainda não estão nela (sem duplicar e sem a própria folha). */
+export function incluirIntermediarios(signer: Pick<P12Signer, "certificate" | "certificateChain">, intermediarios: Uint8Array[]) {
+  const chave = (b: Uint8Array) => Array.from(b).join(",");
+  const presentes = new Set([signer.certificate, ...signer.certificateChain].map(chave));
+  // `certificateChain` é readonly no tipo da @libpdf/core 0.5.3, mas o array é o mesmo usado na assinatura CMS.
+  const cadeia = signer.certificateChain as Uint8Array[];
+  for (const item of intermediarios.slice(0, 5)) if (!presentes.has(chave(item))) { cadeia.push(Uint8Array.from(item)); presentes.add(chave(item)); }
+  return cadeia.length;
+}
+
+export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura, montarCadeia?: MontarCadeia) {
   let aberto: ArrayBuffer;
   try { aberto = await crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(salvo.iv) }, await chave(senha, salvo.salt), salvo.protegido); }
   catch { throw new Error("Senha do certificado incorreta."); }
@@ -145,6 +161,8 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
     const { signer, info } = await abrirCertificado(pfx, senha);
     if (info.id !== salvo.id) throw new Error("O certificado selecionado não corresponde ao arquivo guardado.");
     conferirValidade(info);
+    // Intermediários até a raiz ICP-Brasil entram no CMS, para quem conferir o PDF não depender do AIA da certificadora.
+    if (montarCadeia) incluirIntermediarios(signer, await montarCadeia(Uint8Array.from(signer.certificate), signer.certificateChain.map(c => Uint8Array.from(c))));
     const pdf = await PDF.load(bytes);
     if (posicao) {
       const { pagina, x, y, largura, altura } = posicao;
