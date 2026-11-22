@@ -79,3 +79,20 @@ Paridade Grupo Santa Fé continua pendência registrada da frente do Jurídico. 
 ## Próximo passo exato
 
 Criar checkout LIMPO desta branch remota, ler este HANDOFF e CLAUDE.md, executar primeiro TypeScript/testes focados para corrigir os rascunhos PKI; depois concluir dimensionamento integral, integração frontend/backend, persistência e retentativa. Atualizar este HANDOFF, commit/push e confirmar GitHub a cada etapa. Só publicar após revisão Completed e checks, com smoke da API/login para evitar o incidente anterior.
+
+## Item 1 — marca proporcional
+
+Branch `claude/juridico-marca-proporcional` (worktree `/home/user/pr-jur-marca`), feita em paralelo à frente `codex/juridico-validacao-automatica-2211`. Sem merge, PR ou deploy.
+
+Feito:
+- `client/src/lib/marca-assinatura.ts` (NOVO): função pura `layoutDaMarca(largura, altura, blocos)` calcula fonte, entrelinha (1,2 × fonte), margem (8% do menor lado), borda (0,8% do menor lado) e posição de cada linha. A conta é homogênea: dobrar a caixa dobra tudo, por isso a prévia (px) e o PDF (pt) ficam iguais em proporção. Escolhe a maior fonte que faz o texto caber; o nome é quebrado pela largura real em Helvetica (`measureText` da @libpdf/core), e palavra sem espaço é quebrada por caractere. Também `linhasDaMarca` (textos da marca), `caixaNaEscala` (50–160%, preserva o centro, nunca sai da página) e `moverCaixa` (toque/arrasto).
+- `client/src/lib/certificados-digitais.ts`: em `assinarPdf`, o bloco de desenho (antes `Math.min(9, ...)` e padding fixo de 4 pt) virou chamada a `layoutDaMarca`. `abrirCertificado`, `signer` e certificados não foram tocados.
+- `client/src/components/admin/PosicionarAssinaturaPdf.tsx`: a prévia usa a mesma função sobre a caixa em px (tamanho real exibido, medido com ResizeObserver), em vez do texto fixo de 10 px; o slider "Tamanho da assinatura" e o arrasto usam `caixaNaEscala`/`moverCaixa`. O aviso "Toque para posicionar" saiu de dentro da marca e foi para baixo da página. Props opcionais `titular`/`documento` (ainda não passadas por `CertificadosJuridico.tsx`, que é da outra frente): sem elas a prévia mostra "Titular do certificado".
+- Efeito visível: na escala 100% em A4 retrato a fonte da marca passa de 9 pt para ~16 pt (nome curto) / ~11 pt (razão social longa), porque agora a marca preenche a caixa que a prévia mostra.
+
+Testes:
+- (a) Automáticos: `server/juridico-marca-assinatura.test.ts` (9 testes: escala proporcional, px × pt, texto cabendo, limites 50%/160% em A4, A4 paisagem, Carta, Ofício paisagem e A5, coordenadas após redimensionar e arrastar, e assinatura real com bytes sintéticos e certificado autoassinado de teste em retrato e paisagem, conferindo que o texto extraído fica dentro da caixa). `server/juridico-certificados.test.ts` continua passando sem alterações. Resultados ao parar (coordenador mandou parar por créditos): `npx tsc --noEmit -p .` exit 0; teste novo 9/9 e `juridico-certificados.test.ts` 7/7 aprovados; suíte completa `npx vitest run` e `npx vite build` ficaram em execução e NÃO terminaram nesta sessão — rodar de novo antes de mesclar.
+- (b) Manuais: nenhum; a prévia não foi conferida em navegador nem no iPad.
+- (c) Pendentes em produção: conferir no iPad a prévia vs. o PDF assinado nas escalas 50% e 160%. Limite conhecido: em A5 a 50% com razão social longa a fonte fica em ~3,8 pt (A4/Carta/Ofício ficam sempre ≥ 4 pt).
+
+Próximo passo: a frente principal pode passar `titular`/`documento` do certificado escolhido para `PosicionarAssinaturaPdf` (em `CertificadosJuridico.tsx`) para a prévia mostrar o nome real e quebrar as linhas igual ao PDF.
