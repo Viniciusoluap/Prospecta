@@ -139,7 +139,13 @@ Se não quiser mais um desses avisos, me diga (ex.: "pare de me avisar de tarefa
 - CREATE: catálogo/estado/envio dos avisos (não existia aviso avulso, agrupamento, faixa nem silêncio por tipo).
 
 ## Testes executados (22/11/2026)
-- (a) Automáticos: ver o relatório da sessão (lista abaixo atualizada ao fechar).
+- (a) Automáticos: `npx tsc --noEmit` limpo; `npx vite build` ok. `server/dolores/c5-e4-proatividade.test.ts` 28/28. Verdes também:
+  `operacao-regras`, `c5-e5-gasto-por-funcao`, `c5-e2-resolve`, `whatsapp`, `acoes`, `correcoes-e3`, `c5-e1-voz`, `c4-horario-relatorio`,
+  `qa-c4-c5-prova`, `c5-e1-memoria`, `c5-e1-qa-r4`, `operacao`, `operacao-migracao`, `operacao-qa-seguranca`, `c5-memoria-longa`,
+  `c5-e3-grupo-registro`, `ponte`, `whatsapp-qa`, `c5-e2-qa`, `revisao-automatica-c5`, `integracoes-anthropic`,
+  `integracoes-modelo-por-funcao` (lista de funções ajustada: linha nova `dolores_avisos`). Observação: numa rodada com 12 arquivos em
+  paralelo, `acoes.test.ts` › "as quatro ações da etapa 3…" falhou uma vez ("expected true to be false") e passou nas duas rodadas
+  seguintes (sozinho e com outro arquivo) — instável, sem relação clara com esta etapa; fica para o portão de QA olhar.
 - (b) Manuais: nenhum.
 - (c) Pendentes em produção: aplicar a 0150 no Neon; conferir os 15 crons no painel da Vercel; ligar os avisos na tela e acompanhar o
   primeiro dia (segunda a sábado).
