@@ -1,5 +1,6 @@
 import { P12Signer, PDF, rgb } from "@libpdf/core";
 import { Certificate } from "pkijs";
+import { bytesBase64 } from "./juridico-arquivos";
 
 export type CertificadoInfo = {
   id: string; titular: string; documento: string; emissor: string;
@@ -134,6 +135,24 @@ export async function recuperarSenha(cert: CertificadoSalvo): Promise<string | n
 export async function esquecerSenha(cert: CertificadoSalvo) {
   const { senhaSalva, ...resto } = cert;
   await operar("readwrite", s => s.put({ ...resto, key:`${cert.owner}:${cert.id}` }));
+}
+
+/**
+ * EPIC-029 S-4: devolve o .pfx guardado (em base64) para o admin enviar ao cofre da emissão de NFS-e no servidor, pela
+ * rota integracoes.certificadoFiscal.enviar. Confere a senha e que o arquivo é o mesmo certificado. Os bytes abertos são
+ * zerados depois; nada é gravado nem mostrado.
+ */
+export async function pfxParaEmissao(salvo: CertificadoSalvo, senha: string): Promise<string> {
+  let aberto: ArrayBuffer;
+  try { aberto = await crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(salvo.iv) }, await chave(senha, salvo.salt), salvo.protegido); }
+  catch { throw new Error("Senha do certificado incorreta."); }
+  const pfx = new Uint8Array(aberto);
+  try {
+    const { info } = await abrirCertificado(pfx, senha);
+    if (info.id !== salvo.id) throw new Error("O certificado selecionado não corresponde ao arquivo guardado.");
+    conferirValidade(info);
+    return bytesBase64(pfx);
+  } finally { pfx.fill(0); }
 }
 
 export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura) {
