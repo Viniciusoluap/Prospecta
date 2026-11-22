@@ -7,7 +7,7 @@ import { hash } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { tasks } from "../../../drizzle/schema.js";
-import { avisoDaFila, lerPrazo, textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
+import { prefixoDaFila, lerPrazo, textoDeDado, umaLinha } from "../../../shared/dolores/fila.js";
 import { diaFortaleza, isoFortaleza } from "../../../shared/dolores/formato.js";
 import { createTask, getAssignableLeadById, getAssignableUsers, getProjectById } from "../../db.js";
 import { bancoDaAcao } from "../escrita.js";
@@ -128,7 +128,7 @@ export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, c
     args.vinculo ? `ligada ao ${args.vinculo.tipo} ${args.vinculo.id}` : "sem vínculo",
     ...(descricao ? [`descrição: "${descricao}"`] : []),
   ];
-  const resumo = resumoDaFila(`${avisoDaFila(ctx.motivoContaminacao)} criar a tarefa "${titulo}" ${partes.join(", ")}.`,
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}criar a tarefa "${titulo}" ${partes.join(", ")}.`,
     [`criar a tarefa "${titulo}" para ${nome}, `, ...(descricao ? [`, descrição: "${descricao}".`] : [])]);
   const argumentos = { ...args, titulo, responsavel: nome, ...(descricao ? { descricao } : {}) };
   // QA R2 M4: a identidade do item é TODO o conteúdo — pedido com outra descrição, prazo ou prioridade é item novo (nunca

@@ -132,7 +132,7 @@ describe("mensagens do dono reconhecidas por código", () => {
 
 describe("prompt de sistema novo (trava de regressão)", () => {
   for (const mascarar of [true, false]) {
-    it(`mascarar=${mascarar}: sem "Cite a fonte", sem nome de função entre colchetes, sem "aprovar CÓDIGO" e sem prometer ação da E2`, () => {
+    it(`mascarar=${mascarar}: sem "Cite a fonte", sem nome de função entre colchetes, sem "aprovar CÓDIGO"; E2: ela propõe e o sistema pergunta "pode"`, () => {
       const p = promptSistemaWhatsapp(mascarar);
       expect(p).not.toMatch(/Cite a fonte/i);
       expect(p).not.toMatch(/\[[a-z]+_[a-z_]+\]/);
@@ -141,8 +141,10 @@ describe("prompt de sistema novo (trava de regressão)", () => {
       expect(p).not.toMatch(/cadastrou o administrador|cadastrados pelo administrador/);
       // nenhum nome interno de ferramenta no texto do sistema
       for (const n of [...FUNCOES.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(p, n).not.toContain(n);
-      // o que existe hoje: 6 tipos de grupo, atende cliente cadastrado; o que é da E2 aparece como "ainda não dá"
-      for (const t of ["cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros comerciais ou\n  engenharia", "Cliente cadastrado", "Ainda não dá para fazer pela conversa"]) expect(p).toContain(t);
+      // o que existe hoje: 6 tipos de grupo, atende cliente cadastrado; EPIC-027 C5 (E2): ela resolve pela conversa com o "pode"
+      for (const t of ["cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros comerciais ou\n  engenharia", "Cliente cadastrado", "Resolver por aqui, quando ele pedir",
+        "ele responde \"pode\" (ou \"confirmo\", no que é sério)", "Não pergunte você mesma"]) expect(p).toContain(t);
+      expect(p).not.toContain("Ainda não dá para fazer pela conversa");
       // nada dinâmico (o cache do texto do sistema vale entre pedidos)
       expect(promptSistemaWhatsapp(mascarar)).toBe(p);
       // tamanho: curto (o antigo tinha ~8.800 caracteres)

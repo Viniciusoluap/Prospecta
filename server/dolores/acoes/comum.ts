@@ -32,6 +32,18 @@ export type ContextoAcao = {
    * estar nele, byte a byte (`conferirMostrado`); senão, nada é feito.
    */
   textoMostrado?: string;
+  /**
+   * EPIC-027 C5 (E2) — só na execução de um item APROVADO: por onde o dono decidiu ("whatsapp" = a conversa direta do número dele;
+   * "tela" = um administrador). As ações de grupo só executam com a decisão do dono no WhatsApp (aceitar grupo é só dele — regra de 19/11).
+   */
+  via?: "whatsapp" | "tela";
+  /** EPIC-027 C5 (E2) — a mensagem do dono que DECIDIU o item ("pode"/"confirmo"/"aprovar CÓDIGO"), quando foi pelo WhatsApp. */
+  decisaoMensagemId?: number | null;
+  /**
+   * EPIC-027 C5 (E2) — validade curta do item na fila (ms), quando ele nasce numa conversa com confirmação natural ("pode"): o
+   * item não fica aprovável por 48 h depois que a proposta venceu. Sem ela, vale a validade da configuração da fila.
+   */
+  validadeFilaMs?: number;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */

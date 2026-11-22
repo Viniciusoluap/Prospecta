@@ -9,6 +9,7 @@ import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } 
 import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
 import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
@@ -73,7 +74,8 @@ const PRAZO_CONSULTA_MS = 15_000;
  * ≈ 10,3 mil tokens pela estimativa por cima (memoria.ts#tokensEstimadosDoTexto) + ~500 da própria API para ferramentas. Antes era
  * 4.000, abaixo do prefixo real (~9 mil). O teste c5-e1-qa-r4 confere que o piso continua cobrindo o prefixo quando ele crescer.
  */
-export const RESERVA_MINIMA_ENTRADA = 12_000;
+// EPIC-027 C5 (E2): as 4 ferramentas de grupo aumentaram o prefixo (~12,7 mil pela estimativa por cima): piso 12.000 → 14.000.
+export const RESERVA_MINIMA_ENTRADA = 14_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -136,6 +138,12 @@ export type ResultadoComando = {
   tokens: { entrada: number; saida: number };
   /** EPIC-027 C5 (E1): ids + nome curto das entidades que as consultas devolveram (por código), para a memória da conversa. */
   referencias: ReferenciaConversa[];
+  /**
+   * EPIC-027 C5 (E2): o que este pedido propôs pode ser confirmado com "pode"/"confirmo" — a mensagem do DONO pede ação (verbo
+   * de ação ou um "sim" dele, por código) e não tem texto colado. Falso: o que ficou esperando só sai pela aprovação com o
+   * código ou pela tela (como antes), e não substitui a proposta que já esperava a resposta dele.
+   */
+  podeConfirmar: boolean;
 };
 
 export type PedidoComando = {
@@ -190,7 +198,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // Etapa 3: leituras + ações liberadas (lista fechada). O dono é quem comandou (mensagemId conferido em whatsapp.ts).
   // Reforço (portão de QA): as ferramentas de ação só são oferecidas quando a mensagem do dono tem intenção de ação,
   // reconhecida por código; sem ela, o laço é só de leitura (e a porta recusa ação mesmo que o modelo a peça).
-  const comAcoes = intencaoDeAcao(p.comando);
+  // EPIC-027 C5 (E2): um "sim"/"pode" do dono sem proposta esperando também é pedido de ação dele (resposta a uma pergunta da
+  // conversa) — o modelo pode PROPOR; nada executa sem a resposta dele à proposta, reconhecida por código.
+  const comAcoes = intencaoDeAcao(p.comando) || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
+  const podeConfirmar = comAcoes && !pareceColagem(p.comando);
   const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
@@ -310,7 +321,9 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       const resp = await executarFuncao(
         { funcao: u.name, argumentos: u.input && typeof u.input === "object" ? u.input : {}, pedidoId: `wa:${p.mensagemId}:${voltas}:${i}` },
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
-          contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)) },
+          contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
+          // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar },
       );
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o
@@ -354,5 +367,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta) };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar };
 }

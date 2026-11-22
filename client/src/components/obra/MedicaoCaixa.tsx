@@ -1,5 +1,5 @@
 
-import { LIMITE_PCI_BYTES, PARTE_PCI_BYTES } from "@shared/pci-upload";
+import { ACEITE_ARQUIVO_PCI, formatoPciPeloNome, LIMITE_PCI_BYTES, MENSAGEM_FORMATO_PCI, PARTE_PCI_BYTES, type FormatoPci } from "@shared/pci-upload";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Download, FileSpreadsheet, ImagePlus, Link2, Link2Off, Loader2, Trash2, Upload, X } from "lucide-react";
@@ -162,7 +162,7 @@ export interface ResumoPci {
   arquivo: string;
   enviadaEm: string | Date;
   vinculadaEm: string | Date | null;
-  formato: "xls" | "xlsb";
+  formato: FormatoPci;
   proponente: string;
 }
 
@@ -178,8 +178,8 @@ export function PciObra({ projectId, onVinculoAlterado }: { projectId: number; o
 
   const enviar = async (arquivo: File | undefined) => {
     if (!arquivo) return;
-    if (!/\.(xls|xlsb)$/i.test(arquivo.name)) {
-      toast.error("Envie a PCI em .xls ou .xlsb (planilha da CAIXA).");
+    if (!formatoPciPeloNome(arquivo.name)) {
+      toast.error(MENSAGEM_FORMATO_PCI);
       return;
     }
     if (arquivo.size > LIMITE_PCI_BYTES) {
@@ -238,10 +238,10 @@ export function PciObra({ projectId, onVinculoAlterado }: { projectId: number; o
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input ref={entrada} type="file" accept=".xls,.xlsb,application/vnd.ms-excel" className="hidden" onChange={(e) => enviar(e.target.files?.[0])} />
+      <input ref={entrada} type="file" accept={ACEITE_ARQUIVO_PCI} aria-label="Selecionar PCI em Excel" className="hidden" onChange={(e) => enviar(e.target.files?.[0])} />
       <Button variant="outline" disabled={enviando} onClick={() => entrada.current?.click()} className="border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10 gap-2">
         {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-        {pci ? "Trocar PCI" : "Enviar PCI (.xls/.xlsb)"}
+        {pci ? "Trocar PCI" : "Enviar PCI (.xls/.xlsx/.xlsm/.xlsb)"}
       </Button>
       {pci && (
         <>

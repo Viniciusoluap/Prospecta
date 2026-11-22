@@ -108,8 +108,10 @@ describe("regras puras (decisão do dono, prazo, cobrança)", () => {
 describe("registro fechado e níveis", () => {
   it("as quatro ações da etapa 3 estão no registro com o nível certo; nenhuma proibida existe; ferramentas: ponte só lê, WhatsApp lê e age", () => {
     expect(Object.fromEntries(ACOES.map(a => [a.nome, a.nivel]))).toEqual({ criar_tarefa: "direto", registrar_acompanhamento: "direto", preparar_cobranca: "fila", gerar_documento: "fila",
-      criar_card_cliente: "fila", salvar_documentos_grupo: "fila", conciliar_nota_obra: "fila", salvar_nota_obra: "fila" });
-    expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3, "criar_card_cliente", "salvar_documentos_grupo", "conciliar_nota_obra", "salvar_nota_obra"].sort());
+      criar_card_cliente: "fila", salvar_documentos_grupo: "fila", conciliar_nota_obra: "fila", salvar_nota_obra: "fila",
+      classificar_grupo: "fila", aceitar_grupo: "fila", ignorar_grupo: "fila", ligar_resposta_grupo: "fila" });
+    expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3, "criar_card_cliente", "salvar_documentos_grupo", "conciliar_nota_obra", "salvar_nota_obra",
+      "classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo"].sort());
     for (const nome of Object.keys(PROIBIDAS)) { expect(funcaoLiberada(nome)).toBe(false); expect(ACOES.some(a => a.nome === nome)).toBe(false); }
     expect(ferramentasLiberadas().map(f => f.name)).not.toContain("criar_tarefa");
     const wa = ferramentasDoWhatsapp().map(f => f.name);

@@ -49,7 +49,7 @@ export const entradaSalvarAprovado = z.object({
 }).strict();
 
 /** Texto do cadastro mostrado ao dono: na forma mostrada; se a saída o alteraria (link, segredo), só a referência. */
-function mostrar(s: string | null | undefined, max: number, seNao: string): string {
+export function mostrar(s: string | null | undefined, max: number, seNao: string): string {
   const t = comoMostrado(textoDeDado(s, max));
   return t && !textoAlteradoNaSaida(t) ? t : seNao;
 }
