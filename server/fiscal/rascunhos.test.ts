@@ -30,6 +30,8 @@ const TABELAS = [
   "financialTransactions", "taxProfiles", "taxObligations", "retProjects",
 ];
 const MIGRACAO = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
+// S-4: a 0162 acrescenta a coluna opcional codigo_atividade_simples ao tipo de serviço (lida pelo schema Drizzle).
+const MIGRACAO_S4 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
 let ddl = "";
 
 beforeAll(async () => {
@@ -52,6 +54,7 @@ beforeEach(async () => {
   await pg.exec(ddl);
   await pg.exec(MIGRACAO);
   await pg.exec(MIGRACAO); // idempotente
+  await pg.exec(MIGRACAO_S4);
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
   fetchVigia = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("rede proibida no teste"); });
   await pg.exec(`

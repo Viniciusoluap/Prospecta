@@ -25,6 +25,7 @@ import { FUNCOES_ANTHROPIC } from "../shared/funcoes-anthropic.js";
 import { ENV } from "./_core/env.js";
 import { doloresWhatsappConfig } from "../drizzle/schema-dolores-whatsapp.js";
 import { eq } from "drizzle-orm";
+import { certificadoFiscalRouter } from "./fiscal/certificado-router.js";
 
 type Fonte = "env" | "banco";
 export type EstadoWhatsapp = "conectado" | "aguardando_qr" | "desconectado" | "sem_conexao";
@@ -162,6 +163,8 @@ export function createIntegracoesRouter(deps: IntegracoesDeps = defaultDeps) {
     }, recuperar, deps.fetchImpl);
   }
   return router({
+    // EPIC-029 S-4: cofre do certificado A1 da emissão de NFS-e (só admin por papel; nada é emitido).
+    certificadoFiscal: certificadoFiscalRouter,
     verificarWebhookAsaas: adminProcedure.query(() => webhookAsaas(false)),
     recuperarWebhookAsaas: adminProcedure.mutation(() => webhookAsaas(true)),
     /** O que está salvo em cada serviço — sem nenhum segredo, só os 4 últimos caracteres. */
