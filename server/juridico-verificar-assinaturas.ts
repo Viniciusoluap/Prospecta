@@ -102,7 +102,7 @@ export async function conferirAssinaturas(bytes: Buffer, partes: Partes, roots: 
   const invalida = assinaturas.find(s => s.estado === "invalida");
   if (invalida) return { ...base, todos: false, estado: "invalida", transitoria: false, motivo: invalida.motivo };
   const pendentes = assinaturas.filter(s => s.estado === "pendente");
-  if (pendentes.length) return { ...base, todos: false, estado: "pendente", transitoria: pendentes.every(s => s.transitoria), motivo: `Assinatura íntegra. ${pendentes[0].motivo}` };
+  if (pendentes.length) return { ...base, todos: false, estado: "pendente", transitoria: pendentes.every(s => s.transitoria), motivo: `${assinaturas.every(s => s.integridade) ? "Assinatura íntegra. " : ""}${pendentes[0].motivo}` };
 
   const obrigatorios = [digitos(partes.partyADocument), digitos(partes.partyBDocument)];
   let semIdentificacao = obrigatorios.some(x => x.length !== 11 && x.length !== 14) || new Set(obrigatorios).size < 2;

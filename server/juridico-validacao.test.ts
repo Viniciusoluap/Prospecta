@@ -90,6 +90,15 @@ describe("conferência das assinaturas do PDF (ICP sintética)", () => {
     expect(alterado.equals(assinado)).toBe(false);
     expect((await conferirAssinaturas(alterado, partes)).estado).toBe("invalida");
   });
+  it("algoritmo CMS não suportado permanece pendente sem alegar integridade conferida", async () => {
+    const bytes = await assinar(contratoBase(), "empresa");
+    const { SignedData } = await import("pkijs");
+    vi.spyOn(SignedData.prototype, "verify").mockRejectedValueOnce(new DOMException("Unsupported algorithm", "NotSupportedError"));
+    const r = await conferirAssinaturas(bytes, partes);
+    expect(r).toMatchObject({ estado: "pendente", transitoria: false, todos: false });
+    expect(r.assinaturas[0].integridade).toBe(false);
+    expect(r.motivo).not.toContain("íntegra");
+  });
   it("CMS com dois signerInfos no mesmo campo é inválido", async () => {
     const assinado = await assinar(contratoBase(), "empresa");
     const texto = assinado.toString("latin1");
@@ -335,7 +344,7 @@ describe("retorno pelo portal", () => {
       });
       const r = await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(retorno) });
       expect(r.todos).toBe(false);
-      expect((await pg.query("SELECT type FROM portal_contract_documents WHERE id=$1", [r.id])).rows[0]).toEqual({ type: "recebido_assinado" });
+      expect((await pg.query("SELECT type FROM portal_contract_documents WHERE type='recebido_assinado'")).rows).toEqual([{ type: "recebido_assinado" }]);
       expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "em_conferencia" });
     } finally { await pg.close(); }
   }, 60_000);
