@@ -14,7 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { consultasCadastraisCache } from "../drizzle/schema-consultas-cadastrais.js";
 import {
-  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta,
+  alertaDaSituacao, cepParaConsulta, cnpjParaConsulta, semCpf,
   type DadosCep, type DadosCnpj, type FonteConsulta, type RespostaConsulta, type TipoConsultaCadastral,
 } from "../shared/consulta-cadastral.js";
 import { buscarCep, buscarCnpjNaBrasilApi, FalhaConsultaCadastral, type Buscar, type MotivoFalha } from "./_core/brasilapi.js";
@@ -104,7 +104,9 @@ export async function consultarCnpj(valor: string, deps: DependenciasConsulta = 
   if (guardado && vigente(guardado.consultadoEm, agora)) {
     const lido = DadosCnpjNoCache.safeParse(guardado.resposta);
     // O alerta é recalculado (a regra pode mudar; a situação gravada é a da Receita).
-    if (lido.success) return { dados: { ...lido.data, cnpj, alerta: alertaDaSituacao(lido.data.situacao) }, fonte: guardado.fonte, doCache: true, consultadoEm: guardado.consultadoEm.toISOString() };
+    // semCpf também na leitura: linha gravada antes da correção do QA nunca devolve CPF de MEI.
+    const razaoSocial = lido.success ? semCpf(lido.data.razaoSocial) : null;
+    if (lido.success && razaoSocial) return { dados: { ...lido.data, razaoSocial, nomeFantasia: semCpf(lido.data.nomeFantasia), cnpj, alerta: alertaDaSituacao(lido.data.situacao) }, fonte: guardado.fonte, doCache: true, consultadoEm: guardado.consultadoEm.toISOString() };
   }
   const dados = await buscarCnpjNaBrasilApi(cnpj, deps.buscar, deps.tempoLimiteMs);
   const { alerta: _alerta, ...semAlerta } = dados;

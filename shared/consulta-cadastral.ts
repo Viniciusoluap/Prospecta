@@ -88,12 +88,27 @@ export function limparTexto(v: unknown, max = 120): string | null {
   const texto = String(v)
     .replace(/<[^>]*>?/g, " ")
     .replace(/[<>]/g, " ")
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    // Controles C0/C1, separadores de linha e os invisíveis de largura zero e de direção (bidi, "Trojan Source"): QA S-1.
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, max)
     .trim();
   return texto ? texto : null;
+}
+
+/**
+ * O MEI tem o CPF do dono dentro da razão social ("FULANO DE TAL 12345678909"). LGPD (portão de QA da S-1): toda sequência
+ * de 11 números (com ou sem pontuação de CPF) sai do nome antes de ir para a tela ou para o cache — CPF nunca é guardado.
+ */
+export function semCpf(texto: string | null): string | null {
+  if (!texto) return texto;
+  const limpo = texto
+    .replace(/(?<![0-9])[0-9]{3}[.\s]?[0-9]{3}[.\s]?[0-9]{3}[-.\s]?[0-9]{2}(?![0-9])/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s\-–,.;:/]+|[\s\-–,.;:/]+$/g, "")
+    .trim();
+  return limpo || null;
 }
 
 export function formatarCep(cep: string): string {

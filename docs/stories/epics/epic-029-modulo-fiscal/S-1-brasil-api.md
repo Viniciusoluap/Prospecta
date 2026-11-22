@@ -1,6 +1,6 @@
 # S-1 — Cadastro automático por CNPJ e CEP (Brasil API + ViaCEP de reserva)
 
-Status: InReview (ramo `epic029-s1`, criado de `origin/main` em `a3fc88a`; implementada, aguarda o portão de QA).
+Status: InReview (ramo `epic029-s1`, criado de `origin/main` em `a3fc88a`; portão de QA CONCERNS em `a0d8fc4`, achados corrigidos — aguarda a reconferência do @qa).
 Epic: EPIC-029 — Módulo Fiscal (`EPIC.md`, escrito em outra frente). Etapa 1, autorizada pelo dono, custo zero (só APIs gratuitas).
 Migração: `drizzle/0152_consultas_cadastrais_cache.sql` (aditiva e idempotente; NÃO aplicada em banco nenhum por esta etapa).
 Paridade: regra comum dos dois sistemas — **pendência de porte para o Grupo Santa Fé** (registrar no ROADMAP do Prospecta; ver Pendências).
@@ -34,7 +34,9 @@ sobrescrever em silêncio o que o usuário já digitou. CPF não consulta nada.
       `server/_core/trpc.ts`); corretor, cliente, empreiteiro, conta inativa e visitante, não. CEP: qualquer conta ATIVA logada (o CEP
       também está em "Meu perfil", que toda conta edita); visitante, não.
 - [x] AC5 — Limite de uso: 30 consultas por minuto por usuário (CNPJ e CEP somados) → `TOO_MANY_REQUESTS` com frase clara.
-- [x] AC6 — Nada de CNPJ/CPF em log nem na mensagem de erro: os avisos do servidor dizem só o tipo do problema.
+- [x] AC6 — Nada de CNPJ/CPF em log nem na mensagem de erro: os avisos do servidor dizem só o tipo do problema. CPF nunca é
+      devolvido nem guardado: o CPF do dono que vem na razão social/nome fantasia de MEI (11 números, com ou sem pontuação) é
+      retirado antes da tela e do cache, e também na leitura de linha antiga do cache (`semCpf`, correção do portão de QA).
 - [x] AC7 — Cache de 30 dias na tabela nova `consultas_cadastrais_cache` (tipo, chave, resposta jsonb, fonte, consultado_em; uma linha
       por tipo+chave; CHECK no formato da chave). Guarda o resultado JÁ LIMPO, nunca a resposta bruta; não guarda falha; cache
       estragado ou vencido vai à rede e regrava; banco fora do ar não impede a consulta.
@@ -53,9 +55,9 @@ sobrescrever em silêncio o que o usuário já digitou. CPF não consulta nada.
   `descricao_tipo_de_logradouro`, `logradouro`, `numero`, `complemento`, `bairro`, `municipio`, `uf`, `cep`,
   `codigo_municipio_ibge`; 400 inválido, 404 não encontrado, 503 indisponível (não guardar em cache). CEP v2: `cep`, `state`, `city`,
   `neighborhood` (pode ser nulo), `street` (pode ser nulo), `location`, `ibge { city, state }` (podem ser nulos); 404 não encontrado.
-- ViaCEP: **[NÃO CONFIRMADO]** na documentação nesta sessão (site sem acesso). Mapeado pelo formato conhecido
-  (`cep`, `logradouro`, `bairro`, `localidade`, `uf`, `ibge`; `{ "erro": true }` — ou `"true"` — quando o CEP não existe), com zod
-  tolerante: campo ausente vira vazio; sem cidade ou UF, a resposta é recusada.
+- ViaCEP: formato real confirmado pelo portão de QA (22/11/2026): `cep`, `logradouro`, `bairro`, `localidade`, `uf`, `ibge`;
+  `{ "erro": true }` (ou `"true"`) quando o CEP não existe. Mapeado com zod tolerante: campo ausente vira vazio; sem cidade ou UF,
+  a resposta é recusada.
 
 ## Telas alteradas (cadastros que já existiam)
 | Tela | Campo que consulta | Campos preenchidos (se vazios) |
@@ -85,7 +87,8 @@ sobrescrever em silêncio o que o usuário já digitou. CPF não consulta nada.
 - `shared/consulta-cadastral.ts` (novo) — limpeza/conferência de CNPJ e CEP, situação e alerta, limpeza de texto, separação vazio × conflito.
 - `server/_core/brasilapi.ts` (novo) — consultas à Brasil API e ao ViaCEP (host fixo, tempo-limite, zod, limpeza).
 - `server/consulta-cadastral.ts` (novo) — cache no banco, limite por usuário, `consultaCadastralRouter` (`cnpj`, `cep`).
-- `server/consulta-cadastral.test.ts` (novo) — 36 testes.
+- `server/consulta-cadastral.test.ts` (novo) — 41 testes.
+- `server/consulta-cadastral-qa.test.ts` (novo, do @qa) — 22 testes do portão de QA (os `it.fails` viraram `it`).
 - `drizzle/0152_consultas_cadastrais_cache.sql` (novo), `drizzle/schema-consultas-cadastrais.ts` (novo), `drizzle.config.ts` (lista de schemas).
 - `server/routers.ts` (registro `consultaCadastral`), `server/_core/trpc.ts` (mapa de módulos).
 - `client/src/hooks/useAutoPreenchimentoCadastral.ts` (novo), `client/src/components/AvisoConsultaCadastral.tsx` (novo).
@@ -94,7 +97,9 @@ sobrescrever em silêncio o que o usuário já digitou. CPF não consulta nada.
 
 ## Testes
 (a) Automáticos:
-- `npx vitest run server/consulta-cadastral.test.ts --maxWorkers=2 --minWorkers=1` → 36/36: regras comuns (CNPJ/CEP/CPF, alerta,
+- `npx vitest run server/consulta-cadastral.test.ts server/consulta-cadastral-qa.test.ts --maxWorkers=2 --minWorkers=1` → 63/63
+  (41 do @dev + 22 do @qa). Depois do QA: CPF de MEI fora da razão social/fantasia e do cache, invisíveis bidi/largura zero, resposta
+  de outro CNPJ recusada, content-length > 200 KB recusado sem ler o corpo. Testes originais: regras comuns (CNPJ/CEP/CPF, alerta,
   limpeza de HTML, vazio × conflito); CNPJ sucesso, inválido sem rede, alerta por situação (4 casos), 404/503, malformado (3 casos),
   tipo errado tolerado, tempo esgotado, erro sem o CNPJ; CEP sucesso, reserva ViaCEP (erro, demora, malformado), os dois falham,
   não encontrado, formato inválido sem rede; cache válido, vencido, estragado, fonte ViaCEP, falha não guardada; migração 0152 2× em
@@ -124,9 +129,21 @@ sobrescrever em silêncio o que o usuário já digitou. CPF não consulta nada.
   empreiteiro/terrenista) não foram ligados nesta etapa: exigem converter o formulário para estado controlado.
 - O limite por usuário é em memória, por instância da função da Vercel (com várias instâncias, o teto real é maior). Se virar
   problema, mover a contagem para o banco.
-- Confirmar o formato do ViaCEP na documentação oficial quando houver acesso (hoje [NÃO CONFIRMADO], mapeado de forma tolerante).
 - Atualizar o HANDOFF da frente (regra permanente) — fica com a sessão líder, que faz o commit/push.
+
+## QA Results
+- 22/11/2026 — @qa (Quinn), commit `a0d8fc4` (`server/consulta-cadastral-qa.test.ts`): **CONCERNS**. Aprovado em SSRF/repasse aberto
+  (host fixo, sem seguir redirecionamento, tempo-limite cobre o corpo, tamanho máximo), permissão e limite, "nunca sobrescreve em
+  silêncio" e migração só aditiva. Achados:
+  - MÉDIO (LGPD) — CPF completo do dono do MEI na razão social ia para a tela e para o cache → **corrigido** (`semCpf` em
+    `shared/consulta-cadastral.ts`, aplicado em `server/_core/brasilapi.ts#mapearCnpj` e na leitura do cache em `server/consulta-cadastral.ts`).
+  - BAIXO 1 — invisíveis de direção e largura zero (U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF) passavam pela limpeza → **corrigido**.
+  - BAIXO 2 — resposta com `cnpj` diferente do pedido era aceita e gravada → **corrigido** (recusada como `resposta_invalida`, sem cache).
+  - BAIXO 3 — tamanho só conferido depois de ler o corpo → **corrigido** (recusa cedo por `content-length` > 200 KB).
+  - ViaCEP: formato real confirmado pelo @qa.
+- Veredito após as correções: CONCERNS → corrigido (os 3 `it.fails` viraram `it` e passam); aguarda a reconferência do @qa.
 
 ## Change Log
 - 22/11/2026 — @dev (Dex): Ready → InProgress (início da implementação no ramo `epic029-s1`).
 - 22/11/2026 — @dev (Dex): InProgress → InReview (ACs 1–10 implementados; tsc 0 erros, 36 testes novos + vizinhos passando, build ok).
+- 22/11/2026 — @dev (Dex): correções do portão de QA (CONCERNS → corrigido): CPF de MEI, invisíveis bidi, CNPJ trocado, content-length; 63/63 testes.

@@ -1,6 +1,6 @@
 // EPIC-029 S-1 — portão de QA (@qa Quinn, 22/11/2026): tentativas de quebrar a consulta de CNPJ/CEP.
 // Nenhum teste usa a rede externa: o fetch real só fala com um servidor local (127.0.0.1) para conferir tempo-limite e
-// tamanho; o resto usa fetch simulado. Achados abertos ficam como `it.fails` (passam enquanto o problema existir).
+// tamanho; o resto usa fetch simulado. Os achados (antes `it.fails`) foram corrigidos pelo @dev e viraram `it` comuns.
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
@@ -226,27 +226,28 @@ describe("QA 3 — dados: o que vai para o cache e para a tela", () => {
 
   // ACHADO (baixo): caracteres invisíveis de direção (bidi, U+202E) e de largura zero passam pela limpeza — dá para
   // inverter visualmente o nome na tela ("Trojan Source"). Origem: shared/consulta-cadastral.ts:91 só remove C0/C1, U+2028/2029.
-  it.fails("ACHADO baixo — limparTexto remove controles bidi e de largura zero", () => {
+  it("ACHADO baixo (corrigido) — limparTexto remove controles bidi e de largura zero", () => {
     const t = limparTexto("EMPRESA‮ATNOC‬ LTDA​", 150);
     expect(t).not.toMatch(/[​-‏‪-‮⁦-⁩﻿]/);
   });
 
   // ACHADO (baixo): a resposta da Brasil API para um CNPJ é aceita mesmo quando o "cnpj" do corpo é OUTRO — o resultado
   // é gravado no cache sob o CNPJ pedido. Defesa em profundidade contra resposta trocada. server/_core/brasilapi.ts:115-130.
-  it.fails("ACHADO baixo — resposta com CNPJ diferente do pedido é recusada", () => {
+  it("ACHADO baixo (corrigido) — resposta com CNPJ diferente do pedido é recusada", () => {
     expect(() => mapearCnpj(respostaCnpj({ cnpj: "11222333000181" }), CNPJ)).toThrow(FalhaConsultaCadastral);
   });
 
   // ACHADO (médio, LGPD): o MEI tem o CPF do dono dentro da razão social ("NOME DA PESSOA 12345678909"). A consulta guarda
   // esse CPF no cache por 30 dias e o preenche no campo de nome do cadastro. A story diz que CPF parcial do QSA não sai do
   // serviço, mas o CPF COMPLETO do MEI sai pela razão social. server/_core/brasilapi.ts:119 e server/consulta-cadastral.ts:111.
-  it.fails("ACHADO médio — CPF completo de MEI na razão social não vai para o cache nem para a tela", async () => {
+  it("ACHADO médio (corrigido) — CPF completo de MEI na razão social não vai para o cache nem para a tela", async () => {
     const { cache, linhas } = cacheEmMemoria();
     const r = await consultarCnpj(CNPJ, {
       buscar: simulado({ [HOST_BRASIL_API]: () => json(respostaCnpj({ razao_social: "FULANO DE TAL 52998224725" })) }).buscar, cache, agora: () => AGORA,
     });
-    expect(JSON.stringify(r)).not.toMatch(/\d{11}/);
-    expect(JSON.stringify([...linhas.values()])).not.toMatch(/\d{11}/);
+    // O próprio CNPJ (14 números) faz parte da resposta; o que não pode aparecer é o CPF de 11 números.
+    expect(JSON.stringify(r).replaceAll(CNPJ, "")).not.toMatch(/\d{11}/);
+    expect(JSON.stringify([...linhas.values()]).replaceAll(CNPJ, "")).not.toMatch(/\d{11}/);
   });
 });
 
