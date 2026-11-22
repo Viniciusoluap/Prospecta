@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lerFonte, type ItemFonte } from "../shared/maquete-3d/fonte.js";
 import {
-  CATALOGO_ITENS, MATERIAIS_ITEM, alterarItem, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
+  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
   desfazer, encaixar, encaixeNaParede, fecharGesto, girar, itemEditadoSchema, itensDoProblema, itensEdicaoSchema, novoId, novoItem,
   posicaoArrastada, problemasDaEdicao, refazer, registrar, tiposDoGrupo, travadosAlterados,
 } from "../shared/maquete-3d/edicao.js";
@@ -209,5 +209,26 @@ describe("portas bloqueadas (zonas em vermelho na tela)", () => {
     const b = portasBloqueadas(FONTE, itens);
     expect(b.map(x => [x.abertura, x.itens])).toEqual([["p3-cozinha", ["geladeira"]]]);
     expect(b[0].zonas).toHaveLength(4);
+  });
+});
+
+describe("correções do portão de QA (E3)", () => {
+  it("elevação só para tipo suspenso: geladeira elevada bloqueia; armário aéreo elevado sobre o vão da P3 continua bloqueando", () => {
+    expect(codigos(com("geladeira", { elev: 2.2, alt: 0.3 }))).toContain("item_elevado");
+    const aereo = { ...item("geladeira"), id: "aereo-teste", tipo: "armario_aereo" as const, x: 0.54, z: 1.36, rot: 0, larg: 0.6, prof: 0.35, alt: 0.3, elev: 1.0 };
+    const c = codigos([...ITENS.filter(i => i.id !== "bancada-pia"), aereo]);
+    expect(c).not.toContain("item_elevado");
+    expect(c.some(x => x === "item_giro_porta" || x === "item_faixa_livre" || x === "item_vao")).toBe(true);
+    for (const t of TIPOS_SUSPENSOS) expect(CATALOGO_ITENS[t].elev ?? 0).toBeGreaterThan(0);
+  });
+  it("trocar armário aéreo por guarda-roupa tira a elevação; o contrário usa a padrão", () => {
+    const aereo = { ...item("geladeira"), tipo: "armario_aereo" as const, elev: 1.5 };
+    expect(converterTipo(aereo, "guarda_roupa").elev).toBeUndefined();
+    expect(converterTipo({ ...aereo, tipo: "estante", elev: undefined }, "prateleira").elev).toBe(CATALOGO_ITENS.prateleira.elev);
+  });
+  it("alcanca é derivado da geometria: lista da tela é ignorada; só o balcão alcança", () => {
+    const d = comAlcanceDerivado(FONTE, com("sofa", { alcanca: ["Quarto 1"] }, com("balcao", { alcanca: ["Quarto 1", "Banheiro"] })));
+    expect(d.find(i => i.id === "sofa")!.alcanca).toBeUndefined();
+    expect(d.find(i => i.id === "balcao")!.alcanca).toEqual(item("balcao").alcanca);
   });
 });

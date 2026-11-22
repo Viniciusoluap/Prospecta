@@ -20,7 +20,8 @@ export type DadosEdicao = {
 export type ConexaoEditor = {
   abrir: (planta: string) => Promise<DadosEdicao>;
   salvar: (planta: string, versaoBase: number, itens: ItemFonte[]) => Promise<{ versao: number }>;
-  publicar: (planta: string, versao: number) => Promise<{ versao: number }>;
+  /** `publicadaVista`: a versão publicada que a tela conhecia (null = nada publicado); mudou no servidor → CONFLICT. */
+  publicar: (planta: string, versao: number, publicadaVista: number | null) => Promise<{ versao: number }>;
 };
 
 /** Erro do servidor em português, e se foi conflito de versão (outra pessoa salvou antes). */
@@ -38,6 +39,6 @@ export function useConexaoEditor(): ConexaoEditor | null {
   return useMemo(() => (admin ? {
     abrir: planta => utils.client.maquete3d.itens.abrir.mutate({ planta }) as Promise<DadosEdicao>,
     salvar: (planta, versaoBase, itens) => utils.client.maquete3d.itens.salvar.mutate({ planta, versaoBase, itens }),
-    publicar: (planta, versao) => utils.client.maquete3d.itens.publicar.mutate({ planta, versao }),
+    publicar: (planta, versao, publicadaVista) => utils.client.maquete3d.itens.publicar.mutate({ planta, versao, publicadaVista }),
   } : null), [admin, utils]);
 }

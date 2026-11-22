@@ -188,7 +188,7 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   const publicar = async () => {
     setOcupado("publicar"); setMsg(null);
     try {
-      const r = await conexao.publicar(planta, versaoBase);
+      const r = await conexao.publicar(planta, versaoBase, versaoPublicada);
       setVersaoPublicada(r.versao);
       setMsg({ tipo: "ok", texto: `Publicado: o cliente passa a ver a versão ${r.versao}.` });
     } catch (e) { const x = lerErro(e); setMsg({ tipo: "erro", texto: x.mensagem, conflito: x.conflito }); }

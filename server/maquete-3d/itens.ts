@@ -15,7 +15,7 @@ import { maquete3dItens, maquetes3d, type Maquete3d } from "../../drizzle/schema
 import { lerFonte, type FontePlanta, type ItemFonte } from "../../shared/maquete-3d/fonte.js";
 import { fonteParaModelo } from "../../shared/maquete-3d/fonte-cena.js";
 import {
-  bloqueiaSalvar, canonico, itensEdicaoSchema, problemasDaEdicao, travadosAlterados,
+  bloqueiaSalvar, canonico, comAlcanceDerivado, itensEdicaoSchema, problemasDaEdicao, travadosAlterados,
 } from "../../shared/maquete-3d/edicao.js";
 import type { ProblemaFonte } from "../../shared/maquete-3d/validacao-fonte.js";
 import { db } from "./base.js";
@@ -27,7 +27,7 @@ const ARQUIVOS: Record<string, () => URL> = {
   "lote4-qd18": () => new URL("../../data/plantas/lote4-qd18.json", import.meta.url),
 };
 export const PLANTAS_DO_REPO = Object.keys(ARQUIVOS);
-export const slugPlantaValido = (s: string) => /^[a-z0-9-]{1,80}$/.test(s) && s in ARQUIVOS;
+export const slugPlantaValido = (s: string) => /^[a-z0-9-]{1,80}$/.test(s) && Object.hasOwn(ARQUIVOS, s);
 
 const cache = new Map<string, FontePlanta>();
 /** JSON-fonte da planta (estrutura do servidor + itens padrão). */
@@ -83,7 +83,8 @@ export function conferirItens(f: FontePlanta, brutos: unknown): { itens: ItemFon
   if (travados.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Itens travados da planta não podem mudar: ${travados.join(", ")}.` });
   const problemas = problemasDaEdicao(f, itens);
   if (bloqueiaSalvar(problemas)) throw new TRPCError({ code: "BAD_REQUEST", message: `Não foi salvo: ${listar(problemas)}` });
-  return { itens, problemas };
+  // `alcanca` nunca é o da tela: grava o derivado da geometria (o mesmo que as regras acabaram de conferir).
+  return { itens: comAlcanceDerivado(f, itens), problemas };
 }
 
 const conflito = () => new TRPCError({ code: "CONFLICT", message: "Os itens foram salvos por outra pessoa depois que você abriu o editor. Recarregue para ver a versão mais nova." });
@@ -142,11 +143,15 @@ export async function salvarRascunho(p: { slug: string; versaoBase: number; iten
   return { versao: Number(linha.versao), avisos: problemas.filter(x => x.nivel === "aviso") };
 }
 
+const publicadaMudou = () => new TRPCError({ code: "CONFLICT", message: "Outra pessoa publicou os itens desta maquete depois que você abriu o editor. Recarregue para ver o que o cliente está vendo agora antes de publicar." });
+
 /**
  * Publica a versão `versao` (tem de ser a última salva): revalida contra a estrutura atual do servidor, marca como
  * publicada, arquiva a publicada anterior e os rascunhos mais antigos, e aponta a maquete para ela — num só comando.
+ * Concorrência otimista: só publica se a versão publicada ainda for `publicadaVista` (a que a tela viu); o UPDATE
+ * reconfere o ponteiro na linha travada, então duas publicações ao mesmo tempo nunca deixam a mais antiga valendo.
  */
-export async function publicarVersao(p: { slug: string; versao: number; autorId: number }) {
+export async function publicarVersao(p: { slug: string; versao: number; publicadaVista: number | null; autorId: number }) {
   const f = fonteDoRepo(p.slug);
   const m = await garantirMaqueteDaFonte(p.slug, p.autorId);
   const alvo = await versaoDe(m.id, p.versao);
@@ -158,25 +163,30 @@ export async function publicarVersao(p: { slug: string; versao: number; autorId:
   try { brutos = JSON.parse(alvo.itens); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Versão gravada ilegível." }); }
   conferirItens(f, brutos);
   if (m.itensVersaoPublicada === p.versao && alvo.situacao === "publicada") return { versao: p.versao, jaPublicada: true };
+  if ((m.itensVersaoPublicada ?? null) !== p.publicadaVista) throw publicadaMudou();
   const r = await db().execute(sql`WITH alvo AS (
       SELECT versao FROM maquete_3d_itens
       WHERE maquete_id = ${m.id} AND versao = ${p.versao} AND situacao = 'rascunho' AND estrutura_hash = ${hash}
         AND versao = (SELECT max(versao) FROM maquete_3d_itens WHERE maquete_id = ${m.id})
     ), mq AS (
       UPDATE maquetes_3d SET itens_versao_publicada = ${p.versao}, publicado_em = now(), updated_at = now()
-      WHERE id = ${m.id} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM alvo) RETURNING id
+      WHERE id = ${m.id} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM alvo)
+        AND itens_versao_publicada IS NOT DISTINCT FROM ${p.publicadaVista}::int RETURNING id
     ), it AS (
       UPDATE maquete_3d_itens SET
         situacao = CASE WHEN versao = ${p.versao} THEN 'publicada' ELSE 'arquivada' END,
         publicada_em = CASE WHEN versao = ${p.versao} THEN now() ELSE publicada_em END,
         publicada_por = CASE WHEN versao = ${p.versao} THEN ${p.autorId} ELSE publicada_por END
-      WHERE maquete_id = ${m.id} AND EXISTS (SELECT 1 FROM alvo)
+      WHERE maquete_id = ${m.id} AND EXISTS (SELECT 1 FROM alvo) AND EXISTS (SELECT 1 FROM mq)
         AND ((versao = ${p.versao} AND situacao = 'rascunho') OR (versao <> ${p.versao} AND situacao = 'publicada') OR (versao < ${p.versao} AND situacao = 'rascunho'))
       RETURNING versao
     )
     SELECT (SELECT count(*) FROM mq)::int AS maquete, (SELECT count(*) FROM it)::int AS itens`);
   const [res] = linhas(r);
-  if (!res || Number(res.maquete) !== 1) throw conflito();
+  if (!res || Number(res.maquete) !== 1) {
+    const [agora] = await db().select({ v: maquetes3d.itensVersaoPublicada }).from(maquetes3d).where(eq(maquetes3d.id, m.id)).limit(1);
+    throw (agora?.v ?? null) !== p.publicadaVista ? publicadaMudou() : conflito();
+  }
   return { versao: p.versao, jaPublicada: false };
 }
 
