@@ -8,7 +8,6 @@
 // (`veioDasPalavrasDoDono`: um texto tirado de consulta, grupo, cliente ou documento não vira memória). Grupo e cliente não têm estas
 // ferramentas (laços próprios). Texto: server/dolores/memoria-longa.ts#textoDaMemoria (recusa segredo/link; mascara CPF/telefone/e-mail).
 import { and, eq, isNull } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { constructionProjects, leads } from "../../../drizzle/schema.js";
 import { CATEGORIAS_MEMORIA, MAX_MEMORIAS_ATIVAS, MAX_TEXTO_MEMORIA, ROTULO_CATEGORIA_MEMORIA, veioDasPalavrasDoDono, type CategoriaMemoria } from "../../../shared/dolores/memoria-longa.js";
@@ -20,6 +19,7 @@ import {
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import { RecusaAcao, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
 import { mostrar } from "./grupos.js";
+import { alvoDoPedido } from "./tarefas.js";
 
 const id32 = z.number().int().positive().max(2_147_483_647);
 const textoEntrada = z.string().trim().min(3).max(MAX_TEXTO_MEMORIA);
@@ -82,7 +82,6 @@ const lerAtiva = async (id: number) => {
   if (!m || m.situacao !== "ativa") throw new RecusaAcao(`Não achei a lembrança ${id} entre as ativas da memória. Nada foi mudado.`);
   return m;
 };
-const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
 export async function prepararGuardarMemoria(args: z.infer<typeof entradaGuardarMemoria>, ctx: ContextoAcao): Promise<Preparo> {
   const doDono = mensagemDoDono(ctx);
@@ -95,7 +94,7 @@ export async function prepararGuardarMemoria(args: z.infer<typeof entradaGuardar
   if (igual) throw new RecusaAcao("Isso já está guardado na memória; nada a mudar.");
   if (ativas >= MAX_MEMORIAS_ATIVAS) throw new RecusaAcao(FRASE_MEMORIA_CHEIA);
   const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}guardar na memória (${ROTULO_CATEGORIA_MEMORIA[args.categoria]}${v.texto}): ${aspas(t.texto)}${t.mascarou ? AVISO_MASCARA : ""}`, [aspas(t.texto)]);
-  return { itens: [{ alvo: `memoria:nova:${hash(t.texto.toLowerCase())}`, resumo, argumentos: { texto: t.texto, categoria: args.categoria, leadId, obraId } }], recusados: [] };
+  return { itens: [{ alvo: alvoDoPedido("memoria", [t.texto.toLowerCase()]), resumo, argumentos: { texto: t.texto, categoria: args.categoria, leadId, obraId } }], recusados: [] };
 }
 
 export async function executarGuardarAprovado(args: z.infer<typeof entradaGuardarAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {

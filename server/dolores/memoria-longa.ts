@@ -1,7 +1,7 @@
 // EPIC-027 C5 (memória de longo prazo) — a memória PERMANENTE da Dolores (tabela dolores_memoria_longa, migração 0149).
 // Decisão do dono (21/11/2026): fatos e preferências permanentes "dentro do sistema", com tela para ver, corrigir e apagar.
 //
-// Quem grava: (a) as ações guardar_memoria / corrigir_memoria / esquecer_memoria (acoes/memoria.ts), só depois do "pode" do dono na
+// Quem grava: (a) as ações guardar_memoria / corrigir_memoria / esquecer_memoria (acoes/memoria-longa.ts), só depois do "pode" do dono na
 // conversa direta dele; (b) a tela do administrador (memoria-longa-router.ts). Nada aqui grava por inferência.
 // O texto: uma linha, sem colchetes, até 300 caracteres; senha/token/chave/código de acesso/dado bancário e link → RECUSA; CPF,
 // telefone e e-mail → mascarados ("(dado pessoal omitido)"), porque o texto volta à IA em toda conversa do dono.

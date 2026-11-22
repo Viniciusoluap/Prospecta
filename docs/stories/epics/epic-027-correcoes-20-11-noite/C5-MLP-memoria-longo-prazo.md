@@ -100,7 +100,7 @@ corrigir e apagar (etapa da C5; não usar ferramenta externa)". Fora: Obsidian/C
 ## File List
 - `drizzle/0149_dolores_memoria_longa.sql` (novo), `drizzle/schema-dolores-memoria-longa.ts` (novo), `drizzle.config.ts`
 - `shared/dolores/memoria-longa.ts` (novo), `shared/dolores/confirmacao.ts` (nível das 3 ações)
-- `server/dolores/memoria-longa.ts` (novo), `server/dolores/memoria-longa-router.ts` (novo), `server/dolores/acoes/memoria.ts` (novo)
+- `server/dolores/memoria-longa.ts` (novo), `server/dolores/memoria-longa-router.ts` (novo), `server/dolores/acoes/memoria-longa.ts` (novo)
 - `server/dolores/acoes/registro.ts`, `server/dolores/acoes/comum.ts` (`pedidoDeMemoria`), `server/dolores/permissoes.ts`,
   `server/dolores/ponte.ts` (repasse de `pedidoDeMemoria`), `server/dolores/cerebro.ts` (bloco, reserva, intenção),
   `server/dolores/whatsapp.ts` (só `tratarComando`), `server/dolores/prompt.ts` (2 linhas), `server/dolores/router.ts`,

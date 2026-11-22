@@ -2,6 +2,8 @@
 // e arquivar. Pelo webhook de verdade (PGlite, modelo e envio falsos, sem rede): só o pedido do DONO na conversa direta, com as palavras
 // dele e com o "pode", vira memória; grupo, cliente, encaminhada, colagem, consulta e documento nunca; segredo recusado; CPF/telefone
 // mascarados; a memória entra só no contexto do dono (nunca no de grupo nem no de cliente), com teto, como DADO, com ponto de cache.
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
@@ -341,6 +343,17 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
     roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }]), () => texto("Vou criar."));
     await dono("cria uma tarefa para a Bianca ligar para o João");
     expect((await fila())[0].resumo).toMatch(/^Pedido surgido durante a leitura de dados/);
+  });
+
+  it("fronteira por código: só whatsapp.ts lê a memória para a conversa; grupo (marcacao/grupos) e cliente (atendimento/roteamento) nem importam", () => {
+    const raiz = new URL("..", import.meta.url).pathname;
+    const arquivos = (readdirSync(raiz, { recursive: true }) as string[]).map(f => f.replaceAll("\\", "/")).filter(f => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    const leem = arquivos.filter(f => /blocoParaConversaDoDono\s*\(/.test(readFileSync(join(raiz, f), "utf8").replace(/\/\/.*$/gm, ""))
+      && !f.endsWith("dolores/memoria-longa.ts")).sort();
+    expect(leem).toEqual(["dolores/whatsapp.ts"]);
+    for (const f of ["dolores/marcacao.ts", "dolores/atendimento.ts", "dolores/grupos.ts", "dolores/roteamento.ts", "dolores/notas-obra.ts"]) {
+      expect(readFileSync(join(raiz, f), "utf8"), f).not.toMatch(/memoria-longa|dolores_memoria_longa|doloresMemoriaLonga/);
+    }
   });
 
   it("grupo marcado e cliente cadastrado NÃO recebem a memória do dono", async () => {
