@@ -120,8 +120,10 @@ async function ativasParaContexto(): Promise<MemoriaParaContexto[]> {
     leadId: doloresMemoriaLonga.leadId, obraId: doloresMemoriaLonga.obraId, atualizadoEm: doloresMemoriaLonga.atualizadoEm })
     .from(doloresMemoriaLonga).where(eq(doloresMemoriaLonga.situacao, "ativa")).orderBy(desc(doloresMemoriaLonga.atualizadoEm), desc(doloresMemoriaLonga.id)).limit(MAX_MEMORIAS_ATIVAS);
   // revisão automática (A): o texto já entra filtrado (textoDaMemoria); o filtro de segredos vale de novo na LEITURA, por defesa
-  // (linha escrita por outro caminho ou antes de uma regra nova). Idempotente: o texto limpo não muda (o cache fica estável).
-  return linhas.map(l => ({ ...l, texto: sanitizarTexto(l.texto, FILTRO_DO_REGISTRO) }));
+  // (linha escrita por outro caminho ou antes de uma regra nova). QA C5 (achado C2): e também `textoDeDado` — uma linha só, sem
+  // colchetes nem quebras/invisíveis —, a MESMA normalização da gravação (textoDaMemoria): uma linha gravada por fora (SQL, versão
+  // antiga) não forja o fim do bloco nem um cabeçalho do sistema. Idempotente: o texto limpo não muda (o cache fica estável).
+  return linhas.map(l => ({ ...l, texto: textoDeDado(sanitizarTexto(textoDeDado(l.texto, Number.MAX_SAFE_INTEGER), FILTRO_DO_REGISTRO), Number.MAX_SAFE_INTEGER) }));
 }
 
 /**

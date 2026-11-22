@@ -239,12 +239,17 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const mensagens: MensagemModelo[] = montarMensagens(historico, comando) as MensagemModelo[];
   // EPIC-027 C5 (memória de longo prazo): as lembranças vão ANTES do histórico, como DADO rotulado (nunca no texto do sistema), com
   // ponto de cache próprio: o bloco só muda quando uma lembrança muda, então o prefixo ferramentas + sistema + memória é lido do cache.
-  // Com os dois do histórico e o do sistema, são no máximo 4 pontos (o teto da API). Memória é dado: o pedido nasce contaminado.
+  // Com os dois do histórico e o do sistema, são no máximo 4 pontos (o teto da API).
+  // QA C5 (achado C1): a memória de longo prazo NÃO contamina o pedido por si só. Ela é conteúdo que o PRÓPRIO dono mandou guardar
+  // (pedido dele por código + o "pode" dele no WhatsApp) ou que o administrador gravou na tela — não é texto de terceiro. Antes,
+  // com qualquer lembrança ativa, TODA proposta ganhava o aviso de "pedido feito depois de ler dados" e o aviso perdia o sentido.
+  // Continua igual: vai rotulada como DADO (CABECALHO_MEMORIA, nunca no texto do sistema), não oferece ferramenta de ação (isso só a
+  // mensagem do dono abre, por código) e nada executa sem o "pode"/"confirmo" dele (`exigirConfirmacao`) — a proposta mostra o
+  // resumo exato do que será feito. Leitura do sistema, documento, grupo, histórico e texto colado continuam contaminando.
   const memoriaLonga = p.memoriaLonga?.trim() ? p.memoriaLonga : null;
   if (memoriaLonga) {
     const bloco: BlocoTexto = { type: "text", text: memoriaLonga, cache_control: { type: "ephemeral" } };
     if (mensagens[0]?.role === "user") mensagens[0].content.unshift(bloco); else mensagens.unshift({ role: "user", content: [bloco] });
-    if (!contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
   }
   // Só a mensagem do DONO pedindo memória (por código), direta, sem colagem e sem anexo, abre as ações de memória (o texto dela serve
   // para conferir que o fato saiu das palavras dele).

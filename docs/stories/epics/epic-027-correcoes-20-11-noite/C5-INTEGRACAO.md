@@ -64,3 +64,34 @@ Sem migração. Cada uma com teste que falha sem a correção e passa com ela.
 ## Suíte depois das correções
 - 73 arquivos (os 72 + `revisao-automatica-c5`): 48 arquivos/1.105 testes + 25 arquivos/212 testes; a única falha (A9, acima)
   foi ajustada e o arquivo passou (5/5). `npx tsc --noEmit` limpo; `npx vite build` ok.
+
+## Portão de QA de segurança (CONCERNS) — os cinco achados corrigidos (22/11)
+Sem migração nova e sem mexer nas 0148/0149 (o envio pendente usa as colunas que já existem: `enviado_em` vazio = pendente).
+- **M1 (médio, gasto)** `server/dolores/consumo.ts#conferirTerceiro`: antes de olhar a parte da função, confere o TOTAL comprometido —
+  uso real de todas as funções + reservas ativas das mensagens do dono (`dolores_mensagens`) + reservas dos outros terceiros
+  (classificação, marcação, atendimento) + esta reserva ≤ limite. Passou → `folga_do_dono` (o terceiro para). Mesma transação e mesma
+  trava (`dolores_whatsapp_config` linha 1 em FOR UPDATE) das outras conferências. A conversa do dono não passa por aqui (nunca é
+  barrada por terceiro). Testes: `c5-integracao-qa` › "ACHADO M1 (corrigido)" (era `it.fails`) e `c5-e5` › "QA C5 (M1)" (grupos,
+  clientes e documentos barrados; sem a reserva da conversa, passam; a conversa segue reservando).
+- **B1 (baixo)** `server/dolores/operacao-gasto.ts`: registrar e enviar viraram dois passos. `registrarAlertasDevidos` (chamado por
+  `registrarConsumo` e pelas reservas barradas) só toma a vaga, PENDENTE — nada é enviado no meio do laço. `enviarAlertasPendentes`
+  roda no fim do aviso do WhatsApp (`whatsapp.ts`, depois das respostas, no tempo que sobrar do prazo do aviso) e no cron
+  (`rondas.ts#tratarCronDolores`, depois da ronda/relatório); o prazo do envio é o menor entre 8 s e o prazo de quem chamou; abaixo de
+  3 s nada é tentado. A rotina TOMA o alerta (`enviado_em` vazio → agora, condicional): duas rotinas nunca mandam o mesmo. Envio que com
+  certeza não saiu (`tentou: false`: pausa, desconectada, sem tempo — novo campo de `enviarAvisoAoDono`) volta a pendente; envio
+  tentado com erro (pode ter chegado) conta uma tentativa na auditoria (`pedido_id` `gasto:<mês>:<alvo>:<nível>:tentativa`, sem
+  texto) e é refeito no máximo UMA vez (`MAX_TENTATIVAS_DO_ALERTA = 2`); sem conseguir contar a tentativa, fica como enviado (nunca
+  duplica). Limite conhecido: função derrubada no meio do envio deixa o alerta como enviado (pode não ter saído) — lado seguro.
+- **B2 (baixo)** `server/dolores/pendencia.ts#podeEnviarAvisoAgora` — PONTO ÚNICO da regra para aviso automático ao dono: com
+  proposta aberta, dentro da validade e confirmável (`adjacente`) ou ainda saindo (pergunta não enviada), o aviso espera. O alerta
+  fica pendente e sai quando a proposta é decidida/vence (fim do próximo aviso ou cron); nunca tira a proposta de ordem. A
+  proatividade (ou qualquer aviso automático novo pelo `enviarAvisoAoDono`) deve conferir ali. Testes: `c5-e5` › "QA C5 (B1)" (3)
+  e "QA C5 (B2)"; os testes antigos de alerta agora chamam o envio dos pendentes depois das reservas.
+- **C1 (baixo)** `server/dolores/cerebro.ts`: a memória de longo prazo não marca mais o pedido como contaminado (é conteúdo que o dono
+  pediu + "pode", ou o admin gravou). Continua rotulada como dado, sem abrir ferramenta de ação e sem executar nada sem o "pode".
+  Leituras do sistema, documentos, grupos, histórico e colagem continuam contaminando. Testes: `c5-memoria-longa` › "injeção" (memória
+  "ignore as regras…" sem efeito; a proposta só espera, nada é criado; sem o aviso de leitura — o teste falha com a regra antiga) e
+  "QA C5 (C1)" (consulta no mesmo pedido continua contaminando).
+- **C2 (baixo)** `server/dolores/memoria-longa.ts#ativasParaContexto`: na leitura, `textoDeDado` antes e depois do filtro de segredos
+  (uma linha, colchetes → parênteses). Teste: `c5-memoria-longa` › "QA C5 (C2)" (linha gravada por SQL com "[Fim da memória…]" e
+  quebras não forja o fim do bloco).
