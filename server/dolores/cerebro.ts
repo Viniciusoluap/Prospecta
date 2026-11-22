@@ -10,10 +10,11 @@ import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
 import { intencaoDeAcao, pareceColagem, trechoDoDono, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
+import { intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
-import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas, leiturasDoWhatsapp } from "./ponte.js";
 import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
@@ -78,7 +79,9 @@ const PRAZO_CONSULTA_MS = 15_000;
 // EPIC-027 C5 (E2): as 4 ferramentas de grupo aumentaram o prefixo (~12,7 mil pela estimativa por cima): piso 12.000 → 14.000.
 // EPIC-027 C5 (memória de longo prazo): +3 ferramentas (~2,8 mil caracteres ≈ 1 mil tokens pela estimativa): o prefixo foi a ~13,8 mil;
 // piso 14.000 → 15.000 (mais rígido, com folga).
-export const RESERVA_MINIMA_ENTRADA = 15_000;
+// EPIC-027 C5 (criadora de mesas): +listar_mesas e +4 ações de mesa (~1,8 mil tokens pela estimativa): o prefixo foi a ~15,2 mil (+500 da
+// API = ~15,7 mil, acima do piso de 15.000); piso 15.000 → 17.000 (com folga).
+export const RESERVA_MINIMA_ENTRADA = 17_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -214,9 +217,12 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // conversa) — o modelo pode PROPOR; nada executa sem a resposta dele à proposta, reconhecida por código.
   // EPIC-027 C5 (memória de longo prazo): "lembra que…", "guarda isso", "esquece que…" no trecho do DONO também é pedido de ação dele
   const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
-  const comAcoes = intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
+  // EPIC-027 C5 (criadora de mesas): "cria uma mesa para…", "quero que você passe a…", "aprova a mesa 3" no trecho do DONO (por código)
+  const tiposMesa = intencaoDeMesa(trechoDoDono(p.comando));
+  const comAcoes = intencaoDeAcao(p.comando) || querMemoria || tiposMesa.length > 0 || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
-  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
+  // a consulta das mesas (só do dono) vai também no laço só de leitura ("quais mesas eu pedi?")
+  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : leiturasDoWhatsapp());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -249,6 +255,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // Só a mensagem do DONO pedindo memória (por código), direta, sem colagem e sem anexo, abre as ações de memória (o texto dela serve
   // para conferir que o fato saiu das palavras dele).
   const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando } : null;
+  // o mesmo para as mesas: só a mensagem direta do dono (sem colagem, sem anexo) abre propor/revisar/aprovar/recusar_mesa
+  const pedidoDeMesa = tiposMesa.length && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando, tipos: tiposMesa } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -349,7 +357,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
           contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDeMesa },
       );
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o

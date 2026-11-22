@@ -113,8 +113,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const memoriaLonga = MIGRACAO_0149();
   await pg.exec(memoriaLonga);
   await pg.exec(memoriaLonga);
+  // EPIC-027 C5 (criadora de mesas da Dolores): migração 0151, também duas vezes.
+  const mesas = MIGRACAO_0151();
+  await pg.exec(mesas);
+  await pg.exec(mesas);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0151 = () => readFileSync(new URL("../../drizzle/0151_dolores_mesas.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0149 = () => readFileSync(new URL("../../drizzle/0149_dolores_memoria_longa.sql", import.meta.url), "utf8");
 

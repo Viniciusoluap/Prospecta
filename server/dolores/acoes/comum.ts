@@ -50,6 +50,12 @@ export type ContextoAcao = {
    * palavras dele. Ausente → as ações de memória recusam.
    */
   pedidoDeMemoria?: { texto: string } | null;
+  /**
+   * EPIC-027 C5 (criadora de mesas) — só quando a mensagem do DONO pede algo de mesa por código (shared/dolores/mesas.ts#intencaoDeMesa:
+   * propor uma nova, revisar, aprovar ou recusar), sem colagem, sem anexo e não encaminhada (cerebro.ts): o texto dela (vira o pedido
+   * original da proposta) e o que ela pede. Ausente → as ações de mesa recusam.
+   */
+  pedidoDeMesa?: { texto: string; tipos: readonly ("propor" | "revisar" | "aprovar" | "recusar")[] } | null;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */

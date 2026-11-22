@@ -72,7 +72,14 @@ export const LIBERADAS_ETAPA_7 = ["classificar_grupo", "aceitar_grupo", "ignorar
  */
 export const LIBERADAS_ETAPA_7_MEMORIA = ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA] };
+/**
+ * Etapa 7 (cont.) — EPIC-027 C5 (criadora de mesas, pedido do dono aprovado em 21/11): o dono pede uma função nova e a Dolores só escreve a
+ * PROPOSTA (nada passa a funcionar). Todas só na conversa direta dele: propor/revisar/recusar com "pode", aprovar com "confirmo" — e aprovar
+ * não liga nada (só muda a situação; a função é construída pelo processo normal de desenvolvimento). listar_mesas fica fora da ponte HTTP.
+ */
+export const LIBERADAS_ETAPA_7_MESAS = ["listar_mesas", "propor_mesa", "revisar_mesa", "propor_aprovacao_mesa", "recusar_mesa"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_MESAS] };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};

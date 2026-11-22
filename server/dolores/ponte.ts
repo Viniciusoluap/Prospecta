@@ -18,7 +18,7 @@ import { getDb } from "../db.js";
 import { type CanalDolores, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
-import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
+import { FUNCOES, definicaoDaFerramenta, funcaoPorNome, LEITURAS_DO_DONO, leituraDoDonoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
@@ -52,7 +52,7 @@ const resumoSha = (s: string) => createHash("sha256").update(s).digest();
  * hash curto do nome.
  */
 export function nomeParaRegistro(nome: string): string {
-  if (nome === "(sem função)" || funcaoPorNome(nome) || acaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome) || Object.hasOwn(PROIBIDAS, nome)) return nome;
+  if (nome === "(sem função)" || funcaoPorNome(nome) || leituraDoDonoPorNome(nome) || acaoPorNome(nome) || Object.hasOwn(PREVISTAS, nome) || Object.hasOwn(PROIBIDAS, nome)) return nome;
   return `(desconhecida) ${createHash("sha256").update(nome).digest("hex").slice(0, 10)}`;
 }
 /** Bearer confere com o token da variável? Hash dos dois lados: tempo constante e sem vazar o tamanho. */
@@ -202,6 +202,8 @@ export type OpcoesExecucao = {
    * ação para conferir que o fato saiu das palavras dele. Ausente: guardar/corrigir/esquecer_memoria recusam.
    */
   pedidoDeMemoria?: { texto: string } | null;
+  /** EPIC-027 C5 (criadora de mesas): a mensagem do DONO pede algo de mesa, por código (cerebro.ts). Ausente: as ações de mesa recusam. */
+  pedidoDeMesa?: ContextoAcao["pedidoDeMesa"];
 };
 
 /**
@@ -253,7 +255,14 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(400, { ok: false, erro: "Pedido inválido: envie { funcao, argumentos?, pedidoId? }.", campos });
   }
   const { funcao, argumentos = {}, pedidoId = null } = env.data;
-  const leitura = funcaoPorNome(funcao);
+  // EPIC-027 C5 (criadora de mesas): as leituras SÓ do dono (listar_mesas) existem apenas na conversa direta dele (nunca na ponte HTTP)
+  const soDoDono = leituraDoDonoPorNome(funcao);
+  if (soDoDono && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
+    const motivo = "Esta consulta existe só na conversa direta do dono com a Dolores no WhatsApp.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
+  const leitura = funcaoPorNome(funcao) ?? soDoDono;
   const acao = leitura ? null : acaoPorNome(funcao);
   if ((!leitura && !acao) || !funcaoLiberada(funcao)) {
     const motivo = motivoDaRecusa(funcao);
@@ -287,7 +296,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
   }
   if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
     contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
-    exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null });
+    exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null,
+    pedidoDeMesa: opcoes.pedidoDeMesa ?? null });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
@@ -316,13 +326,14 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   agora: Date; autor: number; mensagemId: number; pedidoId: string | null; registrar: Registrar;
   responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
-  exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null;
+  exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null; pedidoDeMesa: ContextoAcao["pedidoDeMesa"];
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
     motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null,
     ...(c.confirmacaoNatural ? { validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS } : {}),
-    ...(c.pedidoDeMemoria ? { pedidoDeMemoria: c.pedidoDeMemoria } : {}) };
+    ...(c.pedidoDeMemoria ? { pedidoDeMemoria: c.pedidoDeMemoria } : {}),
+    ...(c.pedidoDeMesa ? { pedidoDeMesa: c.pedidoDeMesa } : {}) };
   try {
     const feitas = await acoesDoPedido(c.mensagemId);
     if (feitas >= MAX_ACOES_POR_COMANDO) {
@@ -427,9 +438,12 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
  */
 export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
 
+/** EPIC-027 C5 (criadora de mesas): as leituras do laço do WhatsApp do dono = as da ponte + as só do dono (listar_mesas). */
+export const leiturasDoWhatsapp = () => [...ferramentasLiberadas(), ...LEITURAS_DO_DONO.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta)];
+
 /** Etapa 3 — ferramentas do laço do WhatsApp (comando do dono): leituras + ações liberadas (lista fechada). */
 export const ferramentasDoWhatsapp = () => [
-  ...ferramentasLiberadas(),
+  ...leiturasDoWhatsapp(),
   ...ACOES.filter(a => funcaoLiberada(a.nome)).map(a => definicaoDaFerramenta({ nome: a.nome, descricao: a.descricao, entrada: a.entrada } as never)),
 ];
 
