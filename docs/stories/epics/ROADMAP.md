@@ -334,3 +334,15 @@ A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar a
   enviados como dado delimitado, prazo de 40 s, teto de 5 propostas/dia por empreendimento e por pessoa, limpeza do SVG (lista de
   permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
   Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-029 Módulo Fiscal — registrada em 22/11/2026; porte ADIADO por decisão do dono)
+
+Decisão do dono (22/11/2026, ao autorizar o EPIC-029): "paridade com Grupo Santa Fé fica para depois". Não é exceção
+permanente — é porte adiado; a regra de paridade obrigatória continua valendo para o módulo fiscal. Story-mãe:
+`epic-029-modulo-fiscal/EPIC.md`.
+- [ ] S-1 — consulta CNPJ/CEP (Brasil API → ViaCEP), cache de 30 dias, alerta de CNPJ inativo, validador de CNPJ alfanumérico.
+- [ ] S-2 — rascunhos de NFS-e dentro da aba Contabilidade do BPO (emissor = perfil tributário; tomador = cadastros existentes),
+  histórico imutável, prévia com marca d'água, relatório notas × receita.
+- [ ] S-4/S-5 — emissão na API Nacional (DPS, assinatura com A1 do painel, mTLS), cancelamento, notas recebidas pelo ADN.
+- **Não portar:** S-3 (Dolores) e a origem `adn` em `obra_notas` como notas de obra da Dolores — seguem a exceção da Dolores
+  (seção EPIC-025 acima). No Santa Fé, as notas recebidas precisam de um registro próprio, sem Dolores.
