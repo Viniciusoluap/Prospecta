@@ -34,6 +34,7 @@ import { revalidarDocumento, revalidarPendentes } from "./juridico-revalidacao";
 import { montarCadeiaPublica, _limparLimiteCadeia } from "./juridico-cadeia";
 import { _limparEnviosPortal } from "./juridico-workflow";
 import { assinarPdf, importarCertificado } from "../client/src/lib/certificados-digitais";
+import { desenhoSoDaMarca } from "./juridico-marca-conferencia";
 
 let pki: Pki;
 const signers: Record<string, P12Signer> = {};
@@ -51,6 +52,16 @@ async function assinar(bytes: Buffer, quem: string) { const pdf = await PDF.load
 const partes = { partyADocument: "12.345.678/0001-90", partyBDocument: "123.456.789-01", signers: ["CONSTRUTORA — EMPRESA TESTE", "CONTRATANTE — CLIENTE TESTE"] };
 
 describe("conferência das assinaturas do PDF (ICP sintética)", () => {
+  it("P1: rejeita traçado espesso mascarado por largura posterior, estado gráfico ou cor branca", () => {
+    const texto = " BT /F1 10 Tf 1 0 0 1 60 70 Tm (999) Tj ET";
+    const pagina = { x: 0, y: 0, width: 595, height: 842 };
+    for (const desenho of [
+      "1 1 1 RG 60 w 50 50 200 60 re S 1 w",
+      "0.15 0.25 0.4 RG 60 w 50 50 200 60 re S 1 w",
+      "60 w q 1 w Q 50 50 200 60 re S 1 w",
+      "1 1 1 RG 1 w 50 50 200 60 re S",
+    ]) expect(desenhoSoDaMarca([desenho + texto], "EMPRESA TESTE", pagina)).toBe(false);
+  });
   it("múltiplas assinaturas íntegras e válidas: todas as partes conferidas", async () => {
     const final = await assinar(await assinar(contratoBase(), "empresa"), "cliente");
     const r = await conferirAssinaturas(final, partes);

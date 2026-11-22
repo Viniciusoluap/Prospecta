@@ -105,3 +105,7 @@ correções do QA e da marca está no último commit de cada branch. (b) manuais
 - Migração 0161 APLICADA no Neon plain-cake-26372935/neondb. Tabela e ambos os índices confirmados. Só CREATE TABLE/INDEX IF NOT EXISTS.
 - PR #308 aberto. Revisão Codex da versão atual solicitada. Suíte completa em execução, por lotes: 13 arquivos iniciais aprovados preservados e restantes com quatro workers; resultados ficam nos logs temporários. Não afirmar suíte completa aprovada até terminar.
 - Próximo passo: terminar suíte, resolver achados da revisão, atualizar preview se preciso, merge/produção e smoke da API. Depois PRs de docs de independência dos sistemas.
+
+### Revisão automática do PR #308
+
+Achado P1 (thread PRRT_kwDOR_rShc66mxhV): a largura final do traço podia esconder uma largura anterior espessa. Corrigido com captura da largura em cada S, pilha q/Q, uma borda fina e cores escuras. Quatro vetores (branco espesso, espesso seguido de reset, estado q/Q e branco fino) agora são recusados. Testes P1 e A1 da marca legítima aprovados (2/2). Correção do e-CNPJ tem 28/28 PKI aprovados. Ajuste de compatibilidade TypeScript para Array.from(Set), sem alterar tsconfig. Checagens finais continuam em execução.

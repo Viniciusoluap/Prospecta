@@ -92,6 +92,7 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
   const palavraOk = (p: string) => vocabulario.has(p) || /^[\d/:,.\-]+$/.test(p);
   const pontos: [number, number][] = [], textos: { x: number; y: number; tamanho: number; texto: string }[] = [];
   let larguraLinha = 1, nivel = 0, emTexto = false, fonte = 12, entrelinha = 0, tx = 0, ty = 0, linhaX = 0, linhaY = 0, contornos = 0;
+  const espessuras: number[] = [], estadoGrafico: number[] = [];
   for (const fluxo of acrescentados) {
     const pilha: Token[] = [];
     for (const tk of lerConteudo(fluxo)) {
@@ -99,12 +100,16 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
       const op = tk.v, args = pilha.splice(0), nums = args.map(a => a.t === "num" ? a.v : NaN);
       if (!OPERADORES.has(op)) return false;
       switch (op) {
-        case "q": nivel++; break;
-        case "Q": if (--nivel < 0) return false; break;
-        case "w": larguraLinha = nums[0]; break;
+        case "q": nivel++; estadoGrafico.push(larguraLinha); break;
+        case "Q": if (--nivel < 0) return false; larguraLinha = estadoGrafico.pop()!; break;
+        case "w": if (nums.length !== 1 || !Number.isFinite(nums[0]) || nums[0] <= 0) return false; larguraLinha = nums[0]; break;
+        // A marca do assinador usa somente cores escuras, sem preenchimento de fundo.
+        case "RG": case "rg": if (nums.length !== 3 || nums.some(n => !Number.isFinite(n) || n < 0 || n > 0.5)) return false; break;
+        case "G": case "g": if (nums.length !== 1 || !Number.isFinite(nums[0]) || nums[0] < 0 || nums[0] > 0.5) return false; break;
+        case "K": case "k": return false;
         case "m": case "l": if (emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]]); break;
         case "re": if (emTexto || nums.length !== 4 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]], [nums[0] + nums[2], nums[1] + nums[3]]); break;
-        case "S": contornos++; break;
+        case "S": contornos++; espessuras.push(larguraLinha); break;
         case "BT": if (emTexto) return false; emTexto = true; tx = ty = linhaX = linhaY = 0; break;
         case "ET": if (!emTexto) return false; emTexto = false; break;
         case "Tf": if (args.length !== 2 || args[0].t !== "nome" || !(nums[1] > 0)) return false; fonte = nums[1]; break;
@@ -126,12 +131,12 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
     }
     if (pilha.length) return false;
   }
-  if (nivel !== 0 || emTexto || contornos < 1 || pontos.length < 2 || !textos.length) return false;
+  if (nivel !== 0 || emTexto || contornos !== 1 || pontos.length < 2 || !textos.length) return false;
   void entrelinha;
   const xs = pontos.map(p => p[0]), ys = pontos.map(p => p[1]);
   const caixa = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
   const lado = Math.min(caixa.x1 - caixa.x0, caixa.y1 - caixa.y0);
-  if (!(lado > 0) || larguraLinha > Math.max(2, lado * 0.1)) return false;
+  if (!(lado > 0) || espessuras.some(espessura => espessura > Math.max(0.6, lado * 0.02))) return false;
   // A caixa fica dentro da página e ocupa no máximo 30% dela.
   if (caixa.x0 < pagina.x - TOLERANCIA || caixa.y0 < pagina.y - TOLERANCIA || caixa.x1 > pagina.x + pagina.width + TOLERANCIA || caixa.y1 > pagina.y + pagina.height + TOLERANCIA) return false;
   if ((caixa.x1 - caixa.x0) * (caixa.y1 - caixa.y0) > 0.3 * pagina.width * pagina.height) return false;

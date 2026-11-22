@@ -129,7 +129,7 @@ export function documentoDoCertificado(cert: Certificate): string {
   // Um e-CNPJ também contém o CPF do responsável. A identidade da empresa prevalece, em qualquer ordem do SAN.
   const documentos = cnpjs.size ? cnpjs : cpfs;
   if (documentos.size > 1) return "";
-  const doSan = [...documentos][0] || "";
+  const doSan = Array.from(documentos)[0] || "";
   if (doSan && doCn && doSan !== doCn) return "";
   return doSan || doCn;
 }
