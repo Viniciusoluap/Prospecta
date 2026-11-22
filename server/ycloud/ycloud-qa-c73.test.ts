@@ -86,3 +86,33 @@ describe("QA C7.3 — eco: mensagem manual da equipe nunca vira eco", () => {
     expect(textoEhDaCampanha(`${corpo} ${"x".repeat(TOLERANCIA_ECO_CAMPANHA + 1)}`, antigo)).toBe(false);
   });
 });
+
+describe("QA C7.3 — eco: corpo que também aparece no cabeçalho e/ou no rodapé", () => {
+  const envio = (cabecalho: string | null, rodape: string | null) =>
+    ({ texto: "Olá", parametros: { textoCompleto: cabecalho ? `${cabecalho}\nOlá` : "Olá", rodape } });
+
+  it("corpo repetido no cabeçalho E no rodapé: o texto exato da campanha é eco", () => {
+    expect(textoEhDaCampanha("Olá, cliente\nOlá\nOlá novamente", envio("Olá, cliente", "Olá novamente"))).toBe(true);
+  });
+
+  it("corpo repetido só no cabeçalho, ou só no rodapé: eco", () => {
+    expect(textoEhDaCampanha("Olá, cliente\nOlá\nAté logo", envio("Olá, cliente", "Até logo"))).toBe(true);
+    expect(textoEhDaCampanha("Olá, cliente\nOlá", envio("Olá, cliente", null))).toBe(true);
+    expect(textoEhDaCampanha("Prospecta\nOlá\nOlá novamente", envio("Prospecta", "Olá novamente"))).toBe(true);
+    expect(textoEhDaCampanha("Olá\nOlá novamente", envio(null, "Olá novamente"))).toBe(true);
+  });
+
+  it("com acréscimo da equipe continua NÃO sendo eco", () => {
+    const e = envio("Olá, cliente", "Olá novamente");
+    expect(textoEhDaCampanha("Olá, cliente\nOlá\nOlá novamente\nOlá", e)).toBe(false);
+    expect(textoEhDaCampanha("Olá, cliente\nOlá\nOlá novamente, tudo bem?", e)).toBe(false);
+    expect(textoEhDaCampanha("Oi\nOlá, cliente\nOlá\nOlá novamente", e)).toBe(false);
+    expect(textoEhDaCampanha("Olá, cliente\nOlá Olá\nOlá novamente", e)).toBe(false);
+  });
+
+  it("envio antigo sem rodapé guardado: mantém a tolerância", () => {
+    const antigo = { texto: "Olá", parametros: { textoCompleto: "Olá, cliente\nOlá" } };
+    expect(textoEhDaCampanha("Olá, cliente\nOlá\nOlá novamente", antigo)).toBe(true);
+    expect(textoEhDaCampanha(`Olá, cliente\nOlá\n${"x".repeat(TOLERANCIA_ECO_CAMPANHA + 1)}`, antigo)).toBe(false);
+  });
+});
