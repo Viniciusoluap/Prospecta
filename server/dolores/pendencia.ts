@@ -153,7 +153,8 @@ export async function marcarForaDeOrdem(excetoId: number | null): Promise<void> 
  * Não, enquanto houver uma proposta ABERTA e ainda CONFIRMÁVEL na conversa do dono: aberta, dentro da validade e com a pergunta
  * como a última coisa que ele recebeu (`adjacente`) — ou ainda saindo (pergunta não enviada). Um aviso no meio tiraria a proposta
  * "de ordem" (marcarForaDeOrdem) e o "pode" dele não confirmaria. O aviso ESPERA: fica pendente e sai quando a proposta for
- * decidida ou vencer (fim do próximo aviso do WhatsApp, ou o cron).
+ * Quem usa: os alertas de gasto (operacao-gasto.ts#enviarAlertasPendentes) e os avisos proativos (avisos.ts#executarAvisos, antes da
+ * vaga e de novo logo antes do envio). Qualquer aviso automático novo (lembretes)
  * Quem usa: os alertas de gasto (operacao-gasto.ts#enviarAlertasPendentes). Qualquer aviso automático novo (proatividade,
  * lembretes) que vá ao dono pelo `enviarAvisoAoDono` deve conferir AQUI antes, e não reescrever a regra. NÃO vale para a resposta
  * a uma mensagem dele (ele pediu outra coisa: aí a proposta sai de ordem de propósito) nem para a pergunta da própria proposta.

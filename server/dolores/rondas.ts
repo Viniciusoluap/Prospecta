@@ -452,13 +452,43 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   const inicio = relogio.ms();
   const prazoFinal = inicio + PRAZO_CRON_MS;
   const agora = relogio.agora();
-  const r = await rondaDoCron(prazoFinal, agora);
+  const saida = await rondaDoCron(prazoFinal, agora);
   // QA C5 (B1/B2): alertas de gasto que ficaram pendentes (proposta aberta, sem tempo no aviso, envio que não saiu) saem aqui, no
   // tempo que sobrar — depois da ronda e do relatório. A pausa geral e a conexão são conferidas no envio (enviarAvisoAoDono).
   await enviarAlertasPendentes({ prazoFinal, canal: "cron", agora, relogio: relogio.ms });
-  return r;
+  // EPIC-027 C5-E4: depois (os alertas de gasto têm a vez: prazo curto e o de 100% avisa que uma função parou), com o tempo que sobra,
+  // os avisos automáticos ao dono (desligados por padrão; janela, teto, vaga única e proposta aberta conferidos em
+  // server/dolores/avisos.ts). Nunca mudam a resposta nem o erro da ronda.
+  return { status: saida.status, body: { ...saida.body, avisos: await avisosNoCron(agora, prazoFinal) } };
 }
 
+/** EPIC-027 C5-E4: os avisos precisam ao menos disto de prazo dentro da chamada do cron (coleta + envio). */
+const MINIMO_PARA_AVISOS_MS = 10_000;
+async function avisosNoCron(agora: Date, prazoFinal: number): Promise<string> {
+  if (prazoFinal - relogio.ms() < MINIMO_PARA_AVISOS_MS) return "sem-tempo";
+  try {
+    const { executarAvisos } = await import("./avisos.js");
+    return (await executarAvisos({ agora, prazoFinal, relogio: relogio.ms, canal: "cron" })).r;
+  } catch (e) {
+    console.error("[dolores/rondas] falha nos avisos do cron", erroParaLog(e));
+    return "erro";
+  }
+}
+
+/**
+ * EPIC-027 C5-E4 — a chamada da TARDE do cron (15h a 19h de Brasília, CAMINHOS_CRON_AVISOS): só os avisos automáticos, com o mesmo
+ * segredo do cron em tempo constante. Nada do chamador (query, corpo, caminho) muda alvo, janela ou destino. Integração 2: os alertas
+ * de gasto pendentes também saem aqui (antes dos avisos), pelo MESMO caminho único (`enviarAlertasPendentes`).
+ */
+export async function tratarCronAvisos(req: Pick<Request, "headers">): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (!cronAutorizado(req.headers.authorization)) return { status: 401, body: { error: "Não autorizado" } };
+  const prazoFinal = relogio.ms() + PRAZO_CRON_MS;
+  const agora = relogio.agora();
+  await enviarAlertasPendentes({ prazoFinal, canal: "cron", agora, relogio: relogio.ms });
+  return { status: 200, body: { ok: true, avisos: await avisosNoCron(agora, prazoFinal) } };
+}
+
+/** A ronda do dia e o relatório diário (a rotina da Dolores de 07h a 14h), sem os avisos nem os alertas. */
 async function rondaDoCron(prazoFinal: number, agora: Date): Promise<{ status: number; body: Record<string, unknown> }> {
   const config = await lerConfigOperacao();
   if (!config) return { status: 200, body: { ok: true, r: "sem-configuracao" } };

@@ -80,7 +80,9 @@ describe("achado 1 — regra de contaminação na porta e intenção de ação (
       // EPIC-027 C5-COM: gerar o link da maquete vai à fila (o resumo cita o nome do lote) → contamina
       gerar_link_maquete_lote: true,
       // EPIC-027 C5 (criadora de mesas): de fila (resumo com o texto da proposta) → contaminam
-      propor_mesa: true, revisar_mesa: true, propor_aprovacao_mesa: true, recusar_mesa: true });
+      propor_mesa: true, revisar_mesa: true, propor_aprovacao_mesa: true, recusar_mesa: true,
+      // EPIC-027 C5-E4: silenciar/religar um tipo de aviso vai à fila (com o "pode") → contamina, como as outras de fila
+      silenciar_aviso: true });
   });
   it("intenção de ação: verbos de ação sim; só leitura não", () => {
     for (const t of ["Dolores, crie uma tarefa para a Bianca", "registre que liguei para a Maria", "anota aí: cliente mandou o RG", "prepare as cobranças",

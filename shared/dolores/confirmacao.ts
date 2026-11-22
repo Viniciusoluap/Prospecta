@@ -76,6 +76,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
     case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria":
     // EPIC-027 C5 (criadora de mesas): propor, revisar e recusar uma PROPOSTA só registram o rascunho — "pode"
     case "propor_mesa": case "revisar_mesa": case "recusar_mesa":
+    // EPIC-027 C5-E4: silenciar/religar um tipo de aviso automático é configuração dela, reversível ("pode")
+    case "silenciar_aviso":
       return "registro";
     case "classificar_grupo":
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser

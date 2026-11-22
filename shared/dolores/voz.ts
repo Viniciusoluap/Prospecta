@@ -15,6 +15,8 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_processos_regularizacao: "processos de regularização",
   // EPIC-027 C5 (memória de longo prazo)
   guardar_memoria: "memória", corrigir_memoria: "memória", esquecer_memoria: "memória",
+  // EPIC-027 C5-E4
+  silenciar_aviso: "avisos automáticos",
   detalhar_processo_regularizacao: "detalhe do processo",
   consultar_cliente: "cadastro do cliente",
   historico_atendimento: "histórico de atendimento",

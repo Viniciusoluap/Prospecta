@@ -84,6 +84,14 @@ export async function alertasDoMes(mes: string): Promise<{ disponivel: boolean; 
   }
 }
 
+/**
+ * EPIC-027 C5-E4 — o dono silenciou o tipo "gasto" dos avisos automáticos? (só o alerta de 80% obedece; o de 100% sai sempre.)
+ * Sem a 0150 ou falha ao ler → não silenciado (o alerta é a proteção do limite: na dúvida, avisa).
+ */
+async function silencioDoGasto(): Promise<boolean> {
+  return import("./avisos.js").then(m => m.tipoSilenciado("gasto")).catch(() => false);
+}
+
 /** Toma a vaga do alerta (mês, alvo, nível), PENDENTE: true só para quem inseriu agora. */
 async function reservarVaga(mes: string, alvo: AlvoAlerta, nivel: NivelAlerta): Promise<boolean> {
   const r = await getDb().insert(doloresGastoAlertas).values({ mes, alvo, nivel }).onConflictDoNothing().returning({ alvo: doloresGastoAlertas.alvo });
@@ -104,7 +112,10 @@ export async function registrarAlertasDevidos(mes: string, o: { bloqueadas?: rea
     // nada a conferir se todos os alertas possíveis do mês já foram registrados (barato: sem ler consumo e preços)
     if (jaTem.size >= 6 * NIVEIS_ALERTA.length) return novos;
     const g = await gastoPorFuncaoDoMes(mes);
-    for (const a of alertasDevidos(g.situacao, o).filter(a => !jaTem.has(`${a.alvo}:${a.nivel}`))) {
+    // EPIC-027 C5-E4 (integração 2): o tipo de aviso "gasto" silenciado pelo dono segura só o alerta de 80% (o de 100% — a função
+    // parou — sai sempre, e o de 80% do mesmo alvo vai junto nele). Mesma regra no envio (`enviarAlertasPendentes`).
+    const silenciado = await silencioDoGasto();
+    for (const a of alertasDevidos(g.situacao, o).filter(a => !jaTem.has(`${a.alvo}:${a.nivel}`) && !(silenciado && a.nivel === 80))) {
       if (!(await reservarVaga(mes, a.alvo, a.nivel))) continue; // outra rotina registrou ao mesmo tempo
       novos.push(a);
       // com 100% devido, o de 80% do mesmo alvo fica registrado também: no envio, os dois saem numa mensagem só
@@ -164,7 +175,10 @@ export async function enviarAlertasPendentes(p: { prazoFinal: number; canal: "wh
     for (const a of pendentes) porAlvo.set(a.alvo as AlvoAlerta, [...(porAlvo.get(a.alvo as AlvoAlerta) ?? []), a.nivel as NivelAlerta]);
     let g: GastoPorFuncao | null = null;
     let enviar: EnvioDoAlerta | null = null;
+    // EPIC-027 C5-E4: com o tipo "gasto" silenciado, o 80% registrado ANTES do silêncio fica pendente (não sai); o 100% sai sempre
+    const silenciado = await silencioDoGasto();
     for (const [alvo, niveis] of Array.from(porAlvo.entries())) {
+      if (silenciado && !niveis.includes(100)) continue;
       if (p.prazoFinal - ms() < MINIMO_PARA_ALERTA_MS) break; // sem tempo: fica pendente
       // B2: proposta aberta e confirmável → espera (conferido a cada alerta: uma proposta pode ter nascido no meio)
       if (!(await podeEnviarAvisoAgora(agora))) break;

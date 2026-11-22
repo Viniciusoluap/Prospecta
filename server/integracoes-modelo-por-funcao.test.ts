@@ -88,7 +88,7 @@ describe("modeloDaFuncao — resolução (só nomes de modelo)", () => {
     expect(await modelosGravadosDasFuncoes(sincrono)).toEqual({ maquete_leitura: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_whatsapp: { modelo: null, sumiu: null, anteriorSumiu: null },
       dolores_documentos: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_grupo: { modelo: null, sumiu: null, anteriorSumiu: null },
       dolores_notas: { modelo: null, sumiu: null, anteriorSumiu: null }, dolores_cliente: { modelo: null, sumiu: null, anteriorSumiu: null },
-      incorporacao_logotipo: { modelo: null, sumiu: null, anteriorSumiu: null } });
+      dolores_avisos: { modelo: null, sumiu: null, anteriorSumiu: null }, incorporacao_logotipo: { modelo: null, sumiu: null, anteriorSumiu: null } });
   });
   it("nunca lê a chave: só as chaves de modelo de dashboard_settings", async () => {
     const l = leitor({});
@@ -108,6 +108,8 @@ describe("rotas do painel — modelo por função", () => {
       ["maquete_leitura", "Leitura de plantas em PDF — Maquete 3D"], ["dolores_whatsapp", "Dolores — conversa pelo WhatsApp"],
       ["dolores_documentos", "Dolores — classificação de documentos"], ["dolores_grupo", "Dolores — resposta em grupo quando marcada"],
       ["dolores_notas", "Dolores — leitura de notas de obra"], ["dolores_cliente", "Dolores — resposta a cliente cadastrado (conversa direta)"],
+      // EPIC-027 C5-E4: o texto dos avisos automáticos tem a própria linha (escolher modelo não liga nada)
+      ["dolores_avisos", "Dolores — texto dos avisos automáticos"],
       ["incorporacao_logotipo", "Logotipo da incorporação"]]);
     // EPIC-027 C8: o logotipo tem linha própria; sem chave não roda (mostra "sem chave", não um modelo)
     expect(linha(r, "incorporacao_logotipo")).toMatchObject({ valendo: { modelo: null, origem: null }, semChave: "Sem chave utilizável: a função não roda pela chave do painel." });

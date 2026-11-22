@@ -3,7 +3,7 @@
 // aceita estas. Só nomes e textos — nenhuma chave nem acesso a banco aqui.
 // Outras IAs do sistema (avaliação, mercado, Central de Vendas) usam a variável de ambiente e não entram nesta lista.
 
-export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas", "dolores_cliente", "incorporacao_logotipo"] as const;
+export const FUNCOES_ANTHROPIC = ["maquete_leitura", "dolores_whatsapp", "dolores_documentos", "dolores_grupo", "dolores_notas", "dolores_cliente", "dolores_avisos", "incorporacao_logotipo"] as const;
 export type FuncaoAnthropic = (typeof FUNCOES_ANTHROPIC)[number];
 
 export type DescricaoFuncaoAnthropic = {
@@ -50,6 +50,12 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     rotulo: "Dolores — leitura de notas de obra",
     descricao: "Lê as notas fiscais e recibos que chegam nos grupos de OBRA cadastrados (emitente, CPF/CNPJ, número, data, valor, itens) e monta o rascunho para o dono conferir. Só gasta com o interruptor da IA da Dolores, a classificação de documentos e a leitura de notas ligados, uma nota por vez, dentro dos tetos diários e do orçamento dos documentos no limite mensal do cartão da Dolores.",
     recomendacao: "Um modelo que leia bem imagem e PDF com números; valores e CPF/CNPJ são conferidos pelo sistema, e o que tiver confiança baixa vira \"confira\".",
+  },
+  dolores_avisos: {
+    id: "dolores_avisos",
+    rotulo: "Dolores — texto dos avisos automáticos",
+    descricao: "Escreve, em linguagem natural, o aviso que a Dolores manda sozinha ao dono (obras com atraso, tarefas vencidas, documentos pendentes…). Quem decide O QUE avisar são as regras do sistema; a IA só redige. Só gasta com os avisos ligados, a \"IA no texto\" ligada na tela de avisos e o interruptor da IA da Dolores ligado, no máximo 6 vezes por dia e dentro da parte \"avisos\" (5%) do limite mensal. Sem IA, sai o texto fixo.",
+    recomendacao: "O modelo mais barato (ex.: Haiku) basta: o texto é curto e os dados já vêm prontos.",
   },
   incorporacao_logotipo: {
     id: "incorporacao_logotipo",

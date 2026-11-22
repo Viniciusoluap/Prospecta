@@ -10,7 +10,7 @@ import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
 import { intencaoDeAcao, pareceColagem, trechoDoDono, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
-import { intencaoDeMesa } from "../../shared/dolores/mesas.js";
+import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
@@ -20,6 +20,8 @@ import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.j
 import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
 
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
+/** Ações da criadora de mesas (a leitura listar_mesas fica sempre): só com o pedido de mesa do dono, por código. */
+export const ACOES_DE_MESA: ReadonlySet<string> = new Set(FUNCOES_DAS_MESAS.filter(n => n !== "listar_mesas"));
 
 /**
  * A resposta desta função traz texto de dados (terceiros/banco)? Leituras e ações marcam no registro; nome desconhecido
@@ -82,7 +84,10 @@ const PRAZO_CONSULTA_MS = 15_000;
 // EPIC-027 C5-COM (mesa comercial ligada à maquete): +3 leituras e +1 ação (~4,6 mil caracteres ≈ 1,4 mil tokens pela estimativa): o
 // prefixo foi a ~14,7 mil (+500 da API = ~15,2 mil, acima do piso): 15.000 → 17.000 (mais rígido, com folga para as frentes em paralelo).
 // EPIC-027 C5 (criadora de mesas): +listar_mesas e +4 ações de mesa (~1,8 mil tokens pela estimativa): sozinha, ~15,2 mil; piso 17.000.
-export const RESERVA_MINIMA_ENTRADA = 17_000;
+// Integração 2 (C5-COM + C5-MESAS + C5-E4 juntas): prefixo medido no pior caso (todas as ferramentas com ações, inclusive as de mesa)
+// = sistema 2.526 + ferramentas 14.527 = 17.053 (+500 da API = 17.553 > 17.000): piso 17.000 → 19.000 (folga ~1,4 mil). Sem pedido de
+// mesa, as 4 ações de mesa ficam fora (≈ 15,5 mil + 500).
+export const RESERVA_MINIMA_ENTRADA = 19_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -228,7 +233,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const comAcoes = intencaoDeAcao(p.comando) || querMemoria || tiposMesa.length > 0 || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
   // as leituras só do dono (mesas, maquete por lote) vão também no laço só de leitura ("quais mesas eu pedi?", "link do lote 4")
-  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasDaConversa());
+  // Integração 2 (EPIC-027 C5): as AÇÕES de mesa só são oferecidas quando a mensagem do dono pede mesa por código (o mesmo
+  // `pedidoDeMesa` sem o qual a porta as recusa): sem perda nenhuma, ~1,5 mil tokens a menos no prefixo das outras mensagens.
+  const abreMesa = tiposMesa.length > 0 && !pareceColagem(p.comando) && !p.comMidia;
+  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp().filter(f => abreMesa || !ACOES_DE_MESA.has(f.name)) : ferramentasDaConversa());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -271,7 +279,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   /** EPIC-027 C5-COM: textos do sistema para o dono (link da maquete, rascunho), na ordem em que vieram. */
   const paraODono: Array<{ texto: string; seFaltar: string }> = [];
   // o mesmo para as mesas: só a mensagem direta do dono (sem colagem, sem anexo) abre propor/revisar/aprovar/recusar_mesa
-  const pedidoDeMesa = tiposMesa.length && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando, tipos: tiposMesa } : null;
+  const pedidoDeMesa = abreMesa ? { texto: comando, tipos: tiposMesa } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
