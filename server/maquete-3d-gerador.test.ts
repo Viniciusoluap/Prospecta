@@ -40,17 +40,18 @@ describe("JSON-fonte → cena 3D", () => {
     expect(cena.blocos.filter(b => b.muro).map(b => b.paredeId)).toEqual(expect.arrayContaining(f.estrutura.paredes.filter(w => w.muro).map(w => w.id)));
   });
 
-  it("esquadrias com o modelo pedido: J1 correr 4 folhas, P1 pivotante, P2 correr de vidro, P3/P4 de abrir, PT1 portão gradeado", () => {
+  it("esquadrias com o modelo pedido: J1 correr 4 folhas, P1 pivotante, P2 correr de vidro, P3/P4 de abrir, PT1 portão de correr (decisão do dono em 21/11)", () => {
     const por = (id: string) => cena.esquadrias.find(e => e.id === id)!;
     for (const id of ["j1-q1", "j1-q2", "j1-cozinha"]) expect([por(id).modelo, por(id).folhas, por(id).vidro]).toEqual(["janela_correr", 4, true]);
     expect(por("p1").modelo).toBe("pivotante");
     expect([por("p2-sala").modelo, por("p2-sala").folhas, por("p2-sala").vidro]).toEqual(["porta_correr", 2, true]);
+    expect(por("p2-sala").fixa).toBe(-1); // folha fixa no começo do vão (lado do sofá)
     for (const id of ["p3-cozinha", "p3-banho", "p4-q1", "p4-q2"]) {
       expect(por(id).modelo).toBe("abrir");
       expect(por(id).giro).not.toBeNull();
       expect(por(id).dobradica).not.toBeNull();
     }
-    expect(por("pt1").modelo).toBe("portao_gradeado");
+    expect([por("pt1").modelo, por("pt1").material]).toEqual(["portao_correr", "aco"]);
   });
 
   it("paredes recortadas: peitoril e verga nas alturas do JSON (base + peitoril, base + peitoril + altura)", () => {

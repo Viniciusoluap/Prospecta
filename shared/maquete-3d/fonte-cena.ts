@@ -292,7 +292,7 @@ export function bordasDaGrade(g: Grade): Borda[] {
 
 // ── Esquadrias ──
 
-export type ModeloEsquadria = "janela_correr" | "porta_correr" | "pivotante" | "abrir" | "portao_gradeado";
+export type ModeloEsquadria = "janela_correr" | "porta_correr" | "pivotante" | "abrir" | "portao_gradeado" | "portao_correr";
 
 export type EsquadriaCena = {
   id: string; codigo: string; tipo: AberturaFonte["tipo"]; modelo: ModeloEsquadria;
@@ -307,6 +307,8 @@ export type EsquadriaCena = {
   y0: number;
   /** Lado da dobradiça no X local (−1 = começo do vão, +1 = fim) e lado do giro no Z local (+1 / −1). */
   dobradica: -1 | 1 | null; giro: -1 | 1 | null;
+  /** Porta de correr com folha fixa declarada: lado da folha FIXA no X local (−1 = começo do vão, +1 = fim). */
+  fixa: -1 | 1 | null;
   estimado: boolean;
 };
 
@@ -314,13 +316,13 @@ export function modeloDaEsquadria(ab: AberturaFonte): { modelo: ModeloEsquadria;
   const d = semAcento(`${ab.descricao ?? ""}`);
   const n = Number(/(\d+)\s*(folhas|paineis|painel)/.exec(d)?.[1] ?? 0);
   let modelo: ModeloEsquadria;
-  if (ab.tipo === "portao") modelo = "portao_gradeado";
+  if (ab.tipo === "portao") modelo = ab.abertura === "correr" ? "portao_correr" : "portao_gradeado";
   else if (/pivot/.test(d)) modelo = "pivotante";
   else if (ab.abertura === "correr") modelo = ab.tipo === "janela" ? "janela_correr" : "porta_correr";
   else modelo = "abrir";
   const folhas = modelo === "janela_correr" || modelo === "porta_correr" ? Math.max(2, n || 2) : 1;
   const vidro = ab.tipo === "janela" || (modelo === "porta_correr" && /vidro|alumin/.test(d));
-  const material = /madeira/.test(d) ? "madeira" : modelo === "portao_gradeado" ? "aco" : vidro || /alumin/.test(d) ? "aluminio" : "madeira";
+  const material = /madeira/.test(d) ? "madeira" : modelo === "portao_gradeado" || modelo === "portao_correr" ? "aco" : vidro || /alumin/.test(d) ? "aluminio" : "madeira";
   return { modelo, folhas, vidro, material };
 }
 
@@ -500,7 +502,7 @@ export function cenaDaFonte(f: FontePlanta): CenaFonte {
       cx: r4(w.x1 + ux * s), cz: r4(w.z1 + uz * s), ang: anguloDaParede(w),
       larg: ab.larg, alt: ab.alt, esp: w.esp, y0: r4(w.base + ab.peitoril),
       dobradica: ab.abertura === "esq" ? -1 : ab.abertura === "dir" ? 1 : null,
-      giro, estimado: !!ab.estimado,
+      giro, fixa: ab.abertura === "correr" && ab.folha_fixa ? (ab.folha_fixa === "inicio" ? -1 : 1) : null, estimado: !!ab.estimado,
     } satisfies EsquadriaCena];
   });
 
@@ -648,7 +650,7 @@ export function pecasDaFonte(f: FontePlanta): PecaFonte[] {
 
 const fmt2 = (n: number) => n.toFixed(2).replace(".", ",");
 const NOME_MODELO: Record<ModeloEsquadria, string> = {
-  janela_correr: "de correr", porta_correr: "de correr", pivotante: "pivotante", abrir: "de abrir", portao_gradeado: "portão",
+  janela_correr: "de correr", porta_correr: "de correr", pivotante: "pivotante", abrir: "de abrir", portao_gradeado: "portão", portao_correr: "de correr",
 };
 
 /** Aberturas que dão para o ambiente (um dos lados do vão cai nele), na ordem do JSON. */
@@ -672,7 +674,7 @@ export function legendaDasAberturas(f: FontePlanta, nome: string): string[] {
   return aberturasDoAmbiente(f, nome).map(ab => {
     const t = modeloDaEsquadria(ab);
     const tipo = ab.tipo === "janela" ? "Janela" : ab.tipo === "portao" ? "Portão" : "Porta";
-    const folhas = t.modelo === "janela_correr" || t.modelo === "porta_correr" ? ` ${t.folhas} folhas` : "";
+    const folhas = t.modelo === "janela_correr" || t.modelo === "porta_correr" ? ` ${t.folhas} folhas${ab.abertura === "correr" && ab.folha_fixa ? " (1 fixa)" : ""}` : "";
     const peit = ab.peitoril > 0 ? `, peitoril ${fmt2(ab.peitoril)}` : "";
     return `${tipo} ${ab.codigo} ${fmt2(ab.larg)} × ${fmt2(ab.alt)} m${peit}, ${NOME_MODELO[t.modelo]}${folhas}${t.vidro ? ", com vidro" : ""}`;
   });
