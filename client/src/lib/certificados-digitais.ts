@@ -156,6 +156,7 @@ export async function pfxParaEmissao(salvo: CertificadoSalvo, senha: string): Pr
   } finally { pfx.fill(0); }
 }
 
+/**
  * Monta a cadeia antes de assinar: recebe SÓ o certificado público (DER) e a cadeia que veio no A1 e devolve os
  * intermediários (DER) — no Jurídico, pela rota autenticada `juridico.montarCadeia`. Senha, PFX e chave nunca saem daqui.
  */
