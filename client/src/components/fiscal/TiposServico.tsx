@@ -24,6 +24,7 @@ function rotuloOrigem(chave: string) {
 
 type Form = {
   id: number; nome: string; emissorId: string; codigoTributacaoNacional: string; codigoNbs: string; itemLc116: string;
+  codigoAtividadeSimples: "" | "7" | "9" | "12" | "13";
   descricaoPadrao: string; aliquotaIss: number | null; regra: keyof typeof REGRA; origens: string[]; ativo: boolean;
 };
 
@@ -47,7 +48,7 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
             <div className="min-w-0">
               <p className="font-medium text-white">{t.nome}{!t.ativo && <span className="ml-2 text-xs text-gray-400">(inativo)</span>}</p>
               <p className="text-xs text-gray-400">
-                {REGRA[t.regra]} • trib. nacional {t.codigoTributacaoNacional ?? A_PREENCHER} • LC 116 {t.itemLc116 ?? A_PREENCHER} • NBS {t.codigoNbs ?? A_PREENCHER} •
+                {REGRA[t.regra]} • trib. nacional {t.codigoTributacaoNacional ?? A_PREENCHER} • LC 116 {t.itemLc116 ?? A_PREENCHER} • NBS {t.codigoNbs ?? A_PREENCHER} • Simples (cAtvSN) {t.codigoAtividadeSimples ?? A_PREENCHER} •
                 ISS {t.aliquotaIss != null ? `${Number(t.aliquotaIss).toLocaleString("pt-BR")}%` : A_PREENCHER}
               </p>
               <p className="text-xs text-gray-500">Origens: {(t.origens ?? []).map(rotuloOrigem).join(", ") || "nenhuma"}</p>
@@ -55,7 +56,7 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
             {podeEditar && (
               <Button size="sm" variant="outline" onClick={() => setForm({
                 id: t.id, nome: t.nome, emissorId: t.emissorId ? String(t.emissorId) : "", codigoTributacaoNacional: t.codigoTributacaoNacional ?? "",
-                codigoNbs: t.codigoNbs ?? "", itemLc116: t.itemLc116 ?? "", descricaoPadrao: t.descricaoPadrao ?? "",
+                codigoNbs: t.codigoNbs ?? "", itemLc116: t.itemLc116 ?? "", codigoAtividadeSimples: (t.codigoAtividadeSimples ?? "") as Form["codigoAtividadeSimples"], descricaoPadrao: t.descricaoPadrao ?? "",
                 aliquotaIss: t.aliquotaIss != null ? Number(t.aliquotaIss) : null, regra: t.regra, origens: t.origens ?? [], ativo: t.ativo,
               })}>Editar</Button>
             )}
@@ -102,6 +103,16 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
                 <Input id="fiscal-tipo-nbs" inputMode="numeric" maxLength={9} placeholder={A_PREENCHER} value={form.codigoNbs} onChange={e => setForm({ ...form, codigoNbs: e.target.value.replace(/\D/g, "") })} className="mt-1 bg-[#2C3E50]" />
               </div>
               <div>
+                <Label htmlFor="fiscal-tipo-catvsn">Atividade no Simples (cAtvSN)</Label>
+                <select id="fiscal-tipo-catvsn" value={form.codigoAtividadeSimples} onChange={e => setForm({ ...form, codigoAtividadeSimples: e.target.value as Form["codigoAtividadeSimples"] })} className="mt-1 w-full rounded border border-gray-600 bg-[#2C3E50] p-2 text-sm text-white">
+                  <option value="">{A_PREENCHER}</option>
+                  <option value="7">7 — Anexo III</option>
+                  <option value="9">9 — sujeito ao Fator R (Anexo III ou V)</option>
+                  <option value="12">12 — construção (7.02/7.05) no Anexo III</option>
+                  <option value="13">13 — construção (7.02/7.05) no Anexo IV</option>
+                </select>
+              </div>
+              <div>
                 <Label>Alíquota de ISS (%)</Label>
                 <PercentInput maximumFractionDigits={4} value={form.aliquotaIss ?? 0} onChange={v => setForm({ ...form, aliquotaIss: v ? Number(v) : null })} className="mt-1 bg-[#2C3E50]" />
               </div>
@@ -117,6 +128,7 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
                 onClick={() => salvar.mutate({
                   id: form.id, nome: form.nome, emissorId: form.emissorId ? Number(form.emissorId) : null,
                   codigoTributacaoNacional: form.codigoTributacaoNacional || null, codigoNbs: form.codigoNbs || null, itemLc116: form.itemLc116.trim() || null,
+                  codigoAtividadeSimples: form.codigoAtividadeSimples || null,
                   descricaoPadrao: form.descricaoPadrao || null, aliquotaIss: form.aliquotaIss, regra: form.regra, origens: form.origens, ativo: form.ativo,
                 })}>Salvar tipo de serviço</Button>
             </div>

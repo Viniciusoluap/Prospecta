@@ -59,7 +59,7 @@ export type NotaDetalhada = FiscalNota & {
   emissor: EmissorLido | null;
   /** QA S-6 (A7): sem emissor porque a empresa da conta não tem emissor (o gerador não escolhe o de outra empresa). */
   motivoSemEmissor: string | null;
-  tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
+  tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; codigoAtividadeSimples: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
   municipio: { nome: string | null; uf: string | null; fonte: "ajuste" | "obra" | "tomador" | "emissor" | "nenhum" };
   /** Revisão do PR #302 (3): o cliente/card/obra ATUAL da origem difere do que o rascunho guardou ao nascer. */
   tomadorMudouNaOrigem: boolean;
@@ -223,15 +223,14 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
   const linhasEmissores = await db.select().from(fiscalEmissores).orderBy(fiscalEmissores.id);
   const perfisEmissores = linhasEmissores.length ? await lerPerfis(db) : [];
   const ativos = linhasEmissores.filter(e => e.ativo);
-  // QA S-6 (A7): empresa da conta em que o dinheiro entrou (sem a 0164, segue sem o motivo)
+  // QA S-6 (A7): empresa da conta em que o dinheiro entrou. `to_jsonb(ba) ->> 'empresa_cnpj'`: sem a coluna da 0164 dá NULL em vez de
+  // erro (um erro abortaria a transação SOMENTE LEITURA da Dolores, que usa esta mesma função).
   const lancs = uniq(Array.from(origens.values()).map(o => o.bpoLancamentoId));
   const contaDoLancamento = new Map<number, string>();
   if (lancs.length) {
-    try {
-      for (const r of linhas(await db.execute(sql`
-        SELECT l.id, ba.empresa_cnpj FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
-        WHERE l.id IN (${ids(lancs)}) AND ba.empresa_cnpj IS NOT NULL`))) contaDoLancamento.set(Number(r.id), String(r.empresa_cnpj));
-    } catch { /* coluna da 0164 ausente: sem motivo */ }
+    for (const r of linhas(await db.execute(sql`
+      SELECT l.id, to_jsonb(ba) ->> 'empresa_cnpj' AS empresa_cnpj FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id
+      JOIN bank_accounts ba ON ba.id = bt.account_id WHERE l.id IN (${ids(lancs)})`))) if (r.empresa_cnpj) contaDoLancamento.set(Number(r.id), String(r.empresa_cnpj));
   }
 
   return notas.map((n, i) => {
@@ -280,7 +279,7 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
       obra,
       emissor,
       motivoSemEmissor: semEmissorMotivo,
-      tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
+      tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, codigoAtividadeSimples: tipo.codigoAtividadeSimples ?? null, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
       municipio,
       tomadorMudouNaOrigem,
     };

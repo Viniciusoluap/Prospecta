@@ -1,9 +1,9 @@
-# Roadmap — Paridade de Funcionalidades Prospecta ↔ Grupo Santa Fé
+# Roadmap — Prospecta (sistemas independentes desde 22/11/2026)
 
 **Owner:** dono do produto (Paulo Vinícius)
-**Contexto:** Prospecta e Grupo Santa Fé são a mesma operação (construção/imóveis financiados) em duas cidades. Grupo Santa Fé é a fonte da verdade de negócio. Prospecta deve reproduzir fielmente todos os módulos do Santa Fé, na própria stack (Vite/React + Express/tRPC + Drizzle/Neon) — não é cópia de arquivo, é a mesma regra de negócio reimplementada.
+**Contexto atual:** por decisão do dono em 22/11/2026, Prospecta e Grupo Santa Fé seguem evoluções independentes. Novos portes exigem pedido específico. As pendências de paridade abertas abaixo foram canceladas; o restante permanece como histórico e planejamento próprio. A frente do Jurídico é somente da Prospecta.
 
-**Exceções (ficam diferentes/exclusivas no Prospecta, não entram no espelhamento):**
+**Histórico de exceções anteriores ao encerramento da paridade:**
 - Landing page e layout público
 - Ecossistema de sorteios (`draws`, `tickets`, `utefBalances`, `utefTransactions`, `products`, `productConversions`)
 - **Maquete 3D** (EPIC-022; tabelas `maquetes_3d`, `maquete_3d_config`; módulo `maquete3d` do painel) — **exceção
@@ -210,7 +210,7 @@ negócio. As correções 5, 6, 7, 11, 12 e 13 são da Maquete 3D (exceção já 
   arquivado até o dono pedir; a lista continua aqui para não se perder. Ao portar, levar também os ajustes da
   rodada de validação de 16/11: `relative` nos contêineres de rolagem do CRM (textos `sr-only` esticavam a página),
   busca do OpenStreetMap em todos os servidores ao mesmo tempo e aviso de "fonte em manutenção".
-- **Áreas restritas nas doações (16/11/2026):** no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
+- **Porte cancelado — decisão do dono em 22/11/2026.** Áreas restritas nas doações (16/11/2026): no Estudo de Massa, APP, vegetação e faixas contam como área verde/institucional (`aproveitarRestricoes`); portar junto com as correções 8 e 10.
 
 ## Pendência de paridade → Grupo Santa Fé (EPIC-024 — registrada em 16/11/2026; porte AUTORIZADO pelo dono em 17/11/2026 e CONCLUÍDO em 19/11 — Santa Fé PR #263)
 
@@ -271,7 +271,7 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
   código no aviso da Dolores (dono → comandos; cliente cadastrado → Dolores; grupos), Dolores responde cliente cadastrado (escopo,
   tetos, silêncio quando a equipe responde), transcrição de áudio pela Cloudflare para a Dolores, avisos e relatórios dela fora da
   Central (`0135`).
-- [ ] Etapa 9, parte da CENTRAL WHATSAPP — portar ao Santa Fé quando o dono retomar a paridade (não é exceção: é regra de negócio da
+- [x] **Cancelada — decisão do dono em 22/11/2026.** Etapa 9, parte da CENTRAL WHATSAPP — portar ao Santa Fé quando o dono retomar a paridade (não é exceção: é regra de negócio da
   Central, que existe nos dois). Separado por decisão do QA-SEG E9 (20/11):
   - conexão ÚNICA da empresa feita só em Configurações › Integrações (QR), usada pela Central do admin e do colaborador; corretor
     continua com a própria; a Central da empresa nunca escreve, lista nem abre a conversa do dono nem do próprio número;
@@ -287,19 +287,19 @@ Lista mantida só como histórico; a Dolores ficou fora do Santa Fé por decisã
   - Enviar mensagem/Templates/responder pela empresa calam o atendimento automático na conversa por algumas horas.
 - [x] S-12 — termo de consentimento no primeiro acesso (curto, nunca escondido; aceite exigido no servidor e registrado) — **portado ao Santa Fé em 19/11 (PR #263 de lá); termo definitivo com retirada registrada nos dois (PR #255 aqui)**
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-026 — registrada em 20/11/2026)
+## Pendência de paridade → Grupo Santa Fé (EPIC-026 — registrada em 20/11/2026) — CANCELADA por decisão do dono em 22/11/2026
 
 Grupo Santa Fé em espera por ordem do dono; portar quando ele retomar a paridade. O que é da Dolores (C4, C5) é exceção.
-- [ ] C2 — recebimento do WhatsApp: leitura tolerante do aviso da Evolution, nenhuma mensagem descartada sem registro,
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C2 — recebimento do WhatsApp: leitura tolerante do aviso da Evolution, nenhuma mensagem descartada sem registro,
   remetente não identificado visível na Central (só admin até confirmar o número) e quadro "Recebimento nas últimas 24 h" (`0136`).
-- [ ] C3 — saudação da campanha com imagem e áudio (publicada aqui em 20/11, PR #267, `0137`): mídia no banco, conferida pelos bytes, uma saudação por número, sem duplicata quando o envio fica sem confirmação.
-- [ ] C6 — botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central (publicado aqui em 20/11, PR #266, `0138`). A parte da Dolores é exceção; no Santa Fé só faz sentido se houver atendimento automático.
-- [ ] C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C3 — saudação da campanha com imagem e áudio (publicada aqui em 20/11, PR #267, `0137`): mídia no banco, conferida pelos bytes, uma saudação por número, sem duplicata quando o envio fica sem confirmação.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C6 — botão "Assumir (humano)" / "Devolver para a Dolores" na conversa da Central (publicado aqui em 20/11, PR #266, `0138`). A parte da Dolores é exceção; no Santa Fé só faz sentido se houver atendimento automático.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C1A / C1B — conexão pela API oficial e coexistência pela YCloud (quando publicadas aqui).
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-027 C7 — registrada em 20/11/2026)
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C7 — registrada em 20/11/2026) — CANCELADA por decisão do dono em 22/11/2026
 
 A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa ser portada ao Santa Fé (na stack de lá).
-- [ ] C7 — integração com a YCloud (API oficial do WhatsApp, em coexistência): chave digitada pelo dono em Integrações (cifrada,
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C7 — integração com a YCloud (API oficial do WhatsApp, em coexistência): chave digitada pelo dono em Integrações (cifrada,
   "terminando em …"), Testar com número/nome verificado/situação/qualidade/limite, bloqueio quando o número da API não é o da
   empresa, modelos com situação de aprovação, campanha por modelo APROVADO com prévia, custo estimado e confirmação pela contagem,
   envio em lotes retomáveis pela fila da YCloud (`externalId` único, 5 mensagens/s, limite diário lido da conta, tetos do painel,
@@ -309,41 +309,54 @@ A Central WhatsApp existe nos dois sistemas: a campanha pela API oficial precisa
   tetos, preço, avisos de entrega, auditoria) = só admin por papel; a auditoria guarda id e papel de quem disparou. Migração aqui: `0141_ycloud.sql`. Story:
   `epic-027-correcoes-20-11-noite/C7-integracao-ycloud.md`. No Santa Fé, conferir antes se o número de lá também está em
   coexistência na YCloud (é outra conta/outro número).
-- [ ] C7.2 — modelos criados pelo próprio sistema (21/11, pedido do dono: não usar o painel da YCloud): modelo padrão
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C7.2 — modelos criados pelo próprio sistema (21/11, pedido do dono: não usar o painel da YCloud): modelo padrão
   `novidades_prospecta` (MARKETING, pt_BR) enviado UMA vez pelo servidor quando a conta não tem modelo de marketing em pt_BR (crons
   + listagem; compare-and-set; 1 tentativa por dia, 3 no total); no formulário de template da Central ("+ Novo template"/"Editar",
   só admin), a opção "Usar também em campanha pela API oficial" converte {{nome}}… em {{1}}…, valida as regras da Meta, envia
   para aprovação, mostra a situação no cartão e a campanha preenche sozinha as variáveis mapeadas; aviso da Central atualizado
   (disparo em massa = Campanha pela API oficial). Sem migração aqui (estado em `dashboard_settings`).
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026)
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 — registrada em 21/11/2026) — CANCELADA por decisão do dono em 22/11/2026
 
 A Central WhatsApp existe nos dois sistemas; a parte da Dolores (resposta quando marcada, classificar grupo, "Assumir" calando a
 Dolores) é exceção.
-- [ ] C2 — grupos do WhatsApp na Central (`0142`): acesso pelo módulo "WhatsApp" já existente (decisão do dono em 21/11: sem permissão separada;
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C2 — grupos do WhatsApp na Central (`0142`): acesso pelo módulo "WhatsApp" já existente (decisão do dono em 21/11: sem permissão separada;
   admin sempre; corretor nunca), aba "Conversas | Grupos" com todos os grupos da conta da empresa (nome, tipo, nome de
   quem escreveu, mídia como rótulo, paginação), escrita no grupo pelo número da empresa com quem enviou registrado ("equipe —
   Fulano") e os tetos do envio manual (10/min, 200/dia). No Santa Fé, sem Dolores, a lista de grupos precisa de um registro de
   grupos próprio (lá não existe `dolores_grupos`).
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-027 C8 — registrada em 21/11/2026)
+## Pendência de paridade → Grupo Santa Fé (EPIC-027 C8 — registrada em 21/11/2026) — CANCELADA por decisão do dono em 22/11/2026
 
 A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar ao Santa Fé (na stack de lá).
-- [ ] C8 — "Gerar logotipo com IA" pela chave da Anthropic do painel (Integrações › Anthropic): proposta em SVG desenhada pelo
+- [x] **Cancelada — decisão do dono em 22/11/2026.** C8 — "Gerar logotipo com IA" pela chave da Anthropic do painel (Integrações › Anthropic): proposta em SVG desenhada pelo
   modelo, com linha própria em "Modelo por função" ("Logotipo da incorporação", padrão `claude-sonnet-5`), dados do empreendimento
   enviados como dado delimitado, prazo de 40 s, teto de 5 propostas/dia por empreendimento e por pessoa, limpeza do SVG (lista de
   permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
   Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.
 
-## Pendência de paridade → Grupo Santa Fé (EPIC-029 Módulo Fiscal — registrada em 22/11/2026; porte ADIADO por decisão do dono)
+## Pendência de paridade → Grupo Santa Fé (Jurídico — validação automática das assinaturas, registrada em 22/11/2026) — CANCELADA por decisão do dono em 22/11/2026
+
+O fluxo de contratos existe nos dois sistemas; o cofre/assinatura A1 no navegador ainda não existe no Santa Fé
+(ver `HANDOFF-22-11-JURIDICO-FLUXO.md`). Portar junto do fluxo A1, na stack de lá:
+- [x] **Cancelada — decisão do dono em 22/11/2026.** Conferência no servidor de cada PDF assinado: integridade CMS/ByteRange, cobertura total, cadeia até as raízes oficiais
+  ICP-Brasil (PKIjs) com regras extras (extensão crítica, pathLen, keyUsage/EKU, política A1–A4, CPF/CNPJ do SAN) e LCR atual
+  (assinada pelo emissor com cRLSign, vigente, sem delta/escopo incompatível), com download AIA/LCR protegido contra SSRF.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** Estados válida/pendente/inválida (falha de rede = pendente; timeout nunca verde), relatório por documento com SHA-256 e
+  origem gravado no mesmo lote (migração Prospecta `0161_juridico_validacao_assinaturas.sql`), retentativa limitada (6×/7 dias).
+- [x] **Cancelada — decisão do dono em 22/11/2026.** Assinatura da empresa: titular = Parte A e vínculo com o documento de origem (só a marca visível pode entrar); retorno pelo
+  portal só conclui sozinho com a base da empresa válida, identidades conferidas e revisão conservada.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** Montagem da cadeia antes de assinar (só o certificado público vai ao servidor) e importação só na aba de certificados.
+
+## Pendência de paridade → Grupo Santa Fé (EPIC-029 Módulo Fiscal — registrada em 22/11/2026; porte ADIADO por decisão do dono) — CANCELADA por decisão do dono em 22/11/2026
 
 Decisão do dono (22/11/2026, ao autorizar o EPIC-029): "paridade com Grupo Santa Fé fica para depois". Não é exceção
 permanente — é porte adiado; a regra de paridade obrigatória continua valendo para o módulo fiscal. Story-mãe:
 `epic-029-modulo-fiscal/EPIC.md`.
-- [ ] S-1 — consulta CNPJ/CEP (Brasil API → ViaCEP), cache de 30 dias, alerta de CNPJ inativo, validador de CNPJ alfanumérico.
-- [ ] S-2 — rascunhos de NFS-e dentro da aba Contabilidade do BPO (emissor = perfil tributário; tomador = cadastros existentes),
+- [x] **Cancelada — decisão do dono em 22/11/2026.** S-1 — consulta CNPJ/CEP (Brasil API → ViaCEP), cache de 30 dias, alerta de CNPJ inativo, validador de CNPJ alfanumérico.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** S-2 — rascunhos de NFS-e dentro da aba Contabilidade do BPO (emissor = perfil tributário; tomador = cadastros existentes),
   histórico imutável, prévia com marca d'água, relatório notas × receita.
-- [ ] S-4/S-5 — emissão na API Nacional (DPS, assinatura com A1 do painel, mTLS), cancelamento, notas recebidas pelo ADN.
+- [x] **Cancelada — decisão do dono em 22/11/2026.** S-4/S-5 — emissão na API Nacional (DPS, assinatura com A1 do painel, mTLS), cancelamento, notas recebidas pelo ADN.
 - [ ] S-6 — conta bancária ligada ao estabelecimento (CNPJ completo; empresa = raiz do CNPJ), apelido da conta, regime por empresa
   (inclui "a confirmar") e painel de limite de receita do ano por regime (Simples, Presumido; Real sem limite). O aviso e a leitura da
   Dolores (`limite_receita`, `consultar_limites_receita`) seguem a exceção da Dolores.

@@ -169,7 +169,7 @@ describe("C5-E4 — regras puras", () => {
     expect(funcaoLiberada("silenciar_aviso")).toBe(true);
     for (const t of ["para de me avisar de obra atrasada", "não me avisa mais de tarefas", "silencia os avisos de documentos", "religa o aviso de obras"]) expect(intencaoDeAcao(t), t).toBe(true);
     expect(FUNCOES_ANTHROPIC).toContain("dolores_avisos");
-    expect([...TIPOS_AVISO]).toEqual(["obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto", "limite_receita"]);
+    expect([...TIPOS_AVISO]).toEqual(["obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto", "nota_fiscal", "limite_receita"]);
   });
 });
 
@@ -318,14 +318,16 @@ describe("C5-E4 — regras sobre os dados (cenário: segunda 16/11, 09:00)", () 
 
   it("grupo esperando o dono há 24 h, nota de obra sem confirmação há 3 dias e conta bancária com erro também viram aviso", async () => {
     await ligar();
+    // As datas do cenário têm fuso explícito para medir períodos completos de 24 horas.
+    await banco.pg.exec("SET TIME ZONE 'America/Fortaleza'");
     await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, situacao_confirmacao, tipo, origem, criado_em) VALUES
-      ('prospecta-dolores', '120363000000000001@g.us', 'Obra *Nova* aprovar KX7MP', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-14 12:00'),
-      ('prospecta-dolores', '120363000000000002@g.us', 'Grupo recente', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-16 08:00')`);
+      ('prospecta-dolores', '120363000000000001@g.us', 'Obra *Nova* aprovar KX7MP', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-14 12:00+00'),
+      ('prospecta-dolores', '120363000000000002@g.us', 'Grupo recente', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-16 08:00+00')`);
     await banco.pg.exec(`INSERT INTO bank_accounts (banco, conta, provedor, ultimo_erro, ativo) VALUES ('Asaas', '12345-6', 'asaas', 'token sk-segredo inválido', true), ('Manual', '1', 'manual', 'x', true)`);
     await banco.pg.exec(`INSERT INTO dolores_grupo_mensagens (grupo_id, instancia, external_id, enviada_em, tipo) VALUES
-      (1, 'prospecta-dolores', 'NOTA1', '2026-11-12 12:00', 'imagem'), (1, 'prospecta-dolores', 'NOTA2', '2026-11-15 12:00', 'imagem');
+      (1, 'prospecta-dolores', 'NOTA1', '2026-11-12 12:00+00', 'imagem'), (1, 'prospecta-dolores', 'NOTA2', '2026-11-15 12:00+00', 'imagem');
       INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao, emitente_nome, criado_em) VALUES
-      (1, 1, 1, 'rascunho', 'Material Silva', '2026-11-12 12:00'), (1, 2, 1, 'rascunho', 'Nota recente', '2026-11-15 12:00')`);
+      (1, 1, 1, 'rascunho', 'Material Silva', '2026-11-12 12:00+00'), (1, 2, 1, 'rascunho', 'Nota recente', '2026-11-15 12:00+00')`);
     await rodar(SEG_9H);
     const t = mensagens()[0].texto;
     expect(t).toContain("*1 grupo esperando a sua decisão*");

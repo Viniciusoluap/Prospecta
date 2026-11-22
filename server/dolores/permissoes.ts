@@ -100,12 +100,19 @@ export const LIBERADAS_ETAPA_7_AVISOS = ["silenciar_aviso"] as const;
 export const LIBERADAS_ETAPA_7_REURB = ["analisar_regularizacao_reurb"] as const;
 
 /**
+ * Etapa 7 (cont.) — EPIC-029 S-3 (Dolores no fluxo fiscal, autorizada pelo dono em 22/11): duas leituras SÓ da conversa direta do dono
+ * (rascunhos de nota e a prévia em PDF, que o sistema manda ao número dele) e três ações de FILA — sem nota/depois e editar com "pode",
+ * emitir com "confirmo" (e, até a S-4/S-5, a execução recusa: nada sai do sistema). Só oferecidas quando o assunto é nota/fiscal (cerebro.ts).
+ */
+export const LIBERADAS_ETAPA_7_FISCAL = ["listar_notas_fiscais", "ver_nota_fiscal", "decidir_nota_fiscal", "editar_rascunho_nota", "emitir_nota_fiscal"] as const;
+
+/**
  * Etapa 7 (cont.) — EPIC-029 S-6 (pedido do dono de 22/11): quanto falta para o limite de receita de cada empresa. SOMENTE LEITURA e só na
  * conversa direta do dono (funcoes.ts#LEITURAS_DO_DONO).
  */
 export const LIBERADAS_ETAPA_7_LIMITES = ["consultar_limites_receita"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_MAQUETE, ...LIBERADAS_ETAPA_7_MESAS, ...LIBERADAS_ETAPA_7_AVISOS, ...LIBERADAS_ETAPA_7_REURB, ...LIBERADAS_ETAPA_7_LIMITES] };
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA, ...LIBERADAS_ETAPA_7_MAQUETE, ...LIBERADAS_ETAPA_7_MESAS, ...LIBERADAS_ETAPA_7_AVISOS, ...LIBERADAS_ETAPA_7_REURB, ...LIBERADAS_ETAPA_7_FISCAL, ...LIBERADAS_ETAPA_7_LIMITES] };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};

@@ -1,114 +1,335 @@
 # EPIC-029 — Pesquisa (fontes e o que NÃO foi confirmado)
 
-Feita em 22/11/2026. **Limite da sessão:** a rede bloqueou `www.gov.br`, `brasilapi.com.br` e `viacep.com.br` (falha de DNS
-no ambiente do agente). Os documentos oficiais desses domínios foram **localizados** pela busca (URLs abaixo), mas não lidos
-diretamente. O que veio só de terceiros está marcado. Regra (Constituição, Artigo IV): o que não foi confirmado está escrito
-**[NÃO CONFIRMADO]** e precisa ser conferido antes de virar código — na etapa 4, com o Swagger da produção restrita aberto
-com o certificado do dono.
+**1ª rodada (22/11/2026, manhã):** a rede bloqueou `www.gov.br`, `brasilapi.com.br` e `viacep.com.br`; ficou quase tudo
+[NÃO CONFIRMADO].
+**2ª rodada (22/11/2026, tarde) — esta versão:** `www.gov.br`, `brasilapi.com.br` e `viacep.com.br` liberados. Foram
+**baixados e lidos** os documentos oficiais do Portal NFS-e (manuais, anexos I/II/IV em planilha, esquemas XSD, NT 007,
+008 e 009, Perguntas Frequentes v1.4). **Continuam bloqueados pela política de rede da sessão** (proxy responde 403): os
+hosts `*.nfse.gov.br` (Swagger da Sefin e do ADN), os sites das prefeituras (`imperatriz.ma.gov.br`,
+`parauapebas.pa.gov.br`), `servicodados.ibge.gov.br` e a calculadora (`consumo.tributos.gov.br`,
+`piloto-cbs.tributos.gov.br`). O que dependia deles segue [NÃO CONFIRMADO], com o motivo.
 
-## 1. API do Sistema Nacional NFS-e (Sefin Nacional e ADN)
+**3ª rodada (22/11/2026, noite):** liberados `sefin[.producaorestrita].nfse.gov.br`, `adn[.producaorestrita].nfse.gov.br`
+e `consumo.tributos.gov.br`. Só leitura (GET sem certificado, nenhuma emissão). Os Swagger da Sefin e do ADN **exigem
+certificado de cliente** (Sefin: 403; ADN: recusa no aperto de mão TLS) — o que dependia do conteúdo deles continua
+pendente; a base da Sefin e a API da calculadora foram fechadas (§1.1, §5). Corrigida a posição do `<Signature>` (§3.3).
 
-**Documentação oficial localizada (não lida nesta sessão):**
-- Biblioteca técnica: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica
-- Manual dos contribuintes — Emissor Público / API, v1.2 (out/2025):
-  https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf
-- Manual dos contribuintes — APIs do ADN:
-  https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-apis-adn-sistema-nacional-nfse.pdf
-- Guia do Emissor Público Nacional web (produção restrita) v1.2.1:
-  https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/guia_emissor_publico_nacional_web_snnfse-ern_versao_1-2-1.pdf
-- NT 007 (RTC — IBS/CBS na NFS-e): https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/rtc/nt-007-se-cgnfse-v1-0.pdf
-- Perguntas frequentes v1.2 (27/10/2026): https://www.gov.br/nfse/pt-br/perguntas-frequentes/perguntas-frequentes-nfs-e-v1-2-20261027.pdf
+Regra (Constituição, Artigo IV): o que não foi confirmado está escrito **[NÃO CONFIRMADO]** e precisa ser conferido antes
+de virar código — na S-4, com o Swagger da produção restrita aberto com o certificado do dono.
 
-**O que as fontes indicam (cruzando projetos abertos e guias; conferir no oficial):**
+Legenda: **[OFICIAL]** = lido no documento oficial citado; **[TERCEIROS]** = só projeto aberto/blog; **[NÃO CONFIRMADO]**.
 
-| Item | Indicação | Fonte | Situação |
-|------|-----------|-------|----------|
-| Base Sefin — produção restrita | `https://sefin.producaorestrita.nfse.gov.br/SefinNacional` | https://github.com/Admnwk/rustnf (README, tabela de ambientes) | [NÃO CONFIRMADO no oficial] |
-| Base Sefin — produção | `https://sefin.nfse.gov.br/sefinnacional` | idem | [NÃO CONFIRMADO no oficial] |
-| ADN contribuintes | `adn.producaorestrita.nfse.gov.br/contribuintes/docs/index.html` e `adn.nfse.gov.br/contribuintes/docs/index.html` (Swagger) | guia de terceiros (notagateway) citado na busca | [NÃO CONFIRMADO] |
-| Autenticação | mTLS com certificado ICP-Brasil (A1/A3) do contribuinte; sem OAuth | várias (notagateway; https://github.com/heviane/nfse-nacional-api/issues/6; https://github.com/marciotisouza/nfse-nacional) | Consenso entre fontes; [NÃO CONFIRMADO no oficial] |
-| Emitir | `POST /nfse` com JSON `{"dpsXmlGZipB64": "…"}` (XML da DPS assinado → GZIP → Base64); resposta com `chaveAcesso` e `nfseXmlGZipB64` | heviane issue #6; marciotisouza README | [NÃO CONFIRMADO] |
-| Consultar | `GET /nfse/{chaveAcesso}`; `GET /dps/{id}` (recuperar a nota de uma DPS já enviada — base da idempotência) | marciotisouza README | [NÃO CONFIRMADO] |
-| Cancelar | evento **101101** — `POST /nfse/{chave}/eventos` (marciotisouza) ou `POST /eventos` (heviane) | dois projetos, caminhos diferentes | **[NÃO CONFIRMADO — divergente]** |
-| DANFSe | `GET {adn}/danfse/{chave}` (PDF oficial); fórum alerta que o caminho mudou recentemente no Swagger | marciotisouza; fórum citado na busca | [NÃO CONFIRMADO] |
-| Distribuição (notas recebidas) | `GET {adn}/contribuintes/DFe/{NSU}`, até 50 documentos por chamada, emitidos e recebidos pelo CNPJ; certificado com o mesmo CNPJ raiz | manual ADN (citado pela busca); marciotisouza | [NÃO CONFIRMADO o limite de 50] |
-| Chave de acesso | **50 dígitos** (NF-e tem 44); `Id` da NFS-e = "NFS" + 50 | https://nfe.io/docs/distribuicao-nfse-inbound-conceitos/ ; https://buscadorncm.com.br/nfse/chave-de-acesso ; heviane issue #6 | Consenso; composição posição a posição [NÃO CONFIRMADO] |
-| Id da DPS | "DPS" + IBGE do município emissor (7) + tipo de inscrição (1) + CNPJ/CPF (14) + série (5) + número (15) = 45 caracteres | manual oficial (trecho citado pela busca) e nfe.io | Provável; conferir |
-| Série da DPS via API | faixa 1–49999 | projeto citado pela busca | [NÃO CONFIRMADO] |
-| Assinatura | XML-DSig RSA-SHA256 envelopada sobre `infDPS` (Id "DPS…"); rustnf diz que o leiaute não fixa o algoritmo | rustnf README | Canonicalização [NÃO CONFIRMADO] |
-| Declaração XML | erro E1229 exige a declaração UTF-8 no XML | marciotisouza README | [NÃO CONFIRMADO] |
-| IBS/CBS | "a DPS não carrega o IBS/CBS calculado; o Sefin calcula e o valor da NFS-e é o que vale" | rustnf README | **[NÃO CONFIRMADO — decisivo para S-4]** |
-| Prazo de cancelamento | — | — | **[NÃO CONFIRMADO]** (fora do prazo, pedido de cancelamento por análise fiscal no município) |
+## 0. Documentos oficiais lidos (URLs exatas)
 
-**Imperatriz:** adotou a NFS-e Nacional desde 01/01/2026 (Decreto nº 105, de 24/12/2025):
-https://transparencia.imperatriz.ma.gov.br/upload/decretos/105%20-%20DECRETO%20-%20Disp%C3%B5e%20sobre%20a%20ado%C3%A7%C3%A3o%20do%20modelo%20nacional%20da%20NFSE.pdf
-e FAQ municipal: https://sti.imperatriz.ma.gov.br/media/portal/files/page/faq/faq_nfse_imperatriz_sefazgo.pdf . A notícia de que a
-emissão é **exclusivamente** pelo Emissor Nacional vem de fonte secundária (notagateway) [NÃO CONFIRMADO no FAQ].
-Parauapebas publicou tutorial da NFS-e (https://parauapebas.pa.gov.br/wp-content/uploads/2025/12/Tutorial-NFS-e.pdf); adesão
-de Canaã dos Carajás e Santa Inês [NÃO CONFIRMADO].
+| Sigla | Documento | URL |
+|---|---|---|
+| APIS | Página "APIs – Prod. Restrita e Produção" (atualizada 20/08/2026) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao |
+| MAN-API | Manual dos Contribuintes — APIs do Emissor Público Nacional (Sefin), v1.2 out/2025 | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-emissor-publico-api-sistema-nacional-nfs-e-v1-2-out2025.pdf |
+| MAN-ADN | Manual dos Contribuintes — APIs do ADN, v1.0 12/02/2026 | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-apis-adn-sistema-nacional-nfse.pdf |
+| MANINT | Manual Integrado do Sistema Nacional NFS-e v1.00.02 (set/2022, seção "leiautes antigos" — único texto oficial com o padrão de assinatura e o limite de 50 por lote) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/leiaute-e-esquemas-antigos/manualintegradosnnfse_v1-00-02-producao.pdf |
+| XSD-P | Esquemas XSD de **produção** v1.01 (09/02/2026) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/nfse-esquemas_xsd-v1-01-20260209.zip |
+| XSD-PR | Esquemas XSD de **produção restrita** v1.01 (20/10/2026) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas_prod_restrita_20261020.zip |
+| AI-P | Anexo I (leiaute + regras DPS/NFS-e), produção, 09/02/2026 | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/anexo_i-sefin_adn-dps_nfse-snnfse-v1-01-20260209.xlsx |
+| AI-PR | Anexo I, produção restrita, 20/10/2026 | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/anexo_i-sefin_adn-dps_nfse-snnfse_prodrest-v1-01-20261020.xlsx |
+| AII-PR | Anexo II (eventos), produção restrita, 20/10/2026 (produção: `.../documentacao-atual/anexo_ii-sefin_adn-pedregevt_evt-snnfse-v1-01-20260122.xlsx`) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/anexo_ii-sefin_adn-pedregevt_evt-snnfse_prodrest-v1-01-20261020.xlsx |
+| AIV | Anexo IV (ADN — recepção e distribuição), 16/12/2025 | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/anexo_iv-adn-snnfse-v1-00-20251216.xlsx |
+| NT009 | Nota Técnica 009 v1.01 (11/09/2026) — RTC/IBS-CBS, CNPJ alfanumérico | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/rtc/nota-tecnica-009-se-cgnfs-e-v-1-01.pdf |
+| NT008 | Nota Técnica 008 v1.02 (14/07/2026) — DANFSe | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/rtc/nt-008-se-cgnfse-danfse-20260714-v1-02.pdf |
+| IMPL | Página "Atualizações e implantações" (atualizada 18/11/2026) | https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/atualizacoes-e-implantacoes |
+| FAQ | Perguntas Frequentes NFS-e v1.4 (18/11/2026) | https://www.gov.br/nfse/pt-br/perguntas-frequentes/perguntas-frequentes-nfs-e-v1-4-20261118.pdf |
+| ADES | Monitoramento das adesões | https://www.gov.br/nfse/pt-br/municipios/monitoramento-adesoes |
 
-## 2. Brasil API
+## 1. Endereços e caminhos da API
 
-- Repositório: https://github.com/BrasilAPI/BrasilAPI (licença MIT; princípio "custos devem ser zero"). Site
-  `brasilapi.com.br/docs` não abriu nesta sessão.
-- Rotas: `GET /api/cnpj/v1/{cnpj}` (exemplo em atores Apify citados na busca) e `GET /api/cep/v2/{cep}` (v2 com geolocalização
-  e vários provedores com reserva; v1 sem geolocalização — documentação do cliente Elixir, https://hexdocs.pm/brasilapi/readme.html).
-  **[NÃO CONFIRMADO no site oficial]**.
-- Campos do CNPJ (`razao_social`, `nome_fantasia`, `descricao_situacao_cadastral`, `cnae_fiscal`, `codigo_municipio_ibge`,
-  endereço) — **[NÃO CONFIRMADO]**; o código lê os campos de forma defensiva e testa com respostas gravadas.
-- Limite de uso: sem chave; "limites para evitar abuso" sem números publicados **[NÃO CONFIRMADO]**. O cache de 30 dias e
-  uma consulta por digitação completa (não por tecla) protegem.
-- Código IBGE no CEP v2 **[NÃO CONFIRMADO]** — por isso a reserva do ViaCEP e o resolvedor de município (abaixo).
+### 1.1 Endereços (Swagger oficiais listados em APIS) — [OFICIAL]
 
-## 3. ViaCEP
+| API | Produção restrita (testes) | Produção |
+|---|---|---|
+| Sefin Nacional (emissão a partir da DPS, eventos) | Swagger `https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional/docs/index` | Swagger `https://sefin.nfse.gov.br/SefinNacional/docs/index` |
+| ADN — contribuintes (distribuição, eventos) | `https://adn.producaorestrita.nfse.gov.br/contribuintes/docs/index.html` | `https://adn.nfse.gov.br/contribuintes/docs/index.html` |
+| ADN — DANFSe (suspensa, ver 1.6) | `https://adn.producaorestrita.nfse.gov.br/danfse/docs/index.html` | `https://adn.nfse.gov.br/danfse/docs/index.html` |
+| ADN — parâmetros municipais | `https://adn.producaorestrita.nfse.gov.br/parametrizacao/docs/index.html` | `https://adn.nfse.gov.br/parametrizacao/docs/index.html` |
 
-- `https://viacep.com.br/ws/{cep}/json/`, resposta com `ibge` e `{"erro": true}` para CEP inexistente — conhecimento comum,
-  **[NÃO CONFIRMADO nesta sessão]** (site bloqueado). Sem chave; o próprio serviço pede para não fazer consultas em massa
-  [NÃO CONFIRMADO].
-- Município → IBGE quando nenhum dos dois traz o código: API de localidades do IBGE
-  (`servicodados.ibge.gov.br/api/v1/localidades/estados/{UF}/municipios`) ou Brasil API `/api/ibge/municipios/v1/{UF}`
-  [NÃO CONFIRMADO], com cache por UF no mesmo cache de 30 dias.
+**Base das chamadas — 3ª rodada (22/11/2026, noite, hosts `*.nfse.gov.br` liberados; só GET sem certificado):**
+os Swagger **não abrem sem certificado de cliente**. A Sefin (IIS) responde **403 "Access is denied … credentials that you
+supplied"** em qualquer caminho existente; o ADN **recusa o próprio aperto de mão TLS** ("handshake failure": exige o
+certificado já na conexão, até para a página de documentação). Pela diferença entre 403 (caminho existe) e 404 (não existe):
 
-## 4. Calculadora de Tributos da Receita Federal (IBS/CBS)
+| Ambiente | `/SefinNacional/...` | `/API/SefinNacional/...` | Conclusão |
+|---|---|---|---|
+| Produção (`sefin.nfse.gov.br`) | `docs/index` e `nfse` → **403** | `docs/index` e `nfse` → **404** | Base = **`https://sefin.nfse.gov.br/SefinNacional`** (sem `/API`) — confirmado pelo servidor |
+| Produção restrita (`sefin.producaorestrita.nfse.gov.br`) | `docs/index` → **403** | `docs/index` → **403** (`/API/naoexiste/...` → 404) | **Os dois caminhos existem.** O oficial (APIS) publica `/API/SefinNacional`; terceiros usam `/SefinNacional`. Usar **`https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional`** (o do portal) e, se o 1º envio falhar por rota, o outro |
 
-- **Existe e é código aberto:** https://github.com/ReceitaFederal/calculadora-rtc-regime-regular — licença **MIT**.
-- **Linguagem:** API REST em **Java 25**, Spring Boot 4.1.2, SQLite + Flyway, Springdoc. Roda com `./mvnw spring-boot:run`
-  (perfil `offline`) ou `java -jar target/api-regime-geral.jar`; serve em `http://localhost:8080/api`. Exige gerar antes o
-  banco `calculadora/db/calculadora-pro.db` por migração Flyway. Sem Docker documentado; sem releases publicadas.
-- **Rotas** (base `/api/calculadora`): `POST /regime-geral`, `POST /base-calculo/base-calculo-unificada-nfse`,
-  `POST /xml/generate`, `POST /xml/validate`, `/dados-abertos/…` (alíquotas de referência, classificações, fundamentação).
-- Outros repositórios da Receita: calculadora do **Simples Nacional** e gerador de **DANFSe** em PDF (organização
-  https://github.com/ReceitaFederal). Notícias: https://tecnoblog.net/noticias/receita-federal-publica-pela-primeira-vez-codigos-no-github/ ,
-  https://www.reformatributaria.com/iva/calculadora-de-tributos-receita-libera-codigos-de-3-ferramentas-da-reforma-tributaria-no-github/ .
-- **Data de publicação:** divergente (13/11 em https://dootax.com.br/calculadora-da-reforma-tributaria/ ; 16/11 em
-  https://smartsolve.com.br/calculadora-cbs-ibs-github/ ) — **[NÃO CONFIRMADO]**. O roadmap da Receita diz que a calculadora
-  não substitui os sistemas de autorização de documentos fiscais (https://spedy.com.br/blog/calculadora-de-tributos-no-github).
-- **API pública hospedada pela Receita:** um pacote não oficial (https://pypi.org/project/rfbcalc/) aponta
-  `https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/api` + `POST /calculadora/regime-geral`, sem chave desde
-  09/2026. É ambiente **piloto**; endereço de produção **[NÃO CONFIRMADO]**.
-- **Roda em Node/serverless?** **Não.** É JVM com banco SQLite em arquivo; não cabe na função Node da Vercel. Hospedar à parte
-  (VM, contêiner) é serviço novo e, em geral, pago — fora do "custo zero" sem autorização.
-- **Recomendação:** (1) na emissão, confiar no cálculo que o Sefin devolve [confirmar na homologação] e guardar o grupo de
-  IBS/CBS que voltou como memória de cálculo; (2) prévia opcional pela API piloto da Receita, atrás de interruptor desligado,
-  se o endereço de produção for confirmado; (3) reavaliar hospedar o motor só se o Sefin exigir os valores na DPS.
+Mantém-se a base em configuração por ambiente. ADN contribuintes: base
+`https://adn[.producaorestrita].nfse.gov.br/contribuintes` (os métodos do MAN-ADN ficam sob esse prefixo) — consistente com
+o projeto akretion/nfelib (TERCEIROS); o servidor não deixa conferir sem certificado.
 
-## 5. CNPJ alfanumérico
+### 1.2 Métodos da Sefin Nacional — [OFICIAL, MAN-API §1.2–1.5]
 
-IN RFB 2.229/2024: 12 primeiras posições alfanuméricas, 2 dígitos verificadores numéricos (módulo 11); primeiro CNPJ
-alfanumérico emitido em 31/07/2026 segundo a imprensa (https://olhardigital.com.br/2026/08/20/pro/por-que-o-cnpj-passou-a-ter-letras-em-2026/ ;
-https://www.sefaz.pe.gov.br/Noticias/Paginas/CNPJ-alfanum%C3%A9rico-entra-em-vigor-em-Julho-de-2026--e-exige-adequa%C3%A7%C3%A3o-de-sistemas-para-novas-inscri%C3%A7%C3%B5es.aspx ;
-perguntas e respostas da Receita: https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/cnpj/cnpj-alfanumerico.pdf ).
-Data exata **[NÃO CONFIRMADO no oficial]**. Impacto: todos os validadores e CHECKs numéricos do sistema (ver DIAGNOSTICO §2).
+| Método | Para quê |
+|---|---|
+| `POST /nfse` | Emissão **síncrona**: recebe a DPS, valida e devolve o XML da NFS-e ou a rejeição. Se a DPS traz `subst/chSubstda`, gera junto o evento de cancelamento por substituição da nota original. |
+| `GET /nfse/{chaveAcesso}` | Consulta a NFS-e pela chave. |
+| `GET /dps/{id}` | Devolve a chave da NFS-e gerada a partir da DPS (só para prestador/tomador/intermediário pelo certificado). **Base da idempotência.** |
+| `HEAD /dps/{id}` | Só diz se a DPS já gerou NFS-e (qualquer certificado válido). |
+| `POST /nfse/{chaveAcesso}/eventos` | Registro de evento (cancelamento etc.). **Resolve a divergência da 1ª rodada: o caminho é este.** |
+| `GET /nfse/{chaveAcesso}/eventos[/{tipoEvento}[/{numSeqEvento}]]` | Consulta de eventos. (Um projeto de terceiros relata que na prática a listagem sem tipo/sequência responde 404 — usar a forma com tipo e sequência; [NÃO CONFIRMADO]). |
+| `GET /parametros_municipais/{codigoMunicipio}/convenio` e `/{codigoMunicipio}/{codigoServico}` e `/{codigoMunicipio}/{CPF/CNPJ}` | Convênio do município, alíquotas/regimes por subitem, retenções e benefícios do contribuinte. |
 
-## 6. Assinatura XML e mTLS cabem na função da Vercel?
+**Nomes dos campos JSON** (o manual só diz "mensagens em JSON; XML compactado GZip em base64binary" — MANINT §6.1.1-c):
+`{"dpsXmlGZipB64": "..."}` no `POST /nfse`, resposta com `chaveAcesso` e `nfseXmlGZipB64`; `{"pedidoRegistroEventoXmlGZipB64":
+"..."}` no evento, resposta com `eventoXmlGZipB64` — **[TERCEIROS]**, iguais em dois projetos independentes
+(https://github.com/akretion/nfelib — `nfelib/nfse/client/v1_0/nfse.py`; https://github.com/nfse-nacional/nfse-php —
+`src/Http/Client/SefinClient.php`). Nome exato **[NÃO CONFIRMADO no Swagger]** — o Swagger só abre com certificado de
+cliente (3ª rodada). Fechar na S-4 abrindo `.../docs/index` com o A1 do dono (só leitura, antes do 1º envio).
+
+### 1.3 ADN — distribuição — [OFICIAL]
+
+- `GET /DFe/{NSU}` e `GET /NFSe/{ChaveAcesso}/Eventos` (MAN-ADN §1.1.1). Devolve documentos em que o CNPJ é **emitente,
+  tomador ou intermediário**; aceita certificado com o **mesmo CNPJ raiz**, e há um parâmetro para informar o CNPJ
+  consultado diferente do CNPJ do certificado (MAN-ADN §1.1). Nome do parâmetro: `cnpjConsulta`, e `lote=true` para pedir
+  o lote — **[TERCEIROS]** (nfelib); o ADN exige certificado no aperto de mão TLS, então o Swagger não pôde ser lido
+  (3ª rodada).
+- **Até 50 documentos por chamada**, em ordem crescente de NSU, devolvendo o último NSU para a próxima chamada
+  (MANINT §17.2.2; FAQ 19.2). **Confirmado o limite de 50.**
+- **Quando não há documento novo** (NSU informado = maior NSU disponível): **esperar no mínimo 1 hora** antes de nova
+  consulta (FAQ 19.2 e tema 6). A S-5 precisa guardar `ultima_consulta_em` e respeitar isso no cron.
+- A ordem é a de **recepção no ADN**, não a de emissão (FAQ 19.2). Erros: E2215 (nada a partir do NSU), E2230, E2240,
+  E2241 (AIV, planilha ADN-RN_DISTRIB_MUN_CONTRIB).
+- Ambiente de testes do ADN existe para contribuintes (FAQ 19.5).
+
+### 1.4 Chave de acesso e identificadores — [OFICIAL, XSD-PR `tiposSimples_v1.01.xsd`; FAQ 18.x]
+
+- **Chave: 50 posições**; `Id` da NFS-e = "NFS" + 50 = 53. Composição: Cód. município (7) + ambiente gerador (1) + tipo de
+  inscrição (1) + inscrição federal (14) + nº da NFS-e (13) + AAMM da emissão (4) + código numérico (9) + DV (1).
+- **Atenção (CNPJ alfanumérico):** o padrão do XSD é `[0-9]{6}([0-9A-Z]{14})[0-9]{30}` — as 14 posições da inscrição
+  **podem ter letras**. O FAQ diz "50 dígitos numéricos", mas o XSD já aceita letras. **Consequência para a S-5:** o CHECK
+  `^[0-9]{50}$` em `obra_notas.chave_acesso` está errado; usar `^[0-9]{44}$|^[0-9]{6}[0-9A-Z]{14}[0-9]{30}$`.
+- **Id da DPS (45):** "DPS" + município (7) + tipo de inscrição (1: CPF, 2: CNPJ) + inscrição (14; CPF com zeros à
+  esquerda) + série (5) + número (15). Padrão: `DPS[0-9]{7}(1[0-9]{14}|2[0-9A-Z]{14})[0-9]{20}`. Confirmado.
+- **Série:** `[0-9]{1,4}|[0-8][0-9]{4}`; faixa **00001–49999 para aplicativo próprio** (API) — regra E0010 (AI-PR).
+  50000–69999 móvel, 70000–79999 web, 80000–89999 transcrição manual. Confirmado.
+- **Número da DPS:** `[1-9][0-9]{0,14}` (sem zero à esquerda). Numeração já usada **nunca** pode ser reutilizada, nem em
+  contingência (FAQ 18.5 — Decreto 12.955, art. 124, §3º): reforça a reserva com `FOR UPDATE` + consulta `GET /dps/{id}`
+  antes de reenviar.
+
+### 1.5 Cancelamento (evento) — [OFICIAL, AII-PR; XSD-PR `tiposEventos_v1.01.xsd`]
+
+- **Código 101101** (elemento `e101101`, "Cancelamento de NFS-e"), autor = emitente, **assinatura obrigatória**, recebido
+  pelo sistema que gerou a NFS-e (Sefin Nacional), evento único (`nSeqEvento` = 001).
+- Campos específicos: `xDesc` ("Cancelamento de NFS-e"), **`cMotivo`** (1 = erro na emissão; 2 = serviço não prestado;
+  9 = outros) e `xMotivo` (justificativa).
+- Pedido: elemento `pedRegEvento`/`infPedReg` com `Id` = "PRE" + chave (50) + tipo do evento (6) + nº do pedido (3);
+  `tpAmb`, `verAplic`, `dhEvento`, `CNPJAutor` (raiz igual à do certificado — E0812), `chNFSe`, e o grupo `e101101`.
+- Outros códigos úteis: 105102 (cancelamento por substituição — gerado pela Sefin), 101103 (solicitação de análise fiscal
+  para cancelar fora do prazo), 105104/105105 (deferido/indeferido pelo município), 305101 (cancelamento de ofício).
+
+### 1.6 DANFSe — [OFICIAL, NT008 §1; IMPL 03/08/2026; FAQ 17.8]
+
+**Mudança importante:** a API de geração do DANFSe do ADN **foi suspensa em 03/08/2026**. Desde então **cabe ao sistema
+emissor gerar o PDF** a partir do XML, seguindo a NT 008 (uma página; em produção restrita, a frase "NFS-e SEM VALIDADE
+JURÍDICA" no cabeçalho). **Consequência para a S-4 item 7:** não há PDF oficial para baixar; o Prospecta precisa gerar o
+DANFSe (a Receita publicou um gerador aberto na organização https://github.com/ReceitaFederal — avaliar licença e linguagem
+antes de usar [NÃO CONFIRMADO]).
+
+## 2. Autenticação e formato — [OFICIAL]
+
+- **mTLS** (autenticação mútua TLS) com certificado ICP-Brasil, comunicação REST/JSON (MANINT §6.1.2 e §6.2.4).
+  Requisitos do certificado de transmissão (AI-PR, planilha RN_RECEP_DPS, E1200–E1209): X.509 v3, não pode ser de AC,
+  KeyUsage com **Autenticação de Cliente**, válido, cadeia ICP-Brasil, **LCR acessível** (E1206), extensão de CNPJ
+  (OtherName OID 2.16.76.1.3.3) ou CPF. Tipo **A1 ou A3**; e-CNPJ da RFB é aceito (FAQ 17.1).
+- **Certificado de assinatura** (E0714–E0718): KeyUsage **Assinatura Digital + Não Recusa**; deve ser do **emitente da DPS**
+  (ou de procurador com procuração eletrônica na Receita — FAQ 17.7). O mesmo A1 do emissor serve para os dois papéis.
+- **Sem OAuth nem chave de API**; cabeçalhos especiais **não** aparecem em nenhum documento oficial lido
+  ([NÃO CONFIRMADO] além de `Content-Type: application/json`).
+- **Corpo:** XML **UTF-8 com declaração** (E1229), **sem prefixo de namespace** (E1228), sem espaços/quebras entre tags nem
+  zeros não significativos, compactado **GZip** e em **Base64** dentro do JSON (MANINT §6.1.1-c/d; E1225/E1226).
+  Namespace `http://www.sped.fazenda.gov.br/nfse`.
+- **Renegociação TLS** pedida pelo servidor: [NÃO CONFIRMADO] (só relato de terceiros) — testar na S-4.
+
+## 3. Leiaute da DPS e assinatura
+
+### 3.1 Versão — [OFICIAL]
+- Atributo `versao="1.01"` (tipo aceita `1.00|1.01`; IBS/CBS só a partir de 1.01 — E0854).
+- **Produção e produção restrita estão com XSDs diferentes:** produção = v1.01 de 09/02/2026; produção restrita = v1.01 de
+  20/10/2026, que já traz a NT 009 (implantada **só na produção restrita** em 20/10/2026 — IMPL): `finNFSe` saiu do grupo
+  IBSCBS para `infDPS`; `CST`/`cClassTrib` reposicionados (agora em `IBSCBS/valores/trib`, com `gIBSCBS` facultativo);
+  `vDedRed` + `gReeRepRes` fundidos em `vAjusteBC`; `cIndOp` passou a opcional (regra pela calculadora). **Consequência:**
+  a DPS que passa na homologação pode não passar na produção até a Receita publicar a NT 009 em produção — o gerador da
+  S-4 deve ter as duas variantes (por ambiente) e validar contra o XSD do ambiente de destino. Data da NT 009 em produção:
+  **[NÃO CONFIRMADO]** (IMPL não traz).
+
+### 3.2 Campos obrigatórios mínimos de `infDPS` (XSD-PR; "?" = opcional) — [OFICIAL]
+`tpAmb` (2 = homologação), `dhEmi` (AAAA-MM-DDThh:mm:ss±hh:mm), `verAplic`, `serie`, `nDPS`, `dCompet` (AAAA-MM-DD),
+`tpEmit` (1 = prestador), `finNFSe` (0 = regular; só PR), `cLocEmi` (IBGE do emissor),
+`prest` (CNPJ; `regTrib` com `opSimpNac` e `regEspTrib`; ?IM, ?nome/endereço — o prestador é completado pelo cadastro),
+?`toma`, `serv` (`locPrest/cLocPrestacao`; `cServ/cTribNac` + `xDescServ`; ?`cNBS`; ?`obra` com `cObra` (CNO) **ou** `cCIB`
+**ou** endereço), `valores` (`vServPrest/vServ`; `trib/tribMun` com `tribISSQN` e `tpRetISSQN`; `trib/totTrib`),
+?`IBSCBS`. O Anexo I (planilha "MUN.INCID_INFO.SERV.") diz, por código de serviço, quando o grupo `obra` é obrigatório —
+consultar para os códigos 07.xx da construção civil.
+
+### 3.3 Assinatura — [OFICIAL, MANINT §6.1.4; FAQ 17.1; AI-PR]
+- XML-DSig **enveloped**, que **assina** o elemento que tem o atributo `Id` (`infDPS`; `infPedReg` no evento), mas o
+  elemento `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">` fica **fora** dele: é **filho de `DPS`, irmão logo
+  depois de `infDPS`** (XSD `TCDPS` = `infDPS` + `ds:Signature`; exemplo do MANINT §6.1.4, p. 26); no evento, filho de
+  `pedRegEvento`, irmão de `infPedReg` (XSD `TCPedRegEvt`). Ou seja: `<DPS versao="1.01"><infDPS Id="DPS…">…</infDPS>
+  <Signature>…</Signature></DPS>`. (O FAQ 17.1 diz "na tag que contém o atributo ID" — no sentido do elemento
+  referenciado, não do local do `<Signature>`.) `Reference URI="#<Id de infDPS>"`; transformações **enveloped-signature + C14N** `http://www.w3.org/TR/2001/REC-xml-c14n-20010315`
+  (canonicalização **inclusiva**, sem comentários); `CanonicalizationMethod` igual; só o certificado do usuário final em
+  `X509Data/X509Certificate` (EndCertOnly); sem LCR no XML.
+- **Algoritmo:** o texto oficial (MANINT, 2022) fixa **RSA-SHA1** (`xmldsig#rsa-sha1`) e digest **SHA-1**
+  (`xmldsig#sha1`). Projetos de terceiros dizem que a Sefin também aceita RSA-SHA256 — **[NÃO CONFIRMADO no oficial]**.
+  **Recomendação:** começar com o que o manual diz (SHA-1, que o `xml-crypto` e o Node aceitam) e, na homologação, testar
+  SHA-256; ficar com o que passar, registrando a prova.
+- A Sefin rejeita assinatura inválida (E0714), certificado inválido (E0715/E0716), falta de assinatura (E0717) e assinatura
+  de quem não é o emitente (E0718).
+
+## 4. Prazo de cancelamento e substituição — [OFICIAL]
+
+- **Não há prazo nacional fixo:** cada município emissor parametriza; **se não definir, o teto é 730 dias (2 anos)**
+  (FAQ 9.2). Fora do prazo → rejeição **E0822**; aí o caminho é o evento **101103** (solicitação de análise fiscal), que o
+  município defere/indefere (FAQ 9.4). O município também pode limitar o valor (E0823), proibir cancelar nota sem tomador
+  (E0824) e com tributo já recolhido (E0827), e bloquear cancelamento por ofício (E0844).
+- **Na tela da S-4:** mostrar "prazo definido pela prefeitura (até 2 anos)" e o erro da Sefin quando vier; o prazo real de
+  cada município pode ser lido pela API de parâmetros municipais [campo exato NÃO CONFIRMADO — o Swagger de parâmetros
+  (`adn…/parametrizacao/docs`) exige certificado no aperto de mão TLS, 3ª rodada]. Até lá, a tela trata o E0822.
+- **Substituição** (DPS com `subst/chSubstda` + `cMotivo` 01–05/99 e `xMotivo` obrigatório se 99 — E0078): a Sefin cancela
+  a original com o evento 105102 e gera a nova no mesmo `POST /nfse`. Prazo também parametrizado pelo município, **máximo
+  2 anos** (E0050; exceto enquadramento/desenquadramento no Simples). Não substitui nota cancelada (E0046), nota com
+  manifestação de confirmação (E0070/E0072), nota com análise fiscal pendente (E0068). Em vários regimes não se pode mudar
+  competência, código de serviço, local da prestação, tomador ou valor (E0059–E0064). Mudar o tomador → cancelar e emitir
+  outra (FAQ 10.3).
+
+## 5. IBS/CBS na NFS-e — [OFICIAL]
+
+- **A Sefin calcula.** O grupo `IBSCBS` da **NFS-e** é "informações **geradas pelo sistema**"; o da **DPS** é
+  "informações **declaradas pelo emitente**" (AI-P/AI-PR, linhas 46 e 335). A Sefin "na autorização/geração do documento
+  [tem] integração online com a calculadora para validação de campos, verificação de regras e retorno de valores"
+  (NT009 p. 22-23); a NFS-e traz `verCalcIBSCBS` (versão da calculadora usada) (NT009 §2.9). Erros da calculadora voltam
+  como **E1000** (IMPL 24/04/2026).
+- **O emissor informa só a classificação**, não os valores: na DPS (XSD-PR) `IBSCBS` = ?`indFinal`, ?`cIndOp`, ?`tpOper`,
+  ?`gRefNFSe`, ?`tpEnteGov`, `indDest`, ?`dest`, ?`imovel`, ?`bensMoveis`, `valores/trib/` **`CST` + `cClassTrib`** e,
+  conforme o caso, ?`gIBSCBS` (crédito presumido, diferimento `gDif`, tributação regular `gTribRegular`). Valores de IBS/CBS
+  na DPS só existem nas **notas de ajuste** (`gIBSCBSAjuste`, NT009 §2.2) — fora do escopo da S-4.
+- **Obrigatoriedade:** permitido a partir da competência 01/01/2026 (E0850); **obrigatório para competência a partir de
+  01/10/2026 (E0855)** — regra presente no Anexo I de **produção restrita** (20/10/2026), ausente no de produção
+  (09/02/2026): se já vale em produção **[NÃO CONFIRMADO]**. **Optantes do Simples: grupos IBSCBS só obrigatórios a partir
+  de 2027** (AI-P/AI-PR). `gIBSCBS` e `cIndOp` obrigatórios só quando o indicador `ind_gIBSCBS` do `cClassTrib` for 1
+  (E0960/E0860); proibidos quando 0 (CST 400, 410, 820 — FAQ, tema 15).
+- **Calculadora oficial:** online em https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/regime-geral ;
+  versão offline em código aberto https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/calculadora-offline
+  (= https://github.com/ReceitaFederal/calculadora-rtc-regime-regular); tabela CST/cClassTrib em
+  https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/classificacoes-tributarias (NT009 p. 22-23).
+  O Anexo I cita a documentação da API em `https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/calculadora/documentacao`
+  e um endereço interno do Serpro (`*.estaleiro.serpro`, não público).
+- **API HTTP pública da calculadora — CONFIRMADA (3ª rodada, OpenAPI oficial lido):** base
+  **`https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/api`**; especificação OpenAPI 3.1 em
+  `.../api/api-docs` e Swagger em `.../api/swagger-ui/index.html` (o próprio site da calculadora aponta para eles, junto
+  com `api-simples-nacional` e `api-split`). **Sem esquema de segurança** declarado (sem chave). Todas as rotas marcadas
+  **"VERSÃO BETA"**. `GET .../calculadora/dados-abertos/versao` respondeu `ambiente: "pro"`, app 1.7.2, banco V0073 de
+  09/11/2026 (tabela de cClassTrib publicada em 30/10/2026). Rotas úteis à NFS-e: `POST /calculadora/nfse/base-calculo`
+  ("afere a base de cálculo de uma NFS-e no período de transição"), `POST /calculadora/regime-geral`,
+  `POST /calculadora/nfse/indicador-operacao/validate`, `GET /calculadora/nfse/indicador-operacao`,
+  `GET /calculadora/nfse/situacoes-classificacoes-tributarias` (por NBS), `GET /calculadora/nfse/locais-incidencia`,
+  `GET /calculadora/dados-abertos/classificacoes-tributarias/cbs-ibs/{siglaDfe}/{cClassTrib}` (devolve o `ind_gIBSCBS`
+  que decide se `gIBSCBS`/`cIndOp` vão na DPS), `POST /calculadora/xml/validate`. Limite de uso e termos: **não
+  publicados** na especificação [NÃO CONFIRMADO]. Nenhuma chamada de cálculo foi feita nesta pesquisa (só a de versão).
+- **Decisão que isto permite para a S-4:** não hospedar a calculadora. A DPS leva `CST`/`cClassTrib`/`indDest` (e `cIndOp`
+  quando exigido) definidos pelo contador por tipo de serviço; os valores de IBS/CBS vêm da NFS-e devolvida e são guardados
+  como memória de cálculo. A prévia na tela, se quiserem, pode usar a API pública acima (beta, sem chave), atrás de
+  interruptor desligado por padrão; a consulta `classificacoes-tributarias/cbs-ibs/NFSE/{cClassTrib}` serve para validar a
+  configuração do contador antes de emitir.
+
+## 6. Adesão dos municípios
+
+| Município (IBGE, via Brasil API) | Situação | Fonte | Grau |
+|---|---|---|---|
+| Todos os 5.571 entes | Conveniados à plataforma nacional (convênio = ADN; **não** quer dizer emissão pelo Emissor Nacional) | ADES | [OFICIAL] |
+| **Imperatriz-MA (2105302)** | Adotou o modelo nacional desde **01/01/2026** (Decreto nº 105, de 24/12/2025) | decreto e FAQ municipais citados na 1ª rodada (sites da prefeitura bloqueados nesta rodada: 403) | Municipal, não relido; "exclusivamente pelo Emissor Nacional" [NÃO CONFIRMADO] |
+| **Parauapebas-PA (1505536)** | Tutorial da prefeitura (dez/2025): a partir de 01/01/2026 o Emissor Nacional é a plataforma oficial; sistema municipal deixa de emitir. Blog: exigência desde 22/12/2025 | https://parauapebas.pa.gov.br/wp-content/uploads/2025/12/Tutorial-NFS-e.pdf (não aberto: 403); https://notagateway.com.br/blog/parauapebas-pa-passa-a-exigir-nfs-e-no-padrao-nacional-a-partir-de-22-de-dezembro-de-2025/ | [TERCEIROS]; data exata [NÃO CONFIRMADO] |
+| **Canaã dos Carajás-PA (1502152)** | Convênio concluído com emissão ainda no sistema web municipal; Emissor Nacional **obrigatório a partir de 01/11/2026** | https://notagateway.com.br/blog/canaa-dos-carajas-pa-conclui-adesao-ao-padrao-nacional-da-nfs-e/ ; https://notagateway.com.br/blog/emissor-nacional-de-nfs-e-sera-obrigatorio-em-canaa-dos-carajas-pa-a-partir-de-novembro-de-2026/ | [TERCEIROS]; [NÃO CONFIRMADO no oficial] |
+| **Santa Inês-MA (2109908)** | Nenhum decreto encontrado; indícios de emissor municipal próprio | https://nfe.io/docs/prefeituras-integradas/maranhao/santa-ines-ma-2109908/ | **[NÃO CONFIRMADO]** |
+
+**Como confirmar por código na S-4 (fonte oficial, FAQ 19.6):** a API de parâmetros municipais devolve
+`aderenteEmissorNacional` (1 = emite pela Sefin Nacional, `ambGer` = 2; 0 = sistema próprio da prefeitura, que depois
+compartilha com o ADN) e `situacaoEmissaoPadraoContribuintesRFB` (1 = qualquer CNPJ do município já pode emitir; 0 = a
+prefeitura precisa cadastrar cada contribuinte no CNC). Consultar `GET /parametros_municipais/{IBGE}/convenio` para os 4
+municípios com o certificado do dono, antes da 1ª emissão, e bloquear a emissão pela API nacional se
+`aderenteEmissorNacional = 0`. **Importante:** quem emite é o município do **prestador** (`cLocEmi`, sede da Efficaz/emissor
+do grupo); o município da obra entra como local da prestação/incidência — a adesão que decide a S-4 é a do município sede.
+
+## 7. Brasil API e ViaCEP
+
+- **Brasil API — limites:** nenhum número publicado. Termos (README oficial, https://github.com/BrasilAPI/BrasilAPI ,
+  seção "Termos de Uso"): "não abuse", **não fazer crawling automatizado**; "o volume de consultas deve ter a natureza de
+  uma pessoa real requisitando um determinado dado". Sem chave. O site `brasilapi.com.br/docs` é aplicação JS (não lida).
+- **Brasil API — respostas conferidas nesta rodada (chamadas reais):**
+  - `GET https://brasilapi.com.br/api/cep/v2/{cep}` → `{cep, state, city, neighborhood, street, service, ibge: {city,
+    state}, timezoneName, location}` — **o IBGE vem como objeto `ibge.city`** (ex.: Imperatriz `"2105302"`); CEP sem
+    logradouro (65900000) → HTTP **404**. Campo `ibge` depende do provedor (`service`) [presença sempre NÃO CONFIRMADO].
+  - `GET https://brasilapi.com.br/api/cnpj/v1/{cnpj}` → campos confirmados: `razao_social`, `nome_fantasia`,
+    `descricao_situacao_cadastral`, `situacao_cadastral`, `cnae_fiscal`, `cnae_fiscal_descricao`, `cnaes_secundarios`,
+    `codigo_municipio_ibge`, `municipio`, `uf`, `cep`, `logradouro`, `numero`, `complemento`, `bairro`,
+    `opcao_pelo_simples`, `opcao_pelo_mei`, `data_opcao_pelo_simples`, `data_exclusao_do_simples`, `regime_tributario`,
+    `porte`, `natureza_juridica`, `qsa`, `email`, `ddd_telefone_1` (teste com CNPJ público de banco estatal).
+    Cabeçalhos sem limite (`x-ratelimit` ausente).
+  - `GET https://brasilapi.com.br/api/ibge/municipios/v1/{UF}` → `[{nome, codigo_ibge}]` (usado para os códigos acima).
+- **ViaCEP (https://viacep.com.br/):** gratuito, sem chave; aviso oficial na página: **"Uso massivo para validação de bases
+  de dados locais poderá automaticamente bloquear seu acesso por tempo indeterminado."** Busca por endereço limitada a 50
+  CEPs. `GET https://viacep.com.br/ws/{cep}/json/` devolve `ibge` (ex.: `"2105302"`); CEP inexistente → HTTP 200 com
+  **`{"erro": "true"}` (string, não booleano)** — o código deve aceitar os dois. Limite numérico: não publicado.
+- `servicodados.ibge.gov.br` bloqueado nesta sessão (403) — usar a rota de municípios da Brasil API como reserva.
+
+## 8. Calculadora da Receita — repositório (1ª rodada, mantido)
+
+- https://github.com/ReceitaFederal/calculadora-rtc-regime-regular — MIT; Java 25 / Spring Boot, SQLite; rotas
+  `POST /api/calculadora/regime-geral`, `POST /api/calculadora/base-calculo/base-calculo-unificada-nfse`, `/xml/generate`,
+  `/xml/validate`, `/dados-abertos/...`. Não roda na função Node da Vercel; hospedar à parte é serviço novo (fora do custo
+  zero). Com a §5 (Sefin calcula), **não é necessária** para emitir.
+
+## 9. CNPJ alfanumérico — [OFICIAL, NT009 §2.1; XSD-PR]
+
+Todos os campos CNPJ do leiaute passaram de numérico para caractere: `TSCNPJ` = `[0-9A-Z]{14}`; chave e Id da DPS também
+(ver §1.4). Data de início citada pela NT: "a partir de julho de 2026". Impacto: validadores e CHECKs do sistema
+(DIAGNOSTICO §2) e o CHECK de `chave_acesso` da S-5.
+
+## 10. Assinatura XML e mTLS cabem na função da Vercel?
 
 | Peça | Biblioteca | Licença | Custo | Cabe? |
 |------|-----------|---------|-------|-------|
-| Ler `.pfx` (inclusive legado RC2/3DES) | `pkijs` 3.4 (já no projeto) — PKCS#12 com `PFX`/`SafeContents`; alternativa `node-forge` (https://github.com/digitalbazaar/forge, BSD ou GPL-2, escolher BSD; suporte a RC2 no PKCS#12 **[NÃO CONFIRMADO]**) | MIT/BSD | 0 | Sim, JS puro. O `https.Agent({ pfx })` do Node 22+/OpenSSL 3 recusa PFX legado ("Unsupported PKCS12 PFX data", relatado em marciotisouza) → converter para PEM em memória. |
-| XML-DSig envelopada RSA-SHA256, C14N | `xml-crypto` (https://github.com/node-saml/xml-crypto, **MIT**, linha 6.x; C14N inclusiva e exclusiva, `enveloped-signature`, referência por `Id`) + `@xmldom/xmldom` (já no projeto) + `xpath` (MIT) | MIT | 0 | Sim; leve, sem binário nativo. |
-| mTLS | `node:https` com `cert`/`key` PEM e `ca` ICP-Brasil (padrão de `server/_core/inter.ts:60`) | — | 0 | Sim. Ponto a testar: renegociação TLS pedida pelo servidor depois da conexão aberta (relato de terceiros) [NÃO CONFIRMADO]. Nunca `rejectUnauthorized: false`. |
-| GZIP/Base64 | `node:zlib` | — | 0 | Sim. |
-| Tempo | assinatura < 50 ms; chamada ao Sefin ~1–5 s [estimativa, NÃO CONFIRMADO] | — | — | Cabe nos 60 s, uma nota por chamada. |
+| Ler `.pfx` (inclusive legado RC2/3DES) | `pkijs` 3.4 (já no projeto); alternativa `node-forge` (BSD; RC2 no PKCS#12 [NÃO CONFIRMADO]) | MIT/BSD | 0 | Sim. `https.Agent({ pfx })` no OpenSSL 3 recusa PFX legado → converter para PEM em memória. |
+| XML-DSig enveloped, **RSA-SHA1 + C14N inclusiva 20010315** (oficial; SHA-256 a testar) | `xml-crypto` (MIT) + `@xmldom/xmldom` + `xpath` | MIT | 0 | Sim. |
+| mTLS | `node:https` com `cert`/`key` PEM e `ca` ICP-Brasil (padrão de `server/_core/inter.ts:60`); nunca `rejectUnauthorized: false` | — | 0 | Sim. Renegociação TLS [NÃO CONFIRMADO]. |
+| GZip/Base64 | `node:zlib` | — | 0 | Sim. |
+| DANFSe (PDF) | gerar no Prospecta pela NT 008 (API do ADN suspensa) | — | 0 | Sim (PDF de 1 página); biblioteca a escolher na S-4. |
 
-Referência de projeto aberto em Node/TypeScript que já faz isso (para estudo, não para copiar sem revisão):
-https://github.com/marciotisouza/nfse-nacional (MIT). Atenção: usa `rejectUnauthorized: false` — **não adotar**.
+Referência aberta em Node/TS: https://github.com/marciotisouza/nfse-nacional (MIT; usa `rejectUnauthorized: false` — não
+adotar).
+
+## 11. O que muda nas stories por causa desta rodada
+
+1. **S-4 item 6:** caminho do cancelamento confirmado (`POST /nfse/{chave}/eventos`, `e101101`, `cMotivo` 1/2/9 +
+   `xMotivo`); prazo = do município (padrão 2 anos), erro E0822 → oferecer "pedir análise fiscal" (101103).
+2. **S-4 item 7:** **não há DANFSe oficial para baixar** desde 03/08/2026 — gerar o PDF pela NT 008 (com "NFS-e SEM VALIDADE
+   JURÍDICA" na homologação).
+3. **S-4 item 2:** gerar a DPS nas duas variantes de leiaute (produção 09/02/2026 × produção restrita 20/10/2026) e validar
+   contra o XSD do ambiente; grupo IBSCBS = classificação, sem valores.
+4. **S-4 item 3:** assinatura RSA-SHA1/C14N inclusiva conforme o manual, com `<Signature>` **irmão** de `infDPS` (filho de
+   `DPS`) e de `infPedReg` (filho de `pedRegEvento`); testar SHA-256 na homologação.
+5. **S-4 (novo passo):** consultar `parametros_municipais/{IBGE}/convenio` do município sede de cada emissor e só liberar a
+   emissão pela API nacional com `aderenteEmissorNacional = 1`.
+6. **S-5:** CHECK de `chave_acesso` deve aceitar letras nas posições 7–20; distribuição com até 50 por chamada e pausa de
+   1 hora quando não há novidade.
+
+## 12. Continua [NÃO CONFIRMADO] (e por quê)
+
+| Item | Motivo | Como fechar |
+|---|---|---|
+| ~~Base exata da Sefin~~ — **fechado** na 3ª rodada: produção `/SefinNacional` (sem `/API`, servidor confirmou); produção restrita: os dois caminhos existem, usar `/API/SefinNacional` (portal) | — | — |
+| Nomes dos campos JSON (`dpsXmlGZipB64` etc.) e parâmetros `lote`/`cnpjConsulta` | Swagger da Sefin e do ADN só abre com certificado de cliente (403 / TLS handshake failure) | Abrir o Swagger com o A1 do dono na S-4 (só leitura) |
+| Aceitação de RSA-SHA256 | Oficial só cita SHA-1 | Teste na produção restrita |
+| E0855 (IBS/CBS obrigatório desde 01/10/2026) e NT 009 em produção | Só no anexo de produção restrita; IMPL sem data para produção | Acompanhar IMPL |
+| ~~API pública da calculadora~~ — **fechado**: existe, sem chave, beta (§5) | Limites de uso não publicados | — |
+| Adesão de Parauapebas, Canaã e Santa Inês; texto do decreto de Imperatriz | Sites municipais bloqueados; Power BI de adesões não acessível | `parametros_municipais/{IBGE}/convenio` com o certificado |
+| Campo do prazo de cancelamento na API de parâmetros | Swagger de parâmetros exige certificado no TLS | Swagger com o A1 |
+| Limites numéricos da Brasil API e do ViaCEP | Não publicados | — (cache de 30 dias e consulta por digitação completa) |

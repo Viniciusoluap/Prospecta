@@ -13,7 +13,7 @@ import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js
 import { RecusaAcao, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
 
 export const entradaSilenciarAviso = z.object({
-  tipo: z.enum(TIPOS_AVISO).describe("obra_atrasada, tarefa_vencida, documento_pendente, nota_obra, regularizacao_parada, grupo_aguardando, integracao (contas bancárias), gasto ou limite_receita (receita do ano chegando no limite do regime da empresa)."),
+  tipo: z.enum(TIPOS_AVISO).describe("obra_atrasada, tarefa_vencida, documento_pendente, nota_obra, regularizacao_parada, grupo_aguardando, integracao (contas bancárias), gasto, nota_fiscal (rascunhos de nota fiscal) ou limite_receita (receita do ano chegando no limite do regime da empresa)."),
   silenciar: z.boolean().describe("true = parar de avisar; false = voltar a avisar."),
 }).strict();
 export const entradaSilenciarAprovado = entradaSilenciarAviso;
@@ -24,6 +24,7 @@ const frase = (tipo: TipoAviso, silenciar: boolean) => (silenciar ? `parar de te
 async function silenciadoAgora(tipo: TipoAviso): Promise<boolean> {
   try {
     const [r] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1));
+    // EPIC-029 S-3/S-6: sem linha, vale o padrão do tipo ("nota_fiscal" e "limite_receita" nascem silenciados)
     return silenciadoPelaLinha(tipo, r);
   } catch { throw new RecusaAcao(SEM_MIGRACAO); }
 }

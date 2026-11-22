@@ -242,3 +242,29 @@ Achados:
 5. O sistema (perfil tributário) está vazio para as três.
 
 Orientação (preliminar, a decidir com o contador): Prospecta 41.865.900 — continuar no Simples (Anexo IV para obras, INSS patronal à parte). 58.121.993 — tratar a exclusão antes de 30/11. Efficaz — confirmar o regime atual e simular Presumido × Real.
+
+## Decisão do dono — 22/11/2026
+
+"Certo, vamos trabalhar então tudo no Simples Nacional." Registrado no CLAUDE.md. Feito no sistema: perfil tributário da
+Prospecta Construções e Avaliação Imobiliária (41.865.900/0001-89) cadastrado como Simples Nacional desde 07/05/2021
+(alíquota estimada pendente do extrato PGDAS-D); a tela passa a sugerir Simples Nacional por padrão. VFX Capital e Efficaz:
+só entram como Simples depois da ação do contador (exclusão em 30/11/2026; nova opção em janeiro, até 29/01/2027).
+
+## Atualização 22/11/2026 ~18:20 UTC — as várias Efficaz (o dono: "eu tenho várias Efficaz; a de Canaã é filial e o CNPJ é diferente")
+
+Consulta pública à Receita (Brasil API) dos CNPJs achados no Drive (sem dados pessoais):
+
+| Empresa | CNPJ | Município | Situação | Simples Nacional |
+|---|---|---|---|---|
+| Efficaz Serviços Financeiros LTDA (matriz, "Efficaz Promoção de Vendas") | 04.578.232/0001-82 | Imperatriz | Ativa | Excluída em 31/12/2024 (desde 01/01/2021). Inscrição municipal de Imperatriz no Drive: 9451038 |
+| Efficaz Serviços Financeiros LTDA (filial de Canaã) | 04.578.232/0002-63 | Canaã dos Carajás | Ativa | Segue a matriz (mesma raiz): excluída em 31/12/2024 |
+| Efficaz LTDA | 21.704.736/0001-10 | Imperatriz | Ativa | Excluída em 31/12/2024 (desde 19/01/2015) |
+| Eficaz Serviços Financeiros LTDA | 39.740.145/0001-64 | Canaã dos Carajás | Ativa | Excluída em 31/08/2025 (desde 10/11/2020) |
+| (aparece num contrato antigo como Efficaz) | 32.626.984/0001-07 | São Luís | **Baixada** — hoje é outra razão social; o próprio Drive chama o documento de "alteração com CNPJ errado" | — |
+
+Observações:
+1. A opção pelo Simples é da EMPRESA (raiz do CNPJ): filial segue a matriz. A filial de Canaã (0002-63) não tem opção própria.
+2. **Três empresas Efficaz saíram do Simples na mesma data (31/12/2024)** — padrão típico da exclusão anual da Receita por débitos (a confirmar com o contador). A de Canaã (39.740.145) saiu em 31/08/2025.
+3. Notas da filial de Canaã em 2025 ainda saíram como "optante do Simples" — se a exclusão vale desde 01/01/2025, esses impostos podem ter sido recolhidos a menor. Conferir com o contador.
+4. Para "todas no Simples" (decisão do dono), cada empresa excluída precisa: regularizar débitos e pedir nova opção em janeiro (até 29/01/2027), se a atividade (correspondente bancário — CNAE 6619-3/02) for permitida no Simples.
+5. Todas entram no sistema como empresas separadas (cada CNPJ raiz com o próprio regime, contas e movimentação — regra multi-regime do CLAUDE.md); a filial entra como estabelecimento emissor da mesma empresa.

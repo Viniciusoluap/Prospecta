@@ -61,8 +61,7 @@ export default function TaxAccountingPanel() {
   const [profile, setProfile] = useState({
     companyName: "",
     cnpj: "",
-    // EPIC-029 S-6 (achado D2 do REGIME-TRIBUTARIO.md): o formulário não vem mais com um regime marcado por padrão
-    regime: "a_confirmar",
+    regime: "simples_nacional",
     estimatedRate: "",
     effectiveFrom: "",
     notes: "",

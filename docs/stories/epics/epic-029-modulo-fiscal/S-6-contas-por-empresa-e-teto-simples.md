@@ -131,6 +131,17 @@ Teste do QA: `server/fiscal/s6-qa.test.ts` (os 10 `it.fails` viraram `it` e pass
 
 Teste auxiliar: `server/dolores/testes-banco.ts` passa a criar `financial_transactions` (a apuração lê a tabela).
 
+### Junção com a main (S-3 #314 e S-4 #313), 22/11/2026
+
+- `TIPOS_AVISO` = os 8 + `nota_fiscal` (S-3) + `limite_receita` (S-6), nessa ordem; `SILENCIADOS_POR_PADRAO` = os dois; `TIPOS_SEM_REAVISO`
+  = só `limite_receita`. A 0164 traz a lista completa dos 10 (a 0165 da S-3 traz 9): se a 0165 for reaplicada depois, reaplicar a 0164.
+- Reservas remedidas com 10 tipos (`server/dolores/s6-reserva.test.ts`): aviso, pior caso 3.080 ≤ `RESERVA_ENTRADA_AVISO` 4.000 (mantido);
+  prefixo da conversa, pior caso 20.126 (folga 874 < 1.000) → `RESERVA_MINIMA_ENTRADA` 21.000 → 22.000.
+- Padrão do formulário de perfil tributário: vale o da main ("Simples Nacional", decisão do dono em #305), no lugar do "a confirmar" da S-6.
+- `detalhar` lê a empresa da conta com `to_jsonb(ba) ->> 'empresa_cnpj'` (sem a 0164 dá nulo, sem abortar a transação somente leitura da
+  Dolores, que usa a mesma função na S-3). Testes da S-3 passam a aplicar a 0164 depois da 0165 (ordem de produção) e o `tax_profiles`
+  deles ganha `effective_to` (coluna do schema real, lida pelo regime vigente). Testes da S-6 aplicam a 0162 (coluna da S-4).
+
 ## File List
 
 - `drizzle/0164_contas_empresa_limite_receita.sql` (novo), `drizzle/schema.ts`

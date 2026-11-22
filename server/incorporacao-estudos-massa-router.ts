@@ -1,4 +1,4 @@
-import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
+import { obterCenarioPrincipal, sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 // Estudos de massa salvos (Lote 2, correção 11 · AD-04).
 //
 // Cada estudo salvo é uma linha própria (nome, versão, parâmetros, cenários,
@@ -15,8 +15,8 @@ import { z } from "zod";
 import { incorporationMassStudies, incorporationStudies, incorporationUnits, users } from "../drizzle/schema.js";
 import type { CenarioMassa, ParametrosMassa } from "../shared/incorporacao/massa.js";
 import {
-  cenarioEscolhido, cenarioPrincipalDe, indicadoresDoCenario, mixDoCenario, motivoBloqueioExclusao,
-  proximaVersao, quadroAreasDoCenario, validarNomeEstudo, type CenarioPrincipal, type EstudoMassaSalvo,
+  cenarioEscolhido, indicadoresDoCenario, mixDoCenario, motivoBloqueioExclusao,
+  proximaVersao, quadroAreasDoCenario, validarNomeEstudo, type EstudoMassaSalvo,
 } from "../shared/incorporacao/estudos-massa.js";
 import { requireModule } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
@@ -147,25 +147,6 @@ function conflitoVersao(e: unknown): never {
     throw new TRPCError({ code: "CONFLICT", message: "Já existe um estudo salvo com este nome e versão. Atualize a lista e tente de novo." });
   }
   throw e;
-}
-
-export async function obterCenarioPrincipal(studyId: number): Promise<CenarioPrincipal | null> {
-  const e = await estudo(studyId);
-  const [p] = await getDb().select({
-    id: incorporationMassStudies.id, name: incorporationMassStudies.name, version: incorporationMassStudies.version,
-    paramsJson: incorporationMassStudies.paramsJson, scenariosJson: incorporationMassStudies.scenariosJson,
-    selectedScenarioId: incorporationMassStudies.selectedScenarioId,
-  }).from(incorporationMassStudies)
-    .where(and(eq(incorporationMassStudies.studyId, studyId), eq(incorporationMassStudies.isPrincipal, true), isNull(incorporationMassStudies.deletedAt)))
-    .limit(1);
-  return cenarioPrincipalDe({
-    principal: p ? { id: String(p.id), nome: p.name, versao: p.version, parametrosJson: p.paramsJson, cenariosJson: p.scenariosJson, cenarioEscolhidoId: p.selectedScenarioId } : null,
-    massaCenariosJson: e.massScenariosJson,
-    cenarioEscolhidoId: e.selectedScenarioId,
-    semKml: e.semKml,
-    lotesAvulsosJson: e.looseLotsJson,
-    areaBrutaM2: Number(e.areaM2) || 0,
-  });
 }
 
 const json = z.string().max(LIMITE_JSON);

@@ -9,11 +9,15 @@
 // entre «»), nunca título, comando ou instrução.
 import { relogioBrasilia, limparNomeDeTerceiro } from "./operacao.js";
 import { MAX_CARACTERES_WHATSAPP, cortarResposta } from "./whatsapp.js";
+import { perguntaDoAvisoFiscal, reaisDeCentavos } from "./fiscal.js";
 import { LIMITES, reaisCurtos, type ChaveLimite } from "../fiscal/regimes.js";
 
-/** Os tipos de aviso da primeira entrega (a ordem é a da mensagem). "gasto" sai pelo alerta da E5 (operacao-gasto.ts), não pelo coletor. */
+/**
+ * Os tipos de aviso (a ordem é a da mensagem). "gasto" sai pelo alerta da E5 (operacao-gasto.ts), não pelo coletor.
+ * EPIC-029 S-3: "nota_fiscal" (rascunho de NFS-e a decidir) é o ÚLTIMO, porque o aviso termina com a pergunta natural sobre ele.
+ */
 export const TIPOS_AVISO = [
-  "obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto",
+  "obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto", "nota_fiscal",
   // EPIC-029 S-6: receita do ano da empresa chegando no limite do regime dela (Simples: ME, sublimite, teto; Presumido: R$ 78 mi)
   "limite_receita",
 ] as const;
@@ -23,9 +27,9 @@ export const TIPOS_COLETADOS: readonly TipoAviso[] = TIPOS_AVISO.filter(t => t !
 export const ehTipoAviso = (v: unknown): v is TipoAviso => typeof v === "string" && (TIPOS_AVISO as readonly string[]).includes(v);
 /**
  * Tipos que nascem SILENCIADOS (sem linha em dolores_avisos_tipos = silenciado): ligar é decisão do dono, na tela ou pela conversa.
- * EPIC-029 S-6: "limite_receita". (Mesmo mecanismo da S-3, que acrescenta "nota_fiscal": ao juntar as frentes, a lista é a união.)
+ * EPIC-029 S-3: "nota_fiscal"; EPIC-029 S-6: "limite_receita" (junção das frentes: a lista é a união). Os demais: sem linha = não silenciado.
  */
-export const SILENCIADOS_POR_PADRAO: readonly TipoAviso[] = ["limite_receita"];
+export const SILENCIADOS_POR_PADRAO: readonly TipoAviso[] = ["nota_fiscal", "limite_receita"];
 /** O tipo está silenciado? A linha da tabela vale; sem linha, o padrão do tipo. */
 export const silenciadoPelaLinha = (tipo: TipoAviso, linha: { silenciado: boolean } | null | undefined) =>
   linha ? linha.silenciado === true : SILENCIADOS_POR_PADRAO.includes(tipo);
@@ -42,6 +46,7 @@ export const ROTULO_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.fre
   grupo_aguardando: "grupos esperando a sua decisão",
   integracao: "contas bancárias sem sincronizar",
   gasto: "gasto da IA chegando no limite (80%)",
+  nota_fiscal: "rascunhos de nota fiscal para decidir",
   limite_receita: "receita do ano chegando no limite do regime da empresa",
 });
 /** A regra de cada tipo, em linguagem de gente (a tela mostra; N é o limite configurável). */
@@ -54,6 +59,7 @@ export const REGRA_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.free
   grupo_aguardando: "grupo em que ela entrou e que espera a sua decisão (entrada ou tipo) há N horas ou mais",
   integracao: "conta bancária ligada ao Asaas/Pluggy com erro na última sincronização",
   gasto: "é o alerta de 80% do gasto (uma vez por mês por limite); silenciado, o de 80% não sai — o de 100% sai sempre",
+  nota_fiscal: "rascunho de nota fiscal novo a decidir (ou deixado para depois, com a data já chegada); a partir das 18h, um resumo de todos os pendentes; nasce silenciado",
   limite_receita: "receita registrada no ano (soma das contas de cada empresa) a 70%, 85%, 95% e 100% do limite do regime dela — Simples: ME R$ 360 mil (informativo), sublimite R$ 3,6 mi, teto R$ 4,8 mi e, ao passar de R$ 5,76 mi (teto + 20%), aviso próprio; Presumido: R$ 78 mi; Real: sem limite — uma vez por faixa, por empresa, por ano; nasce silenciado",
 });
 
@@ -71,7 +77,7 @@ export const FAIXA_DOS_LIMITES: Readonly<Record<keyof LimitesAvisos, readonly [n
   regularizacaoParadaDias: [5, 180], grupoAguardandoHoras: [1, 168],
 });
 /** Degraus acima do mínimo (dias; no grupo, horas). */
-export const DEGRAUS: Readonly<Record<Exclude<TipoAviso, "gasto" | "integracao" | "limite_receita">, readonly number[]>> = Object.freeze({
+export const DEGRAUS: Readonly<Record<Exclude<TipoAviso, "gasto" | "integracao" | "nota_fiscal" | "limite_receita">, readonly number[]>> = Object.freeze({
   obra_atrasada: [7, 15, 30, 60, 90],
   tarefa_vencida: [7, 15, 30],
   documento_pendente: [15, 30, 60],
@@ -95,19 +101,24 @@ export const MAX_ITENS_POR_TIPO = 5;
 export const MAX_ACHADOS_POR_TIPO = 200;
 
 /** Marcas FIXAS que um achado pode levar (nunca texto livre de dado). */
-export type MarcaAchado = "sem_dono" | "sem_movimento" | "sem_confirmacao" | "divergente" | "aguardando" | "recusado" | "erro_sincronizacao";
+export type MarcaAchado = "sem_dono" | "sem_movimento" | "sem_confirmacao" | "divergente" | "aguardando" | "recusado" | "erro_sincronizacao" | "adiada_vencida";
 const TEXTO_MARCA: Record<MarcaAchado, string> = {
   sem_dono: "sem responsável", sem_movimento: "sem nenhuma mudança", sem_confirmacao: "sem confirmação do empreiteiro",
   divergente: "divergente na conciliação com o BPO", aguardando: "esperando você dizer o que é", recusado: "outra pessoa me colocou lá",
   erro_sincronizacao: "a última sincronização deu erro",
+  adiada_vencida: "você tinha deixado para depois e a data chegou",
 };
 
-export type RefAchado = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota"; id: number };
-export type DadosAchado = { nome: string; dias?: number | null; quantidade?: number | null; marca?: MarcaAchado | null; ref?: RefAchado | null }
-  // EPIC-029 S-6 (limite_receita): qual limite, % alcançado (1 casa), quanto falta e o ano
-  & { limite?: ChaveLimite | null; percentual?: number | null; faltaCentavos?: number | null; ano?: number | null;
-    /** QA S-6 (A6): a faixa só foi alcançada contando estes créditos ainda a classificar (lado seguro). */
-    aClassificarCentavos?: number | null };
+export type RefAchado = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota" | "nota_fiscal"; id: number };
+export type DadosAchado = {
+  nome: string; dias?: number | null; quantidade?: number | null; marca?: MarcaAchado | null; ref?: RefAchado | null;
+  /** EPIC-029 S-3 (nota_fiscal): valor em centavos, serviço e município (nomes LIMPOS); `resumo` = o achado do resumo do dia (18h). */
+  valorCentavos?: number | null; servico?: string | null; municipio?: string | null; resumo?: boolean | null;
+  /** EPIC-029 S-6 (limite_receita): qual limite, % alcançado (1 casa), quanto falta e o ano. */
+  limite?: ChaveLimite | null; percentual?: number | null; faltaCentavos?: number | null; ano?: number | null;
+  /** QA S-6 (A6): a faixa só foi alcançada contando estes créditos ainda a classificar (lado seguro). */
+  aClassificarCentavos?: number | null;
+};
 export type Achado = { tipo: TipoAviso; entidade: string; faixa: number; dados: DadosAchado };
 /** Um achado pendente na hora do envio: com a faixa do aviso anterior (para dizer "antes 3"). */
 export type AchadoPendente = Achado & { id: number; faixaAvisada: number | null };
@@ -187,7 +198,13 @@ const dias = (n: number, unidade: "dia" | "hora" = "dia") => `${n} ${unidade}${n
 function linhaDoItem(a: AchadoPendente): string {
   const d = a.dados;
   const partes: string[] = [nome(d.nome)];
-  if (a.tipo === "limite_receita" && d.limite && LIMITES[d.limite]) {
+  if (a.tipo === "nota_fiscal") {
+    if (d.valorCentavos != null) partes.push(reaisDeCentavos(d.valorCentavos));
+    const servico = limparNomeDeTerceiro(d.servico, 40);
+    const municipio = limparNomeDeTerceiro(d.municipio, 60);
+    if (servico) partes.push(servico);
+    if (municipio) partes.push(municipio);
+  } else if (a.tipo === "limite_receita" && d.limite && LIMITES[d.limite]) {
     const l = LIMITES[d.limite];
     partes.push(`${String(d.percentual ?? 0).replace(".", ",")}% do ${l.rotulo}${d.ano ? ` em ${d.ano}` : ""}`);
     partes.push(d.faltaCentavos ? `faltam ${reaisCurtos(d.faltaCentavos)}` : l.consequencia);
@@ -210,8 +227,22 @@ const TITULO: Record<TipoAviso, (n: number) => string> = {
   grupo_aguardando: n => (n === 1 ? "1 grupo esperando a sua decisão" : `${n} grupos esperando a sua decisão`),
   integracao: n => (n === 1 ? "1 conta bancária sem sincronizar" : `${n} contas bancárias sem sincronizar`),
   gasto: n => `${n} alerta(s) de gasto`,
+  nota_fiscal: n => (n === 1 ? "1 rascunho de nota fiscal para você decidir" : `${n} rascunhos de nota fiscal para você decidir`),
   limite_receita: n => (n === 1 ? "1 limite de receita chegando perto (receita registrada no sistema; a apuração oficial é do contador)" : `${n} limites de receita chegando perto (receita registrada no sistema; a apuração oficial é do contador)`),
 };
+
+/**
+ * EPIC-029 S-3 — o bloco das notas fiscais: o achado do RESUMO do dia (18h) vira o título ("Você tem 4 notas a decidir, somando R$ 5.300,00")
+ * e os rascunhos são os itens; sem resumo, o título comum. Devolve o título, os itens (sem o achado do resumo) e o total de rascunhos.
+ */
+export function blocoFiscal(g: GrupoDoAviso): { titulo: string; itens: AchadoPendente[]; total: number } {
+  const resumo = g.itens.find(a => a.dados.resumo);
+  const itens = g.itens.filter(a => !a.dados.resumo);
+  if (!resumo) return { titulo: TITULO.nota_fiscal(itens.length), itens, total: itens.length };
+  const q = Math.max(itens.length, resumo.dados.quantidade ?? 0);
+  const soma = resumo.dados.valorCentavos != null ? `, somando ${reaisDeCentavos(resumo.dados.valorCentavos)}` : "";
+  return { titulo: `${q === 1 ? "Você tem 1 nota a decidir" : `Você tem ${q} notas a decidir`}${soma}`, itens, total: q };
+}
 
 /** Frase do fim: como silenciar (a conversa entende e pede o "pode"). */
 export const FRASE_SILENCIAR = "Se não quiser mais um desses avisos, me diga (ex.: \"pare de me avisar de tarefas vencidas\").";
@@ -223,13 +254,25 @@ export const FRASE_SILENCIAR = "Se não quiser mais um desses avisos, me diga (e
 export function montarAvisoFixo(grupos: readonly GrupoDoAviso[], geradoEm: Date, max = MAX_CARACTERES_WHATSAPP): string {
   const r = relogioBrasilia(geradoEm);
   const L: string[] = [`Dolores — avisos de ${r.dia.slice(8, 10)}/${r.dia.slice(5, 7)}, ${r.hhmm}`];
+  let fiscais = 0;
   for (const g of grupos) {
-    L.push("", `*${TITULO[g.tipo](g.total)}*`);
-    for (const a of g.itens.slice(0, MAX_ITENS_POR_TIPO)) L.push(`- ${linhaDoItem(a)}`);
-    if (g.total > MAX_ITENS_POR_TIPO) L.push(`- e mais ${g.total - MAX_ITENS_POR_TIPO}.`);
+    const b = g.tipo === "nota_fiscal" ? blocoFiscal(g) : { titulo: TITULO[g.tipo](g.total), itens: g.itens, total: g.total };
+    if (g.tipo === "nota_fiscal") fiscais = b.total;
+    L.push("", `*${b.titulo}*`);
+    for (const a of b.itens.slice(0, MAX_ITENS_POR_TIPO)) L.push(`- ${linhaDoItem(a)}`);
+    if (b.total > MAX_ITENS_POR_TIPO) L.push(`- e mais ${b.total - MAX_ITENS_POR_TIPO}.`);
   }
-  L.push("", FRASE_SILENCIAR);
-  return cortarResposta(L.join("\n"), max);
+  // EPIC-029 S-3: com rascunho de nota fiscal, o aviso TERMINA com a pergunta natural (sem lista de comandos) — nunca cortada
+  const fim = fiscais > 0 ? `\n\n${FRASE_SILENCIAR}\n\n${perguntaDoAvisoFiscal(fiscais)}` : `\n\n${FRASE_SILENCIAR}`;
+  return `${cortarResposta(L.join("\n"), max - fim.length)}${fim}`;
+}
+
+/** EPIC-029 S-3: o texto da IA, com rascunho de nota fiscal no aviso, termina com a mesma pergunta natural (por código). */
+export function comPerguntaFiscal(texto: string, grupos: readonly GrupoDoAviso[]): string {
+  const g = grupos.find(x => x.tipo === "nota_fiscal");
+  if (!g) return texto;
+  const p = perguntaDoAvisoFiscal(blocoFiscal(g).total);
+  return texto.trimEnd().endsWith(p) ? texto.trimEnd() : `${texto.trimEnd()}\n\n${p}`;
 }
 
 // ── Texto pela IA (opcional) ──────────────────────────────────────────────────────────────────────────────────────
@@ -243,6 +286,7 @@ Regras:
 - Use SÓ o que está no JSON: não invente nome, número, prazo nem causa; não some nem arredonde.
 - Cite até 5 nomes por assunto; o resto, "e mais N".
 - Sem links, sem códigos, sem colchetes, sem nomes de sistema, sem pedir "pode" ou "confirmo"; não diga que fez nada.
+- Rascunhos de nota fiscal: cite nome e valor como vieram; nunca diga como ele deve responder nem dê lista de opções (o sistema faz a pergunta).
 - Termine com: ${FRASE_SILENCIAR}`;
 /** Teto de saída da chamada (o aviso é curto). */
 export const MAX_TOKENS_AVISO = 400;
@@ -252,11 +296,14 @@ export function dadosParaIA(grupos: readonly GrupoDoAviso[], geradoEm: Date): st
   const r = relogioBrasilia(geradoEm);
   return JSON.stringify({
     quando: `${r.dia.slice(8, 10)}/${r.dia.slice(5, 7)} ${r.hhmm}`,
-    assuntos: grupos.map(g => ({
-      assunto: TITULO[g.tipo](g.total),
-      itens: g.itens.slice(0, MAX_ITENS_POR_TIPO).map(a => ({ nome: limparNomeDeTerceiro(a.dados.nome) || "(sem nome)", detalhe: linhaDoItem(a).replace(/^«[^»]*»( — )?/, "") || null })),
-      maisN: Math.max(0, g.total - MAX_ITENS_POR_TIPO),
-    })),
+    assuntos: grupos.map(g => {
+      const b = g.tipo === "nota_fiscal" ? blocoFiscal(g) : { titulo: TITULO[g.tipo](g.total), itens: g.itens, total: g.total };
+      return {
+        assunto: b.titulo,
+        itens: b.itens.slice(0, MAX_ITENS_POR_TIPO).map(a => ({ nome: limparNomeDeTerceiro(a.dados.nome) || "(sem nome)", detalhe: linhaDoItem(a).replace(/^«[^»]*»( — )?/, "") || null })),
+        maisN: Math.max(0, b.total - MAX_ITENS_POR_TIPO),
+      };
+    }),
   });
 }
 

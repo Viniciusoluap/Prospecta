@@ -12,6 +12,7 @@ import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type 
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { ACOES_FISCAIS, FERRAMENTAS_FISCAIS, intencaoFiscal } from "../../shared/dolores/fiscal.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
 import { executarFuncao, ferramentasDaConversa, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
@@ -23,6 +24,9 @@ import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDo
 const ACOES_NOMES = new Set(ACOES.map(a => a.nome));
 /** Ações da criadora de mesas (a leitura listar_mesas fica sempre): só com o pedido de mesa do dono, por código. */
 export const ACOES_DE_MESA: ReadonlySet<string> = new Set(FUNCOES_DAS_MESAS.filter(n => n !== "listar_mesas"));
+const ACOES_FISCAIS_SET: ReadonlySet<string> = new Set(ACOES_FISCAIS);
+/** EPIC-029 S-3: prévias em PDF por pedido (o sistema manda cada uma ao número do dono depois da resposta). */
+export const MAX_PREVIAS_POR_PEDIDO = 2;
 
 /**
  * A resposta desta função traz texto de dados (terceiros/banco)? Leituras e ações marcam no registro; nome desconhecido
@@ -89,7 +93,12 @@ const PRAZO_CONSULTA_MS = 15_000;
 // = sistema 2.474 + ferramentas 14.527 = 17.001 (+500 da API = 17.501 > 17.000): piso 17.000 → 19.000 (folga ~1,5 mil). Sem pedido de
 // mesa, as 4 ações de mesa ficam fora (≈ 15,4 mil + 500).
 // Com a REURB (main #296, +1 leitura só do dono): pior caso 2.474 + 14.809 = 17.283 (+500 = 17.783): piso 19.000 mantido (folga ~1,2 mil).
-export const RESERVA_MINIMA_ENTRADA = 19_000;
+// EPIC-029 S-3 (fiscal): +2 leituras e +3 ações fiscais (~2 mil tokens; o texto do sistema não mudou). Pior caso medido (todas as
+// ferramentas com ações, inclusive as de mesa e as fiscais) = sistema 2.474 + ferramentas 16.869 = 19.343 (+500 da API = 19.843 > 19.000):
+// piso 19.000 → 21.000 (folga ~1,16 mil). As fiscais só vão quando o assunto é nota fiscal (sem elas e sem as de mesa: ≈ 16,2 mil).
+// EPIC-029 S-6 (junção com a S-3): +consultar_limites_receita. Pior prefixo medido (server/dolores/s6-reserva.test.ts) = 20.126 com a
+// sobrecarga da API (folga 874 < 1.000): piso 21.000 → 22.000 (folga ~1,9 mil).
+export const RESERVA_MINIMA_ENTRADA = 22_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -179,6 +188,11 @@ export type ResultadoComando = {
    * resposta do modelo não os traz exatamente. Só de leituras da conversa do dono (funcoes.ts#soConversaDoDono).
    */
   anexos: string[];
+  /**
+   * EPIC-029 S-3: rascunhos de nota fiscal cuja prévia em PDF o dono pediu (ver_nota_fiscal com enviarPrevia, leitura só da conversa
+   * dele, por código). Quem gera e manda o arquivo, ao número do dono, é whatsapp.ts — nunca o modelo.
+   */
+  previasFiscais: number[];
 };
 
 export type PedidoComando = {
@@ -262,8 +276,15 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // EPIC-027 C5 (tarefa demorada, QA): "gera/prepara/monta um relatório…" sem outro verbo de ação é pedido de LEITURA (sem ações);
   // a retomada em segundo plano (somenteLeitura) nunca tem ação — nem as de mesa, maquete ou avisos (integração 2)
   const comAcoes = !p.somenteLeitura && !ehPedidoDeRelatorio(p.comando) && (intencaoDeAcao(p.comando) || querMemoria || tiposMesa.length > 0 || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo");
+  // EPIC-029 S-3 (fiscal, conversa NATURAL — sem palavra-comando): as ferramentas fiscais só são OFERECIDAS quando o assunto é nota fiscal,
+  // por código — a mensagem direta do dono fala de nota/fiscal/prévia/emitir, ou a conversa recente citou um rascunho de nota (aviso ou
+  // consulta: referência "nota_fiscal"). Assim "essa não precisa, foi reembolso de cartório" logo depois do aviso funciona sem decorar nada.
+  // Texto colado e anexo: nada fiscal. As AÇÕES fiscais abrem junto (todas de fila: nada grava sem o "pode"/"confirmo" dele).
+  const abreFiscal = !pareceColagem(p.comando) && !p.comMidia
+    && (intencaoFiscal(trechoDoDono(p.comando)) || (p.historico?.referencias ?? []).some(r => r.tipo === "nota_fiscal"));
+  const acoesFiscais = abreFiscal && !p.somenteLeitura;
   // EPIC-027 C5 (tarefa demorada): só pedido de leitura vira tarefa (pedido com ação segue o caminho de sempre, com a proposta)
-  const podeVirarTarefa = !!p.virarTarefa && !comAcoes && !p.somenteLeitura;
+  const podeVirarTarefa = !!p.virarTarefa && !comAcoes && !acoesFiscais && !p.somenteLeitura;
   /** Grava a tarefa (uma vez); sem conseguir, o pedido segue como antes da C5 e fecha com o que tem. */
   let tentouTarefa = false;
   const virouTarefa = async (): Promise<boolean> => {
@@ -272,12 +293,15 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     try { return await p.virarTarefa!(); } catch { return false; }
   };
   const maxVoltas = Math.max(1, Math.min(MAX_VOLTAS_TAREFA, p.maxVoltas ?? MAX_VOLTAS));
-  const podeConfirmar = comAcoes && !pareceColagem(p.comando);
+  const podeConfirmar = (comAcoes || acoesFiscais) && !pareceColagem(p.comando);
   // as leituras só do dono (REURB, mesas, maquete por lote) vão também no laço só de leitura ("quais mesas eu pedi?", "link do lote 4")
   // Integração 2 (EPIC-027 C5): as AÇÕES de mesa só são oferecidas quando a mensagem do dono pede mesa por código (o mesmo
   // `pedidoDeMesa` sem o qual a porta as recusa): sem perda nenhuma, ~1,5 mil tokens a menos no prefixo das outras mensagens.
   const abreMesa = !p.somenteLeitura && tiposMesa.length > 0 && !pareceColagem(p.comando) && !p.comMidia;
-  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp().filter(f => abreMesa || !ACOES_DE_MESA.has(f.name)) : ferramentasDaConversa());
+  // EPIC-029 S-3: fiscais só com o assunto aberto; sem intenção de ação geral, das ações só as fiscais
+  const ferramentas = ferramentasParaOModelo((comAcoes || acoesFiscais ? ferramentasDoWhatsapp() : ferramentasDaConversa())
+    .filter(f => (abreMesa || !ACOES_DE_MESA.has(f.name)) && (abreFiscal || !FERRAMENTAS_FISCAIS.has(f.name))
+      && (comAcoes || !ACOES_NOMES.has(f.name) || ACOES_FISCAIS_SET.has(f.name))));
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -321,6 +345,9 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const paraODono: Array<{ texto: string; seFaltar: string }> = [];
   // o mesmo para as mesas: só a mensagem direta do dono (sem colagem, sem anexo) abre propor/revisar/aprovar/recusar_mesa
   const pedidoDeMesa = abreMesa ? { texto: comando, tipos: tiposMesa } : null;
+  // EPIC-029 S-3: o texto da mensagem do dono, para as ações fiscais conferirem que o texto livre gravado saiu das palavras dele
+  const pedidoFiscal = acoesFiscais ? { texto: comando } : null;
+  const previasFiscais = new Set<number>();
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   /** EPIC-027 C5 (REURB): a análise deu caso analisável — o aviso fixo vai no fim da resposta, por código. */
@@ -421,14 +448,17 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       const resp = await executarFuncao(
         { funcao: u.name, argumentos: u.input && typeof u.input === "object" ? u.input : {}, pedidoId: `wa:${p.mensagemId}:${voltas}:${i}` },
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
-          contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
+          contaminado, motivoContaminacao, semAcoes: !(comAcoes || (acoesFiscais && ACOES_FISCAIS_SET.has(String(u.name)))), aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal },
       );
       // EPIC-027 C5-COM: só das leituras da conversa do dono (texto montado pelo sistema, já pelo filtro da porta)
       if (resp.body.ok === true && leituraPorNome(String(u.name))?.soConversaDoDono) {
         const d = (resp.body.dados as { paraODono?: { texto?: unknown; seFaltar?: unknown } } | undefined)?.paraODono;
         if (d && typeof d.texto === "string" && typeof d.seFaltar === "string" && d.texto && d.seFaltar) paraODono.push({ texto: d.texto, seFaltar: d.seFaltar });
+        // EPIC-029 S-3: a prévia em PDF pedida (o id veio do banco, pela própria leitura); o sistema manda depois da resposta
+        const previa = (resp.body.dados as { previaFiscal?: unknown } | undefined)?.previaFiscal;
+        if (u.name === "ver_nota_fiscal" && typeof previa === "number" && Number.isInteger(previa) && previa > 0 && previasFiscais.size < MAX_PREVIAS_POR_PEDIDO) previasFiscais.add(previa);
       }
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o
@@ -480,5 +510,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
   // EPIC-027 C5 (REURB): o aviso fixo no fim da resposta, por código, quando a análise deu caso analisável
   texto = comAvisoReurb(texto, analisouReurb);
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais) };
 }

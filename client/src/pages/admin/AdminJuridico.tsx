@@ -1,4 +1,4 @@
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, FileText, MessageSquare, Paperclip, Plus, Scale, Send, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -23,6 +23,7 @@ import { nomeContrato, tituloContrato, faseDocumento } from "@shared/contratos/d
 import { rotuloAssinatura } from "@shared/rotulos";
 import { anexarPdfDoFormulario } from "@/lib/juridico-arquivos";
 const CertificadosJuridico = lazy(() => import("@/components/admin/CertificadosJuridico"));
+import ValidacaoAssinatura from "@/components/admin/ValidacaoAssinatura";
 
 const labels: Record<string, string> = {
   ...MODELOS_CONTRATO,
@@ -34,7 +35,8 @@ const optionalId = (value: FormDataEntryValue | null) => value && value !== "non
 
 export default function AdminJuridico() {
   const utils = trpc.useUtils();
-  const [tab, setTab] = useState<"contratos" | "chat" | "certificados">("contratos");
+  // EPIC-029 S-4: o atalho do cartão do certificado fiscal (Integrações) abre direto em "Certificados digitais".
+  const [tab, setTab] = useState<"contratos" | "chat" | "certificados">(() => new URLSearchParams(window.location.search).get("aba") === "certificados" ? "certificados" : "contratos");
   const { data: usuario } = trpc.auth.me.useQuery();
   const [documentoAssinar, setDocumentoAssinar] = useState<{ id: number; contractId: number; name: string } | null>(null);
   const [anexando, setAnexando] = useState(false);
@@ -65,6 +67,18 @@ export default function AdminJuridico() {
   const excluir = trpc.juridico.delete.useMutation({ onSuccess: async () => { await invalidate(); setSelectedId(null); toast.success("Contrato excluído"); }, onError: e => toast.error(e.message) });
   const deleteDocument = trpc.juridico.deleteDocument.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
   const send = trpc.juridico.sendMessage.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
+  // Retentativa automática: ao abrir o contrato, confere de novo (no servidor, com limites) as pendências de rede cuja
+  // vez chegou. Uma vez por documento enquanto a tela estiver aberta; o servidor decide se já pode e nunca dá verde por timeout.
+  const revalidar = trpc.juridico.revalidarDocumento.useMutation({ onSuccess: async () => { await utils.juridico.getById.invalidate(); } });
+  const revalidados = useRef(new Set<number>());
+  useEffect(() => {
+    for (const v of detail?.validacoes || []) {
+      if (v.estado !== "pendente" || !v.transitoria || !v.proximaTentativa || new Date(v.proximaTentativa) > new Date() || revalidados.current.has(v.documentId)) continue;
+      revalidados.current.add(v.documentId);
+      revalidar.mutate({ documentId: v.documentId });
+      break;
+    }
+  }, [detail?.validacoes]);
 
   async function openDocument(id: number, fileName: string) {
     try {
@@ -125,7 +139,7 @@ export default function AdminJuridico() {
     <main className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <div className="grid gap-3 sm:grid-cols-3">{[["Contratos", contracts.length], ["Ativos", contracts.filter(x => x.contract.status === "ativo").length], ["Valor em carteira", money(totalActive)]].map(([label, value]) => <Card key={label} className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="pt-5"><p className="text-sm text-gray-300">{label}</p><p className="text-2xl font-bold text-[#C9A961]">{value}</p></CardContent></Card>)}</div>
       <div className="flex flex-wrap gap-2"><Button variant={tab === "contratos" ? "default" : "outline"} onClick={() => setTab("contratos")}><FileText className="mr-2 h-4 w-4" />Contratos</Button><Button variant={tab === "chat" ? "default" : "outline"} onClick={() => setTab("chat")}><MessageSquare className="mr-2 h-4 w-4" />Atendimento</Button><Button variant={tab === "certificados" ? "default" : "outline"} onClick={() => setTab("certificados")}>Certificados digitais</Button></div>
-      {tab === "certificados" ? usuario && <Suspense fallback={<p>Carregando certificados…</p>}><CertificadosJuridico owner={usuario.id} fechar={() => {}} concluiu={invalidate} /></Suspense> : tab === "contratos" ? <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6">{contracts.length === 0 ? <p className="py-10 text-center text-gray-400">Nenhum contrato cadastrado</p> : contracts.map(({ contract, leadName, propertyTitle }) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className="grid w-full gap-2 rounded-lg bg-[#1A2332] p-4 text-left text-white hover:ring-1 hover:ring-[#C9A961]/50 md:grid-cols-4">
+      {tab === "certificados" ? usuario && <Suspense fallback={<p>Carregando certificados…</p>}><CertificadosJuridico owner={usuario.id} admin={usuario.role === "admin"} fechar={() => {}} concluiu={invalidate} /></Suspense> : tab === "contratos" ? <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6">{contracts.length === 0 ? <p className="py-10 text-center text-gray-400">Nenhum contrato cadastrado</p> : contracts.map(({ contract, leadName, propertyTitle }) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className="grid w-full gap-2 rounded-lg bg-[#1A2332] p-4 text-left text-white hover:ring-1 hover:ring-[#C9A961]/50 md:grid-cols-4">
         <div><p className="font-semibold">{tituloContrato(contract.partyB)}</p><p className="text-xs text-gray-400">{labels[contract.type] || contract.type}</p></div><div><p>{contract.partyA || leadName || "Parte não informada"}</p><p className="text-xs text-gray-400">{propertyTitle || "Sem imóvel"}</p></div><div><p className="text-[#C9A961]">{money(contract.value)}</p><p className="text-xs text-gray-300">{rotulo(contract.status)}</p></div><div><p className="text-sm">Assinatura: {rotuloAssinatura(contract.signatureStatus)}</p></div>
       </button>)}</CardContent></Card> : <div className="grid gap-4 md:grid-cols-[280px_1fr]"><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6"><Select value={chatLeadId ? String(chatLeadId) : undefined} onValueChange={v => setChatLeadId(Number(v))}><SelectTrigger><SelectValue placeholder="Selecionar cliente" /></SelectTrigger><SelectContent>{(options?.leads || []).map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name}</SelectItem>)}</SelectContent></Select>{chatLeads.map(lead => <Button key={lead.id} variant="ghost" className="w-full justify-start" onClick={() => setChatLeadId(lead.id)}>{lead.name}</Button>)}</CardContent></Card><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="pt-6"><div className="mb-4 h-[360px] space-y-2 overflow-y-auto rounded bg-[#1A2332] p-3">{activeChat.map(({ message }) => <div key={message.id} className={`max-w-[80%] rounded p-2 text-sm ${message.sender === "cliente" ? "bg-slate-700" : "ml-auto bg-[#C9A961] text-[#1A2332]"}`}><p>{message.text}</p><p className="mt-1 text-[10px] opacity-60">{new Date(message.createdAt).toLocaleString("pt-BR")}</p></div>)}</div><form onSubmit={event => { event.preventDefault(); if (!chatLeadId) return; const data = new FormData(event.currentTarget); send.mutate({ leadId: chatLeadId, text: String(data.get("text")) }); event.currentTarget.reset(); }} className="flex gap-2"><Input name="text" required placeholder="Mensagem ao cliente" /><Button type="submit" disabled={!chatLeadId}><Send className="h-4 w-4" /></Button></form></CardContent></Card></div>}
     </main>
@@ -138,7 +152,7 @@ export default function AdminJuridico() {
       <div className="grid gap-3 sm:grid-cols-2"><div><Label>Status</Label><Select value={detail.contract.status} onValueChange={value => status.mutate({ id: detail.contract.id, status: value as typeof CONTRATO_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTRATO_STATUS.map(v => <SelectItem key={v} value={v}>{rotulo(v)}</SelectItem>)}</SelectContent></Select></div><div><Label>Assinatura</Label><p>{rotuloAssinatura(detail.contract.signatureStatus)}</p></div></div>
       <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#2C3E50] p-2">{doc.driveFileId || !doc.url
         ? <button type="button" onClick={() => void openDocument(doc.id, doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type))} className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</button>
-        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</a>}{!["assinatura_digital","assinado","recebido_assinado"].includes(doc.type) && detail.contract.signatureStatus !== "assinado" && <Button type="button" variant="outline" disabled={!!doc.url && !doc.driveFileId} onClick={() => setDocumentoAssinar({id:doc.id,contractId:detail.contract.id,name:nomeContrato(detail.contract.partyB,doc.type)})}>Assinar digitalmente</Button>}
+        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</a>}{detail.validacoes?.find(v => v.documentId === doc.id) && <ValidacaoAssinatura v={detail.validacoes.find(v => v.documentId === doc.id)!} />}{!["assinatura_digital","assinado","recebido_assinado"].includes(doc.type) && detail.contract.signatureStatus !== "assinado" && <Button type="button" variant="outline" disabled={!!doc.url && !doc.driveFileId} onClick={() => setDocumentoAssinar({id:doc.id,contractId:detail.contract.id,name:nomeContrato(detail.contract.partyB,doc.type)})}>Assinar digitalmente</Button>}
         {doc.type === "recebido_assinado" && usuario?.role === "admin" && <Button variant="outline" disabled={confirmar.isPending} onClick={()=>{if(confirm("Conferi este PDF e confirmo que todas as partes e testemunhas assinaram."))confirmar.mutate({documentId:doc.id,confirmado:true});}}>Confirmar assinatura de todos</Button>}
         {doc.type === "assinatura_digital" && detail.contract.signatureStatus !== "assinado" && <><Button variant="outline" disabled={enviar.isPending} onClick={()=>{if(confirm("Enviar este contrato assinado ao e-mail cadastrado do cliente e disponibilizar no portal?"))enviar.mutate({id:detail.contract.id,email:true});}}>Enviar ao cliente por e-mail e portal</Button><Button variant="outline" disabled={enviar.isPending} onClick={()=>enviar.mutate({id:detail.contract.id,email:false})}>Disponibilizar no portal</Button></>}<Button size="icon" variant="ghost" aria-label="Excluir documento" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"><Input name="file" type="file" accept="application/pdf" required className="h-auto min-h-10 w-full min-w-0 overflow-hidden text-slate-100 file:mr-2 file:text-slate-100" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-full min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Recebido assinado (conferir)</SelectItem></SelectContent></Select><Button type="submit" disabled={anexando}><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
       {detail.contract.signatureDate && <p>Data da assinatura {detail.contract.signatureDate.split("-").reverse().join("/")}</p>}
@@ -147,7 +161,7 @@ export default function AdminJuridico() {
         <Button disabled={gerar.isPending} onClick={() => gerar.mutate({ id: detail.contract.id })} className="flex-1 bg-[#C9A961] text-[#1A2332]">{gerar.isPending ? "Gerando e salvando…" : "Gerar PDF"}</Button> :
         <Button onClick={() => setFormOpen(true)} className="flex-1 bg-[#C9A961] text-[#1A2332]">Editar contrato</Button>}<Button variant="destructive" onClick={() => confirm("Excluir contrato e documentos?") && excluir.mutate({ id: detail.contract.id })}><Trash2 className="h-4 w-4" /></Button></div>
     </>}</DialogContent></Dialog>
-    {documentoAssinar && usuario && <Suspense fallback={<p role="status">Carregando assinador…</p>}><CertificadosJuridico key={documentoAssinar.id} owner={usuario.id} documento={documentoAssinar} fechar={() => setDocumentoAssinar(null)} concluiu={invalidate} /></Suspense>}
+    {documentoAssinar && usuario && <Suspense fallback={<p role="status">Carregando assinador…</p>}><CertificadosJuridico key={documentoAssinar.id} owner={usuario.id} documento={documentoAssinar} fechar={() => setDocumentoAssinar(null)} concluiu={invalidate} irParaCertificados={() => { setDocumentoAssinar(null); setSelectedId(null); setTab("certificados"); }} /></Suspense>}
   </div>;
 }
 

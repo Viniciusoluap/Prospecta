@@ -1,37 +1,10 @@
 # Regras do projeto Prospecta (preferências do dono)
 
-## Paridade obrigatória Grupo Santa Fé ↔ Prospecta (REGRA ABSOLUTA — estabelecida pelo usuário em 08/09/2026)
+## Sistemas independentes desde 22/11/2026 (decisão do dono)
 
-**Esta regra tem prioridade máxima e vale nos dois repositórios (Grupo Santa Fé e Prospecta).**
-Está duplicada, com o mesmo texto, em `Grupo-Santa-Fe/CLAUDE.md`.
+Em 22/11/2026 o dono cancelou a obrigação de paridade entre Prospecta e Grupo Santa Fé. Cada sistema segue sua própria evolução. Novos portes entre os repositórios dependem de pedido específico do dono.
 
-**Toda vez que o usuário pedir uma funcionalidade, correção ou processo em qualquer um dos
-dois sistemas (Grupo Santa Fé ou Prospecta), a mesma função tem que existir e se comportar
-igual no outro sistema também** — não é opcional, não depende de o usuário pedir explicitamente
-nos dois lugares. As duas plataformas são a mesma operação (construção/imóveis financiados) em
-duas cidades e devem permanecer espelhadas.
-
-**Únicas exceções permitidas** — as diferenças que já existem hoje, documentadas em
-`docs/stories/epics/ROADMAP.md`:
-- Landing page e layout público de cada site (visual/institucional, não regra de negócio).
-- Ecossistema de sorteios do Prospecta (`draws`, `tickets`, `utefBalances`, `utefTransactions`,
-  `products`, `productConversions`) — exclusivo do Prospecta, sem equivalente no Santa Fé.
-- Nomes/stack técnica de cada repositório (Next.js/Prisma no Santa Fé, Vite/Express/tRPC/Drizzle
-  no Prospecta) — a regra de negócio deve ser a mesma, a implementação técnica pode diferir
-  para se adequar à stack de cada lado.
-
-**Nenhuma outra exceção deve ser assumida ou inventada.** Se uma nova diferença genuína for
-necessária, ela precisa ser registrada explicitamente (com justificativa) no ROADMAP do
-Prospecta antes de ser tratada como exceção — nunca implementada silenciosamente como "só faz
-sentido de um lado".
-
-**Na prática, isso significa:**
-- Ao implementar algo no Prospecta, verificar se o Grupo Santa Fé já tem o equivalente; se não
-  tiver, sinalizar isso ao usuário/à sessão responsável pelo Santa Fé para portar.
-- Ao implementar algo no Grupo Santa Fé que se originou de um pedido novo (não presente ainda
-  no Prospecta), registrar como pendência/epic/story no ROADMAP do Prospecta para portar.
-- Nunca tratar uma funcionalidade como "exclusiva" de um dos lados sem que essa exclusividade já
-  esteja listada nas exceções acima ou explicitamente autorizada pelo dono do produto.
+As referências anteriores à paridade neste arquivo e nos handoffs registram decisões históricas. As pendências de porte que estavam abertas foram canceladas por essa decisão. A frente do Jurídico segue somente na Prospecta.
 
 ## Handoff a cada etapa (REGRA PERMANENTE — estabelecida pelo usuário em 19/10/2026)
 
@@ -392,3 +365,22 @@ BPO financeiro, para não termos campos redundantes".
    por ele no painel, guardado cifrado), inscrição municipal, códigos de serviço/alíquotas, CNO das obras. Até lá, o botão Emitir fica
    desligado e nada sai do sistema.
 5. **Paridade com o Grupo Santa Fé**: o dono decide depois; fica registrada como pendência no ROADMAP.
+
+## Regime tributário — decisão do dono em 22/11/2026 (REGRA)
+
+Palavras do dono, depois da conferência do regime (`docs/stories/epics/epic-029-modulo-fiscal/REGIME-TRIBUTARIO.md`):
+"Certo, vamos trabalhar então tudo no Simples Nacional".
+
+1. **Todas as empresas do grupo trabalham no Simples Nacional.** O perfil tributário do sistema (BPO › Contabilidade) já
+   começa em Simples Nacional; a Prospecta Construções e Avaliação Imobiliária (41.865.900/0001-89) foi cadastrada assim
+   (optante desde 07/05/2021). Alíquota estimada: preencher com o extrato PGDAS-D (contador).
+2. Duas empresas dependem de ação do contador para estarem de fato no Simples — não cadastrar como Simples antes disso:
+   - **Prospecta Construções LTDA / "VFX Capital" (58.121.993/0001-30)**: a Receita registra exclusão em 30/11/2026;
+     tratar antes dessa data ou fazer nova opção em janeiro.
+   - **Efficaz Serviços Financeiros (04.578.232/0001-82)**: excluída em 31/12/2024; nova opção só em janeiro (até 29/01/2027),
+     sem débitos e com atividade permitida no Simples.
+3. Obras no Anexo IV (INSS patronal fora do DAS); corretagem no III; gestão de imóveis e engenharia no V (ou III pelo Fator R).
+4. **Multi-regime (complemento do dono no mesmo dia)**: "As outras empresas que estão em outros regimes tributários terão os
+   próprios regimes delas com vínculos de suas contas e movimentações; o nosso sistema tem que abranger tudo isso". Cada empresa
+   (CNPJ) tem o próprio regime (Simples, Presumido, Real ou "a confirmar"), as próprias contas bancárias vinculadas e a própria
+   movimentação; limites e avisos seguem o regime de cada uma (story `docs/stories/epics/epic-029-modulo-fiscal/S-6-*.md`).

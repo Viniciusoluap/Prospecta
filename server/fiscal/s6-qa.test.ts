@@ -38,6 +38,7 @@ import { SILENCIADOS_POR_PADRAO, TIPOS_AVISO, TIPOS_SEM_REAVISO, silenciadoPelaL
 
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
 const M0154 = ler("0154_fiscal_notas.sql");
+const M0162 = ler("0162_fiscal_certificados.sql"); // S-4: coluna codigo_atividade_simples do tipo de serviço (junção com a main)
 const M0150 = ler("0150_dolores_avisos.sql");
 const M0164 = ler("0164_contas_empresa_limite_receita.sql");
 const TABELAS = [
@@ -239,12 +240,12 @@ describe("QA S-6 — correções (regras puras)", () => {
 describe("QA S-6 — 4. Dolores (regras puras do aviso)", () => {
   it("limite_receita nasce silenciado (sem linha) e respeita a linha; sem reaviso na mesma faixa", () => {
     expect(TIPOS_AVISO).toContain("limite_receita");
-    expect(SILENCIADOS_POR_PADRAO).toEqual(["limite_receita"]);
+    expect(SILENCIADOS_POR_PADRAO).toEqual(["nota_fiscal", "limite_receita"]); // junção com a S-3
     expect(silenciadoPelaLinha("limite_receita", undefined)).toBe(true);
     expect(silenciadoPelaLinha("limite_receita", null)).toBe(true);
     expect(silenciadoPelaLinha("limite_receita", { silenciado: false })).toBe(false);
     // os tipos antigos continuam NÃO silenciados por padrão (sem regressão)
-    for (const t of TIPOS_AVISO.filter(x => x !== "limite_receita")) expect(silenciadoPelaLinha(t, undefined), t).toBe(false);
+    for (const t of TIPOS_AVISO.filter(x => x !== "limite_receita" && x !== "nota_fiscal")) expect(silenciadoPelaLinha(t, undefined), t).toBe(false);
     expect(TIPOS_SEM_REAVISO).toEqual(["limite_receita"]);
   });
 });
@@ -264,6 +265,7 @@ describe("QA S-6 — com banco", () => {
     pg = new PGlite();
     await pg.exec(ddl);
     await pg.exec(M0154);
+    await pg.exec(M0162);
     await pg.exec(M0150);
     vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
     fetchVigia = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("rede proibida no teste"); });

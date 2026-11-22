@@ -127,6 +127,22 @@ export async function enviarImagemEvolution(c: EvolutionConfig, instancia: strin
 }
 
 /**
+ * EPIC-029 S-3: documento (PDF) com legenda, pelo MESMO endereço da imagem (`/message/sendMedia`, `mediatype: "document"`). O arquivo vai
+ * em base64 no próprio pedido — nunca por URL: a Evolution não busca nada no sistema e nenhum link público é criado. O nome do arquivo
+ * não leva dado pessoal (quem chama monta). Devolve o id da mensagem, ou null se não foi aceita.
+ */
+export async function enviarDocumentoEvolution(c: EvolutionConfig, instancia: string, numero: string,
+  doc: { base64: string; mime: string; nome: string; legenda: string }, fetchImpl: Fetch = fetch): Promise<string | null> {
+  const num = numero.replace(/\D/g, "");
+  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendMedia/${encodeURIComponent(instancia)}`, {
+    method: "POST",
+    body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, mediatype: "document", mimetype: doc.mime,
+      caption: doc.legenda, media: doc.base64, fileName: doc.nome }),
+  }, fetchImpl);
+  return r.ok ? (r.data?.key?.id ?? null) : null;
+}
+
+/**
  * EPIC-026 C3: áudio como MENSAGEM DE VOZ (ptt). `encoding: true` pede à Evolution a conversão para OGG/Opus (aceita OGG, MP3 e
  * M4A). Base64 no pedido, nunca URL. Devolve o id da mensagem, ou null se não foi aceita.
  */

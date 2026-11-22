@@ -9,6 +9,7 @@ import { fiscalConfig, fiscalEmissores, fiscalTiposServico } from "../../drizzle
 import { MOTIVOS_SEM_NOTA } from "../../shared/fiscal/motivos.js";
 import { ORIGENS_NOTA } from "../../shared/fiscal/origens.js";
 import { STATUS_NOTA } from "../../shared/fiscal/status.js";
+import { CODIGOS_ATIVIDADE_SIMPLES } from "../../shared/fiscal/dps-campos.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { ensureTaxSchema } from "../tax-router.js";
@@ -149,6 +150,8 @@ export const fiscalRouter = router({
         codigoTributacaoNacional: z.string().trim().regex(/^\d{6}$/, "Código de tributação nacional: 6 números.").nullable().optional(),
         codigoNbs: z.string().trim().regex(/^\d{9}$/, "Código NBS: 9 números.").nullable().optional(),
         itemLc116: z.string().trim().regex(/^\d{1,2}\.\d{2}$/, "Item da LC 116 no formato 7.02.").nullable().optional(),
+        // S-4: cAtvSN (Anexo VIII) — obrigatório na DPS de optante do Simples.
+        codigoAtividadeSimples: z.enum(CODIGOS_ATIVIDADE_SIMPLES).nullable().optional(),
         descricaoPadrao: textoOpcional(2000),
         aliquotaIss: z.number().min(0).max(100).nullable().optional(),
         // Decisão h: só "sempre perguntar" ou "nunca gerar". "Automático" não existe nesta etapa.
@@ -161,6 +164,7 @@ export const fiscalRouter = router({
         const valores = {
           nome: input.nome, emissorId: input.emissorId ?? null,
           codigoTributacaoNacional: input.codigoTributacaoNacional || null, codigoNbs: input.codigoNbs || null, itemLc116: input.itemLc116 || null,
+          ...(input.codigoAtividadeSimples !== undefined ? { codigoAtividadeSimples: input.codigoAtividadeSimples } : {}),
           descricaoPadrao: input.descricaoPadrao || null, aliquotaIss: input.aliquotaIss == null ? null : String(input.aliquotaIss),
           regra: input.regra, origens: Array.from(new Set(input.origens)), ativo: input.ativo, atualizadoPor: ctx.user.id, atualizadoEm: new Date(),
         };
