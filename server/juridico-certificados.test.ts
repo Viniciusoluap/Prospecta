@@ -34,6 +34,11 @@ describe("certificados A1 e assinatura real", () => {
     expect(info.emissor).toContain("EMPRESA TESTE"); expect(info.fingerprint).toHaveLength(64);
     expect(new Date(info.vencimento).getTime()).toBeGreaterThan(Date.now());
   });
+  it("também abre certificado legado RC2/3DES usado em A1 antigos", async () => {
+    execFileSync("openssl", ["pkcs12","-export","-legacy","-inkey",join(dir,"key.pem"),"-in",join(dir,"cert.pem"),"-out",join(dir,"legado.pfx"),"-passout","pass:teste-somente"]);
+    const { info } = await abrirCertificado(new Uint8Array(readFileSync(join(dir,"legado.pfx"))),"teste-somente");
+    expect(info.titular).toBe("EMPRESA TESTE:12345678000190");
+  });
   it("recusa senha errada, extensão inválida e datas inválidas", async () => {
     await expect(abrirCertificado(new Uint8Array(await file.arrayBuffer()), "errada")).rejects.toThrow("Confira");
     await expect(importarCertificado(5, new File(["pdf"],"teste.pdf"), "teste")).rejects.toThrow(".pfx");
