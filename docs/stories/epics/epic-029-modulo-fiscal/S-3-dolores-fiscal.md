@@ -1,6 +1,6 @@
 # S-3 — Dolores no fluxo fiscal (conversa natural)
 
-**Status:** InReview (ramo `epic029-s3`, sobre `claude/epic029-s2-rascunhos`; aguarda o portão de QA de segurança) · **Epic:** EPIC-029 · **Etapa:** 3 · **Tamanho:** M · **Migração:** `0161_dolores_aviso_fiscal.sql` (o plano dizia 0155; 0155–0159 e 0162/0163 ficam com o fiscal das S-4/S-5)
+**Status:** InReview (ramo `epic029-s3`, sobre `claude/epic029-s2-rascunhos`; aguarda o portão de QA de segurança) · **Epic:** EPIC-029 · **Etapa:** 3 · **Tamanho:** M · **Migração:** `0165_dolores_aviso_fiscal.sql` (o plano dizia 0155; 0155–0159 e 0162/0163 ficam com o fiscal das S-4/S-5)
 **Depende de:** S-2 e da branch `epic027-c5int2` (avisos proativos, migração 0150) **na `main`**.
 
 ## Por quê
@@ -110,7 +110,7 @@ sozinho é negativa de proposta aberta — se não houver proposta, segue para o
 | Prévia | REUSE | `gerarPreviaPdf` da S-2 |
 
 ### Arquivos
-- Criados: `shared/dolores/fiscal.ts`, `server/dolores/leitura/fiscal.ts`, `server/dolores/acoes/fiscal.ts`, `drizzle/0161_dolores_aviso_fiscal.sql`,
+- Criados: `shared/dolores/fiscal.ts`, `server/dolores/leitura/fiscal.ts`, `server/dolores/acoes/fiscal.ts`, `drizzle/0165_dolores_aviso_fiscal.sql`,
   `server/dolores/s3-fiscal.test.ts`.
 - Alterados: `server/dolores/funcoes.ts`, `server/dolores/permissoes.ts`, `server/dolores/acoes/registro.ts`, `server/dolores/acoes/comum.ts`,
   `server/dolores/acoes/avisos.ts`, `server/dolores/ponte.ts`, `server/dolores/cerebro.ts`, `server/dolores/whatsapp.ts`, `server/dolores/avisos.ts`,

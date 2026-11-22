@@ -1,7 +1,8 @@
 -- 22/11/2026 — EPIC-029 S-3 (Dolores no fluxo fiscal): o tipo novo "nota_fiscal" dos avisos proativos da Dolores (rascunho de nota fiscal
 -- a decidir e o resumo do dia, a partir das 18h). Story: docs/stories/epics/epic-029-modulo-fiscal/S-3-dolores-fiscal.md.
 --
--- Número 0161 (e não 0155, como dizia o plano): 0155–0159 ficam livres para o fiscal das etapas 4 e 5; 0160 é da Dolores (reserva dos avisos).
+-- Número 0165 (era 0161; a main já tem 0161_juridico_validacao_assinaturas). ORDEM: aplicar ANTES da 0164 (S-6), cuja lista inclui
+-- também 'nota_fiscal' e 'limite_receita'; se esta for reaplicada depois da 0164, reaplicar a 0164.
 --
 -- O que muda: SÓ a restrição CHECK da coluna "tipo" de "dolores_avisos_tipos" (criada inline pela 0150, nome padrão do Postgres
 -- "dolores_avisos_tipos_tipo_check"), que passa a aceitar também 'nota_fiscal'. A lista antiga continua inteira; nenhum dado muda (a nova

@@ -32,7 +32,7 @@ import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolore
 const DONO = "5599991234567";
 const CPF = "52998224725";
 const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
-const MIGRACAO_0161 = readFileSync(new URL("../../drizzle/0161_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
+const MIGRACAO_0161 = readFileSync(new URL("../../drizzle/0165_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
