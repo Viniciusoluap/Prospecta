@@ -52,7 +52,7 @@ export const juridicoRouter = router({
 
   modelOptions: adminProcedure.query(() => opcoesModelosContrato()),
 
-  create: adminProcedure.input(z.record(z.enum(CAMPOS_MODELO), z.string().trim().max(1000))).mutation(async ({ input }) => {
+  create: adminProcedure.input(z.preprocess(raw=>raw&&typeof raw==="object"?{testemunha1Nome:"",testemunha1Cpf:"",testemunha2Nome:"",testemunha2Cpf:"",...raw}:raw,z.record(z.enum(CAMPOS_MODELO), z.string().trim().max(1000)))).mutation(async ({ input }) => {
     const campos = input as CamposModelo;
     if (!/^\d+$/.test(campos.obraId) || !Number.isSafeInteger(Number(campos.obraId))) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione uma obra." });
@@ -146,7 +146,7 @@ export const juridicoRouter = router({
     url: z.string().url(),
     type: documentType.default("anexo"),
   })).mutation(async ({ input }) => {
-    const [document] = await getDb().insert(portalContractDocuments).values(input).returning();
+    const [document] = await getDb().insert(portalContractDocuments).values({...input,type:input.type === "assinado" ? "recebido_assinado" : input.type}).returning();
     return document;
   }),
 

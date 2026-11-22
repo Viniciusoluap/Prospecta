@@ -66,6 +66,7 @@ describe("certificados A1 e assinatura real", () => {
     const partes={partyADocument:"12345678000190",partyBDocument:"12345678901",signers:[]};
     const r=await conferirAssinaturas(Buffer.from(final.bytes),partes,roots);expect(r).toMatchObject({todos:true,validas:2});
     expect((await conferirAssinaturas(Buffer.from(final.bytes),{...partes,signers:["1ª TESTEMUNHA — CPF"]},roots)).todos).toBe(false);
+    expect((await conferirAssinaturas(Buffer.from(final.bytes),{...partes,signers:["CORRETOR INTERVENIENTE — OUTRO SIGNATÁRIO"]},roots)).todos).toBe(false);
     const tampered=final.bytes.slice();tampered[20]^=1;expect((await conferirAssinaturas(Buffer.from(tampered),partes,roots)).todos).toBe(false);
   });
   it("recusa senha errada, extensão inválida e datas inválidas", async () => {

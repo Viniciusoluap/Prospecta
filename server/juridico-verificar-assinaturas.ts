@@ -34,10 +34,9 @@ export async function conferirAssinaturas(bytes:Buffer,partes:Partes,roots:Certi
     const obrigatorios=[digitos(partes.partyADocument),digitos(partes.partyBDocument)];
     let semIdentificacao=obrigatorios.some(x=>x.length!==11&&x.length!==14)||new Set(obrigatorios).size<2;
     for(const signer of partes.signers||[]) {
-      if(/testemunha/i.test(signer)) {
-        const match=signer.match(/\d{3}\.\d{3}\.\d{3}-\d{2}|\b\d{11}\b/);
-        if(match)obrigatorios.push(digitos(match[0]));else semIdentificacao=true;
-      }
+      if(/^(CONSTRUTORA|CONTRATANTE|COMPRADOR|EMPREITEIRO CONTRATADO) —/i.test(signer))continue;
+      const match=signer.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}|\b\d{14}\b|\b\d{11}\b/);
+      if(match)obrigatorios.push(digitos(match[0]));else semIdentificacao=true;
     }
     const todos=!semIdentificacao&&obrigatorios.every(x=>documentos.includes(x));
     return {todos,validas,documentos,motivo:todos?"Todas as partes identificadas têm assinatura digital conferida.":semIdentificacao?"Há partes ou testemunhas sem CPF/CNPJ identificado. Aguardando conferência do responsável.":"Ainda faltam assinaturas de partes do contrato."};

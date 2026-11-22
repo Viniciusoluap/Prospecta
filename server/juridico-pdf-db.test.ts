@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as banco from "./db";
+import { confirmarTodasAssinaturas } from "./juridico-workflow";
 import * as email from "./_core/email-smtp";
 import { gerarESalvarContratoPdf } from "./juridico-pdf";
 import { portalRouter } from "./portal-router";
@@ -96,6 +97,15 @@ describe("geração salva o contrato no mesmo clique", () => {
       expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({signature_status:"solicitado"});
       mail.mockResolvedValue(false);
       await expect(caller().enviarParaAssinatura({id:1,email:true})).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});
+    }finally{await pg.close();}
+  },30000);
+
+  it("vínculo de arquivo por URL também não pode declarar todas as partes assinadas",async()=>{
+    const pg=await preparar();try{
+      const doc=await caller().addDocument({contractId:1,name:"retorno.pdf",url:"https://example.test/retorno.pdf",type:"assinado"});
+      expect(doc.type).toBe("recebido_assinado");
+      await expect(confirmarTodasAssinaturas(doc.id,"colaborador")).rejects.toMatchObject({code:"FORBIDDEN"});
+      expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({signature_status:"pendente"});
     }finally{await pg.close();}
   },30000);
 

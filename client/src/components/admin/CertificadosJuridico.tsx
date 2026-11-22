@@ -29,7 +29,7 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
     setSelecionado(v => rows.some(x => x.id === v) ? v : rows.find(x => x.padrao)?.id || rows[0]?.id || "");
   };
   useEffect(() => { void atualizar().catch(e => setErro(e.message)); }, [owner]);
-  useEffect(() => { setSenha("");setLembrada(false);const cert=certificados.find(c=>c.id===selecionado);if(cert)void recuperarSenha(cert).then(s=>{if(s){setSenha(s);setLembrada(true);}}); }, [documento?.id,selecionado,certificados]);
+  useEffect(() => { let ativa=true;setSenha("");setLembrada(false);const cert=certificados.find(c=>c.id===selecionado);if(cert)void recuperarSenha(cert).then(s=>{if(ativa&&s){setSenha(s);setLembrada(true);}});return()=>{ativa=false;}; }, [documento?.id,selecionado,certificados]);
   useEffect(()=>{setPdfBytes(undefined);setPosicao(null);if(documento)void utils.juridico.documentContent.fetch({id:documento.id}).then(c=>setPdfBytes(Uint8Array.from(atob(c.base64),x=>x.charCodeAt(0)))).catch(()=>setErro("Não foi possível carregar o PDF para assinatura."));},[documento?.id]);
 
   async function importar(event: FormEvent<HTMLFormElement>) {
@@ -69,7 +69,7 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
       </select>
       {certificados.find(c => c.id === selecionado) && <p className="text-sm text-gray-300">Emitido por {certificados.find(c => c.id === selecionado)!.emissor}</p>}
       {lembrada ? <p className="text-sm text-green-300">Senha salva neste aparelho.</p> : <><Label htmlFor="senha-assinatura">Senha do certificado (será salva neste aparelho)</Label><Input id="senha-assinatura" type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={e => setSenha(e.target.value)} /></>}
-      {pdfBytes ? <PosicionarAssinaturaPdf bytes={pdfBytes} mudou={setPosicao} /> : <p>Carregando PDF…</p>}
+      {pdfBytes ? <div className={ocupado ? "pointer-events-none opacity-60" : ""}><PosicionarAssinaturaPdf bytes={pdfBytes} mudou={setPosicao} /></div> : <p>Carregando PDF…</p>}
       <p className="text-sm text-gray-300">Confira o documento e o titular antes de assinar. Esta assinatura é do titular selecionado; as demais partes continuam pendentes. Sem carimbo de tempo ou validação de revogação automática.</p>
       <Button onClick={() => void assinar()} disabled={ocupado || !selecionado || !senha || !posicao || !pdfBytes}>{ocupado ? "Assinando e salvando…" : "Assinar digitalmente"}</Button>
     </> : <>

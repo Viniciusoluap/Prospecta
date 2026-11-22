@@ -35,7 +35,7 @@ describe("Modelos do Jurídico", () => {
     expect(contrato.clausulas).toContain("3,5% sobre o VGV");
     expect(contrato.clausulas).toContain("8.750,00");
     expect(contrato.clausulas).toContain("efetivo recebimento");
-    expect(contrato.assinaturas).toContain("TERRENISTA / PROMITENTE VENDEDOR — Terrenista Exemplo");
+    expect(contrato.assinaturas).toContain("TERRENISTA / PROMITENTE VENDEDOR — Terrenista Exemplo — CPF/CNPJ 111.444.777-35");
     expect(contrato.assinaturas).toContain("CORRETOR INTERVENIENTE — Corretora Exemplo");
     expect(contrato.clausulas).not.toMatch(/\{\{|PROSPECTA/);
 
@@ -72,4 +72,12 @@ describe("Modelos do Jurídico", () => {
     expect(contrato.clausulas).toContain("50.000,00");
     expect(contrato.assinaturas.join()).not.toContain("TERRENISTA");
   });
+  it("identifica as testemunhas no PDF quando seus dados são preenchidos",()=>{
+    const c=montarContrato({...campos,testemunha1Nome:"Testemunha Exemplo",testemunha1Cpf:"123.456.789-09"},opcoes);
+    expect(c.assinaturas).toContain("1ª TESTEMUNHA — Testemunha Exemplo — CPF 123.456.789-09");
+  });
+  it("recusa testemunha parcialmente identificada",()=>{
+    expect(()=>montarContrato({...campos,testemunha1Nome:"Testemunha sem CPF"},opcoes)).toThrow("testemunha");
+  });
+
 });
