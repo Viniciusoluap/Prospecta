@@ -31,7 +31,7 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { lerConfigWhatsapp, usoDoMes } from "./consumo.js";
+import { lerConfigWhatsapp, lerPartesDoGasto, usoDoMes } from "./consumo.js";
 import { consumoDoMesDetalhado, lerPrecos } from "./custo.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -42,6 +42,7 @@ import { listarTarefas } from "./leitura/tarefas.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { bloqueioDaOperacao, lerConfigOperacao, registrarEvento, type ConfigOperacao } from "./operacao.js";
 import { idDaDoloresSemCriar } from "./perfil.js";
+import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { enviarAvisoAoDono } from "./whatsapp.js";
 import { DIAS_PARADO_PADRAO } from "../../shared/dolores/regras.js";
 
@@ -192,7 +193,9 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     const uso = await usoDoMes(mes);
     // Etapa 8: o detalhe por modelo e função (4 tipos de token) para a estimativa por modelo do relatório
     const linhas = await consumoDoMesDetalhado(mes);
-    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas } } };
+    // EPIC-027 C5-E5: a parte de cada função (o relatório mostra o gasto por função em uma linha)
+    const { partes } = await lerPartesDoGasto();
+    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas, partes } } };
   })],
 ];
 
@@ -449,6 +452,14 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   const inicio = relogio.ms();
   const prazoFinal = inicio + PRAZO_CRON_MS;
   const agora = relogio.agora();
+  const r = await rondaDoCron(prazoFinal, agora);
+  // QA C5 (B1/B2): alertas de gasto que ficaram pendentes (proposta aberta, sem tempo no aviso, envio que não saiu) saem aqui, no
+  // tempo que sobrar — depois da ronda e do relatório. A pausa geral e a conexão são conferidas no envio (enviarAvisoAoDono).
+  await enviarAlertasPendentes({ prazoFinal, canal: "cron", agora, relogio: relogio.ms });
+  return r;
+}
+
+async function rondaDoCron(prazoFinal: number, agora: Date): Promise<{ status: number; body: Record<string, unknown> }> {
   const config = await lerConfigOperacao();
   if (!config) return { status: 200, body: { ok: true, r: "sem-configuracao" } };
   if (!config.rondasLigadas && !config.relatorioLigado) return { status: 200, body: { ok: true, r: "desligada" } };

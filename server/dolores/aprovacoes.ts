@@ -54,6 +54,13 @@ export const conferenciaDoItem = (funcao: string, resumo: string, argumentos: un
  * existente. Colisão de código → sorteia de novo (até 6 vezes). Tudo numa transação (achado 9 do QA): falhou um item,
  * nenhum fica — a resposta "nada foi gravado" da porta é verdadeira.
  */
+/** JSON com as chaves em ordem (o jsonb do banco não guarda a ordem das chaves). */
+function jsonEstavel(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(jsonEstavel).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${jsonEstavel((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
+}
+
 export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoAcao): Promise<ItemCriado[]> {
   // EPIC-027 C5 (E2): na conversa com confirmação natural, o item vence junto com a proposta (curta); senão, a validade da fila
   const venceEm = ctx.validadeFilaMs ? new Date(ctx.agora.getTime() + ctx.validadeFilaMs) : new Date(ctx.agora.getTime() + (await lerValidadeHoras()) * 3_600_000);
@@ -73,9 +80,20 @@ export async function porNaFila(funcao: string, preparo: Preparo, ctx: ContextoA
           funcao, alvo: item.alvo.slice(0, 80), argumentos: item.argumentos, resumo: item.resumo, conferencia: item.conferencia,
         }).onConflictDoNothing().returning({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm });
         if (linha) { feito = { ...linha, jaAguardava: false }; break; }
-        const [existente] = await tx.select({ codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm })
+        const [existente] = await tx.select({ id: doloresAprovacoes.id, codigo: doloresAprovacoes.codigo, resumo: doloresAprovacoes.resumo, venceEm: doloresAprovacoes.venceEm,
+          argumentos: doloresAprovacoes.argumentos })
           .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.funcao, funcao), eq(doloresAprovacoes.alvo, item.alvo.slice(0, 80)), eq(doloresAprovacoes.situacao, "aguardando"))).limit(1);
-        if (existente) feito = { ...existente, jaAguardava: true };
+        if (!existente) continue;
+        // Revisão automática (1 e 2): o mesmo alvo já espera. Pedido DIFERENTE (outros argumentos ou outro resumo — "desliga" depois de
+        // "liga", outro tipo/vínculo, outro texto) SUBSTITUI o anterior, que vence sem ser feito: o que o dono lê e o que executa é
+        // sempre o ÚLTIMO pedido. Na conversa com o "pode" (validade curta), o mesmo pedido repetido também renova o item (código e
+        // prazo novos, junto com a proposta nova), porque a validade do item não muda depois de gravada (gatilho da 0125). Fora
+        // disso (fila da tela, validade em horas), o mesmo pedido repetido continua reaproveitando o item que já esperava.
+        const igual = existente.resumo === item.resumo && jsonEstavel(existente.argumentos) === jsonEstavel(item.argumentos);
+        if (igual && !ctx.validadeFilaMs) { feito = { codigo: existente.codigo, resumo: existente.resumo, venceEm: existente.venceEm, jaAguardava: true }; break; }
+        await tx.update(doloresAprovacoes).set({ situacao: "vencida", decididoEm: ctx.agora, decididoVia: "sistema",
+          motivo: igual ? "renovado por um pedido igual mais novo; nada foi feito neste item" : "substituído por um pedido mais novo para o mesmo alvo; nada foi feito" })
+          .where(and(eq(doloresAprovacoes.id, existente.id), eq(doloresAprovacoes.situacao, "aguardando")));
       }
       if (!feito) throw new Error("não foi possível sortear um código livre para o item da fila");
       criados.push(feito);

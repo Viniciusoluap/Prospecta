@@ -24,6 +24,7 @@ import { decidir, decisorDaTela, lerValidadeHoras, listarFila, situacoesValidas 
 import { gruposRouter } from "./grupos-router.js";
 import { notasRouter } from "./notas-router.js";
 import { operacaoRouter } from "./operacao-router.js";
+import { memoriaLongaRouter } from "./memoria-longa-router.js";
 import { atendimentoRouter } from "./atendimento-router.js";
 import { resumoDoRecebimento } from "../whatsapp-recebimento.js";
 import { agoraDoRoteamento } from "./roteamento.js";
@@ -167,6 +168,8 @@ export const doloresRouter = router({
   grupos: gruposRouter,
   notas: notasRouter,
   operacao: operacaoRouter,
+  // EPIC-027 C5 (memória de longo prazo): a tela "Memória da Dolores" (só admin)
+  memoriaLonga: memoriaLongaRouter,
   atendimento: atendimentoRouter,
   status: soAdmin.query(() => situacao()),
 

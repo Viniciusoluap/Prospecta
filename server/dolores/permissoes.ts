@@ -66,7 +66,13 @@ export const LIBERADAS_ETAPA_6 = [
  */
 export const LIBERADAS_ETAPA_7 = ["classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo"] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: LIBERADAS_ETAPA_7 };
+/**
+ * Etapa 7 (cont.) — EPIC-027 C5 (memória de longo prazo, decisão do dono de 21/11): lembrar, corrigir e esquecer fatos permanentes
+ * pela conversa. De FILA, nível "registro" ("pode"), só quando a mensagem do dono pede memória (por código); esquecer só ARQUIVA.
+ */
+export const LIBERADAS_ETAPA_7_MEMORIA = ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: [...LIBERADAS_ETAPA_7, ...LIBERADAS_ETAPA_7_MEMORIA] };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};

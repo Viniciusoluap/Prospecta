@@ -233,7 +233,8 @@ describe("QA r2 N0: rajada de PDFs densos não estoura o limite nem bloqueia o d
     const [dm] = await q<{ id: number }>("INSERT INTO dolores_mensagens (instancia, external_id, do_dono) VALUES ('prospecta-dolores', 'DONO1', true) RETURNING id");
     expect(await reservarChamada({ mes: "2026-11", mensagemId: dm.id, limites: LIMITE, reserva: { entrada: 30_000, saida: 2_000 }, validadeMs: 60_000 })).toBeNull();
     const cred = await credencialDaClassificacao();
-    expect(cred.motivo).toBeNull(); // a porta da chave não virou "limite_mensal" por causa de documentos
+    // a porta da chave não virou "limite_mensal" por causa de documentos; EPIC-027 C5-E5: só a parte dos documentos (20%) acabou
+    expect(cred.motivo).toBe("limite_da_funcao");
   }, 120_000);
 
   it("orçamento próprio atingido: só a classificação para ('classificacao-orcamento', auditada); a vaga do dia volta", async () => {
@@ -425,7 +426,8 @@ describe("QA r2 N4: as chamadas da Dolores à Evolution não seguem redirecionam
     const usam = arquivos.filter(n => readFileSync(new URL(n, dir), "utf8").includes("configEvolution("));
     // Etapa 7: grupos-entrada.ts (nome do grupo pela Evolution) também usa — e também liga o semRedirecionamento (conferido abaixo)
     // Etapa 9: roteamento.ts (envio a contato) e transcricao.ts (download do áudio) também — com o semRedirecionamento
-    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupos-entrada.ts", "./grupos-router.ts", "./marcacao.ts", "./roteamento.ts", "./router.ts", "./transcricao.ts", "./whatsapp.ts"]);
+    // EPIC-027 C5-E3: grupo-pedido-dono.ts (prova do @lid do dono pela lista de participantes) também — com o semRedirecionamento
+    expect(usam.sort()).toEqual(["./classificacao.ts", "./grupo-pedido-dono.ts", "./grupos-entrada.ts", "./grupos-router.ts", "./marcacao.ts", "./roteamento.ts", "./router.ts", "./transcricao.ts", "./whatsapp.ts"]);
     for (const n of usam) {
       const texto = readFileSync(new URL(n, dir), "utf8");
       expect(texto.split("configEvolution(").length - 1, n).toBe(texto.split("semRedirecionamento: true").length - 1);

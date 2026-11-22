@@ -3,7 +3,7 @@
 // "relatório" do dono (reconhecido por CÓDIGO, nunca pelo modelo), a estimativa em reais (só com o preço informado pelo admin;
 // o sistema não inventa preço) e o texto do relatório (MODELO FIXO, sem IA). Sem banco nem rede.
 import { MAX_CARACTERES_WHATSAPP, cortarResposta } from "./whatsapp.js";
-import { custoDoMes, linhaDoCustoParaRelatorio, type FuncaoDoConsumo, type PrecoModelo, type UsoDetalhado } from "./custo.js";
+import { custoDoMes, linhaDoCustoParaRelatorio, linhaDoGastoPorFuncao, situacaoDoGasto, type FuncaoDoConsumo, type PartesDoGasto, type PrecoModelo, type UsoDetalhado } from "./custo.js";
 
 /** Teto mensal do dono (prompt mestre, seção 8): R$ 1.621, tudo incluído. Só referência na tela; o limite da IA é em tokens. */
 export const TETO_DONO_REAIS = 1621;
@@ -131,7 +131,9 @@ export type TotaisRonda = {
   eventos?: { prazosNovos: number; documentosGrupo24h: number; notasLidas24h: number };
   consumo?: { mes: string; entrada: number; saida: number; limiteEntrada: number; limiteSaida: number;
     /** Etapa 8: o consumo do mês por modelo e função, com os 4 tipos de token (para a estimativa por modelo). */
-    linhas?: Array<{ modelo: string; funcao: FuncaoDoConsumo; uso: UsoDetalhado }> };
+    linhas?: Array<{ modelo: string; funcao: FuncaoDoConsumo; uso: UsoDetalhado }>;
+    /** EPIC-027 C5-E5: a parte de cada função no limite (o relatório mostra o gasto por função contra a parte). */
+    partes?: PartesDoGasto };
 };
 export type DestaquesRonda = {
   fila?: Array<{ codigo: string; funcao: string; venceEm: string }>;
@@ -255,7 +257,11 @@ export function montarRelatorio(p: {
       // Etapa 8 — a MESMA conta da tela: por modelo e por tipo de token (cache pelo preço de cache), reserva só para modelo sem preço
       const c = custoDoMes(t.consumo.linhas, p.precosPorModelo?.tabela ?? new Map(), p.precos, p.precosPorModelo?.cotacao ?? null);
       const cache = c.porModelo.reduce((s, m) => s + m.uso.cacheEscrita + m.uso.cacheLeitura, 0);
-      sec("Gasto da IA no mês", [`${tokens}${cache ? ` A entrada bruta inclui ${n(cache)} de cache, que custa bem menos (no limite, o cache conta pelo peso do preço).` : ""} ${linhaDoCustoParaRelatorio(c, TETO_DONO_REAIS)}`]);
+      const corpo = [`${tokens}${cache ? ` A entrada bruta inclui ${n(cache)} de cache, que custa bem menos (no limite, o cache conta pelo peso do preço).` : ""} ${linhaDoCustoParaRelatorio(c, TETO_DONO_REAIS)}`];
+      // EPIC-027 C5-E5 — o gasto de cada função contra a parte dela, em uma linha (a mesma conta da tela)
+      if (t.consumo.partes) corpo.push(linhaDoGastoPorFuncao(situacaoDoGasto({ linhas: t.consumo.linhas, custo: c, partes: t.consumo.partes, tetoReais: TETO_DONO_REAIS,
+        limites: { entrada: t.consumo.limiteEntrada, saida: t.consumo.limiteSaida } })));
+      sec("Gasto da IA no mês", corpo);
     } else {
       const reais = estimarReais({ entrada: t.consumo.entrada, saida: t.consumo.saida }, p.precos);
       sec("Gasto da IA no mês", [tokens

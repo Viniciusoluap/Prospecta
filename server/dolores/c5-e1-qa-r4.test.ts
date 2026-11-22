@@ -115,7 +115,9 @@ describe("QA r4 — migração 0143 e fronteira da memória", () => {
   it("só whatsapp.ts lê e grava a memória; cerebro.ts só monta (nenhum caminho de grupo/cliente importa memoria.js)", () => {
     const raiz = new URL("..", import.meta.url).pathname;
     const arquivos = (readdirSync(raiz, { recursive: true }) as string[]).filter(f => f.endsWith(".ts") && !f.endsWith(".test.ts") && !f.replaceAll("\\", "/").endsWith("dolores/memoria.ts"));
-    const importam = arquivos.filter(f => /from "\.\/memoria\.js"|from "\.\.\/dolores\/memoria\.js"|dolores\/memoria/.test(readFileSync(join(raiz, f), "utf8")));
+    // EPIC-027 C5 (memória de longo prazo): o módulo da memória CURTA é "memoria.js"; "memoria-longa" tem a própria fronteira
+    // (c5-memoria-longa.test.ts)
+    const importam = arquivos.filter(f => /from "\.\/memoria\.js"|from "\.\.\/dolores\/memoria\.js"|dolores\/memoria\.js/.test(readFileSync(join(raiz, f), "utf8")));
     expect(importam.map(f => f.replaceAll("\\", "/")).sort()).toEqual(["dolores/cerebro.ts", "dolores/whatsapp.ts"]);
     const cerebro = readFileSync(join(raiz, "dolores/cerebro.ts"), "utf8");
     const importDaMemoria = cerebro.split("\n").find(l => l.includes("from \"./memoria.js\""))!;

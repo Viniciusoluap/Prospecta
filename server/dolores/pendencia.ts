@@ -16,7 +16,7 @@
 //  (f) só chega aqui mensagem do número do dono, na conversa direta, não encaminhada e sem mídia (whatsapp.ts). Mensagem de grupo,
 //      de cliente ou de terceiro nunca chega; texto de consulta ou de ferramenta nunca é lido como resposta.
 // Nesta tabela não há texto nem dado pessoal: só ids, nível, situação e horas. Os resumos mostrados vêm de dolores_aprovacoes.
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { doloresConversaPendencia, type DoloresConversaPendencia } from "../../drizzle/schema-dolores-pendencia.js";
 import {
@@ -39,8 +39,8 @@ export const JANELA_VENCIDA_MS = 60 * 60_000;
 
 type ItemDaPendencia = { id: number; codigo: string; funcao: string; argumentos: unknown; resumo: string; situacao: string; venceEm: Date };
 
-const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number; autor: number | null }) =>
-  registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
+const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number | null; autor: number | null; pedidoId?: string }) =>
+  registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: c.pedidoId ?? `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
 
 const CODIGO_ENTRE_COLCHETES = new RegExp(`\\[[${ALFABETO_CODIGO}]{5}\\]\\s*`, "g");
 const PEDIDO_COM_CODIGO = new RegExp(`"?(?:aprovar|recusar) [${ALFABETO_CODIGO}]{5}"?`, "gi");
@@ -62,7 +62,7 @@ const resumoMostrado = (i: ItemDaPendencia) => textoDeDado(i.resumo, Number.MAX_
  * Grava a proposta (substituindo a que estava aberta). Duas abertas ao mesmo tempo o banco não deixa (índice único): uma
  * segunda tentativa resolve a corrida entre dois pedidos simultâneos.
  */
-async function gravar(p: { ids: number[]; nivel: NivelConfirmacao; venceEm: Date; mensagemId: number; agora: Date }): Promise<{ id: number; substituidas: number }> {
+async function gravar(p: { ids: number[]; nivel: NivelConfirmacao; venceEm: Date; mensagemId: number | null; agora: Date }): Promise<{ id: number; substituidas: number }> {
   for (let tentativa = 0; ; tentativa++) {
     try {
       return await getDb().transaction(async tx => {
@@ -97,7 +97,7 @@ export async function abrirPendencia(p: { mensagemId: number; codigos: readonly 
   return abrirComItens(candidatos, { ...p, restantesFora: 0 });
 }
 
-async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: number; agora: Date; autor: number | null; venceEm?: Date; restantesFora: number }): Promise<PendenciaAberta | null> {
+async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: number | null; agora: Date; autor: number | null; venceEm?: Date; restantesFora: number; pedidoId?: string }): Promise<PendenciaAberta | null> {
   // entram itens INTEIROS enquanto a pergunta couber (nível e funções recalculados a cada item: a frase muda com o nível)
   const escolhidos: ItemDaPendencia[] = [];
   for (const i of candidatos.slice(0, MAX_ITENS_PENDENCIA)) {
@@ -108,13 +108,33 @@ async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: num
   if (!escolhidos.length) return null;
   const nivel = nivelDosItens(escolhidos);
   const itensMotivo = escolhidos.map(paraMotivo);
-  const venceEm = p.venceEm ?? new Date(p.agora.getTime() + VALIDADE_PENDENCIA_MS[nivel]);
+  // Revisão automática (2): a proposta nunca vale mais que o item da fila que ela confirma (item reaproveitado de um pedido anterior
+  // vence antes): o prazo é o MENOR, e a pergunta diz a validade real — confirmar dentro dela executa de fato.
+  const padrao = p.venceEm ?? new Date(p.agora.getTime() + VALIDADE_PENDENCIA_MS[nivel]);
+  const venceEm = new Date(Math.min(padrao.getTime(), ...escolhidos.map(i => i.venceEm.getTime())));
+  const minutos = Math.floor((venceEm.getTime() - p.agora.getTime()) / 60_000);
   const { id, substituidas } = await gravar({ ids: escolhidos.map(i => i.id), nivel, venceEm, mensagemId: p.mensagemId, agora: p.agora });
   const fora = candidatos.length - escolhidos.length + p.restantesFora;
-  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, itensMotivo, fora);
+  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, itensMotivo, fora, minutos);
   await auditar("ok", "proposta aberta: espera a resposta do dono", { pendenciaId: id, itens: escolhidos.length, nivel, substituidas, foraDaPergunta: fora }, p);
   const memoria = `(O sistema perguntou ao dono se pode fazer${nivel === "serio" ? ", pedindo \"confirmo\"" : ""}: ${escolhidos.slice(0, 3).map(i => resumoMostrado(i).slice(0, 200)).join("; ")}${escolhidos.length > 3 ? "; …" : ""})`;
   return { id, pergunta: substituidas ? `(A proposta anterior ficou de lado.)\n${pergunta}` : pergunta, memoria, nivel, itens: escolhidos.length };
+}
+
+/**
+ * EPIC-027 C5 (E3): o pedido de REGISTRO que o dono fez dentro de um grupo vira a mesma proposta, mas pelos códigos dos itens (não há
+ * mensagem da conversa direta: `mensagem_id` fica vazio). A pergunta vai a ele no privado (`enviarAvisoAoDono` com o id da proposta);
+ * só o "pode" dele na conversa direta confirma — nunca uma mensagem de grupo.
+ */
+export async function abrirPendenciaDosCodigos(p: { codigos: readonly string[]; agora: Date; autor: number | null; pedidoId: string }): Promise<PendenciaAberta | null> {
+  const codigos = p.codigos.slice(0, MAX_ITENS_PENDENCIA);
+  if (!codigos.length) return null;
+  const candidatos = await getDb().select({ id: doloresAprovacoes.id, codigo: doloresAprovacoes.codigo, funcao: doloresAprovacoes.funcao, argumentos: doloresAprovacoes.argumentos,
+    resumo: doloresAprovacoes.resumo, situacao: doloresAprovacoes.situacao, venceEm: doloresAprovacoes.venceEm })
+    .from(doloresAprovacoes).where(and(eq(doloresAprovacoes.situacao, "aguardando"), sql`${doloresAprovacoes.venceEm} > ${p.agora}`, inArray(doloresAprovacoes.codigo, codigos)))
+    .orderBy(doloresAprovacoes.id).limit(MAX_ITENS_PENDENCIA);
+  if (!candidatos.length) return null;
+  return abrirComItens(candidatos, { mensagemId: null, agora: p.agora, autor: p.autor, restantesFora: 0, pedidoId: p.pedidoId });
 }
 
 /**
@@ -126,6 +146,32 @@ export async function marcarForaDeOrdem(excetoId: number | null): Promise<void> 
     await getDb().update(doloresConversaPendencia).set({ adjacente: false })
       .where(and(eq(doloresConversaPendencia.situacao, "aberta"), eq(doloresConversaPendencia.adjacente, true), ...(excetoId ? [ne(doloresConversaPendencia.id, excetoId)] : [])));
   } catch (e) { console.error("[dolores/pendencia] falha ao marcar a proposta fora de ordem", erroParaLog(e)); }
+}
+
+/**
+ * QA C5 (achado B2) — PONTO ÚNICO da regra "posso mandar agora um aviso AUTOMÁTICO ao dono (que não é resposta a ele)?".
+ * Não, enquanto houver uma proposta ABERTA e ainda CONFIRMÁVEL na conversa do dono: aberta, dentro da validade e com a pergunta
+ * como a última coisa que ele recebeu (`adjacente`) — ou ainda saindo (pergunta não enviada). Um aviso no meio tiraria a proposta
+ * "de ordem" (marcarForaDeOrdem) e o "pode" dele não confirmaria. O aviso ESPERA: fica pendente e sai quando a proposta for
+ * decidida ou vencer (fim do próximo aviso do WhatsApp, ou o cron).
+ * Quem usa: os alertas de gasto (operacao-gasto.ts#enviarAlertasPendentes). Qualquer aviso automático novo (proatividade,
+ * lembretes) que vá ao dono pelo `enviarAvisoAoDono` deve conferir AQUI antes, e não reescrever a regra. NÃO vale para a resposta
+ * a uma mensagem dele (ele pediu outra coisa: aí a proposta sai de ordem de propósito) nem para a pergunta da própria proposta.
+ * Sem a tabela (0145 não aplicada) não há proposta → true. Falha ao ler → false (espera: um alerta atrasado é melhor que um "pode"
+ * perdido).
+ */
+export async function podeEnviarAvisoAgora(agora: Date): Promise<boolean> {
+  try {
+    const existe = await getDb().execute(sql`SELECT to_regclass('public.dolores_conversa_pendencia') IS NOT NULL AS existe`);
+    if ((existe as unknown as { rows: Array<{ existe: boolean }> }).rows[0]?.existe !== true) return true;
+    const [aberta] = await getDb().select({ id: doloresConversaPendencia.id }).from(doloresConversaPendencia)
+      .where(and(eq(doloresConversaPendencia.situacao, "aberta"), gt(doloresConversaPendencia.venceEm, agora),
+        or(eq(doloresConversaPendencia.adjacente, true), isNull(doloresConversaPendencia.perguntaEnviadaEm)))).limit(1);
+    return !aberta;
+  } catch (e) {
+    console.error("[dolores/pendencia] falha ao conferir se há proposta aberta", erroParaLog(e));
+    return false;
+  }
 }
 
 /**

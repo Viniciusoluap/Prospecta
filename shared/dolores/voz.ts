@@ -13,6 +13,8 @@ import { ALFABETO_CODIGO_GRUPO } from "./grupos-tipo.js";
 /** Nome de gente de cada consulta e ação da Dolores (server/dolores/funcoes.ts e acoes/registro.ts; teste confere a lista). */
 export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_processos_regularizacao: "processos de regularização",
+  // EPIC-027 C5 (memória de longo prazo)
+  guardar_memoria: "memória", corrigir_memoria: "memória", esquecer_memoria: "memória",
   detalhar_processo_regularizacao: "detalhe do processo",
   consultar_cliente: "cadastro do cliente",
   historico_atendimento: "histórico de atendimento",

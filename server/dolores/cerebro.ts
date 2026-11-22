@@ -8,7 +8,8 @@ import { MAX_PARTES_RESPOSTA, type Limites } from "../../shared/dolores/whatsapp
 import { liberarReserva, registrarConsumo, reservarChamada, type UsoDaChamada } from "./consumo.js";
 import { mascararDadosPessoais } from "./dados-pessoais.js";
 import { PEDIDO_DE_FECHAMENTO, PEDIDO_DE_RESUMO, promptSistemaWhatsapp } from "./prompt.js";
-import { intencaoDeAcao, pareceColagem, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { intencaoDeAcao, pareceColagem, trechoDoDono, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
@@ -75,7 +76,9 @@ const PRAZO_CONSULTA_MS = 15_000;
  * 4.000, abaixo do prefixo real (~9 mil). O teste c5-e1-qa-r4 confere que o piso continua cobrindo o prefixo quando ele crescer.
  */
 // EPIC-027 C5 (E2): as 4 ferramentas de grupo aumentaram o prefixo (~12,7 mil pela estimativa por cima): piso 12.000 → 14.000.
-export const RESERVA_MINIMA_ENTRADA = 14_000;
+// EPIC-027 C5 (memória de longo prazo): +3 ferramentas (~2,8 mil caracteres ≈ 1 mil tokens pela estimativa): o prefixo foi a ~13,8 mil;
+// piso 14.000 → 15.000 (mais rígido, com folga).
+export const RESERVA_MINIMA_ENTRADA = 15_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
@@ -117,12 +120,14 @@ let clienteTeste: ClienteModelo | null = null;
 /** Só para testes: troca o cliente do modelo (sem argumento, volta ao SDK da Anthropic). */
 export function definirClienteModelo(c?: ClienteModelo) { clienteTeste = c ?? null; }
 
-export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa";
+export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "limite_da_conversa" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa";
 const ROTULO_PARADA: Record<MotivoParada, string> = {
   voltas: "limite de consultas por pedido",
   teto_tokens: "limite de tamanho por pedido",
   tempo: "o tempo de resposta acabou",
   limite_mensal: "o limite mensal de gasto com a IA foi atingido",
+  // EPIC-027 C5-E5: só a parte da conversa acabou (as outras funções seguem)
+  limite_da_conversa: "a parte do mês da nossa conversa com a IA acabou; os grupos e os documentos continuam funcionando",
   outro_pedido: "há outro pedido em andamento usando o que resta do limite do mês; tente de novo em um minuto",
   max_tokens: "a resposta ficou longa demais",
   erro_modelo: "a IA não respondeu",
@@ -157,6 +162,13 @@ export type PedidoComando = {
    * histórico, o pedido nasce CONTAMINADO (o histórico traz dado lido antes: ação direta vai para a confirmação do dono).
    */
   historico?: Historico;
+  /**
+   * EPIC-027 C5 (memória de longo prazo): o bloco das lembranças ATIVAS (memoria-longa.ts#blocoParaConversaDoDono), só na conversa
+   * direta do dono. Vai como DADO rotulado no começo da conversa, com ponto de cache próprio (estável entre pedidos), e conta na reserva.
+   */
+  memoriaLonga?: string | null;
+  /** A mensagem do dono veio com anexo (a legenda não vale como pedido de memória). */
+  comMidia?: boolean;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -200,7 +212,9 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // reconhecida por código; sem ela, o laço é só de leitura (e a porta recusa ação mesmo que o modelo a peça).
   // EPIC-027 C5 (E2): um "sim"/"pode" do dono sem proposta esperando também é pedido de ação dele (resposta a uma pergunta da
   // conversa) — o modelo pode PROPOR; nada executa sem a resposta dele à proposta, reconhecida por código.
-  const comAcoes = intencaoDeAcao(p.comando) || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
+  // EPIC-027 C5 (memória de longo prazo): "lembra que…", "guarda isso", "esquece que…" no trecho do DONO também é pedido de ação dele
+  const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
+  const comAcoes = intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
   const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
@@ -223,6 +237,23 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const comando = sanitizarTexto(p.comando, { mascararDadosPessoais: false });
   // EPIC-027 C5 (E1): o histórico (rotulado por origem) vem antes; sem histórico, é a mesma mensagem única de antes.
   const mensagens: MensagemModelo[] = montarMensagens(historico, comando) as MensagemModelo[];
+  // EPIC-027 C5 (memória de longo prazo): as lembranças vão ANTES do histórico, como DADO rotulado (nunca no texto do sistema), com
+  // ponto de cache próprio: o bloco só muda quando uma lembrança muda, então o prefixo ferramentas + sistema + memória é lido do cache.
+  // Com os dois do histórico e o do sistema, são no máximo 4 pontos (o teto da API).
+  // QA C5 (achado C1): a memória de longo prazo NÃO contamina o pedido por si só. Ela é conteúdo que o PRÓPRIO dono mandou guardar
+  // (pedido dele por código + o "pode" dele no WhatsApp) ou que o administrador gravou na tela — não é texto de terceiro. Antes,
+  // com qualquer lembrança ativa, TODA proposta ganhava o aviso de "pedido feito depois de ler dados" e o aviso perdia o sentido.
+  // Continua igual: vai rotulada como DADO (CABECALHO_MEMORIA, nunca no texto do sistema), não oferece ferramenta de ação (isso só a
+  // mensagem do dono abre, por código) e nada executa sem o "pode"/"confirmo" dele (`exigirConfirmacao`) — a proposta mostra o
+  // resumo exato do que será feito. Leitura do sistema, documento, grupo, histórico e texto colado continuam contaminando.
+  const memoriaLonga = p.memoriaLonga?.trim() ? p.memoriaLonga : null;
+  if (memoriaLonga) {
+    const bloco: BlocoTexto = { type: "text", text: memoriaLonga, cache_control: { type: "ephemeral" } };
+    if (mensagens[0]?.role === "user") mensagens[0].content.unshift(bloco); else mensagens.unshift({ role: "user", content: [bloco] });
+  }
+  // Só a mensagem do DONO pedindo memória (por código), direta, sem colagem e sem anexo, abre as ações de memória (o texto dela serve
+  // para conferir que o fato saiu das palavras dele).
+  const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -237,7 +268,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // EPIC-027 C5 (E1): a 1ª reserva já conta o prefixo fixo (piso), o comando e o histórico (estimativas por cima, pelos bytes —
   // QA C5-E1 r4, achado 3); depois, a entrada real da última chamada.
   let ultimaEntrada = 0;
-  const reservaInicial = RESERVA_MINIMA_ENTRADA + tokensEstimadosDoTexto(comando) + tokensEstimadosDoHistorico(historico);
+  const reservaInicial = RESERVA_MINIMA_ENTRADA + tokensEstimadosDoTexto(comando) + tokensEstimadosDoHistorico(historico) + (memoriaLonga ? tokensEstimadosDoTexto(memoriaLonga) : 0);
   /** Saída da próxima chamada (fixada na reserva: a chamada nunca pede mais do que reservou). */
   let saidaDaChamada = tetoDeSaida;
   /** Reserva o limite mensal sob trava antes da chamada; bloqueado → para com "limite_mensal". */
@@ -246,7 +277,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     try {
       const b = await reservarChamada({ mes: p.mes, mensagemId: p.mensagemId, limites: p.limites, validadeMs: VALIDADE_RESERVA_MS,
         reserva: { entrada: Math.max(reservaInicial, ultimaEntrada), saida: saidaDaChamada } });
-      if (b) { parou = b === "outro_pedido" ? "outro_pedido" : "limite_mensal"; return false; }
+      if (b) { parou = b === "outro_pedido" ? "outro_pedido" : b === "orcamento_conversa" ? "limite_da_conversa" : "limite_mensal"; return false; }
       return true;
     } catch (e) {
       // sem conseguir reservar, não chama (falha fechada: o limite é a trava do gasto)
@@ -323,7 +354,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
           contaminado, motivoContaminacao, semAcoes: !comAcoes, aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria },
       );
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o

@@ -832,3 +832,43 @@ Regra do dono: CLAUDE.md, "WhatsApp — uma conexão só, atendimento e campanha
   qual campanha (número só como resumo HMAC e mascarado); `dolores_acoes` com `whatsapp_automatica`, `cliente_atendimento`,
   `cliente_leitura`, `configurar_atendimento`, `campanha_saudacao`, `configurar_cloudflare`.
 - Desligar tudo: "Desligar" nos dois interruptores e "Desativar" na campanha. A pausa geral da Dolores também cala tudo isso.
+
+---
+
+# EPIC-027 C5-E5 — Gasto separado por função e alerta em 80% (decisão do dono de 21/11/2026)
+
+"Cada função com seu gasto": o limite mensal (tokens, em Integrações › Dolores) é dividido em partes, e uma função não consome
+o crédito das outras. Story: `docs/stories/epics/epic-027-correcoes-20-11-noite/C5-E5-gasto-por-funcao.md`.
+
+## 1. Banco (equipe técnica, já autorizado)
+Migração `drizzle/0148_dolores_gasto_por_funcao.sql` (aditiva e idempotente): coluna `dolores_consumo.funcao` (linhas antigas
+ficam vazias e contam pela origem), `dolores_gasto_partes` (a divisão) e `dolores_gasto_alertas` (os alertas já enviados).
+Sem ela, vale a divisão padrão e não há alerta.
+
+## 2. A divisão (padrão do dono)
+| Função | Parte | O que é |
+|---|---|---|
+| Conversa com o dono | 55% | o WhatsApp do dono com a Dolores |
+| Documentos | 20% | classificação dos documentos dos grupos e leitura das notas de obra |
+| Grupos | 10% | resposta no grupo quando marcada |
+| Clientes | 10% | atendimento a cliente cadastrado |
+| Avisos | 5% | avisos automáticos (proatividade, etapa E4) |
+
+Ao bater a parte, **só aquela função** fica sem IA até o mês seguinte. A conversa recebe "bati o limite do mês da nossa
+conversa; os grupos e os documentos continuam funcionando"; grupo e cliente ficam em silêncio (a equipe responde). Continuam
+valendo os tetos por dia, o orçamento próprio da classificação e o limite inteiro.
+
+Mudar a divisão (só o administrador):
+1. Abra o Prospecta em **Configurações › Integrações** e role até o cartão **"Dolores — operação contínua"**.
+2. Em **"Gasto por função"**, no quadro **"Divisão do limite"**, digite as cinco porcentagens (inteiras, cada uma de 1 a 96,
+   somando 100). A linha "Soma" mostra o total e o problema, se houver.
+3. Toque em **"Salvar divisão"**. Para voltar ao padrão, **"Voltar à divisão do dono (55 · 20 · 10 · 10 · 5)"**.
+Ao final, cada barra mostra o gasto da função contra a nova parte.
+
+## 3. Alertas no WhatsApp do dono (texto fixo, sem IA, sem custo)
+- **80%**: quando o gasto do mês chega a 80% do teto (total) e quando uma função chega a 80% da parte dela — com quanto gastou,
+  quanto resta e qual função. Em reais pela mesma conta da tela, quando todos os modelos têm preço e há cotação; senão, pelos
+  tokens.
+- **100%**: aviso de que entrou em modo sem IA (no total ou só naquela função).
+- Cada um sai **uma vez por mês** (o estado aparece no cartão, abaixo das barras). Só números e nomes de função: nunca nome de
+  cliente, telefone ou CPF.

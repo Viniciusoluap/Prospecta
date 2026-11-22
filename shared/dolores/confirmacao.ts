@@ -72,6 +72,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
   switch (funcao) {
     case "criar_tarefa": case "registrar_acompanhamento": case "gerar_documento": case "criar_card_cliente":
     case "salvar_documentos_grupo": case "salvar_nota_obra": case "ignorar_grupo":
+    // EPIC-027 C5 (memória de longo prazo): lembrar/corrigir/esquecer um fato é registro ("pode"); esquecer só arquiva
+    case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria":
       return "registro";
     case "classificar_grupo":
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser
@@ -116,13 +118,16 @@ export function motivoDoSerio(itens: readonly ItemParaMotivo[]): string {
  * Pergunta do SISTEMA ao dono, logo abaixo da resposta da Dolores: o resumo exato de cada item (montado pelo sistema, conferido por
  * hash na execução), sem código. Não usa a palavra "código" (o filtro de saída trata "código …" como senha).
  */
-export function perguntaDaPendencia(resumos: readonly string[], nivel: NivelConfirmacao, funcoes: readonly ItemParaMotivo[], restantes = 0): string {
+export function perguntaDaPendencia(resumos: readonly string[], nivel: NivelConfirmacao, funcoes: readonly ItemParaMotivo[], restantes = 0,
+  /** Revisão automática (2): a validade REAL da proposta, em minutos (padrão: 10 séria, 15 registro). */
+  minutos?: number): string {
+  const vale = (padrao: number) => { const m = Math.max(1, Math.floor(minutos ?? padrao)); return `Vale por ${m} minuto${m === 1 ? "" : "s"}.`; };
   const itens = resumos.map(r => `- ${r}`).join("\n");
   const mais = restantes > 0 ? `\n(Há mais ${restantes} proposta(s) que não couberam aqui: confira em Integrações › Dolores.)` : "";
   if (nivel === "serio") {
-    return `*Isto precisa da sua confirmação por escrito* (${motivoDoSerio(funcoes)}):\n${itens}${mais}\nSe é isso mesmo, responda: confirmo. Para deixar de lado, responda "não". Vale por 10 minutos.`;
+    return `*Isto precisa da sua confirmação por escrito* (${motivoDoSerio(funcoes)}):\n${itens}${mais}\nSe é isso mesmo, responda: confirmo. Para deixar de lado, responda "não". ${vale(10)}`;
   }
-  return `*Posso fazer isto?*\n${itens}${mais}\nResponda "pode" para eu fazer, ou "não" para deixar de lado. Vale por 15 minutos.`;
+  return `*Posso fazer isto?*\n${itens}${mais}\nResponda "pode" para eu fazer, ou "não" para deixar de lado. ${vale(15)}`;
 }
 
 export const FRASE_RECUSADA = "Certo, deixei de lado. Nada foi feito.";

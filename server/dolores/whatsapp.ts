@@ -17,7 +17,7 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { FILTRO_DO_REGISTRO, filtroDaSaida } from "./dados-pessoais.js";
 import { urlDoSistemaParaLinks } from "./acoes/comum.js";
 import {
-  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
+  FRASE_ENCAMINHADA, FRASE_ERRO, FRASE_LIMITE_DA_CONVERSA, FRASE_OUTRO_PEDIDO, FRASE_SO_TEXTO, MAX_PARTES_RESPOSTA, MAX_TEXTO_COMANDO, fraseSemTempo, bloqueioDoLimite, cortarResposta, ehNumeroDoDono, fraseDeBloqueio,
   formaDoEndereco, itensDoAviso, lerMensagemEvolution, mascararNumero, mensagemAntiga, mesFortaleza, normalizarEvento, partesDaResposta, type MotivoBloqueio,
 } from "../../shared/dolores/whatsapp.js";
 import { RegistroDoAviso, type DestinoDoItem } from "../whatsapp-recebimento.js";
@@ -29,7 +29,7 @@ import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_DO_LACO_MS, FOLGA_FINAL_MS, FOLGA_POR_PARTE_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
-import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, usoDoMes } from "./consumo.js";
+import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, parteDaFuncaoEsgotada, usoDoMes } from "./consumo.js";
 import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
@@ -54,11 +54,13 @@ import {
 import { tratarAtendimento } from "./atendimento.js";
 import { transcreverAudio } from "./transcricao.js";
 import { esquecerConversa, gravarNaConversa, lerJanela, referenciaDoGrupo } from "./memoria.js";
+import { blocoParaConversaDoDono } from "./memoria-longa.js";
 import { FRASE_ESQUECI, ehPedidoDeEsquecer, vozDaDolores } from "../../shared/dolores/voz.js";
 import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -231,10 +233,29 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   if (ctx.memoria !== false && enviadas.length) {
     const nota = ctx.memoria?.nota ? `\n${ctx.memoria.nota}` : ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
     // QA C5-E1 (achado 3): resposta a um comando de confirmação (texto do SISTEMA) perde também os códigos citados
-    const gravado = ctx.memoria?.codigos ? semOsCodigos(filtrar(texto), ctx.memoria.codigos) : filtrar(texto);
-    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
+    // revisão automática (C): entrega incompleta → só o texto do modelo que de fato saiu (sem os quadros do sistema), com a marca
+    // de que o resto não chegou; o histórico nunca contém texto que o dono não recebeu
+    const entregue = completa ? filtrar(texto) : textoEntregue(enviadas.map(n => partes[n - 1]), ctx.quadros ? filtrar(ctx.quadros) : null);
+    const gravado = ctx.memoria?.codigos ? semOsCodigos(entregue, ctx.memoria.codigos) : entregue;
+    const marca = completa ? "" : `\n${MARCA_ENTREGA_INCOMPLETA}`;
+    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${marca}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
   }
   return completa;
+}
+
+/** Revisão automática (C): a marca, na memória da conversa, de que parte da resposta não chegou ao dono. */
+export const MARCA_ENTREGA_INCOMPLETA = "(Parte desta resposta não chegou ao dono: o resto não foi enviado.)";
+/**
+ * Revisão automática (C): o texto do MODELO que saiu nas partes enviadas — sem a numeração "(i/n)" e sem os quadros do sistema (que
+ * vão no começo da 1ª parte). Se a 1ª parte não começa pelos quadros inteiros (quadro cortado), ela é só quadro: não entra nada dela.
+ */
+export function textoEntregue(enviadas: readonly string[], quadros: string | null): string {
+  const q = (quadros ?? "").trim();
+  return enviadas.map((p, i) => {
+    const t = p.replace(/^\(\d+\/\d+\)\n/, "");
+    if (i > 0 || !q) return t;
+    return t.startsWith(q) ? t.slice(q.length).replace(/^\s+/, "") : "";
+  }).map(t => t.trim()).filter(Boolean).join("\n");
 }
 
 /** QA E8 A1: aviso ao dono quando parte da resposta não saiu (por tempo ou falha de envio). */
@@ -251,7 +272,11 @@ const comAvisoDeFalta = (t: string) => {
  * viram "[link removido]", dados pessoais seguem o interruptor do canal do dono, segredos e dados bancários saem sempre, e o
  * tamanho é cortado para o WhatsApp.
  */
-export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown> }): Promise<{ ok: boolean; motivo: string | null }> {
+export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown>;
+  /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
+  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null;
+  /** QA C5 (B1): false = recusado ANTES do envio (com certeza não saiu); true = o envio foi tentado (com erro, pode ter chegado). */
+  tentou: boolean }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
     registrarAcao({ funcao: ctx.funcao, resultado, motivo, autorUserId: ctx.autor, canal: ctx.canal, pedidoId: ctx.pedidoId, resumo: { ...ctx.resumo, ...extra }, duracaoMs });
   let cfg: DoloresWhatsappConfig | null = null;
@@ -260,20 +285,22 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   const recusa = !cfg ? "configuração do WhatsApp da Dolores indisponível"
     : !pausa ? "não consegui ler a pausa geral" : pausa.pausada ? "Dolores pausada (pausa geral)"
     : !cfg.numeroDono ? "número do dono não cadastrado" : !cfg.instancia || cfg.statusConexao !== "conectado" ? "Dolores desconectada" : null;
-  if (recusa || !cfg?.numeroDono || !cfg.instancia) { await auditar("recusada", `${recusa ?? "sem destino"}; nada foi enviado`); return { ok: false, motivo: recusa }; }
+  if (recusa || !cfg?.numeroDono || !cfg.instancia) { await auditar("recusada", `${recusa ?? "sem destino"}; nada foi enviado`); return { ok: false, motivo: recusa, tentou: false }; }
   const numero = cfg.numeroDono;
-  if (!ehNumeroDoDono(numero, cfg.numeroDono)) { await auditar("recusada", "destino não é o número do dono; nada foi enviado"); return { ok: false, motivo: "destino inválido" }; }
+  if (!ehNumeroDoDono(numero, cfg.numeroDono)) { await auditar("recusada", "destino não é o número do dono; nada foi enviado"); return { ok: false, motivo: "destino inválido", tentou: false }; }
   const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
   const restante = ctx.prazoFinal - deps.ms();
-  if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar" }; }
-  // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma)
-  await marcarForaDeOrdem(null);
+  if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar", tentou: false }; }
+  // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma) — menos a desta pergunta (E3)
+  await marcarForaDeOrdem(ctx.pendenciaId ?? null);
   const inicio = deps.ms();
   let ok = false;
   let motivo: string | null = null;
   try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
   catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
   await auditar(ok ? "ok" : "erro", motivo, { caracteres: final.length, destino: mascararNumero(numero) }, deps.ms() - inicio);
+  // EPIC-027 C5 (E3): a pergunta chegou ao dono — a partir de agora (e só para resposta escrita depois) a proposta aceita o "pode"
+  if (ok && ctx.pendenciaId) await marcarPerguntaEnviada(ctx.pendenciaId, deps.agora());
   // EPIC-027 C5 (E1): o aviso enviado entra na memória da conversa do dono ("esse grupo" depois do aviso de grupo novo). Do
   // aviso de grupo, só o primeiro parágrafo (as opções numeradas e os códigos ficam fora); a ref do grupo vem do banco.
   if (ok) {
@@ -281,13 +308,16 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
     await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
       referencias: await referenciaDoGrupo(ctx.resumo?.grupoId) });
   }
-  return { ok, motivo };
+  return { ok, motivo, tentou: true };
 }
 
 /**
  * Por que a IA não pode rodar agora (ordem: pausa antes de tudo; nada aqui chama a Anthropic). É o ÚNICO ponto do sistema
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
+/** EPIC-027 C5-E5: a parte do gasto de cada função da Anthropic (documentos e notas dividem a mesma parte). */
+const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes" } as const;
+
 async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" | "dolores_cliente" = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
@@ -302,6 +332,8 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "d
   if (!modelo) return { motivo: "sem_modelo" };
   const limite = bloqueioDoLimite(await usoDoMes(mes), { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida });
   if (limite) return { motivo: limite };
+  // EPIC-027 C5-E5: a parte do mês DESTA função já acabou → só ela para (a trava de verdade é a reserva, em consumo.ts)
+  if (await parteDaFuncaoEsgotada(mes, PARTE_DA_FUNCAO[funcao], { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida })) return { motivo: "limite_da_funcao" };
   try {
     const autor = await usuarioDolores();
     return { motivo: null, apiKey: painel.apiKey, modelo, autor };
@@ -497,15 +529,20 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   try {
     // EPIC-027 C5 (E1): a conversa recente do dono (sem a mensagem atual, que vai como o pedido)
     const historico = await lerJanela(deps.agora(), msg.id);
+    // EPIC-027 C5 (memória de longo prazo): as lembranças ativas — SÓ aqui, na conversa direta do número do dono (grupo e cliente não)
+    const memoriaLonga = await blocoParaConversaDoDono(historico.referencias);
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
+      memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia,
     });
     // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
     const voz = vozDaDolores(r.texto);
     let texto = voz.texto;
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
+    // EPIC-027 C5-E5: só a parte da conversa acabou — frase própria (os grupos e os documentos seguem)
+    if (r.parou === "limite_da_conversa" && r.voltas === 0) texto = FRASE_LIMITE_DA_CONVERSA;
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
     // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.
@@ -514,7 +551,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       : null;
     const quadros = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
     const envio = { enviadas: 0 };
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
@@ -1040,6 +1077,9 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
   if (contagem.antiga) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });
   }
+  // QA C5 (B1): os alertas de gasto registrados neste aviso (pendentes) saem só agora, DEPOIS das respostas, no tempo que sobrar do
+  // prazo do aviso; com proposta aberta e confirmável na conversa do dono, esperam (B2). Nunca lança.
+  await enviarAlertasPendentes({ prazoFinal, canal: "whatsapp", agora: deps.agora(), relogio: deps.ms });
   return { status: 200, body: { ok: true, r: contagem, ...(Object.keys(rota).length ? { rota } : {}) } };
 }
 

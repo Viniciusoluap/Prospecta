@@ -260,9 +260,10 @@ describe("com marcação real e os interruptores ligados", () => {
       SELECT 'ACDEF', 'criar_tarefa', 'fila', 'aguardando', 'Criar tarefa', '{}'::jsonb, 'x', now() + interval '1 day', NULL
       WHERE EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dolores_aprovacoes' AND column_name = 'alvo')`).catch(() => undefined);
     await chamar(aviso(item({ de: DONO, texto: `@${DOLORES} aprovar ACDEF` })));
-    expect(enviarAoGrupo.mock.calls[0][0].texto).toBe(FRASE_FORA_DE_ESCOPO);
+    // EPIC-027 C5-E3: pedido sério do DONO no grupo → frase curta no grupo e orientação no privado; nada é aprovado
+    expect(enviarAoGrupo.mock.calls[0][0].texto).toBe("Isso eu vejo com você no privado.");
     expect(await q("SELECT * FROM dolores_aprovacoes WHERE situacao <> 'aguardando'")).toEqual([]);
-    expect(enviarAoDono).not.toHaveBeenCalled();
+    for (const c of enviarAoDono.mock.calls) expect(String((c[0] as { texto: string }).texto)).toMatch(/não faço a partir de grupo.*Nada foi feito/);
   });
 
   it("o modelo pede leitura geral, outro cliente ou argumento: recusa auditada; nada de outro cliente chega ao modelo", async () => {
@@ -483,7 +484,8 @@ describe("travas da 3ª rodada da E4 também na resposta em grupo", () => {
       VALUES ('${mesFortaleza(AGORA)}', 'm', 1, ${(1_000_000 * ORCAMENTO_MARCACAO_PCT) / 100}, 0, 'grupo:end_turn'), ('${mesFortaleza(AGORA)}', 'm', 1, 300000, 0, 'end_turn')`);
     await chamar(aviso(item({ id: "ORC-1" })));
     expect(pedidos).toHaveLength(0);
-    expect((await marcacoes())[0].motivo).toBe("laço parou: orcamento_marcacao");
+    // EPIC-027 C5-E5: a parte dos grupos já acabou → a porta da chave para antes do laço (silêncio, sem IA); a conversa segue
+    expect((await marcacoes())[0].motivo).toBe("sem resposta: limite_da_funcao");
   });
 
   it("falha fechada: o consumo não gravou → desliga o interruptor geral (auditado), nenhuma volta a mais, nada enviado", async () => {
