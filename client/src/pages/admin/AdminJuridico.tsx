@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, FileText, MessageSquare, Paperclip, Plus, Scale, Send, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -19,6 +19,9 @@ import { ASSINATURA_STATUS, CONTRATO_STATUS, CONTRATO_TIPOS, ContratoInput } fro
 import { FormularioModeloContrato } from "@/components/admin/FormularioModeloContrato";
 import { lerCamposModelo, modeloNovo, MODELOS_CONTRATO } from "@shared/contratos/modelos";
 
+import { anexarPdfDoFormulario } from "@/lib/juridico-arquivos";
+const CertificadosJuridico = lazy(() => import("@/components/admin/CertificadosJuridico"));
+
 const labels: Record<string, string> = {
   ...MODELOS_CONTRATO,
   compra_venda: "Compra e venda", construcao: "Construção", prestacao_servicos: "Prestação de serviços",
@@ -29,7 +32,10 @@ const optionalId = (value: FormDataEntryValue | null) => value && value !== "non
 
 export default function AdminJuridico() {
   const utils = trpc.useUtils();
-  const [tab, setTab] = useState<"contratos" | "chat">("contratos");
+  const [tab, setTab] = useState<"contratos" | "chat" | "certificados">("contratos");
+  const { data: usuario } = trpc.auth.me.useQuery();
+  const [documentoAssinar, setDocumentoAssinar] = useState<{ id: number; contractId: number; name: string } | null>(null);
+  const [anexando, setAnexando] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [leadInicial, setLeadInicial] = useState<string>();
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -49,6 +55,7 @@ export default function AdminJuridico() {
   const { data: chats = [] } = trpc.juridico.chats.useQuery(undefined, { enabled: tab === "chat" });
   const invalidate = async () => Promise.all([utils.juridico.list.invalidate(), utils.juridico.getById.invalidate(), utils.juridico.chats.invalidate()]);
   const criar = trpc.juridico.create.useMutation({ onSuccess: async item => { await invalidate(); setFormOpen(false); setSelectedId(item.id); toast.success("Contrato criado"); }, onError: e => toast.error(e.message) });
+  const gerar = trpc.juridico.generatePdf.useMutation({ onSuccess: async () => { await invalidate(); toast.success("PDF gerado e salvo nos documentos do contrato"); }, onError: e => toast.error(e.message) });
   const atualizar = trpc.juridico.update.useMutation({ onSuccess: async () => { await invalidate(); setFormOpen(false); toast.success("Contrato atualizado"); }, onError: e => toast.error(e.message) });
   const status = trpc.juridico.setStatus.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
   const excluir = trpc.juridico.delete.useMutation({ onSuccess: async () => { await invalidate(); setSelectedId(null); toast.success("Contrato excluído"); }, onError: e => toast.error(e.message) });
@@ -60,13 +67,6 @@ export default function AdminJuridico() {
       const content = await utils.juridico.documentContent.fetch({ id });
       baixarPdf(content.base64, fileName || "documento.pdf");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar documento"); }
-  }
-
-  async function baixarModelo(id: number) {
-    try {
-      const pdf = await utils.juridico.modelPdf.fetch({ id });
-      baixarPdf(pdf.base64, pdf.fileName);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao gerar PDF"); }
   }
 
   function baixarPdf(base64: string, fileName: string) {
@@ -104,19 +104,13 @@ export default function AdminJuridico() {
 
   async function handlePdf(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!detail) return;
-    const data = new FormData(event.currentTarget); const file = data.get("file");
-    if (!(file instanceof File)) return;
-    const base64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = reject; reader.readAsDataURL(file); });
-    const form = event.currentTarget;
-    // Item 4 (18/10): progresso real do envio do PDF.
+    const form = event.currentTarget, contractId = detail.contract.id;
+    setAnexando(true);
     try {
-      await mutarComProgresso("juridico.uploadDocument", { contractId: detail.contract.id, name: file.name, type: String(data.get("type")) as "anexo" | "assinado" | "contrato_gerado", base64 }, { item: "PDF" });
-      await invalidate();
-      toast.success("Documento anexado");
-      form.reset();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falha ao anexar o PDF");
-    }
+      await anexarPdfDoFormulario(form, data => mutarComProgresso("juridico.uploadDocument", { contractId, ...data }, { item: "PDF" }));
+      await invalidate(); toast.success("Documento anexado");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Falha ao anexar o PDF"); }
+    finally { setAnexando(false); }
   }
 
   return <div className="min-h-screen bg-[#1A2332] text-white">
@@ -126,8 +120,8 @@ export default function AdminJuridico() {
     </div></header>
     <main className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <div className="grid gap-3 sm:grid-cols-3">{[["Contratos", contracts.length], ["Ativos", contracts.filter(x => x.contract.status === "ativo").length], ["Valor em carteira", money(totalActive)]].map(([label, value]) => <Card key={label} className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="pt-5"><p className="text-sm text-gray-300">{label}</p><p className="text-2xl font-bold text-[#C9A961]">{value}</p></CardContent></Card>)}</div>
-      <div className="flex gap-2"><Button variant={tab === "contratos" ? "default" : "outline"} onClick={() => setTab("contratos")}><FileText className="mr-2 h-4 w-4" />Contratos</Button><Button variant={tab === "chat" ? "default" : "outline"} onClick={() => setTab("chat")}><MessageSquare className="mr-2 h-4 w-4" />Atendimento</Button></div>
-      {tab === "contratos" ? <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6">{contracts.length === 0 ? <p className="py-10 text-center text-gray-400">Nenhum contrato cadastrado</p> : contracts.map(({ contract, leadName, propertyTitle }) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className="grid w-full gap-2 rounded-lg bg-[#1A2332] p-4 text-left text-white hover:ring-1 hover:ring-[#C9A961]/50 md:grid-cols-4">
+      <div className="flex flex-wrap gap-2"><Button variant={tab === "contratos" ? "default" : "outline"} onClick={() => setTab("contratos")}><FileText className="mr-2 h-4 w-4" />Contratos</Button><Button variant={tab === "chat" ? "default" : "outline"} onClick={() => setTab("chat")}><MessageSquare className="mr-2 h-4 w-4" />Atendimento</Button><Button variant={tab === "certificados" ? "default" : "outline"} onClick={() => setTab("certificados")}>Certificados digitais</Button></div>
+      {tab === "certificados" ? usuario && <Suspense fallback={<p>Carregando certificados…</p>}><CertificadosJuridico owner={usuario.id} fechar={() => {}} concluiu={invalidate} /></Suspense> : tab === "contratos" ? <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6">{contracts.length === 0 ? <p className="py-10 text-center text-gray-400">Nenhum contrato cadastrado</p> : contracts.map(({ contract, leadName, propertyTitle }) => <button key={contract.id} onClick={() => setSelectedId(contract.id)} className="grid w-full gap-2 rounded-lg bg-[#1A2332] p-4 text-left text-white hover:ring-1 hover:ring-[#C9A961]/50 md:grid-cols-4">
         <div><p className="font-semibold">{contract.number}</p><p className="text-xs text-gray-400">{labels[contract.type] || contract.type}</p></div><div><p>{contract.partyA || leadName || "Parte não informada"}</p><p className="text-xs text-gray-400">{propertyTitle || "Sem imóvel"}</p></div><div><p className="text-[#C9A961]">{money(contract.value)}</p><p className="text-xs text-gray-300">{rotulo(contract.status)}</p></div><div><p className="text-sm">Assinatura: {rotulo(contract.signatureStatus)}</p></div>
       </button>)}</CardContent></Card> : <div className="grid gap-4 md:grid-cols-[280px_1fr]"><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="space-y-2 pt-6"><Select value={chatLeadId ? String(chatLeadId) : undefined} onValueChange={v => setChatLeadId(Number(v))}><SelectTrigger><SelectValue placeholder="Selecionar cliente" /></SelectTrigger><SelectContent>{(options?.leads || []).map(lead => <SelectItem key={lead.id} value={String(lead.id)}>{lead.name}</SelectItem>)}</SelectContent></Select>{chatLeads.map(lead => <Button key={lead.id} variant="ghost" className="w-full justify-start" onClick={() => setChatLeadId(lead.id)}>{lead.name}</Button>)}</CardContent></Card><Card className="border-[#C9A961]/20 bg-[#2C3E50] text-white"><CardContent className="pt-6"><div className="mb-4 h-[360px] space-y-2 overflow-y-auto rounded bg-[#1A2332] p-3">{activeChat.map(({ message }) => <div key={message.id} className={`max-w-[80%] rounded p-2 text-sm ${message.sender === "cliente" ? "bg-slate-700" : "ml-auto bg-[#C9A961] text-[#1A2332]"}`}><p>{message.text}</p><p className="mt-1 text-[10px] opacity-60">{new Date(message.createdAt).toLocaleString("pt-BR")}</p></div>)}</div><form onSubmit={event => { event.preventDefault(); if (!chatLeadId) return; const data = new FormData(event.currentTarget); send.mutate({ leadId: chatLeadId, text: String(data.get("text")) }); event.currentTarget.reset(); }} className="flex gap-2"><Input name="text" required placeholder="Mensagem ao cliente" /><Button type="submit" disabled={!chatLeadId}><Send className="h-4 w-4" /></Button></form></CardContent></Card></div>}
     </main>
@@ -138,15 +132,16 @@ export default function AdminJuridico() {
       salvar={(form) => criar.mutate(lerCamposModelo(form))} /> : <p role={modelOptionsError ? "alert" : "status"}>{modelOptionsError?.message || "Carregando dados do contrato…"}</p>}</DialogContent></Dialog>
     <Dialog open={!!detail && !formOpen} onOpenChange={open => !open && setSelectedId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{detail && <><DialogHeader><DialogTitle>{detail.contract.number}</DialogTitle></DialogHeader><div className="grid gap-3 rounded bg-[#2C3E50] p-4 sm:grid-cols-3"><div><p className="text-xs text-gray-300">Parte A</p><p>{detail.contract.partyA || "—"}</p></div><div><p className="text-xs text-gray-300">Parte B</p><p>{detail.contract.partyB || "—"}</p></div><div><p className="text-xs text-gray-300">Valor</p><p>{money(detail.contract.value)}</p></div></div>
       <div className="grid gap-3 sm:grid-cols-2"><div><Label>Status</Label><Select value={detail.contract.status} onValueChange={value => status.mutate({ id: detail.contract.id, status: value as typeof CONTRATO_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTRATO_STATUS.map(v => <SelectItem key={v} value={v}>{rotulo(v)}</SelectItem>)}</SelectContent></Select></div><div><Label>Assinatura</Label>{modeloNovo(detail.contract.type) ? <p>{rotulo(detail.contract.signatureStatus)}</p> : <Select value={detail.contract.signatureStatus} onValueChange={value => status.mutate({ id: detail.contract.id, signatureStatus: value as typeof ASSINATURA_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ASSINATURA_STATUS.map(v => <SelectItem key={v} value={v}>{rotulo(v)}</SelectItem>)}</SelectContent></Select>}</div></div>
-      <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex items-center justify-between rounded bg-[#2C3E50] p-2">{doc.driveFileId || !doc.url
+      <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#2C3E50] p-2">{doc.driveFileId || !doc.url
         ? <button type="button" onClick={() => void openDocument(doc.id, doc.name)} className="text-sm underline">{doc.name} · {rotulo(doc.type)}</button>
-        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.name} · {rotulo(doc.type)}</a>}<Button size="icon" variant="ghost" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"><Input name="file" type="file" accept="application/pdf" required className="h-auto min-h-10 w-full min-w-0 overflow-hidden text-slate-100 file:mr-2 file:text-slate-100" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-full min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Assinado</SelectItem></SelectContent></Select><Button type="submit"><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
+        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.name} · {rotulo(doc.type)}</a>}<Button type="button" variant="outline" disabled={!!doc.url && !doc.driveFileId} onClick={() => setDocumentoAssinar({ id: doc.id, contractId: detail.contract.id, name: doc.name })}>Assinar digitalmente</Button><Button size="icon" variant="ghost" aria-label="Excluir documento" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"><Input name="file" type="file" accept="application/pdf" required className="h-auto min-h-10 w-full min-w-0 overflow-hidden text-slate-100 file:mr-2 file:text-slate-100" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-full min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Assinado</SelectItem></SelectContent></Select><Button type="submit" disabled={anexando}><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
       {detail.contract.signatureDate && <p>Data da assinatura {detail.contract.signatureDate.split("-").reverse().join("/")}</p>}
       {detail.contract.signers && <ul className="list-disc pl-5 text-sm">{detail.contract.signers.map((nome, i) => <li key={i}>{nome}</li>)}</ul>}
       <div className="flex gap-2">{modeloNovo(detail.contract.type) ?
-        <Button onClick={() => void baixarModelo(detail.contract.id)} className="flex-1 bg-[#C9A961] text-[#1A2332]">Gerar PDF</Button> :
+        <Button disabled={gerar.isPending} onClick={() => gerar.mutate({ id: detail.contract.id })} className="flex-1 bg-[#C9A961] text-[#1A2332]">{gerar.isPending ? "Gerando e salvando…" : "Gerar PDF"}</Button> :
         <Button onClick={() => setFormOpen(true)} className="flex-1 bg-[#C9A961] text-[#1A2332]">Editar contrato</Button>}<Button variant="destructive" onClick={() => confirm("Excluir contrato e documentos?") && excluir.mutate({ id: detail.contract.id })}><Trash2 className="h-4 w-4" /></Button></div>
     </>}</DialogContent></Dialog>
+    {documentoAssinar && usuario && <Suspense fallback={<p role="status">Carregando assinador…</p>}><CertificadosJuridico key={documentoAssinar.id} owner={usuario.id} documento={documentoAssinar} fechar={() => setDocumentoAssinar(null)} concluiu={invalidate} /></Suspense>}
   </div>;
 }
 

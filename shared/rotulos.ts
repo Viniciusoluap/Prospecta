@@ -88,6 +88,7 @@ const GENERICOS: Record<string, string> = {
   concluido: "Concluído",
   rejeitado: "Recusado",
   contrato_gerado: "Contrato gerado",
+  assinatura_digital: "Com assinatura digital",
   anexo: "Anexo",
   // Documentos do lead.
   requested: "Solicitado",
