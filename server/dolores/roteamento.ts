@@ -395,8 +395,9 @@ export async function tratarPropria(conn: ConexaoDaEmpresa, item: unknown, p: { 
       if (casou.length || !ehRotuloDeMidia) return "propria-automatica";
     }
     // EPIC-027 C7.1: em coexistência, o envio de CAMPANHA pela API oficial volta pela Evolution como "da empresa". Por código
-    // (mesmo número, envio aceito há no máximo 10 min, texto contém o corpo enviado): não é resposta da equipe — não cala a Dolores
-    // nem entra como atendimento humano (a campanha já registrou a mensagem na Central como automática). Na dúvida, segue humano.
+    // (mesmo número, envio aceito há no máximo 10 min, texto É a mensagem enviada — C7.3: corpo preenchido com cabeçalho/rodapé do
+    // modelo, nunca "contém"; corpo + acréscimo da equipe é da equipe): não é resposta da equipe — não cala a Dolores nem entra como
+    // atendimento humano (a campanha já registrou a mensagem na Central como automática). Na dúvida, segue humano.
     if (!ehRotuloDeMidia && await ehEcoDeCampanhaOficial(p.numero, p.texto, deps.agora())) return "propria-campanha-oficial";
   }
   // EPIC-026 C2: o número conferido vai junto (o endereço pode ser "@lid", que a gravação sozinha não aceitava)

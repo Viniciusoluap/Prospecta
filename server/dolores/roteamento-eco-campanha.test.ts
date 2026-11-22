@@ -105,14 +105,15 @@ afterEach(() => {
 
 const MIGRACAO_0141 = () => readFileSync(new URL("../../drizzle/0141_ycloud.sql", import.meta.url), "utf8");
 const CORPO = "Olá João, conheça o Residencial Jardim das Flores.";
-async function envioDeCampanha(p: { numero?: string; aceitoHaMin?: number; texto?: string } = {}) {
+async function envioDeCampanha(p: { numero?: string; aceitoHaMin?: number; texto?: string; parametros?: Record<string, unknown> } = {}) {
   await banco.pg.exec(MIGRACAO_0141());
   await banco.pg.exec(`INSERT INTO ycloud_campanhas (chave_confirmacao, nome, modelo_nome, modelo_idioma, corpo, status, total)
     VALUES ('chave-eco-${++seq}', 'Lançamento', 'lancamento_jardim', 'pt_BR', 'Olá {{1}}', 'enviando', 1)`);
   const quando = new Date(AGORA.getTime() - (p.aceitoHaMin ?? 1) * 60_000).toISOString();
   const numero = p.numero ?? JOAO;
-  await banco.pg.exec(`INSERT INTO ycloud_envios (campanha_id, telefone, chave_telefone, texto, external_id, status, aceito_em)
-    SELECT max(id), '+${numero}', '${chaveCanonicaTelefone(`+${numero}`)}', '${(p.texto ?? CORPO).replace(/'/g, "''")}', 'prospecta-eco-${seq}', 'aceita', '${quando}' FROM ycloud_campanhas`);
+  await banco.pg.exec(`INSERT INTO ycloud_envios (campanha_id, telefone, chave_telefone, texto, external_id, status, aceito_em, parametros)
+    SELECT max(id), '+${numero}', '${chaveCanonicaTelefone(`+${numero}`)}', '${(p.texto ?? CORPO).replace(/'/g, "''")}', 'prospecta-eco-${seq}', 'aceita', '${quando}',
+      '${JSON.stringify(p.parametros ?? {}).replace(/'/g, "''")}'::jsonb FROM ycloud_campanhas`);
 }
 
 describe("C7.1 — eco de campanha pela API oficial no roteamento (tratarPropria)", () => {
@@ -138,6 +139,17 @@ describe("C7.1 — eco de campanha pela API oficial no roteamento (tratarPropria
     expect((await chamar(aviso(direta({ de: JOAO, fromMe: true, texto: CORPO })))).body.rota).toMatchObject({ "propria-equipe": 1 });
     await envioDeCampanha({ numero: ANA });
     expect((await chamar(aviso(direta({ de: JOAO, fromMe: true, texto: `${CORPO} ` })))).body.rota).toMatchObject({ "propria-equipe": 1 });
+  });
+
+  it("C7.3: corpo da campanha + acréscimo da equipe pelo celular, dentro dos 10 min, NÃO é eco: cala a Dolores e entra na Central", async () => {
+    await envioDeCampanha({ parametros: { textoCompleto: `Novidade, João\n${CORPO}`, cabecalho: ["João"], corpo: ["João"], rodape: "Prospecta" } });
+    // o eco exato (cabeçalho + corpo + rodapé) continua reconhecido
+    expect((await chamar(aviso(direta({ de: JOAO, fromMe: true, texto: `Novidade, João\n${CORPO}\nProspecta` })))).body.rota).toMatchObject({ "propria-campanha-oficial": 1 });
+    const comAcrescimo = `${CORPO}\nPosso te ligar amanhã às 10h?`;
+    const r = await chamar(aviso(direta({ de: JOAO, fromMe: true, texto: comAcrescimo })));
+    expect(r.body.rota).toMatchObject({ "propria-equipe": 1 });
+    expect((await q("SELECT * FROM whatsapp_silencio")).length).toBe(1);
+    expect((await central(JOAO)).filter(x => x.direcao === "saida" && !x.automatica).map(x => x.mensagem)).toEqual([comAcrescimo]);
   });
 
   it("sem as tabelas da API oficial (migração 0141 ausente): a consulta falha fechada e vale a regra de sempre", async () => {
