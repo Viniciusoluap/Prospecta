@@ -92,15 +92,16 @@ export const notasRouter = router({
             return {
               id: n.id, obraId: n.obraId, obra: obra ? textoDeDado(obra, 120) : null, recebidaEm: isoFortaleza(enviadaEm ?? n.criadoEm), enviadaPor: remetente,
               situacao: n.situacao, rotuloSituacao: ROTULO_SITUACAO_NOTA[n.situacao], tipo: n.tipo ? ROTULO_TIPO_NOTA[n.tipo] : null,
-              emitente: n.emitenteNome, documento: documentoParaMostrar(n.emitenteDocumento), numero: n.numero, dataEmissao: n.dataEmissao,
-              valorCentavos: n.valorCentavos, descricao: n.descricao, itens: n.itens, chaveAcesso: n.chaveAcesso,
+              origem: n.origem,
+              emitente: n.emitenteNome, documento: documentoParaMostrar(n.emitenteDocumento ?? n.emitenteCnpjAlfa), numero: n.numero, dataEmissao: n.dataEmissao,
+              valorCentavos: n.valorCentavos, descricao: n.descricao, itens: n.itens, chaveAcesso: n.chaveAcesso ?? n.chaveNfse,
               categoria: n.categoria ? ROTULO_CATEGORIA_NOTA[n.categoria] : null, etapa: n.etapa ? NOME_ETAPA[n.etapa] ?? n.etapa : null,
               empreiteiroConfere: n.empreiteiroUserId !== null, confianca: n.confianca, duvidas: n.duvidas, alertas: n.alertas, duplicadaDe: n.duplicadaDe,
               confirmacao: n.confirmacao, rotuloConfirmacao: CONFIRMACAO[n.confirmacao], respostas: respostas.get(n.id) ?? [],
               conciliacao: ap ? { situacao: ap.situacao, rotulo: ROTULO_APONTAMENTO[ap.situacao], texto: "texto" in ap ? ap.texto : `ligada ao lançamento #${"lancamentoId" in ap ? ap.lancamentoId : ""} do BPO`,
                 podeConciliar: ap.situacao === "ja_lancado" && ap.podeConciliar } : null,
               conciliadaCom: n.bpoLancamentoId, vinculoPerdido: vinculoPerdido(n) ? TEXTO_VINCULO_PERDIDO : null, salvaNoDrive: n.driveFileId !== null,
-              textoSugerido: n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
+              textoSugerido: n.origem === "grupo" && n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
             };
           }),
         };

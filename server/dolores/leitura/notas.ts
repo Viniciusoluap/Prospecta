@@ -8,6 +8,7 @@ import { bpoClients, bpoLancamentos, constructionProjects, obraMovimentos } from
 import { doloresGrupoMensagens } from "../../../drizzle/schema-dolores-grupos.js";
 import { obraNotas, obraNotasConfig, obraNotasRespostas } from "../../../drizzle/schema-dolores-notas.js";
 import { isoFortaleza, paginar } from "../../../shared/dolores/formato.js";
+import { cnpjValido, normalizarDocumento } from "../../../shared/fiscal/documento.js";
 import {
   AVISO_CONFIRMACAO, NOME_ETAPA, ROTULO_APONTAMENTO, ROTULO_CATEGORIA_NOTA, ROTULO_SITUACAO_NOTA, ROTULO_TIPO_NOTA, apontarConciliacao, pagamentosSemNota,
   reais, textoSugeridoAoEmpreiteiro, type Apontamento, type LancamentoParaConciliar, type NotaParaConciliar,
@@ -58,7 +59,7 @@ export async function lancamentosParaConciliar(conexao: Conexao, de: string, ate
   const obraDoMov = new Map(movs.map(m => [m.l, m.obra]));
   const notaDe = new Map(notas.map(n => [n.l, n.nota]));
   const lista = linhas.map(l => {
-    const doc = String(l.cnpj ?? l.cpf ?? "").replace(/\D/g, "");
+    const doc = documentoDoFornecedor(l.cnpj ?? l.cpf);
     const obraVinculo = l.categoriaOperacional === "obras" && /^\d{1,9}$/.test(l.vinculo ?? "") ? Number(l.vinculo) : null;
     return {
       id: l.id, valorCentavos: centavos(l.valor), data: diaIso(l.pagoEm ?? l.vencimento), pago: l.pago, doBanco: l.banco !== null,
@@ -67,6 +68,16 @@ export async function lancamentosParaConciliar(conexao: Conexao, de: string, ate
     };
   });
   return obraId ? lista.filter(l => l.obraId === obraId || l.obraId === null) : lista;
+}
+
+/**
+ * CPF/CNPJ do cadastro do BPO para comparar com o emitente: só dígitos, como sempre; EPIC-029 S-5: o CNPJ ALFANUMÉRICO
+ * válido fica com as letras (antes as letras eram descartadas e o documento virava lixo). Numérico: resultado idêntico.
+ */
+export function documentoDoFornecedor(bruto: string | null | undefined): string {
+  const alfa = normalizarDocumento(bruto);
+  if (alfa.length === 14 && /[A-Z]/.test(alfa) && cnpjValido(alfa)) return alfa;
+  return String(bruto ?? "").replace(/\D/g, "");
 }
 
 const somarDias = (iso: string, dias: number) => new Date(new Date(`${iso}T12:00:00Z`).getTime() + dias * 86_400_000).toISOString().slice(0, 10);
@@ -91,7 +102,9 @@ export async function notasDoBanco(conexao: Conexao, filtro: { obraId?: number; 
   );
   return conexao.select({ n: obraNotas, obra: constructionProjects.title, enviadaEm: doloresGrupoMensagens.enviadaEm, remetente: doloresGrupoMensagens.remetente })
     .from(obraNotas).leftJoin(constructionProjects, eq(constructionProjects.id, obraNotas.obraId))
-    .innerJoin(doloresGrupoMensagens, eq(doloresGrupoMensagens.id, obraNotas.mensagemId))
+    // EPIC-029 S-5: leftJoin — a NFS-e recebida pelo ADN (origem 'adn') não tem mensagem de grupo; a nota de grupo tem
+    // sempre (CHECK da 0163), então para ela o resultado é o mesmo do innerJoin de antes
+    .leftJoin(doloresGrupoMensagens, eq(doloresGrupoMensagens.id, obraNotas.mensagemId))
     .where(onde).orderBy(desc(obraNotas.id)).limit(Math.min(500, filtro.limite ?? 200));
 }
 
@@ -100,7 +113,8 @@ export const vinculoPerdido = (n: Pick<typeof obraNotas.$inferSelect, "conciliad
 export const TEXTO_VINCULO_PERDIDO = "o pagamento do BPO ligado a esta nota foi excluído no BPO (ex.: reclassificação do extrato): o vínculo se perdeu; pode ser religada pela fila de aprovação";
 
 export const paraConciliar = (n: typeof obraNotas.$inferSelect): NotaParaConciliar => ({
-  id: n.id, obraId: n.obraId, valorCentavos: n.valorCentavos, dataEmissao: n.dataEmissao, emitenteDocumento: n.emitenteDocumento,
+  // EPIC-029 S-5: o CNPJ alfanumérico (coluna própria) entra na MESMA regra de fornecedor
+  id: n.id, obraId: n.obraId, valorCentavos: n.valorCentavos, dataEmissao: n.dataEmissao, emitenteDocumento: n.emitenteDocumento ?? n.emitenteCnpjAlfa,
   emitenteNome: n.emitenteNome, duplicadaDe: n.duplicadaDe, bpoLancamentoId: n.bpoLancamentoId,
 });
 
@@ -129,9 +143,9 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
   const [apontamentos, respostas] = await Promise.all([apontarNotas(conexao, linhas.map(l => paraConciliar(l.n)), janela), respostasDasNotas(conexao, linhas.map(l => l.n.id))]);
   const itens = linhas.map(({ n, obra, enviadaEm, remetente }) => {
     const ap = apontamentos.get(n.id)?.apontamento;
-    const doc = n.emitenteDocumento;
+    const doc = n.emitenteDocumento ?? n.emitenteCnpjAlfa;
     return {
-      notaId: n.id, obraId: n.obraId, obra, recebidaNoGrupoEm: isoFortaleza(enviadaEm ?? n.criadoEm), enviadaPor: remetente,
+      notaId: n.id, origem: n.origem === "adn" ? "nota fiscal recebida pelo ADN (Receita/Sistema Nacional NFS-e)" : "lida no grupo da obra", obraId: n.obraId, obra, recebidaNoGrupoEm: isoFortaleza(enviadaEm ?? n.criadoEm), enviadaPor: remetente,
       situacao: ROTULO_SITUACAO_NOTA[n.situacao], ehRascunho: "rascunho interno da Dolores: NÃO é lançamento (nada foi lançado nem pago)",
       tipo: n.tipo ? ROTULO_TIPO_NOTA[n.tipo] : null, emitente: n.emitenteNome,
       emitenteDocumento: doc ? (doc.length === 14 ? campoPessoal(doc, "cnpj", ctx.canal) : campoPessoal(doc, "cpf", ctx.canal)) : null,
@@ -143,13 +157,13 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
       conciliacao: ap ? { situacao: ROTULO_APONTAMENTO[ap.situacao], detalhe: "texto" in ap ? ap.texto : `ligada ao lançamento #${ap.situacao === "conciliada" ? ap.lancamentoId : ""} do BPO` } : null,
       vinculoPerdido: vinculoPerdido(n) ? TEXTO_VINCULO_PERDIDO : null,
       salvaNoDrive: n.driveFileId !== null,
-      textoSugeridoParaODonoEnviar: n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
+      textoSugeridoParaODonoEnviar: n.origem === "grupo" && n.confirmacao === "pendente" && n.situacao !== "nao_e_nota" ? textoSugeridoAoEmpreiteiro(n) : null,
     };
   });
   const pagina = paginar(itens, args.pagina, args.limite);
   return {
     dados: {
-      observacao: `Rascunhos lidos das notas dos grupos de obra (dado de TERCEIRO; valores e CPF/CNPJ conferidos pelo sistema). ${AVISO_CONFIRMACAO} A Dolores não fala no grupo: o texto sugerido é para o DONO enviar, se quiser. Conciliação só aponta; ligar ao BPO é conciliar_nota_obra (fila).`,
+      observacao: `Rascunhos lidos das notas dos grupos de obra e, quando ligada, notas fiscais de serviço recebidas pelo ADN (dado de TERCEIRO; valores e CPF/CNPJ conferidos pelo sistema). ${AVISO_CONFIRMACAO} A Dolores não fala no grupo: o texto sugerido é para o DONO enviar, se quiser. Conciliação só aponta; ligar ao BPO é conciliar_nota_obra (fila).`,
       ...pagina,
     },
     resumo: { notas: itens.length, devolvidas: pagina.itens.length, semValor: itens.filter(i => i.valorBRL === null).length },

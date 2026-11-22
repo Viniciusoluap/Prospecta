@@ -50,6 +50,8 @@ import { erroParaLog } from "../server/dolores/erro-seguro.js";
 import { revalidarPendentes } from "../server/juridico-revalidacao.js";
 // EPIC-029 S-2: varredura de rascunhos de nota fiscal dentro dos crons que já existem.
 import { gerarRascunhosNoCron } from "../server/fiscal/gerador.js";
+// EPIC-029 S-5: captura das NFS-e recebidas pelo ADN no mesmo cron diário (sem cron novo). DESLIGADA: sem o cliente mTLS da S-4.
+import { capturarRecebidasNoCron } from "../server/fiscal/distribuicao.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -198,11 +200,14 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     // idempotente; nunca lança nem muda a resposta deste cron.
     // QA S-2 (M5): com prazo — no máximo 15 s e sempre deixando ~10 s para o modelo padrão abaixo; com menos de 5 s, pula.
     const fiscal = await gerarRascunhosNoCron(getDb, Math.min(15_000, 45_000 - (Date.now() - inicio)));
+    // EPIC-029 S-5: NFS-e recebidas (ADN, por NSU), no máximo 10 s e sempre deixando ~10 s para o modelo padrão abaixo.
+    // Sem o cliente da S-4 registrado (hoje), volta na hora sem banco nem rede; nunca lança nem muda a resposta deste cron.
+    const fiscalRecebidas = await capturarRecebidasNoCron(getDb, Math.min(10_000, 45_000 - (Date.now() - inicio)));
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
     // Jurídico (22/11): retentativa das conferências de assinatura pendentes por falha de rede, com o tempo que sobra
     // (no máximo 10 s). Nunca lança nem muda a resposta deste cron; timeout nunca vira válido.
     const juridico = await revalidarPendentes(Math.min(10_000, 57_000 - (Date.now() - inicio)));
-    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal, juridico });
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal, fiscalRecebidas, juridico });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });

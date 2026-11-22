@@ -73,7 +73,7 @@ export async function executarSalvarNotaAprovado(args: z.infer<typeof entradaSal
   const { n, msg, obra } = await emTransacaoSomenteLeitura(async () => {
     const db = bancoDaLeitura();
     const [n] = await db.select().from(obraNotas).where(eq(obraNotas.id, args.notaId)).limit(1);
-    const [msg] = n ? await db.select({ instancia: doloresGrupoMensagens.instancia, externalId: doloresGrupoMensagens.externalId, ativo: doloresGrupos.ativo })
+    const [msg] = n && n.mensagemId !== null ? await db.select({ instancia: doloresGrupoMensagens.instancia, externalId: doloresGrupoMensagens.externalId, ativo: doloresGrupos.ativo })
       .from(doloresGrupoMensagens).innerJoin(doloresGrupos, eq(doloresGrupos.id, doloresGrupoMensagens.grupoId)).where(eq(doloresGrupoMensagens.id, n.mensagemId)).limit(1) : [];
     const [obra] = await db.select({ id: constructionProjects.id, titulo: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, args.obraId)).limit(1);
     return { n, msg, obra };
@@ -81,6 +81,8 @@ export async function executarSalvarNotaAprovado(args: z.infer<typeof entradaSal
   if (!n || n.obraId !== args.obraId || !obra) throw new RecusaAcao(`A nota ${args.notaId} não está mais ligada a esta obra (ou a obra foi excluída); nada foi salvo.`);
   if (n.driveFileId) throw new RecusaAcao(`O arquivo da nota ${n.id} já está no Drive; nada foi feito de novo.`);
   if (n.arquivoSha256 !== args.sha256) throw new RecusaAcao(`O arquivo da nota ${n.id} não confere com o pedido; nada foi salvo.`);
+  // EPIC-029 S-5: a NFS-e recebida pelo ADN não veio de mensagem do WhatsApp (o XML fica em obra_notas_adn): nada a baixar
+  if (n.origem !== "grupo") throw new RecusaAcao(`A nota ${n.id} veio do ADN (nota fiscal recebida), não de um grupo: não há arquivo do WhatsApp para salvar; nada foi salvo.`);
   if (!msg) throw new RecusaAcao(`A mensagem da nota ${n.id} não foi encontrada; nada foi salvo.`);
   // grupo desativado depois do pedido (QA E5 achado 5): nada é baixado do grupo nem enviado ao Drive
   if (!msg.ativo) throw new RecusaAcao(`O grupo da nota ${n.id} foi desativado depois do pedido; nada foi salvo. Reative o grupo e peça de novo.`);

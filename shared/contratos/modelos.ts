@@ -2,6 +2,7 @@ import { isValidCPF } from "../cpf.js";
 import { calcularComissaoObra } from "../financeiro/comissao.js";
 import { centavosDe } from "../financeiro/obra.js";
 import { CLAUSULAS_ATC, CLAUSULAS_EXECUCAO } from "./textos.js";
+import { cnpjValido as cnpjValidoFiscal } from "../fiscal/documento.js";
 
 export const MODELOS_CONTRATO = {
   construcao_atc: "CONSTRUÇÃO ATC",
@@ -91,16 +92,9 @@ export function valorComissaoContrato(obra: ObraContrato, corretor: CorretorCont
 
 const semMascara = (v: string) => v.replace(/[.\-/\s]/g, "").toUpperCase();
 const cpfValido = (v: string) => /^\d{11}$/.test(semMascara(v)) && isValidCPF(v);
+// EPIC-029 S-5: o cálculo (numérico e alfanumérico) mora no validador único `shared/fiscal/documento.ts`.
 export function cnpjValido(v: string) {
-  const cnpj = semMascara(v);
-  if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj) || /^(\d)\1+$/.test(cnpj)) return false;
-  const digito = (base: string, pesos: number[]) => {
-    // Receita Federal: letras usam o valor ASCII menos 48, mantendo os mesmos pesos do CNPJ numérico.
-    const resto = Array.from(base).reduce((total, char, i) => total + (char.charCodeAt(0) - 48) * pesos[i], 0) % 11;
-    return resto < 2 ? 0 : 11 - resto;
-  };
-  return Number(cnpj[12]) === digito(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
-    && Number(cnpj[13]) === digito(cnpj.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return cnpjValidoFiscal(v);
 }
 const documentoValido = (v: string) => cpfValido(v) || cnpjValido(v);
 const dataValida = (v: string) => {

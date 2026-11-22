@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixture SINTÉTICA (EPIC-029 S-5): NFS-e no leiaute nacional v1.00, recebida pela empresa tomadora 44.556.677/0001-86.
+     Emitente (prestador): empreiteiro 11.222.333/0001-81. Nenhum dado real; a assinatura é fictícia. -->
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
+  <infNFSe Id="NFS21053022112223330001810000000000123261112345678901">
+    <xLocEmi>Imperatriz</xLocEmi>
+    <xLocPrestacao>Imperatriz</xLocPrestacao>
+    <nNFSe>123</nNFSe>
+    <cLocIncid>2105302</cLocIncid>
+    <xLocIncid>Imperatriz</xLocIncid>
+    <verAplic>SefinNac_1.0</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <cStat>100</cStat>
+    <dhProc>2026-11-10T09:05:00-03:00</dhProc>
+    <nDFSe>987654</nDFSe>
+    <emit>
+      <CNPJ>11222333000181</CNPJ>
+      <IM>12345</IM>
+      <xNome>Construtora Exemplo Ltda</xNome>
+    </emit>
+    <valores>
+      <vBC>1500.00</vBC>
+      <pAliqAplic>5.00</pAliqAplic>
+      <vISSQN>75.00</vISSQN>
+      <vLiq>1425.00</vLiq>
+    </valores>
+    <DPS versao="1.00">
+      <infDPS Id="DPS210530221122233300018100001000000000000123">
+        <tpAmb>1</tpAmb>
+        <dhEmi>2026-11-10T09:00:00-03:00</dhEmi>
+        <verAplic>Emissor 1.0</verAplic>
+        <serie>1</serie>
+        <nDPS>123</nDPS>
+        <dCompet>2026-11-10</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>2105302</cLocEmi>
+        <prest>
+          <CNPJ>11222333000181</CNPJ>
+        </prest>
+        <toma>
+          <CNPJ>44556677000186</CNPJ>
+          <xNome>Empresa Tomadora Exemplo Ltda</xNome>
+        </toma>
+        <serv>
+          <locPrest><cLocPrestacao>2105302</cLocPrestacao></locPrest>
+          <cServ>
+            <cTribNac>070201</cTribNac>
+            <xDescServ>Execução de alvenaria da obra, medição 2</xDescServ>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest><vServ>1500.00</vServ></vServPrest>
+          <trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>2</tpRetISSQN></tribMun></trib>
+        </valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignatureValue>ZmljdGljaWE=</SignatureValue></Signature>
+</NFSe>
