@@ -218,7 +218,7 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     const achados: Achado[] = notas.map(n => ({
       tipo: "nota_fiscal" as const, entidade: `fiscal:${n.id}`, faixa: 1,
       dados: { nome: nomeLimpo(n.tomador.nome) || "tomador não identificado", valorCentavos: n.valorCentavos, servico: nomeLimpo(n.tipoServico?.nome) || null,
-        municipio: n.municipio.nome ? nomeLimpo(`${n.municipio.nome}${n.municipio.uf ? `/${n.municipio.uf}` : ""}`) : null,
+        municipio: n.municipio.nome ? nomeLimpo(`${n.municipio.nome}${n.municipio.uf ? ` - ${n.municipio.uf}` : ""}`) : null,
         marca: n.status === "ADIADA" ? "adiada_vencida" as const : null, ref: { tipo: "nota_fiscal" as const, id: n.id } },
     }));
     const completo = linhas.length <= MAX_ACHADOS_POR_TIPO;
@@ -276,8 +276,11 @@ let credencialTeste: (() => Promise<CredencialGrupo>) | null = null;
 /** Só para testes: o modelo falso e a credencial falsa (sem argumento, voltam ao padrão). */
 export function definirDependenciasAvisos(d?: { cliente?: ClienteAviso; credencial?: typeof credencialTeste }) { clienteTeste = d?.cliente ?? null; credencialTeste = d?.credencial ?? null; }
 
-/** Reserva de entrada de uma chamada de aviso (instrução + dados de até 8 tipos × 5 itens), por cima. */
-export const RESERVA_ENTRADA_AVISO = 3_000;
+/**
+ * Reserva de entrada de uma chamada de aviso (instrução + dados de todos os tipos × 5 itens), por cima. EPIC-029 S-3: com o 9º tipo
+ * (nota_fiscal, itens com valor, serviço e município) e uma regra a mais na instrução, o pior caso medido foi 3.205: 3.000 → 4.000.
+ */
+export const RESERVA_ENTRADA_AVISO = 4_000;
 /** Para tentar a IA é preciso este prazo (chamada + envio). */
 const MINIMO_PARA_IA_MS = 15_000;
 const PRAZO_IA_MS = 12_000;

@@ -93,7 +93,10 @@ const PRAZO_CONSULTA_MS = 15_000;
 // = sistema 2.474 + ferramentas 14.527 = 17.001 (+500 da API = 17.501 > 17.000): piso 17.000 → 19.000 (folga ~1,5 mil). Sem pedido de
 // mesa, as 4 ações de mesa ficam fora (≈ 15,4 mil + 500).
 // Com a REURB (main #296, +1 leitura só do dono): pior caso 2.474 + 14.809 = 17.283 (+500 = 17.783): piso 19.000 mantido (folga ~1,2 mil).
-export const RESERVA_MINIMA_ENTRADA = 19_000;
+// EPIC-029 S-3 (fiscal): +2 leituras e +3 ações fiscais (~2 mil tokens; o texto do sistema não mudou). Pior caso medido (todas as
+// ferramentas com ações, inclusive as de mesa e as fiscais) = sistema 2.474 + ferramentas 16.869 = 19.343 (+500 da API = 19.843 > 19.000):
+// piso 19.000 → 21.000 (folga ~1,16 mil). As fiscais só vão quando o assunto é nota fiscal (sem elas e sem as de mesa: ≈ 16,2 mil).
+export const RESERVA_MINIMA_ENTRADA = 21_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */

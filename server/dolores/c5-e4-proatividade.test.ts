@@ -169,7 +169,7 @@ describe("C5-E4 — regras puras", () => {
     expect(funcaoLiberada("silenciar_aviso")).toBe(true);
     for (const t of ["para de me avisar de obra atrasada", "não me avisa mais de tarefas", "silencia os avisos de documentos", "religa o aviso de obras"]) expect(intencaoDeAcao(t), t).toBe(true);
     expect(FUNCOES_ANTHROPIC).toContain("dolores_avisos");
-    expect([...TIPOS_AVISO]).toEqual(["obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto"]);
+    expect([...TIPOS_AVISO]).toEqual(["obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto", "nota_fiscal"]);
   });
 });
 
