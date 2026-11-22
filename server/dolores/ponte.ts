@@ -18,7 +18,7 @@ import { getDb } from "../db.js";
 import { type CanalDolores, filtroDaSaida } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
-import { FUNCOES, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
+import { FUNCOES, FUNCOES_DO_DONO, definicaoDaFerramenta, funcaoPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
@@ -261,6 +261,12 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     await registrar("recusada", { funcao, argumentos, motivo: motivoDaRecusa(nomeParaRegistro(funcao)), pedidoId });
     return responder(403, { ok: false, erro: motivo });
   }
+  // EPIC-027 C5 (REURB): leitura SÓ da conversa direta do dono — mesma exigência das ações (WhatsApp + mensagem conferida do dono).
+  if (leitura?.soConversaDoDono && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
+    const motivo = "Esta consulta só existe na conversa direta do dono no WhatsApp; por este canal, não.";
+    await registrar("recusada", { funcao, argumentos, motivo, pedidoId });
+    return responder(403, { ok: false, erro: motivo });
+  }
   // Etapa 3: AÇÃO só nasce de comando do dono no WhatsApp (mensagem conferida). A ponte HTTP não executa ação.
   if (acao && (opcoes.canal !== "whatsapp" || !opcoes.mensagemId)) {
     const motivo = "Ações só por comando do dono no WhatsApp da Dolores; por este canal, só consultas.";
@@ -427,9 +433,15 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
  */
 export const ferramentasLiberadas = () => FUNCOES.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta);
 
+/** EPIC-027 C5 (REURB): leituras da conversa direta do dono = as da ponte + as só do dono (nunca na ponte HTTP nem nos grupos). */
+export const ferramentasDaConversaDoDono = () => [
+  ...ferramentasLiberadas(),
+  ...FUNCOES_DO_DONO.filter(f => funcaoLiberada(f.nome)).map(definicaoDaFerramenta),
+];
+
 /** Etapa 3 — ferramentas do laço do WhatsApp (comando do dono): leituras + ações liberadas (lista fechada). */
 export const ferramentasDoWhatsapp = () => [
-  ...ferramentasLiberadas(),
+  ...ferramentasDaConversaDoDono(),
   ...ACOES.filter(a => funcaoLiberada(a.nome)).map(a => definicaoDaFerramenta({ nome: a.nome, descricao: a.descricao, entrada: a.entrada } as never)),
 ];
 

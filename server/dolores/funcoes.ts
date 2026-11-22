@@ -19,6 +19,8 @@ import { entradaLerGrupoCliente, entradaListarGrupos, lerGrupoCliente, listarGru
 import { entradaListarNotasObra, listarNotasObra } from "./leitura/notas.js";
 import { entradaRelatorioDiario, relatorioDiario } from "./leitura/relatorio.js";
 import { entradaPlanoDeAtrasos, planoDeAtrasos } from "./leitura/plano-atrasos.js";
+import { analisarRegularizacaoReurb, entradaAnalisarReurb } from "./leitura/reurb.js";
+import { FUNCAO_REURB } from "../../shared/dolores/reurb-conhecimento.js";
 
 /**
  * `canal` decide o interruptor dos dados pessoais dos campos estruturados (campoPessoal). Etapa 7: "grupo" (grupo interno, quando
@@ -37,6 +39,11 @@ export type FuncaoDolores = {
   contamina: boolean;
   entrada: z.ZodType;
   executar: (args: never, ctx: ContextoFuncao) => Promise<Resultado>;
+  /**
+   * EPIC-027 C5 (REURB): só na conversa DIRETA do dono no WhatsApp (laço de cerebro.ts). Fica FORA de `FUNCOES` — não vai à ponte
+   * HTTP, nem aos grupos (marcacao.ts usa `FUNCOES`), nem ao cliente — e a porta (ponte.ts) recusa em qualquer outro canal.
+   */
+  soConversaDoDono?: true;
 };
 
 const f = <S extends z.ZodType>(nome: string, descricao: string, entrada: S, executar: (args: z.infer<S>, ctx: ContextoFuncao) => Promise<Resultado>): FuncaoDolores =>
@@ -66,6 +73,7 @@ const CONTAMINA: Record<string, boolean> = {
   listar_notas_obra: true, // emitente, descrição e itens lidos de nota de TERCEIRO; respostas do empreiteiro
   relatorio_diario: true, // nomes de clientes e responsáveis nos destaques e no texto do relatório
   plano_de_atrasos: true, // nomes de clientes (os mesmos itens de listar_atrasos)
+  [FUNCAO_REURB]: true, // nome do cliente, observações do processo e das etapas
 };
 
 /**
@@ -127,7 +135,17 @@ export const FUNCOES: readonly FuncaoDolores[] = [
     entradaPlanoDeAtrasos, planoDeAtrasos),
 ];
 
-export const funcaoPorNome = (nome: string) => FUNCOES.find(x => x.nome === nome) ?? null;
+/**
+ * EPIC-027 C5 (REURB) — leituras SÓ da conversa direta do dono (fora de `FUNCOES`, ver `soConversaDoDono`). A análise de REURB monta
+ * os dados do caso + o conhecimento destilado; o modelo redige o parecer. Não age, não grava.
+ */
+export const FUNCOES_DO_DONO: readonly FuncaoDolores[] = [
+  { ...f(FUNCAO_REURB,
+    "Análise de REGULARIZAÇÃO FUNDIÁRIA (REURB) de um processo já cadastrado, por id (ache o id com listar_processos_regularizacao). Devolve os dados do caso e o roteiro de REURB (Lei 13.465/2017): modalidades, etapas do rito, peças técnicas, cuidados e o formato do parecer. Use quando o dono pedir análise, parecer, enquadramento ou próximos passos de REURB. Com analisavel false (não existe ou não é REURB), diga a mensagem e não redija parecer. Só lê.",
+    entradaAnalisarReurb, analisarRegularizacaoReurb), soConversaDoDono: true },
+];
+
+export const funcaoPorNome = (nome: string) => FUNCOES.find(x => x.nome === nome) ?? FUNCOES_DO_DONO.find(x => x.nome === nome) ?? null;
 
 /** Definição de ferramenta (nome, descrição e JSON Schema da entrada) para o agente. */
 export function definicaoDaFerramenta(fn: FuncaoDolores) {

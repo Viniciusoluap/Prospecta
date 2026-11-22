@@ -31,6 +31,7 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   listar_notas_obra: "notas de obra",
   relatorio_diario: "relatório do dia",
   plano_de_atrasos: "plano dos atrasos",
+  analisar_regularizacao_reurb: "análise de REURB", // EPIC-027 C5 (REURB)
   criar_tarefa: "tarefa",
   registrar_acompanhamento: "anotação no cliente",
   preparar_cobranca: "cobrança",

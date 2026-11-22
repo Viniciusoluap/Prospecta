@@ -3,6 +3,7 @@
 // mensal e corte da resposta. Sem banco nem rede.
 import { chaveTelefone } from "../whatsapp/conversas.js";
 import { mascararTelefone } from "./formato.js";
+import { AVISO_REURB } from "./reurb-conhecimento.js";
 
 /** Nome da instância da Evolution só da Dolores (a da empresa é `prospecta-u<id>`). */
 export const INSTANCIA_DOLORES = "prospecta-dolores";
@@ -299,6 +300,14 @@ export function semNumeracaoForjada(texto: string): string {
   return texto.replace(/^[ \t]*[(（][ \t]*\d{1,3}[ \t]*[/／][ \t]*\d{1,3}[ \t]*[)）][ \t]*/gm, "");
 }
 
+/** EPIC-027 C5 (REURB, QA M1): fechos fixos do sistema que, no fim da resposta, nunca são cortados. */
+export const FECHOS_FIXOS: readonly string[] = [AVISO_REURB];
+/** O fecho fixo com que o texto termina (ou null). */
+export function fechoFixo(texto: string): string | null {
+  const t = texto.trimEnd();
+  return FECHOS_FIXOS.find(f => t.endsWith(f)) ?? null;
+}
+
 /**
  * Etapa 8 — divide a resposta ao dono em até {@link MAX_PARTES_RESPOSTA} mensagens, cada uma com no máximo `max` caracteres,
  * cortando em quebra de linha e numerando "(1/3)" quando há mais de uma. O que não couber é cortado na última com o aviso de
@@ -308,6 +317,15 @@ export function semNumeracaoForjada(texto: string): string {
  * enviar) corta o texto livre, nunca os quadros. A numeração "(n/m)" escrita pelo modelo no começo de linha sai (A3).
  */
 export function partesDaResposta(texto: string, quadros: string | null = null, max = MAX_CARACTERES_WHATSAPP, maxPartes = MAX_PARTES_RESPOSTA): string[] {
+  // EPIC-027 C5 (REURB, QA M1): o fecho fixo do sistema no fim do texto nunca é cortado — o espaço dele é reservado antes do corte
+  // e ele volta no fim da ÚLTIMA mensagem; quem é cortado é o texto do modelo.
+  const fecho = fechoFixo(texto);
+  if (fecho) {
+    const corpo = texto.trimEnd().slice(0, -fecho.length).trimEnd();
+    const partes = partesDaResposta(corpo, quadros, max - fecho.length - 2, maxPartes);
+    const ultima = partes.length - 1;
+    return partes.map((p, i) => (i === ultima ? (p ? `${p}\n\n${fecho}` : fecho) : p));
+  }
   const t = semNumeracaoForjada(texto).trim();
   const q = (quadros ?? "").trim();
   const n = Math.max(1, Math.floor(maxPartes));
