@@ -48,14 +48,25 @@ prévia sem banco para o dono ver e para as capturas.
 - [AUTO-DECISION] Câmeras do tour no JSON (`ambientes[].camera`, opcional), vindas do protótipo; a altura NÃO vem do
   JSON (sempre piso + 1,60). Quarto 1, Quarto 2 e Banheiro foram afastados 13–32 cm da folha das portas, agora
   desenhadas abertas (anotado em `nota`).
-- [AUTO-DECISION] PT1 desenhado como portão gradeado (pedido do dono nesta etapa); a descrição do JSON diz "de enrolar"
-  — o desenho segue o pedido, o JSON fica como está.
+- ~~[AUTO-DECISION] PT1 desenhado como portão gradeado~~ — substituído em 22/11: o dono definiu portão de correr.
 - [AUTO-DECISION] Forro só sobre os ambientes `interno: true` (o protótipo cobria também serviço e varanda).
 - [AUTO-DECISION] Visão geral "em corte" = paredes inteiras sem telhado, topo das paredes da casa em cinza (convenção
   de corte), como o protótipo validado.
 - Do dono (21/11/2026): balcão de 1,10 m APROVADO (deixa de ser estimado no JSON); telhado (20%, platibanda 1,15) e a
   folha fixa da P2 continuam como no protótipo. Trocar o telhado é só mudar `cobertura.inclinacao` e
   `cobertura.platibanda.altura` no JSON (o gerador avisa se a cumeeira passar da platibanda).
+
+## Decisões do dono (21/11/2026) — pendências da planta fechadas
+- **Regra geral das plantas da Prospecta: a folha que abre da porta de correr fica do lado OPOSTO ao sofá** (palavras
+  do dono: "sempre coloco o oposto do sofá"). No JSON, `aberturas[].folha_fixa` (`inicio` = lado do `offset`, `fim` =
+  o outro; só em `abertura: "correr"`). Declarada, o vão útil e a faixa livre de 0,80 m valem só na metade que corre
+  (`trechoUtilDaPorta` em `shared/maquete-3d/validacao-fonte.ts`); sem a declaração, valem no vão inteiro, como antes.
+- P2 da sala: folha fixa x 0,52–1,32 (lado do sofá), folha que corre x 1,32–2,12. Sofá de volta à posição do
+  protótipo (x 0,15–0,95, z 6,00–7,80). Rack com as medidas e o x do protótipo (x 1,85–2,14), mas em z 6,05–7,15
+  (protótipo 6,30–7,40): ele fica em frente à folha que corre e a posição do protótipo invadiria 25 cm da faixa livre.
+- Telhado: vale o do protótipo (20%, platibanda 1,15 m); `cobertura.fonte` = "decisão do dono em 21/11".
+- PT1: portão DE CORRER (nem gradeado de abrir, nem de enrolar), 3,00 × 2,40, folha única sobre trilho, chapa embaixo
+  e gradil simples em cima (modelo `portao_correr` na cena e na planta 2D).
 
 ## Testes
 - (a) Automáticos: `server/maquete-3d-gerador.test.ts` (conversor, alturas, níveis, balcão, cobertura, vistas,
@@ -69,7 +80,7 @@ prévia sem banco para o dono ver e para as capturas.
 - Capturas em Chromium com SwiftShader (sem placa de vídeo): cores e sombras podem diferir um pouco das de um celular.
 - Os móveis usam os materiais do estilo "moderno" do catálogo; a `cor` de cada item do JSON ainda não é aplicada.
 - Calhas são caixas simples (sem condutores); a platibanda sobrepõe 15 × 15 cm nos cantos (mesmo material).
-- A folha das portas de abrir é desenhada aberta a 90°; a P1 (pivotante) e o PT1, fechados.
+- A folha das portas de abrir é desenhada aberta a 90°; a P1 (pivotante), o PT1 (de correr) e a P2, fechados.
 
 ## File List
 - `shared/maquete-3d/fonte-cena.ts` (novo) — conversor puro: cena, `fonteParaModelo`, `pecasDaFonte`, legendas.
@@ -95,3 +106,5 @@ prévia sem banco para o dono ver e para as capturas.
 ## Change Log
 - 21/11/2026 — @dev (Dex): Ready → InProgress → InReview. Etapa 2 implementada (conversor, cena, modos, prévia,
   capturas, testes).
+- 22/11/2026 — @dev (Dex): decisões do dono de 21/11 aplicadas (P2 com folha fixa e regra da faixa só na folha que corre,
+  sofá/rack, telhado do protótipo, PT1 de correr); capturas da Etapa 2 regravadas (geral, sala, garagem, planta).

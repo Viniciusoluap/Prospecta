@@ -170,12 +170,29 @@ describe("itens × portas (vão, giro da folha, faixa livre de 0,80 m)", () => {
     mover(item(g, "geladeira"), 0.3, 1.2, 0.8, 1.55); // dentro do quadrante de raio 0,60 da P3 na cozinha
     expect(erros(g, "item_giro_porta").map(e => e.onde)).toEqual(["geladeira"]);
   });
-  it("porta de correr não tem giro, mas tem a faixa livre (sofá na frente da P2 → erro)", () => {
+  it("porta de correr não tem giro; com folha fixa declarada, a faixa livre vale só em frente à folha que corre", () => {
     const f = original();
     expect(erros(f, "item_giro_porta")).toEqual([]);
-    mover(item(f, "sofa"), 0.15, 6.0, 0.95, 7.8); // posição do protótipo
-    const e = validarFonte(f).filter(p => p.onde === "sofa").map(p => p.codigo);
-    expect(e).toEqual(["item_faixa_livre"]);
+    // P2: folha fixa no lado do sofá (decisão do dono em 21/11); o sofá na posição do protótipo passa.
+    expect(f.estrutura.aberturas.find(a => a.id === "p2-sala")!.folha_fixa).toBe("inicio");
+    expect([item(f, "sofa").x - item(f, "sofa").prof / 2, item(f, "sofa").z - item(f, "sofa").larg / 2, item(f, "sofa").z + item(f, "sofa").larg / 2].map(v => +v.toFixed(3))).toEqual([0.15, 6, 7.8]);
+    expect(validarFonte(f).filter(p => p.onde === "sofa")).toEqual([]);
+    // Rack na posição do protótipo (z 6,30–7,40) fica em frente à folha que corre: invade a faixa.
+    const g = original();
+    mover(item(g, "rack-tv"), 1.85, 6.3, 2.14, 7.4);
+    expect(validarFonte(g).filter(p => p.onde === "rack-tv").map(p => p.codigo)).toEqual(["item_faixa_livre"]);
+    // Sem a declaração, a faixa volta a valer no vão inteiro (regra de antes): o sofá do protótipo invade.
+    const h = original();
+    delete h.estrutura.aberturas.find(a => a.id === "p2-sala")!.folha_fixa;
+    expect(validarFonte(h).filter(p => p.onde === "sofa").map(p => p.codigo)).toEqual(["item_faixa_livre"]);
+    // Trocando o lado da folha fixa, quem invade é o sofá (e o rack fica livre).
+    const k = original();
+    k.estrutura.aberturas.find(a => a.id === "p2-sala")!.folha_fixa = "fim";
+    expect(validarFonte(k).filter(p => p.codigo === "item_faixa_livre").map(p => p.onde)).toEqual(["sofa"]);
+    // Folha fixa só existe em porta de correr.
+    const j = original();
+    j.estrutura.aberturas.find(a => a.id === "p3-cozinha")!.folha_fixa = "inicio";
+    expect(erros(j, "referencia").map(e => e.onde)).toEqual(["p3-cozinha"]);
   });
   it("item dentro do vão da porta → erro", () => {
     const f = original();

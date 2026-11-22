@@ -15,7 +15,7 @@ import { maquete3dItens, maquetes3d, type Maquete3d } from "../../drizzle/schema
 import { lerFonte, type FontePlanta, type ItemFonte } from "../../shared/maquete-3d/fonte.js";
 import { fonteParaModelo } from "../../shared/maquete-3d/fonte-cena.js";
 import {
-  bloqueiaSalvar, canonico, comAlcanceDerivado, itensEdicaoSchema, problemasDaEdicao, travadosAlterados,
+  bloqueiaSalvar, canonico, comAlcanceDerivado, comTravaDaFonte, itensEdicaoSchema, problemasDaEdicao, travadosAlterados,
 } from "../../shared/maquete-3d/edicao.js";
 import type { ProblemaFonte } from "../../shared/maquete-3d/validacao-fonte.js";
 import { db } from "./base.js";
@@ -78,7 +78,8 @@ const listar = (ps: ProblemaFonte[]) => ps.filter(p => p.nivel === "erro").slice
 export function conferirItens(f: FontePlanta, brutos: unknown): { itens: ItemFonte[]; problemas: ProblemaFonte[] } {
   const r = itensEdicaoSchema.safeParse(brutos);
   if (!r.success) throw new TRPCError({ code: "BAD_REQUEST", message: `Itens em formato inválido: ${r.error.issues[0]?.message ?? "confira os campos"}.` });
-  const itens = r.data as ItemFonte[];
+  // `editavel` da tela é ignorado: a trava (e a isenção de regras que vem com ela) é a da FONTE do servidor.
+  const itens = comTravaDaFonte(f.itens, r.data as ItemFonte[]);
   const travados = travadosAlterados(f.itens, itens);
   if (travados.length) throw new TRPCError({ code: "BAD_REQUEST", message: `Itens travados da planta não podem mudar: ${travados.join(", ")}.` });
   const problemas = problemasDaEdicao(f, itens);
@@ -110,7 +111,9 @@ export async function carregarParaEdicao(slug: string, autorId: number) {
   const m = await garantirMaqueteDaFonte(slug, autorId);
   const ultima = await ultimaVersao(m.id);
   const hash = hashDaEstrutura(f);
-  const itens = ultima ? lerItens(ultima.itens) : f.itens;
+  const itens = ultima ? comTravaDaFonte(f.itens, lerItens(ultima.itens)) : f.itens;
+  /** A versão carregada é de outra estrutura: salvar de novo (mesmo sem mudar itens) é o que libera publicar. */
+  const precisaRegravar = !!ultima && ultima.estruturaHash !== hash;
   const [autor] = ultima?.autorId ? await db().select({ nome: users.name }).from(users).where(eq(users.id, ultima.autorId)).limit(1) : [];
   return {
     maqueteId: m.id, slug, titulo: m.titulo,
@@ -121,7 +124,8 @@ export async function carregarParaEdicao(slug: string, autorId: number) {
     versaoPublicada: m.itensVersaoPublicada ?? null,
     rascunhoNaoPublicado: !!ultima && ultima.versao !== m.itensVersaoPublicada,
     /** A estrutura do arquivo mudou depois que estes itens foram salvos: as regras valem contra a estrutura nova. */
-    estruturaMudou: !!ultima && ultima.estruturaHash !== hash,
+    estruturaMudou: precisaRegravar,
+    precisaRegravar,
     ultimaSalva: ultima ? { versao: ultima.versao, em: ultima.createdAt, autor: autor?.nome ?? null } : null,
     problemas: problemasDaEdicao(f, itens),
   };

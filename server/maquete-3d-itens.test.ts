@@ -14,7 +14,7 @@ import * as schema from "../drizzle/schema.js";
 import { getDb } from "./db.js";
 import { appRouter } from "./routers.js";
 import { fonteDoRepo, hashDaEstrutura, itensPublicados } from "./maquete-3d/itens.js";
-import { girar } from "../shared/maquete-3d/edicao.js";
+import { canonico, girar } from "../shared/maquete-3d/edicao.js";
 import type { ItemFonte } from "../shared/maquete-3d/fonte.js";
 
 const TABELAS = ["users", "leads", "leadServices", "operationalProjects", "projectRevisionRequests", "projectDocuments", "incorporationStudies", "incorporationRegistrationDocuments", "incorporationUnits", "paymentOrders", "draws", "products"];
@@ -50,6 +50,7 @@ const caller = (id: number | null, role = "admin", permissions = "[]") =>
 const admin = () => caller(1);
 const PLANTA = "lote4-qd18";
 const padrao = () => fonteDoRepo(PLANTA).itens;
+const canonicoItens = (texto: string) => canonico(JSON.parse(texto));
 const mover = (itens: ItemFonte[], id: string, m: Partial<ItemFonte>) => itens.map(i => (i.id === id ? { ...i, ...m } : i));
 
 describe("migração 0146 (itens e lotes da maquete)", () => {
@@ -224,6 +225,48 @@ describe("router maquete3d.itens", () => {
     await expect(admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: null })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/estrutura/) });
     expect((await admin().abrir({ planta: PLANTA })).estruturaMudou).toBe(true);
     expect(await itensPublicados(maqueteId)).toBeNull();
+  });
+
+  it("editavel:false enviado pela tela não isenta de regra: a geladeira elevada na frente da P3 é recusada; item travado da FONTE continua sem poder mudar", async () => {
+    await admin().abrir({ planta: PLANTA });
+    const p = padrao();
+    const ruim = mover(p.filter(i => i.id !== "bancada-pia"), "geladeira", { x: 0.54, z: 1.36, elev: 2.2, alt: 0.3, editavel: false });
+    await expect(admin().salvar({ planta: PLANTA, versaoBase: 0, itens: ruim })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/não pode ficar elevado/) });
+    // `alcanca` inventado em item marcado como travado pela tela: gravado o derivado, e editavel volta ao da fonte.
+    const s = await admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(p, "sofa", { alcanca: ["Quarto 1"], editavel: false }) });
+    const aberto = await admin().abrir({ planta: PLANTA });
+    expect(aberto.versaoBase).toBe(s.versao);
+    expect(aberto.fonte.itens.find(i => i.id === "sofa")).toMatchObject({ editavel: true });
+    expect(aberto.fonte.itens.find(i => i.id === "sofa")!.alcanca).toBeUndefined();
+    // Item travado NA FONTE (simulado no JSON do servidor): mudar continua recusado, mesmo mandando editavel:true.
+    const f = fonteDoRepo(PLANTA), original = f.itens;
+    try {
+      f.itens = original.map(i => (i.id === "geladeira" ? { ...i, editavel: false } : i));
+      await expect(admin().salvar({ planta: PLANTA, versaoBase: 1, itens: mover(f.itens, "geladeira", { z: 1.5, editavel: true }) }))
+        .rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/travados.*geladeira/) });
+      // Igual à fonte, só com editavel:true vindo da tela: passa (o valor é o da fonte) e grava travado.
+      await admin().salvar({ planta: PLANTA, versaoBase: 1, itens: mover(f.itens, "geladeira", { editavel: true }) });
+      const { rows } = await banco.pg.query<{ itens: string }>("SELECT itens FROM maquete_3d_itens WHERE versao = 2");
+      expect((JSON.parse(rows[0].itens) as ItemFonte[]).find(i => i.id === "geladeira")!.editavel).toBe(false);
+    } finally { f.itens = original; }
+  });
+
+  it("estrutura mudou: abrir sinaliza precisaRegravar; salvar sem mudar itens cria versão nova com o hash atual e libera publicar", async () => {
+    const { maqueteId } = await admin().abrir({ planta: PLANTA });
+    expect((await admin().abrir({ planta: PLANTA })).precisaRegravar).toBe(false);
+    const itens = mover(padrao(), "sofa", { z: 6.2 });
+    await banco.pg.query(`INSERT INTO maquete_3d_itens (maquete_id, versao, itens, quantidade, modelo_versao, estrutura_hash, situacao) VALUES ($1, 1, $2, $3, 1, 'estrutura-antiga', 'rascunho')`, [maqueteId, JSON.stringify(itens), itens.length]);
+    const aberto = await admin().abrir({ planta: PLANTA });
+    expect(aberto).toMatchObject({ versaoBase: 1, precisaRegravar: true, estruturaMudou: true });
+    await expect(admin().publicar({ planta: PLANTA, versao: 1, publicadaVista: null })).rejects.toMatchObject({ code: "CONFLICT" });
+    // Os mesmos itens, sem mudança nenhuma: grava a versão 2 com o hash da estrutura atual.
+    const s = await admin().salvar({ planta: PLANTA, versaoBase: 1, itens: aberto.fonte.itens });
+    expect(s.versao).toBe(2);
+    const { rows } = await banco.pg.query<{ estrutura_hash: string; itens: string }>("SELECT estrutura_hash, itens FROM maquete_3d_itens WHERE versao = 2");
+    expect(rows[0].estrutura_hash).toBe(hashDaEstrutura(fonteDoRepo(PLANTA)));
+    expect(canonicoItens(rows[0].itens)).toBe(canonicoItens(JSON.stringify(itens)));
+    expect((await admin().abrir({ planta: PLANTA })).precisaRegravar).toBe(false);
+    expect(await admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: null })).toMatchObject({ versao: 2, jaPublicada: false });
   });
 
   it("restaurar padrão grava um rascunho com os itens da planta", async () => {

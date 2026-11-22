@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lerFonte, type ItemFonte } from "../shared/maquete-3d/fonte.js";
 import {
-  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, vistaDoAmbiente, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
+  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, comTravaDaFonte, vistaDoAmbiente, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
   desfazer, encaixar, encaixeNaParede, fecharGesto, girar, itemEditadoSchema, itensDoProblema, itensEdicaoSchema, novoId, novoItem,
   posicaoArrastada, problemasDaEdicao, refazer, registrar, tiposDoGrupo, travadosAlterados,
 } from "../shared/maquete-3d/edicao.js";
@@ -200,6 +200,24 @@ describe("formato aceito pelo servidor", () => {
     expect(travadosAlterados(padrao, com("carro", { x: 2.6 }, padrao))).toEqual(["carro"]);
     expect(travadosAlterados(padrao, padrao.filter(i => i.id !== "carro"))).toEqual(["carro"]);
     expect(canonico({ b: 1, a: [1, { d: 2, c: undefined }] })).toBe('{"a":[1,{"d":2}],"b":1}');
+  });
+  it("editavel enviado pela tela não desliga regra: a trava é a da FONTE (item novo é sempre editável)", () => {
+    // Geladeira elevada na frente da P3 marcada como "travada" pela tela: continua recusada (elevação e porta).
+    const ruim = com("geladeira", { x: 0.54, z: 1.36, rot: 0, elev: 2.2, alt: 0.3, editavel: false }, ITENS.filter(i => i.id !== "bancada-pia"));
+    expect(codigos(ruim)).toContain("item_elevado");
+    expect(bloqueiaSalvar(problemasDaEdicao(FONTE, ruim))).toBe(true);
+    // Item novo (não existe na fonte) com editavel:false também é validado.
+    const novo = { ...item("sofa"), id: "sofa-extra", elev: 1.5, editavel: false };
+    expect(codigos([...ITENS, novo])).toContain("item_elevado");
+    // `alcanca` também é sempre derivado para quem não é travado na fonte.
+    expect(comAlcanceDerivado(FONTE, com("sofa", { alcanca: ["Quarto 1"], editavel: false })).find(i => i.id === "sofa")!.alcanca).toBeUndefined();
+    // A trava vem da fonte: o item travado lá fica travado mesmo que a tela mande editavel:true.
+    const padrao = com("carro", { editavel: false });
+    const n = comTravaDaFonte(padrao, com("carro", { editavel: true }, com("sofa", { editavel: false })));
+    expect(n.find(i => i.id === "carro")!.editavel).toBe(false);
+    expect(n.find(i => i.id === "sofa")!.editavel).toBe(true);
+    expect(n.every(i => i.id === "carro" || i.editavel)).toBe(true);
+    expect(comTravaDaFonte(ITENS, ITENS)[0]).toBe(ITENS[0]); // sem mudança: mesmo objeto
   });
 });
 

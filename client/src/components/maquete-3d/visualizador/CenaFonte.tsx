@@ -131,12 +131,19 @@ function Esquadria({ e, m }: { e: EsquadriaCena; m: MateriaisFonte }) {
         <Marco larg={L} alt={A} prof={0.07} perfil={marco} m={m.aluminio} />
         {Array.from({ length: n }, (_, k) => {
           // Duas folhas das pontas no trilho de fora, as do meio no de dentro (correr de 4 folhas); com 2, uma em cada.
-          const fora = n >= 4 ? k === 0 || k === n - 1 : k % 2 === 0;
+          // Com folha fixa declarada (2 folhas): a fixa no trilho de fora; a que corre no de dentro, com o puxador.
+          const lado = k < n / 2 ? -1 : 1;
+          const fora = e.fixa && n === 2 ? lado === e.fixa : n >= 4 ? k === 0 || k === n - 1 : k % 2 === 0;
+          const corre = !!e.fixa && n === 2 && lado !== e.fixa;
           const w = passo + (k > 0 ? sobra / 2 : 0) + (k < n - 1 ? sobra / 2 : 0);
           const x = -vao / 2 + passo * (k + 0.5) + (k > 0 ? -sobra / 4 : 0) + (k < n - 1 ? sobra / 4 : 0);
+          const z = fora ? -0.016 : 0.016;
           return (
             <group key={k} position={[0, marco, 0]}>
-              <FolhaVidro w={w} h={A - marco * 2} x={x} z={fora ? -0.016 : 0.016} perfil={perfil} m={m} />
+              <FolhaVidro w={w} h={A - marco * 2} x={x} z={z} perfil={perfil} m={m} />
+              {corre && [-1, 1].map(f => (
+                <Caixote key={f} s={[0.022, 0.6, 0.022]} p={[x + lado * (w / 2 - perfil - 0.04), 1.05, z + f * 0.03]} m={m.ferragem} />
+              ))}
             </group>
           );
         })}
@@ -170,6 +177,27 @@ function Esquadria({ e, m }: { e: EsquadriaCena; m: MateriaisFonte }) {
           [-1, 1].map(lado => <Caixote key={`${y}${lado}`} s={[W - 0.12, 0.006, 0.004]} p={[0, y, lado * (ef / 2 + 0.001)]} m={m.aco} sombra={false} />)
         ))}
         {[-1, 1].map(lado => <Caixote key={lado} s={[0.025, 1.2, 0.025]} p={[(e.dobradica ?? 1) * -(W / 2 - 0.12), 1.05, lado * (ef / 2 + 0.035)]} m={m.ferragem} />)}
+      </>
+    );
+  } else if (e.modelo === "portao_correr") {
+    // Portão de correr: folha única de aço (chapa embaixo, gradil simples em cima) sobre o trilho no chão, com as
+    // roldanas e a guia no alto. Desenhado fechado, no vão.
+    const n = Math.max(2, Math.floor((L - 0.1) / 0.15)), chapa = Math.min(1.0, A * 0.42), H = A - 0.03;
+    corpo = (
+      <>
+        <Caixote s={[L + 0.3, 0.025, 0.05]} p={[0, 0.0125, 0]} m={m.aco} />
+        {[-1, 1].map(l => (
+          <mesh key={l} material={m.ferragem} position={[l * (L / 2 - 0.3), 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow><cylinderGeometry args={[0.04, 0.04, 0.03, 14]} /></mesh>
+        ))}
+        <group position={[0, 0.06, 0]}>
+          <Marco larg={L} alt={H - 0.06} prof={0.05} perfil={0.05} m={m.aco} />
+          <Caixote s={[L - 0.1, chapa - 0.05, 0.012]} p={[0, 0.05 + (chapa - 0.05) / 2, 0]} m={m.aco} />
+          <Caixote s={[L - 0.1, 0.04, 0.04]} p={[0, chapa, 0]} m={m.aco} />
+          {Array.from({ length: n }, (_, k) => (
+            <Caixote key={k} s={[0.02, H - 0.06 - chapa - 0.05, 0.02]} p={[-L / 2 + 0.05 + ((L - 0.1) * (k + 0.5)) / n, chapa + (H - 0.06 - chapa - 0.05) / 2, 0]} m={m.aco} />
+          ))}
+        </group>
+        <Caixote s={[L + 0.3, 0.04, 0.08]} p={[0, A - 0.02, 0]} m={m.aco} />
       </>
     );
   } else {

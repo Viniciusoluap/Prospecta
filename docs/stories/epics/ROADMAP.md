@@ -43,6 +43,7 @@
 | EPIC-020 | 32 implementações auditadas (paridade Prospecta ↔ Santa Fé, motor financeiro) | Claude / AIOX | Em andamento — Lote 0 concluído e Lote 1 publicado (12/10); matriz em `epic-020-32-implementacoes-paridade/MATRIZ-PARIDADE.md` | EPIC-017, EPIC-018 |
 | EPIC-022 | Maquete 3D (exclusivo Prospecta — exceção de paridade) | Claude | Em andamento — etapa 1 (base, motor de leitura e revisão) em `epic-022-maquete-3d/` | Projetos, EPIC-008 |
 | EPIC-023 | 13 correções pedidas pelo dono em 15/11 (CRM no iPad, fim de "Corretores", filtro de perfis, mapa operacional MapLibre, pedidos e leitura da Maquete 3D, camadas do terreno, Estudo de Massa conectado, vias 3D) | Claude / AIOX | Em andamento — autorizado pelo dono em 15/11 (4 decisões respondidas); Etapas A a G publicadas (15–16/11); validação do dono em produção e porte ao Santa Fé pendentes; stories em `epic-023-correcoes-15-11/` | EPIC-008, EPIC-018, EPIC-022 |
+| EPIC-028 | Maquete fiel à planta com editor de itens e página pública por lote (exclusivo Prospecta — dentro da exceção de paridade da Maquete 3D, EPIC-022; nada a portar ao Santa Fé) | Claude / AIOX | Em andamento — Etapas 1–4 implementadas em branch (21–22/11/2026), migrações 0146 e 0147 criadas e não aplicadas; portão de QA e publicação pendentes; stories em `epic-028-maquete-editor/` | EPIC-022 |
 
 ## Decisões do dono do produto (06/09/2026)
 

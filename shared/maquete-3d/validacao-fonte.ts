@@ -69,8 +69,18 @@ function dentro(q: Ponto, pol: Ponto[]): boolean {
 }
 
 /** Áreas proibidas de uma porta/portão: o vão, o giro da folha e a faixa livre na frente, dos dois lados. */
+/**
+ * Trecho útil (passagem) do vão ao longo da parede: o vão inteiro, ou — porta de correr com `folha_fixa` declarada —
+ * só a metade que corre.
+ */
+export function trechoUtilDaPorta(ab: AberturaFonte): [number, number] {
+  const s0 = ab.offset, s1 = ab.offset + ab.larg, meio = ab.offset + ab.larg / 2;
+  if (ab.abertura !== "correr" || !ab.folha_fixa) return [s0, s1];
+  return ab.folha_fixa === "inicio" ? [meio, s1] : [s0, meio];
+}
+
 export function zonasDaPorta(w: ParedeFonte, ab: AberturaFonte, ambientes: AmbienteFonte[]) {
-  const s0 = ab.offset, s1 = ab.offset + ab.larg, e = w.esp / 2;
+  const [s0, s1] = trechoUtilDaPorta(ab), e = w.esp / 2;
   const vao = retanguloNaParede(w, s0, s1, -e, e);
   const faixas = [retanguloNaParede(w, s0, s1, e, e + TOLERANCIAS.faixaLivre), retanguloNaParede(w, s0, s1, -e - TOLERANCIAS.faixaLivre, -e)];
   let giro: Ponto[] | null = null;
@@ -173,6 +183,8 @@ export function validarFonte(f: FontePlanta): ProblemaFonte[] {
       add("erro", "abertura_fora", ab.id, `${ab.codigo} (${ab.id}) vai de ${fmt(ab.offset)} a ${fmt(ab.offset + ab.larg)} m, mas a parede ${w.id} tem ${fmt(comp)} m.`);
     if (ab.peitoril + ab.alt > w.h + tol)
       add("erro", "abertura_altura", ab.id, `${ab.codigo} (${ab.id}) chega a ${fmt(ab.peitoril + ab.alt)} m, acima da altura da parede ${w.id} (${fmt(w.h)} m).`);
+    if (ab.folha_fixa && ab.abertura !== "correr")
+      add("erro", "referencia", ab.id, `${ab.codigo} (${ab.id}) declara folha fixa, mas só porta de correr tem folha fixa.`);
     if (ab.abertura !== "correr") {
       const amb = ab.abre_para ? ambPorNome.get(ab.abre_para) : undefined;
       if (!amb) add("erro", "referencia", ab.id, `${ab.codigo} (${ab.id}) é de abrir e precisa dizer para qual ambiente abre (abre_para).`);

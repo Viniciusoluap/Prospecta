@@ -97,12 +97,27 @@ function simbolo(w: ParedeFonte, ab: AberturaFonte, giro: 1 | -1 | null, ladoDeF
       const t = (k % 2 === 0 ? -1 : 1) * e * 0.3;
       tracos += linha(ponto(w, s0 + lf * k - (k ? 0.02 : 0), t), ponto(w, s0 + lf * (k + 1) + (k < folhas - 1 ? 0.02 : 0), t));
     }
+  } else if (modelo === "porta_correr" && ab.folha_fixa) {
+    // Folha fixa (trilho de fora) e folha que corre (trilho de dentro), com a seta para o lado em que ela abre.
+    const meio = s0 + ab.larg / 2, fixaIni = ab.folha_fixa === "inicio";
+    const [fa, fb] = fixaIni ? [s0, meio + 0.03] : [meio - 0.03, s1];
+    const [ma, mb] = fixaIni ? [meio - 0.03, s1] : [s0, meio + 0.03];
+    const tf = -e * 0.35, tm = e * 0.35;
+    tracos += quadro([ponto(w, fa, tf - 0.02), ponto(w, fb, tf - 0.02), ponto(w, fb, tf + 0.02), ponto(w, fa, tf + 0.02)]);
+    tracos += quadro([ponto(w, ma, tm - 0.02), ponto(w, mb, tm - 0.02), ponto(w, mb, tm + 0.02), ponto(w, ma, tm + 0.02)]);
+    const sentido = fixaIni ? -1 : 1, ta = tm + e + 0.12, ini = (ma + mb) / 2 - sentido * 0.25, fim = (ma + mb) / 2 + sentido * 0.25;
+    tracos += linha(ponto(w, ini, ta), ponto(w, fim, ta)) + linha(ponto(w, fim, ta), ponto(w, fim - sentido * 0.08, ta - 0.05))
+      + linha(ponto(w, fim, ta), ponto(w, fim - sentido * 0.08, ta + 0.05));
   } else if (modelo === "porta_correr") {
     const lf = ab.larg / folhas;
     for (let k = 0; k < folhas; k++) {
       const t = (k % 2 === 0 ? -1 : 1) * e * 0.35, a = s0 + lf * k - (k ? 0.03 : 0), b = s0 + lf * (k + 1) + (k < folhas - 1 ? 0.03 : 0);
       tracos += quadro([ponto(w, a, t - 0.02), ponto(w, b, t - 0.02), ponto(w, b, t + 0.02), ponto(w, a, t + 0.02)]);
     }
+  } else if (modelo === "portao_correr") {
+    // Folha única sobre o trilho: o trilho passa um pouco das pontas do vão; a folha fica no vão (fechada).
+    tracos += linha(ponto(w, s0 - 0.15, 0), ponto(w, s1 + 0.15, 0));
+    tracos += quadro([ponto(w, s0, -0.03), ponto(w, s1, -0.03), ponto(w, s1, 0.03), ponto(w, s0, 0.03)]);
   } else if (modelo === "portao_gradeado") {
     tracos += linha(ponto(w, s0, 0), ponto(w, s1, 0));
     for (let s = s0 + 0.12; s < s1 - 0.06; s += 0.24) tracos += linha(ponto(w, s, -e * 0.6), ponto(w, s, e * 0.6));

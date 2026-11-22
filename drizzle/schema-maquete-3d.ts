@@ -114,4 +114,9 @@ export const maquete3dLotes = pgTable("maquete_3d_lotes", {
   criadoPor: integer("criado_por"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // 0147 (Etapa 4): código do link público e textos mostrados ao cliente.
+  codigoLink: varchar("codigo_link", { length: 24 }),
+  empreendimentoNome: varchar("empreendimento_nome", { length: 120 }),
+  quadra: varchar("quadra", { length: 20 }),
+  loteNumero: varchar("lote_numero", { length: 20 }),
 });
