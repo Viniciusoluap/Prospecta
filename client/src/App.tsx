@@ -81,6 +81,8 @@ import { LegacyRedirect } from "./components/LegacyRedirect";
 
 // EPIC-028: prévia do gerador da maquete (carregada sob demanda).
 const MaqueteDemo = lazy(() => import("./pages/MaqueteDemo"));
+// EPIC-028 (Etapa 4): página pública do lote (carregada sob demanda).
+const MaqueteLote = lazy(() => import("./pages/MaqueteLote"));
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -293,6 +295,11 @@ function Router() {
         </AdminRoute>
       </Route>
       {/* Link público da maquete entregue ao cliente (só maquete publicada pelo admin). */}
+      {/* EPIC-028 (Etapa 4): página pública do lote, /maquete/<empreendimento>/<lote>-<código> (dois segmentos; o link
+          antigo, logo abaixo, tem um só e continua igual). */}
+      <Route path="/maquete/:empreendimento/:lote">
+        <Suspense fallback={null}><MaqueteLote /></Suspense>
+      </Route>
       <Route path="/maquete/:token" component={MaquetePublica} />
       {/* EPIC-028 (Etapa 2): prévia do gerador a partir do JSON-fonte do repositório, sem banco (não é a rota pública do lote). */}
       <Route path="/maquete-demo/:planta">

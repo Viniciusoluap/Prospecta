@@ -63,6 +63,10 @@ export const aberturaFonteSchema = z.object({
   /** `esq`: dobradiça no começo do vão (lado do `offset`); `dir`: dobradiça no fim do vão; `correr`: folhas de
    *  correr ou de enrolar, sem giro. */
   abertura: z.enum(["esq", "dir", "correr"]),
+  /** Só em `correr`: qual metade do vão é a folha FIXA (`inicio` = lado do `offset`, `fim` = o outro). Declarada, o vão
+   *  útil e a faixa livre valem só na metade que corre; sem ela, no vão inteiro. Regra das plantas da Prospecta: a
+   *  folha que abre fica do lado OPOSTO ao sofá (decisão do dono em 21/11/2026). */
+  folha_fixa: z.enum(["inicio", "fim"]).optional(),
   /** Ambiente para onde a folha gira (obrigatório em `esq`/`dir`). */
   abre_para: z.string().max(80).optional(),
   descricao: z.string().max(200).optional(),

@@ -58,7 +58,7 @@ async function criarBanco() {
   const pg = new PGlite();
   await pg.exec(ddl);
   await pg.exec(`CREATE TABLE incorporation_registration_file_data (document_id integer PRIMARY KEY, mime text, size_bytes integer, data bytea);`);
-  for (const a of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql", "0121_maquete_3d_revisoes.sql"]) {
+  for (const a of ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql", "0121_maquete_3d_revisoes.sql", "0146_maquete_3d_itens_e_lotes.sql"]) {
     await pg.exec(readFileSync(new URL(`../drizzle/${a}`, import.meta.url), "utf8"));
   }
   return { pg, db: drizzle(pg) };

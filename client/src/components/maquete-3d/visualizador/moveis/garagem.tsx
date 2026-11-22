@@ -535,10 +535,14 @@ const pinturas = new Map<string, THREE.MeshPhysicalMaterial>();
 
 /** Pintura automotiva: base metálica sob verniz. */
 function pintura(nome: string): THREE.MeshPhysicalMaterial {
-  const chave = nome in CORES ? nome : "prata";
+  // EPIC-028 (Etapa 3): a cor do item do JSON-fonte (#rrggbb) também vale, como pintura metálica.
+  const hex = /^#[0-9a-fA-F]{6}$/.test(nome);
+  const chave = hex ? nome.toLowerCase() : nome in CORES ? nome : "prata";
   let p = pinturas.get(chave);
   if (!p) {
-    p = new THREE.MeshPhysicalMaterial({ color: CORES[chave].cor, metalness: CORES[chave].metal, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 });
+    p = hex
+      ? new THREE.MeshPhysicalMaterial({ color: chave, metalness: 0.6, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 })
+      : new THREE.MeshPhysicalMaterial({ color: CORES[chave].cor, metalness: CORES[chave].metal, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 });
     pinturas.set(chave, p);
   }
   return p;

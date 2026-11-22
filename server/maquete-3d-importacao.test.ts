@@ -42,6 +42,8 @@ async function criarBanco() {
   }
   await pg.exec(MIGRACAO);
   await pg.exec(MIGRACAO); // idempotente
+  // EPIC-028 (Etapa 3): as colunas novas de maquetes_3d (0146) entram em todo INSERT do Drizzle.
+  await pg.exec(readFileSync(new URL("../drizzle/0146_maquete_3d_itens_e_lotes.sql", import.meta.url), "utf8"));
   return { pg, db: drizzle(pg) };
 }
 

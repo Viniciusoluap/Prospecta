@@ -79,6 +79,14 @@ const mascarado = (s: string | null | undefined) => sanitizarTexto(String(s ?? "
 const semTabelaNova = <T>(e: unknown): T[] => { if (ehTabelaInexistente(e)) return []; throw e; };
 const SEM_0142 = "Escrever e assumir grupo pela Central ficam disponíveis depois da migração 0142.";
 
+/**
+ * O que a Dolores efetivamente ENVIOU ao grupo: toda marcação com `resposta` e `respondidaEm` preenchidos, qualquer que seja a
+ * situação. Além de "respondida", a marcação grava com texto enviado a recusa fora do escopo ("fora_de_escopo") e o aviso de teto do
+ * dia ("silencio"); essas mensagens saíram para o grupo e o humano que assume precisa vê-las. Sem envio, `resposta` fica nula
+ * (erro, silêncio sem aviso, processando) — nada disso aparece. Nunca inclui a conversa do dono nem avisos/relatórios dela (outras tabelas).
+ */
+const respostaEnviada = () => [isNotNull(doloresMarcacoes.resposta), isNotNull(doloresMarcacoes.respondidaEm)] as const;
+
 type ItemDoGrupo = {
   chave: string; origem: "participante" | "equipe" | "dolores"; autor: string; texto: string; quando: Date;
   /** Ordem/cursor: a hora em que o sistema registrou. */
@@ -118,7 +126,7 @@ export const whatsappGruposRouter = router({
         .from(whatsappGrupoEnvios).where(inArray(whatsappGrupoEnvios.grupoId, ids)).orderBy(whatsappGrupoEnvios.grupoId, desc(whatsappGrupoEnvios.criadoEm))
         .catch(e => semTabelaNova<{ grupoId: number; texto: string; criadoEm: Date }>(e)),
       db.selectDistinctOn([doloresMarcacoes.grupoId], { grupoId: doloresMarcacoes.grupoId, texto: doloresMarcacoes.resposta, criadoEm: doloresMarcacoes.respondidaEm })
-        .from(doloresMarcacoes).where(and(inArray(doloresMarcacoes.grupoId, ids), eq(doloresMarcacoes.situacao, "respondida"), isNotNull(doloresMarcacoes.respondidaEm), isNotNull(doloresMarcacoes.resposta)))
+        .from(doloresMarcacoes).where(and(inArray(doloresMarcacoes.grupoId, ids), ...respostaEnviada()))
         .orderBy(doloresMarcacoes.grupoId, desc(doloresMarcacoes.respondidaEm)),
     ]) : [[], [], []];
     const conectada = conn?.status === "conectado";
@@ -161,7 +169,7 @@ export const whatsappGruposRouter = router({
         .where(and(eq(whatsappGrupoEnvios.grupoId, g.id), input.antes ? lt(whatsappGrupoEnvios.criadoEm, input.antes) : undefined))
         .orderBy(desc(whatsappGrupoEnvios.criadoEm), desc(whatsappGrupoEnvios.id)).limit(lim).catch(e => semTabelaNova<typeof whatsappGrupoEnvios.$inferSelect>(e)),
       db.select({ id: doloresMarcacoes.id, resposta: doloresMarcacoes.resposta, respondidaEm: doloresMarcacoes.respondidaEm }).from(doloresMarcacoes)
-        .where(and(eq(doloresMarcacoes.grupoId, g.id), eq(doloresMarcacoes.situacao, "respondida"), isNotNull(doloresMarcacoes.respondidaEm), isNotNull(doloresMarcacoes.resposta),
+        .where(and(eq(doloresMarcacoes.grupoId, g.id), ...respostaEnviada(),
           input.antes ? lt(doloresMarcacoes.respondidaEm, input.antes) : undefined))
         .orderBy(desc(doloresMarcacoes.respondidaEm)).limit(lim),
     ]);

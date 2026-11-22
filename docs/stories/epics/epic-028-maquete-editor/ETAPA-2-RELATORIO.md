@@ -65,8 +65,8 @@ da planta 18,2 kB (5,1 kB gzip). O 3D reaproveita os pedaços já existentes de 
 
 ## Pendências
 
-1. Dono: telhado 20% × 25% e platibanda 1,15 × 1,60 (troca só no JSON; o gerador avisa se a cumeeira aparecer).
-2. Dono: qual folha da P2 é fixa (hoje as duas são desenhadas como de correr).
-3. PT1 desenhado como portão gradeado (pedido desta etapa); o JSON descreve "de enrolar" — confirmar.
+1. ~~Dono: telhado~~ — RESOLVIDO em 21/11: 20% e platibanda 1,15 (protótipo).
+2. ~~Dono: qual folha da P2 é fixa~~ — RESOLVIDO em 21/11: a do lado do sofá; a outra corre (desenhada com puxador e seta na planta).
+3. ~~PT1~~ — RESOLVIDO em 21/11: portão de correr (folha única sobre trilho, chapa e gradil).
 4. Cor de cada item do JSON ainda não aplicada (móveis no estilo "moderno" do catálogo).
 5. Etapa 3 (banco, editor de itens, versões) não iniciada, como pedido.
