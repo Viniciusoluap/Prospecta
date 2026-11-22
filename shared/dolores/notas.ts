@@ -12,6 +12,7 @@ import { textoDeDado, umaLinha } from "./fila.js";
 import { nomeComparavel } from "./grupos.js";
 import { tratarLinksDaResposta } from "./links.js";
 import { BANCARIO_OMITIDO, sanitizarTexto } from "./sanitizar.js";
+import { cnpjValido as cnpjValidoFiscal } from "../fiscal/documento.js";
 
 export const TIPOS_NOTA = ["nfe", "nfse", "nfce", "recibo", "cupom", "outro"] as const;
 export type TipoNota = (typeof TIPOS_NOTA)[number];
@@ -127,14 +128,9 @@ export const FERRAMENTA_NOTA = {
 
 // ── Conferências determinísticas ──
 
+/** CNPJ numérico conferido (as notas de grupo gravam só números: CHECK da 0128). Cálculo no validador único (EPIC-029 S-5). */
 export function cnpjValido(d: string): boolean {
-  if (!/^\d{14}$/.test(d) || /^(\d)\1+$/.test(d)) return false;
-  const dv = (base: string, pesos: number[]) => {
-    const s = pesos.reduce((t, p, i) => t + Number(base[i]) * p, 0) % 11;
-    return s < 2 ? 0 : 11 - s;
-  };
-  const p1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  return dv(d, p1) === Number(d[12]) && dv(d, [6, ...p1]) === Number(d[13]);
+  return /^\d{14}$/.test(d) && cnpjValidoFiscal(d);
 }
 export const cpfValido = (d: string) => /^\d{11}$/.test(d) && isValidCPF(d);
 

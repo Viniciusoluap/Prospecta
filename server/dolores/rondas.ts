@@ -153,7 +153,8 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
   })],
   ["notas", lerSecao(async () => {
     const [r] = await bancoDaLeitura().select({
-      semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira'))`.mapWith(Number),
+      // EPIC-029 S-5: confirmação do empreiteiro só existe para a nota de grupo (a do ADN não é respondida no grupo)
+      semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.origem} = 'grupo' and ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira'))`.mapWith(Number),
       semConciliacao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'confirmada' and ${obraNotas.bpoLancamentoId} is null)`.mapWith(Number),
       correcao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'correcao')`.mapWith(Number),
       naoLidas: sql<number>`count(*) filter (where ${obraNotas.situacao} in ('nao_lida', 'ilegivel'))`.mapWith(Number),

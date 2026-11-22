@@ -410,7 +410,8 @@ export async function reconhecerRespostaDoEmpreiteiro(cfg: DoloresWhatsappConfig
       const [n] = await db.select({ id: obraNotas.id, grupoId: obraNotas.grupoId, externalIdMensagem: doloresGrupoMensagens.externalId, criadoEm: obraNotas.criadoEm,
         confirmacao: obraNotas.confirmacao, obraId: obraNotas.obraId }).from(obraNotas)
         .innerJoin(doloresGrupoMensagens, eq(doloresGrupoMensagens.id, obraNotas.mensagemId)).where(onde).limit(1);
-      return n ?? null;
+      // EPIC-029 S-5: só nota de GRUPO recebe resposta do empreiteiro (a do ADN não tem mensagem: o innerJoin já a exclui)
+      return n && n.grupoId !== null ? { ...n, grupoId: n.grupoId } : null;
     };
     const porCitacao = citada ? await candidata(and(eq(doloresGrupoMensagens.instancia, grupo.instancia), eq(doloresGrupoMensagens.externalId, citada)) as never) : null;
     const porReferencia = resposta.notaRef !== null && resposta.notaRef <= 2_147_483_647 ? await candidata(eq(obraNotas.id, resposta.notaRef)) : null;

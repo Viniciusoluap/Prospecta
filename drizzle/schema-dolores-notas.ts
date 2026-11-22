@@ -2,7 +2,7 @@
 // configuração da leitura (migração 0128_dolores_notas.sql). Tabelas novas, em arquivo próprio: nenhuma tabela anterior
 // foi alterada. As garantias (nada apagado, o que foi lido não muda, vínculos que só podem virar NULL) estão nos gatilhos.
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import type { CategoriaNota, ItemNota, SituacaoNota, TipoNota } from "../shared/dolores/notas.js";
 import { bpoLancamentos, constructionProjects, users } from "./schema.js";
 import { doloresAprovacoes } from "./schema-dolores-fila.js";
@@ -10,8 +10,10 @@ import { doloresGrupoMensagens, doloresGrupos } from "./schema-dolores-grupos.js
 
 export const obraNotas = pgTable("obra_notas", {
   id: serial("id").primaryKey(),
-  grupoId: integer("grupo_id").notNull().references(() => doloresGrupos.id, { onDelete: "restrict" }),
-  mensagemId: integer("mensagem_id").notNull().references(() => doloresGrupoMensagens.id, { onDelete: "restrict" }),
+  // EPIC-029 S-5 (0163): sem NOT NULL na coluna, mas a origem 'grupo' continua OBRIGADA a ter grupo e mensagem (CHECK
+  // "obra_notas_grupo_exige_mensagem_ck"); a origem 'adn' (NFS-e recebida pelo ADN) não tem nenhum dos dois.
+  grupoId: integer("grupo_id").references(() => doloresGrupos.id, { onDelete: "restrict" }),
+  mensagemId: integer("mensagem_id").references(() => doloresGrupoMensagens.id, { onDelete: "restrict" }),
   obraId: integer("obra_id").references(() => constructionProjects.id, { onDelete: "set null" }),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
   arquivoSha256: varchar("arquivo_sha256", { length: 64 }),
@@ -44,13 +46,29 @@ export const obraNotas = pgTable("obra_notas", {
   driveFileId: varchar("drive_file_id", { length: 200 }),
   salvaEm: timestamp("salva_em", { withTimezone: true }),
   salvaAprovacaoId: integer("salva_aprovacao_id").references(() => doloresAprovacoes.id, { onDelete: "restrict" }),
+  // EPIC-029 S-5 (0163): origem da nota, chave de 50 dígitos da NFS-e, NSU do ADN e CNPJ alfanumérico do emitente.
+  origem: varchar("origem", { length: 10 }).$type<OrigemObraNota>().default("grupo").notNull(),
+  chaveNfse: varchar("chave_nfse", { length: 50 }),
+  nsu: bigint("nsu", { mode: "number" }),
+  emitenteCnpjAlfa: varchar("emitente_cnpj_alfa", { length: 14 }),
 }, t => [
   uniqueIndex("obra_notas_mensagem_uidx").on(t.mensagemId),
   index("obra_notas_obra_idx").on(t.obraId, t.criadoEm),
   index("obra_notas_grupo_idx").on(t.grupoId, t.criadoEm),
   uniqueIndex("obra_notas_bpo_uidx").on(t.bpoLancamentoId).where(sql`${t.bpoLancamentoId} IS NOT NULL`),
+  uniqueIndex("obra_notas_chave_nfse_uidx").on(t.chaveNfse).where(sql`${t.chaveNfse} IS NOT NULL`),
 ]);
 export type ObraNota = typeof obraNotas.$inferSelect;
+export type OrigemObraNota = "grupo" | "adn";
+
+/** EPIC-029 S-5 (0163): XML original da NFS-e recebida pelo ADN (uma linha por nota 'adn'; só inserção). */
+export const obraNotasAdn = pgTable("obra_notas_adn", {
+  notaId: integer("nota_id").primaryKey().references(() => obraNotas.id, { onDelete: "restrict" }),
+  tomadorCnpj: varchar("tomador_cnpj", { length: 14 }).notNull(),
+  xml: text("xml").notNull(),
+  xmlSha256: varchar("xml_sha256", { length: 64 }).notNull(),
+  capturadaEm: timestamp("capturada_em", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const obraNotasRespostas = pgTable("obra_notas_respostas", {
   id: serial("id").primaryKey(),

@@ -115,6 +115,19 @@ export type FiscalNota = typeof fiscalNotas.$inferSelect;
 export type FiscalEmissor = typeof fiscalEmissores.$inferSelect;
 export type FiscalTipoServico = typeof fiscalTiposServico.$inferSelect;
 
+/** EPIC-029 S-5 (0163): estado da captura das NFS-e recebidas pelo ADN, por CNPJ tomador (desligada por padrão). */
+export const fiscalDistribuicaoEstado = pgTable("fiscal_distribuicao_estado", {
+  cnpj: varchar("cnpj", { length: 14 }).primaryKey(),
+  ligada: boolean("ligada").default(false).notNull(),
+  ultimoNsu: bigint("ultimo_nsu", { mode: "number" }).default(0).notNull(),
+  ultimaConsultaEm: timestamp("ultima_consulta_em", { withTimezone: true }),
+  ultimaConsultaVaziaEm: timestamp("ultima_consulta_vazia_em", { withTimezone: true }),
+  ultimoResultado: varchar("ultimo_resultado", { length: 12 }).$type<"ok" | "parcial" | "erro">(),
+  documentosGravados: integer("documentos_gravados").default(0).notNull(),
+  nsusIlegiveis: jsonb("nsus_ilegiveis").$type<number[]>().default([]).notNull(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // EPIC-029 S-4 (22/11/2026) — cofre do certificado A1 (migração 0162_fiscal_certificados.sql). Ler/decifrar SÓ em
 // server/fiscal/certificado.ts (teste-vigia em server/fiscal/certificado.test.ts).
 export type OrigemCertificadoFiscal = "juridico" | "arquivo";

@@ -16,8 +16,11 @@ const TABELAS = [
 ];
 
 let ddl: string | null = null;
-/** `semEtapa7`: para o teste da migração 0133 sobre um banco que já tem grupos (ela é aplicada pelo próprio teste). */
-export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
+/**
+ * `semEtapa7`: para o teste da migração 0133 sobre um banco que já tem grupos (ela é aplicada pelo próprio teste).
+ * `sem0163`: para o teste da migração 0163 (NFS-e recebidas pelo ADN) sobre notas de grupo gravadas antes dela.
+ */
+export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolean } = {}) {
   if (!ddl) {
     const { generateDrizzleJson, generateMigration } = createRequire(import.meta.url)("drizzle-kit/api");
     const escolhidas: Record<string, unknown> = {};
@@ -129,8 +132,16 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const reservaDosAvisos = MIGRACAO_0160();
   await pg.exec(reservaDosAvisos);
   await pg.exec(reservaDosAvisos);
+  // EPIC-029 S-5 (NFS-e recebidas = origem 'adn' de obra_notas): migração 0163, também duas vezes.
+  if (!opcoes.sem0163) {
+    const recebidas = MIGRACAO_0163();
+    await pg.exec(recebidas);
+    await pg.exec(recebidas);
+  }
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0163 = () => readFileSync(new URL("../../drizzle/0163_obra_notas_origem_adn.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0160 = () => readFileSync(new URL("../../drizzle/0160_dolores_avisos_reserva.sql", import.meta.url), "utf8");
 
