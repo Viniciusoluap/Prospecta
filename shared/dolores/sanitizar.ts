@@ -49,19 +49,15 @@
 // com centavos); PIX só quando o que segue tem forma de chave (e-mail, CPF/CNPJ/telefone, chave aleatória) — "pix
 // 1.500,00" fica. Na dúvida real, sai: o marcador é visível, e a Dolores nunca apresenta número alterado como dado.
 import { isValidCPF } from "../cpf.js";
+import { cnpjValido as cnpjValidoFiscal } from "../fiscal/documento.js";
 
 export const OMITIDO = "[dado pessoal omitido]";
 export const SENHA_OMITIDA = "[senha omitida]";
 export const BANCARIO_OMITIDO = "[dado bancário omitido]";
 
+/** CNPJ numérico (o filtro procura números no texto; a regra não muda). Cálculo no validador único (EPIC-029 S-5). */
 function cnpjValido(d: string): boolean {
-  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
-  const dv = (base: string, pesos: number[]) => {
-    const s = pesos.reduce((t, p, i) => t + Number(base[i]) * p, 0) % 11;
-    return s < 2 ? 0 : 11 - s;
-  };
-  const p1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  return dv(d, p1) === Number(d[12]) && dv(d, [6, ...p1]) === Number(d[13]);
+  return /^\d{14}$/.test(d) && cnpjValidoFiscal(d);
 }
 
 /** Dígito verificador (módulo 11, pesos 2–9 da direita) da chave de acesso de 44 dígitos da NF-e. */

@@ -15,6 +15,7 @@ import { curvasPadraoPci, etapaCemPorCentoPci, incrementoMaximoEtapaPci } from "
 import { opcaoExataPci, opcoesPci } from "./pci-listas.js";
 import { lerNumero } from "./numero-mascara.js";
 import { isValidCPF } from "./cpf.js";
+import { cnpjValido as cnpjValidoFiscal } from "./fiscal/documento.js";
 
 export const ABA_PROPOSTA_PCI = "Proposta_Constr_Individual";
 
@@ -1331,9 +1332,8 @@ export function validarNomeModeloPreenchimentoPci(nome: unknown): string {
 
 /** CNPJ numérico com dígitos verificadores (o alfanumérico não aparece em texto livre de memorial). */
 function cnpjNumericoValido(d: string): boolean {
-  if (!/^\d{14}$/.test(d) || /^(\d)\1+$/.test(d)) return false;
-  const dv = (base: string, pesos: number[]) => { const r = Array.from(base).reduce((s, c, i) => s + Number(c) * pesos[i], 0) % 11; return r < 2 ? 0 : 11 - r; };
-  return Number(d[12]) === dv(d.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) && Number(d[13]) === dv(d.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  // EPIC-029 S-5: cálculo no validador único; aqui continua só numérico (a regra do memorial não muda).
+  return /^\d{14}$/.test(d) && cnpjValidoFiscal(d);
 }
 
 export type TipoDadoPessoalPci = "CPF" | "CNPJ" | "e-mail" | "telefone";

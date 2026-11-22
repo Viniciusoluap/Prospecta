@@ -165,7 +165,8 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
       if (aps.get(nota.id)?.apontamento.situacao === "divergente") {
         achados.push({ tipo: "nota_obra", entidade: `nota:${nota.id}:divergencia`, faixa: 1, dados: { nome, marca: "divergente", ref: { tipo: "nota", id: nota.id } } });
       }
-      if (nota.confirmacao === "pendente" && (nota.situacao === "rascunho" || nota.situacao === "confira")) {
+      // EPIC-029 S-5: só a nota de GRUPO espera confirmação do empreiteiro; a recebida pelo ADN só entra pela divergência acima
+      if (nota.origem === "grupo" && nota.confirmacao === "pendente" && (nota.situacao === "rascunho" || nota.situacao === "confira")) {
         const dias = Math.floor((agora.getTime() - (enviadaEm ?? nota.criadoEm).getTime()) / DIA_MS);
         if (dias >= n) achados.push({ tipo: "nota_obra", entidade: `nota:${nota.id}:confirmacao`, faixa: faixaDe(dias, n, DEGRAUS.nota_obra), dados: { nome, dias, marca: "sem_confirmacao", ref: { tipo: "nota", id: nota.id } } });
       }

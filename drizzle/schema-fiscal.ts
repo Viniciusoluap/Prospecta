@@ -112,3 +112,15 @@ export const fiscalNotasHistorico = pgTable("fiscal_notas_historico", {
 export type FiscalNota = typeof fiscalNotas.$inferSelect;
 export type FiscalEmissor = typeof fiscalEmissores.$inferSelect;
 export type FiscalTipoServico = typeof fiscalTiposServico.$inferSelect;
+
+/** EPIC-029 S-5 (0163): estado da captura das NFS-e recebidas pelo ADN, por CNPJ tomador (desligada por padrão). */
+export const fiscalDistribuicaoEstado = pgTable("fiscal_distribuicao_estado", {
+  cnpj: varchar("cnpj", { length: 14 }).primaryKey(),
+  ligada: boolean("ligada").default(false).notNull(),
+  ultimoNsu: bigint("ultimo_nsu", { mode: "number" }).default(0).notNull(),
+  ultimaConsultaEm: timestamp("ultima_consulta_em", { withTimezone: true }),
+  ultimaConsultaVaziaEm: timestamp("ultima_consulta_vazia_em", { withTimezone: true }),
+  ultimoResultado: varchar("ultimo_resultado", { length: 12 }).$type<"ok" | "parcial" | "erro">(),
+  documentosGravados: integer("documentos_gravados").default(0).notNull(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+});
