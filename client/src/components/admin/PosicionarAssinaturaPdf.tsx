@@ -48,6 +48,10 @@ export default function PosicionarAssinaturaPdf({ bytes, mudou }: { bytes: Uint8
       <canvas ref={canvas} className="block h-auto w-full" />
       {pdf&&<div className="pointer-events-none absolute overflow-hidden border-2 border-blue-700 bg-blue-100/80 p-1 text-[10px] text-blue-950" style={{left:`${box.x*100}%`,top:`${box.y*100}%`,width:`${box.w*100}%`,height:`${box.h*100}%`}}>ASSINADO DIGITALMENTE<br/>Titular do certificado<br/>{escolhida?"Posição selecionada":"Toque para posicionar"}</div>}
     </div>
-    <label className="flex items-center gap-2 text-sm">Largura da assinatura<input type="range" min="0.25" max="0.85" step="0.01" value={box.w} onChange={e=>{const b={...box,w:Number(e.target.value)};b.x=Math.min(b.x,1-b.w);setBox(b);if(escolhida)publicar(b);}} /></label>
+    <label className="flex items-center gap-2 text-sm">Tamanho da assinatura<input type="range" min="0.5" max="1.6" step="0.05" value={box.w/0.52} onChange={e=>{
+      const escala=Number(e.target.value),w=0.52*escala,h=0.11*escala;
+      const b={w,h,x:Math.max(0,Math.min(1-w,box.x+(box.w-w)/2)),y:Math.max(0,Math.min(1-h,box.y+(box.h-h)/2))};
+      boxRef.current=b;setBox(b);if(escolhida)publicar(b);
+    }} /><span className="tabular-nums">{Math.round(box.w/0.52*100)}%</span></label>
   </div>;
 }

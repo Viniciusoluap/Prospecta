@@ -83,12 +83,12 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
           <Button variant="outline" disabled={ocupado || !c.senhaSalva} onClick={()=>void esquecerSenha(c).then(atualizar).catch(e=>setErro(e.message))}>Esquecer senha</Button><Button variant="outline" disabled={ocupado} onClick={() => { if (confirm(`Remover ${c.titular} deste navegador?`)) void removerCertificado(owner, c.id).then(atualizar).catch(e => setErro(e.message)); }}>Remover certificado</Button></div>
       </div>)}
     </>}
-    <form onSubmit={importar} className="space-y-3 rounded border border-slate-500 p-4">
+    {!documento && <form onSubmit={importar} className="space-y-3 rounded border border-slate-500 p-4">
       <h3 className="font-semibold text-[#C9A961]">Importar certificado digital</h3>
       <Label htmlFor="arquivo-certificado">Arquivo A1 (.pfx ou .p12)</Label><Input id="arquivo-certificado" name="certificado" type="file" accept=".pfx,.p12,application/x-pkcs12" required disabled={ocupado} />
       <Label htmlFor="senha-importacao">Senha do certificado</Label><Input id="senha-importacao" name="senha" type="password" autoComplete="off" required disabled={ocupado} />
       <Button type="submit" disabled={ocupado}>{ocupado ? "Processando…" : "Importar certificado"}</Button>
-    </form>
+    </form>}
   </div>;
   return documento ? <Dialog open onOpenChange={v => { if (!v && !ocupado) fechar(); }}><DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto bg-[#1A2332] text-white"><DialogHeader><DialogTitle>Assinar digitalmente</DialogTitle></DialogHeader>{conteudo}</DialogContent></Dialog> : <section className="space-y-4 rounded-lg bg-[#2C3E50] p-5"><h2 className="text-xl font-bold text-[#C9A961]">Certificados digitais</h2>{conteudo}</section>;
 }
