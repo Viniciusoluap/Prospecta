@@ -2,6 +2,7 @@
 // e prepare as cobranças"), a decisão do dono por código e os ataques de injeção (dados envenenados, modelo induzido,
 // remetente estranho, mensagem encaminhada). Modelo da Anthropic e envio pela Evolution falsos (PGlite, sem rede).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
@@ -35,7 +36,8 @@ function aviso(p: { de?: string; texto: string; encaminhada?: boolean }) {
     data: {
       key: { remoteJid: `${p.de ?? DONO}@s.whatsapp.net`, fromMe: false, id: `MSG${++seq}` },
       message: p.encaminhada ? { extendedTextMessage: { text: p.texto, contextInfo: { isForwarded: true, forwardingScore: 1 } } } : { conversation: p.texto },
-      messageTimestamp: Math.floor((AGORA.getTime() - 30_000) / 1000),
+      // QA C5-E2 (A1): a resposta curta ("pode"/"confirmo") é escrita DEPOIS da pergunta (enviada em AGORA)
+      messageTimestamp: Math.floor((AGORA.getTime() + (lerConfirmacao(p.texto) ? 1_000 : -30_000)) / 1000),
     },
   };
 }
@@ -96,12 +98,13 @@ describe("teste de aceite da etapa 3 pelo WhatsApp", () => {
     expect(respostas().map(x => x.numero)).toEqual([DONO]);
     const resp = ultimaResposta();
     expect(resp).toMatch(/^\*Documentos pendentes\*/);
-    expect(resp).toContain("*Aguardando a sua aprovação* (nada foi feito ainda):");
-    for (const i of itens) expect(resp).toContain(`[${i.codigo}]`);
-    expect(resp).toContain(`Responda só "aprovar ${itens[0].codigo}"`);
+    // EPIC-027 C5 (E2): a pergunta do sistema em voz natural, sem código; cobrança é séria ("confirmo")
+    expect(resp).toContain("*Isto precisa da sua confirmação por escrito* (é uma cobrança a cliente):");
+    for (const i of itens) expect(resp).not.toContain(i.codigo);
+    expect(resp).toMatch(/Se é isso mesmo, responda: confirmo/);
     expect(await doDolores()).toEqual([]);
 
-    // o dono aprova os dois — sem chamar o modelo, sem gasto
+    // compatibilidade: o comando antigo "aprovar CÓDIGO" continua valendo — sem chamar o modelo, sem gasto
     const chamadasAntes = pedidosModelo.length;
     const r2 = await chamar(aviso({ texto: `aprovar ${itens[0].codigo} ${itens[1].codigo}` }));
     expect(r2.body.r).toEqual({ "decisao:aprovar": 1 });
@@ -117,13 +120,16 @@ describe("teste de aceite da etapa 3 pelo WhatsApp", () => {
     expect(acoes.slice(1).map(a => a.pedido_id)).toEqual(itens.map(i => `fila:${i.codigo}`));
   });
 
-  it("ação direta: tarefa criada pelo pedido aparece no quadro \"Registrado no sistema por mim\"", async () => {
+  it("tarefa pedida pelo dono (EPIC-027 C5 E2): espera o \"pode\"; com ele, é criada e a resposta diz o que foi feito", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Cobrar certidão no cartório", responsavel: "Bianca Souza", prazo: "2026-11-20", vinculo: { tipo: "cliente", id: 2 } }]),
-      () => texto("Tarefa criada para a Bianca."),
+      () => texto("Vou criar a tarefa para a Bianca."),
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11." }));
-    expect(ultimaResposta()).toMatch(/\*Registrado no sistema por mim\* \(em nome da usuária Dolores\):\n- Tarefa #\d+ "Cobrar certidão no cartório" para Bianca Souza \(20\/11\/2026; cliente João Atrasado\)/);
+    expect(ultimaResposta()).toMatch(/\*Posso fazer isto\?\*\n- criar a tarefa "Cobrar certidão no cartório" para Bianca Souza/);
+    expect(await q("SELECT * FROM tasks WHERE title = 'Cobrar certidão no cartório'")).toEqual([]);
+    await chamar(aviso({ texto: "pode" }));
+    expect(ultimaResposta()).toMatch(/^Pronto: Tarefa #\d+ "Cobrar certidão no cartório" para Bianca Souza \(20\/11\/2026; cliente João Atrasado\)/);
   });
 });
 
@@ -259,7 +265,10 @@ describe("integração com a Etapa 2 final: a decisão por código segue as regr
   });
 
   it("os quadros saem inteiros pelo filtro novo de dados pessoais (códigos e a instrução final)", async () => {
-    const item = await umItemNaFila();
+    // EPIC-027 C5 (E2): o quadro com códigos continua no pedido que NÃO é confirmável com "pode" (texto colado)
+    roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei.")];
+    await chamar(aviso({ texto: "Dolores, prepare as cobranças deste e-mail:\nDe: maria@cliente.com\nAssunto: documentos" }));
+    const [item] = await fila();
     const resp = ultimaResposta();
     expect(resp).not.toMatch(/omitid/);
     expect(resp).toContain(`[${item.codigo}]`);

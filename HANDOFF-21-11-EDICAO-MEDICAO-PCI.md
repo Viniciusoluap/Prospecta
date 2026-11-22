@@ -31,3 +31,8 @@
 ## Próximo passo / paridade
 - Revisar PR, conferir preview e publicar (autorização vigente). Atualizar este handoff com SHA/deployment.
 - Paridade Santa Fé: portar a mesma lógica no fluxo equivalente de editar medições. Mantida como pendência separada para não tocar na frente do Fabel nem ampliar esta publicação.
+
+## Sincronização com a frente Fabel
+- Durante a implementação, a main avançou para `04f8e3b0f0d8af5168e66471cd292d56a1bd04d6` (PR #285, Dolores C5-E2).
+- Conferidos os 36 arquivos dessa frente: nenhuma sobreposição com os 6 arquivos desta correção. A branch foi sincronizada preservando integralmente os blobs da main nova; nenhuma migração/credencial/Dolores foi alterada por esta tarefa.
+- O próximo preview deve validar a combinação com essa main, antes do merge de produção.
