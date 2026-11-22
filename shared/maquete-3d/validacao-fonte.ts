@@ -29,7 +29,7 @@ export type CodigoProblema =
   | "parede_obliqua" | "paredes_sobrepostas" | "paredes_cruzadas"
   | "abertura_fora" | "abertura_sobreposta" | "abertura_altura" | "abertura_tapada" | "abertura_sem_lado"
   | "item_parede" | "item_fora_ambiente" | "item_vao" | "item_giro_porta" | "item_faixa_livre" | "item_sob_janela"
-  | "itens_sobrepostos" | "balcao_alto" | "balcao_parede" | "balcao_ausente" | "balcao_passagem";
+  | "itens_sobrepostos" | "item_elevado" | "balcao_alto" | "balcao_parede" | "balcao_ausente" | "balcao_passagem";
 
 export type ProblemaFonte = { nivel: "erro" | "aviso"; codigo: CodigoProblema; onde: string; mensagem: string };
 

@@ -2,7 +2,7 @@
 // testado em shared/maquete-3d/fonte-cena.ts): aqui só se transforma número em malha. Paredes, muros, platibanda,
 // calhas, forro e soleiras viram poucas geometrias mescladas (uma chamada de desenho por material); pisos são
 // extrusões dos polígonos dos ambientes; móveis vêm do catálogo procedural (moveis/).
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, type ReactNode, type RefObject } from "react";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -11,6 +11,8 @@ import type { BlocoCena, CaixaCena, CenaFonte, EsquadriaCena, PecaFonte } from "
 import { ESPESSURA_FORRO } from "@shared/maquete-3d/fonte-cena";
 import { materiaisDaFonte, type MateriaisFonte } from "./materiais-fonte";
 import { CATALOGO } from "./moveis";
+import type { Materiais } from "./materiais";
+import { materiaisDoItem } from "./materiais-itens";
 
 // ── Geometria mesclada de caixas (coordenadas de textura em metros) ──
 
@@ -186,12 +188,32 @@ function Esquadria({ e, m }: { e: EsquadriaCena; m: MateriaisFonte }) {
   return <group position={[e.cx, e.y0, e.cz]} rotation={[0, e.ang, 0]}>{corpo}</group>;
 }
 
+// ── Itens (móveis do JSON), cada um com a cor e o material dele ──
+
+/** Um item do JSON: o desenho do catálogo com a cor do item. `userData.itemId` deixa o editor achar o item tocado. */
+const ItemDesenhado = memo(function ItemDesenhado({ p, base, aprimorado }: { p: PecaFonte; base: Materiais; aprimorado: boolean }) {
+  const Desenho = CATALOGO[p.tipo];
+  const m = materiaisDoItem(base, p.material, p.cor);
+  // O carro escolhe a pintura pela opção `cor`: a cor do item vale quando a opção não diz outra.
+  const peca = useMemo(() => (p.tipo === "carro" && p.material === "pintura" && p.cor && p.opcoes.cor === undefined ? { ...p, opcoes: { ...p.opcoes, cor: p.cor } } : p), [p]);
+  if (!Desenho) return null;
+  return (
+    <group position={[p.x, p.y + p.elevacao, p.z]} rotation={[0, p.rot, 0]} userData={{ itemId: p.id }}>
+      <Desenho peca={peca} m={m} estilo="moderno" aprimorado={aprimorado} />
+    </group>
+  );
+});
+
 // ── Cena ──
 
 export type OpcoesCena = { sombras: boolean; mapaSombra: number; aprimorado: boolean };
 
-export function CenaFonte({ cena, pecas, telhado, corte, rotulos, opcoes }: {
+export function CenaFonte({ cena, pecas, telhado, corte, rotulos, opcoes, grupoItens, children }: {
   cena: CenaFonte; pecas: PecaFonte[];
+  /** Grupo dos itens (o editor procura neles o item tocado; a estrutura fica fora e não é selecionável). */
+  grupoItens?: RefObject<THREE.Group | null>;
+  /** Camadas a mais dentro da cena (contorno do item selecionado, no editor). */
+  children?: ReactNode;
   /** Forro, platibanda, telhas e calhas. */
   telhado: boolean;
   /** Visão geral em corte: topo das paredes da casa pintado de cinza escuro. */
@@ -260,14 +282,10 @@ export function CenaFonte({ cena, pecas, telhado, corte, rotulos, opcoes }: {
       <Malha geo={g.granito} material={m.granito} />
       {cena.esquadrias.map(e => <Esquadria key={e.id} e={e} m={m} />)}
 
-      {pecas.map(p => {
-        const Desenho = CATALOGO[p.tipo];
-        return Desenho ? (
-          <group key={p.id} position={[p.x, p.y + p.elevacao, p.z]} rotation={[0, p.rot, 0]}>
-            <Desenho peca={p} m={m.base} estilo="moderno" aprimorado={opcoes.aprimorado} />
-          </group>
-        ) : null;
-      })}
+      <group ref={grupoItens}>
+        {pecas.map(p => <ItemDesenhado key={p.id} p={p} base={m.base} aprimorado={opcoes.aprimorado} />)}
+      </group>
+      {children}
 
       <group visible={telhado}>
         <Malha geo={g.forro} material={m.forro} />

@@ -11,8 +11,11 @@ import { conferirAreas, validarFonte } from "@shared/maquete-3d/validacao-fonte"
 import { fmtM, planta2d } from "@shared/maquete-3d/planta2d";
 import { ROTULOS_MOVEL_FONTE } from "@shared/maquete-3d/rotulos-itens";
 import { Planta2D } from "@/components/maquete-3d/planta2d/Planta2D";
+import { useConexaoEditor, type ConexaoEditor } from "@/components/maquete-3d/editor/conexao";
 
 const VisualizadorFonte = lazy(() => import("@/components/maquete-3d/visualizador/VisualizadorFonte"));
+// Etapa 3: o editor de itens é um pedaço à parte, baixado só quando o administrador toca em "Editar".
+const EditorItens = lazy(() => import("@/components/maquete-3d/editor/EditorItens"));
 const PLANTAS = import.meta.glob<{ default: unknown }>("../../../data/plantas/*.json");
 
 type Estado = { tipo: "carregando" } | { tipo: "erro"; texto: string } | { tipo: "ok"; fonte: FontePlanta };
@@ -32,7 +35,12 @@ function usarFonte(nome: string | undefined): Estado {
 
 const botao = "inline-flex min-h-[44px] flex-none items-center whitespace-nowrap rounded border border-[#E4E4E0] bg-white px-4 text-[15px] text-[#111] transition-colors hover:bg-[#F4F4F1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#111] aria-pressed:border-[#111] aria-pressed:bg-[#FFE600]";
 
-function Pagina({ fonte }: { fonte: FontePlanta }) {
+function Pagina({ fonte: original, slug, conexao }: { fonte: FontePlanta; slug: string; conexao: ConexaoEditor | null }) {
+  // Itens mostrados na prévia: os do JSON; depois de editar, os da edição (o cliente vê só o publicado — Etapa 4).
+  const [itensEditados, setItensEditados] = useState<FontePlanta["itens"] | null>(null);
+  const fonte = useMemo(() => (itensEditados ? { ...original, itens: itensEditados } : original), [original, itensEditados]);
+  const [editando, setEditando] = useState(() => !!conexao && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("editar") === "1");
+  useEffect(() => { if (!conexao) setEditando(false); }, [conexao]);
   const cena = useMemo(() => cenaDaFonte(fonte), [fonte]);
   const pecas = useMemo(() => pecasDaFonte(fonte), [fonte]);
   const problemas = useMemo(() => validarFonte(fonte), [fonte]);
@@ -67,11 +75,27 @@ function Pagina({ fonte }: { fonte: FontePlanta }) {
   const itens = vista.ambiente ? fonte.itens.filter(i => i.ambiente === vista.ambiente).map(i => ROTULOS_MOVEL_FONTE[i.tipo]) : [];
   const erros = problemas.filter(p => p.nivel === "erro").length, avisos = problemas.length - erros;
 
+  if (editando && conexao) return (
+    <div className="min-h-[100dvh] bg-white pb-10 text-[16px] leading-[1.55] text-[#111]">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-[max(4vw,16px)] pb-3 pt-5">
+        <h1 className="m-0 text-[clamp(22px,3vw,32px)] font-medium leading-tight">Editar itens · {titulo}</h1>
+        <span className="text-sm text-[#6B6B66]">Só os itens (móveis, bancadas, balcão) mudam; a estrutura da planta fica travada.</span>
+      </header>
+      <div className="px-[max(4vw,16px)]">
+        <Suspense fallback={<div className="p-6 text-[#6B6B66]">Abrindo o editor…</div>}>
+          <EditorItens planta={slug} conexao={conexao} aoSair={itens => { if (itens) setItensEditados(itens); setEditando(false); }} />
+        </Suspense>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-[100dvh] bg-white pb-10 text-[16px] leading-[1.55] text-[#111]">
       <header className="flex flex-wrap items-baseline justify-between gap-4 px-[max(4vw,16px)] pb-3 pt-5">
         <h1 className="m-0 text-[clamp(22px,3vw,32px)] font-medium leading-tight">{titulo}</h1>
-        <span className="text-sm text-[#6B6B66]">{resto.join(" — ")} · lote {fmtM(fonte.lote.w)} × {fmtM(fonte.lote.d)} m · prévia do gerador (Etapa 2)</span>
+        <span className="text-sm text-[#6B6B66]">{resto.join(" — ")} · lote {fmtM(fonte.lote.w)} × {fmtM(fonte.lote.d)} m · prévia do gerador</span>
+        {/* Só o administrador vê o botão (o servidor confere o papel de novo em cada rota). */}
+        {conexao && <button type="button" className={`${botao} border-[#111] font-medium`} onClick={() => setEditando(true)} data-teste="editar">Editar</button>}
       </header>
 
       <div className={`relative mx-[max(4vw,16px)] overflow-hidden rounded-md ${planta ? "bg-white" : "h-[min(64vh,640px)] min-h-[340px] bg-[#D8D8D4]"}`}
@@ -166,7 +190,13 @@ function Pagina({ fonte }: { fonte: FontePlanta }) {
   );
 }
 
-export default function MaqueteDemo() {
+/** Página com a conexão do app: o botão "Editar" aparece só para o usuário logado com papel de administrador. */
+export default function MaqueteDemoNoApp() {
+  const conexao = useConexaoEditor();
+  return <MaqueteDemo conexao={conexao} />;
+}
+
+export function MaqueteDemo({ conexao = null }: { conexao?: ConexaoEditor | null }) {
   const [, params] = useRoute("/maquete-demo/:planta");
   const estado = usarFonte(params?.planta);
   useEffect(() => {
@@ -178,5 +208,5 @@ export default function MaqueteDemo() {
   }, []);
   if (estado.tipo === "carregando") return <div className="flex min-h-[100dvh] items-center justify-center bg-white text-[#6B6B66]">Carregando a planta…</div>;
   if (estado.tipo === "erro") return <div className="flex min-h-[100dvh] items-center justify-center bg-white text-[#6B6B66]">{estado.texto}</div>;
-  return <Pagina fonte={estado.fonte} />;
+  return <Pagina fonte={estado.fonte} slug={params!.planta} conexao={conexao} />;
 }
