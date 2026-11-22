@@ -119,5 +119,5 @@ export function rotulo(codigo: string | null | undefined): string {
 
 /** Situação da assinatura do contrato (revisão do Codex: "solicitado" de projeto ≠ assinatura). */
 export function rotuloAssinatura(codigo: string | null | undefined): string {
-  return codigo === "solicitado" ? "Assinatura solicitada" : rotulo(codigo);
+  return ({pendente:"Contrato gerado",parcial:"Assinado pela empresa",solicitado:"Aguardando assinatura do cliente",em_conferencia:"Aguardando conferência",assinado:"Assinado por todos"} as Record<string,string>)[codigo || ""] || rotulo(codigo);
 }

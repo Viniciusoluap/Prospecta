@@ -36,6 +36,11 @@ export function FormularioModeloContrato({ opcoes, leadId, pending, salvar }: {
       </label>
       {!obras.length && <p className="sm:col-span-2 text-sm">Vincule o cliente e o imóvel no cadastro da obra para gerar o contrato.</p>}
       {obra && <DadosDaObra key={`${obra.id}:${tipo}`} obra={obra} opcoes={opcoes} execucao={execucao} />}
+      <p className="sm:col-span-2 text-sm text-gray-300">Testemunhas: preencha nome e CPF para permitir a conferência automática de todas as assinaturas. Se não preencher, o retorno ficará para sua conferência.</p>
+      <Texto nome="testemunha1Nome" label="1ª testemunha — Nome" required={false} />
+      <Texto nome="testemunha1Cpf" label="1ª testemunha — CPF" required={false} />
+      <Texto nome="testemunha2Nome" label="2ª testemunha — Nome" required={false} />
+      <Texto nome="testemunha2Cpf" label="2ª testemunha — CPF" required={false} />
       <button type="submit" disabled={!obra || pending} className="sm:col-span-2 rounded bg-[#C9A961] p-2.5 font-bold text-[#1A2332] disabled:opacity-50">
         {pending ? "Salvando…" : "Salvar contrato"}
       </button>
