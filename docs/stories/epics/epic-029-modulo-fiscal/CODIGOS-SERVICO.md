@@ -105,9 +105,14 @@ imóvel estejam em outra cidade.
 
 ### 4.3 "Outras receitas do BPO" e reembolsos
 - Receita que vem de serviço prestado: usar o mesmo código do serviço (1a ou 1b).
-- **Reembolso de despesa** (ex.: taxa de cartório paga pelo escritório e cobrada do cliente): não é preço de serviço. A
-  NFS-e nova tem o campo `vCalcReeRepRes` ("reembolso, repasse ou ressarcimento", fora da base do ISS e do IBS/CBS) e o
-  tipo de dedução "04 – Reembolso de despesas" [I][VI]. Sugestão para o sistema: o tipo "Outras receitas do BPO" fica
+- **Reembolso de despesa** (ex.: taxa de cartório paga pelo escritório e cobrada do cliente): não é preço de serviço.
+  Atenção ao leiaute: são duas representações diferentes, não misturar.
+  - **Leiaute de produção atual (XSD v1.01 de 09/02/2026, antes da NT 009):** campo `vCalcReeRepRes` e tipo de dedução
+    "04 – Reembolso de despesas" [I].
+  - **Leiaute da NT 009 (v1.01, produção restrita desde 20/10/2026):** `vCalcReeRepRes` passa a `vCalcAjusteBCIBSCBS` e o tipo
+    4 sai; usar os tipos de ajuste 103/104/199, ou o tipo 99 autorizado pelo município quando o efeito for só no ISS [VI]
+    (NT 009 v1.01, §2.3).
+  - O gerador da DPS (S-4) segue a variante do ambiente. Sugestão para o sistema: o tipo "Outras receitas do BPO" fica
   com **"sempre perguntar"**, e reembolso puro pode ir para **"nunca gerar"** ou ser informado como reembolso — **decisão
   do contador**.
 
