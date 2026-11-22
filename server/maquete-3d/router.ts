@@ -41,7 +41,7 @@ const conflito = (message: string) => new TRPCError({ code: "CONFLICT", message 
  * EPIC-028 (Etapa 3): a maquete da planta do repositório (origem 'fonte') não é alcançável pelas rotas antigas por
  * id. Para quem não é admin ela não existe (NOT_FOUND, igual a id inexistente: nem o token sai). O admin só LÊ por
  * essas rotas: escrita recusa, porque a planta-fonte só muda pelo editor de itens (`maquete3d.itens`). Vale para toda
- * rota deste arquivo que recebe `id` (as do editor recebem `planta`, não `id`).
+ * rota antiga deste arquivo que recebe `id` da MAQUETE. As rotas do editor (`itens.*`, `lotes.*`) usam `editorProcedure`.
  */
 const adminProcedure = procedimentoDoPainel.use(async ({ ctx, type, getRawInput, next }) => {
   const bruto = await getRawInput();
@@ -239,14 +239,23 @@ async function lerImplantacaoDoEstudo(studyId: number) {
 
 // ── EPIC-028 (Etapa 3): editor de itens das maquetes do JSON-fonte — só o administrador, por papel ──
 const plantaSchema = z.string().regex(/^[a-z0-9-]{1,80}$/);
+/**
+ * Procedimento do editor novo (`itens.*` e `lotes.*`): papel de administrador conferido ANTES de qualquer consulta ao
+ * banco, sem a trava de origem 'fonte' das rotas antigas — aqui o `id` (quando há) é o do LOTE, não o da maquete, e
+ * essas rotas são justamente as que podem mexer na maquete da planta.
+ */
+const editorProcedure = procedimentoDoPainel.use(({ ctx, next }) => {
+  if (ctx.user?.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador pode usar o editor da maquete." });
+  return next();
+});
 const itensRouter = router({
   /** Abre o editor: estrutura do servidor + rascunho mais recente (ou publicado, ou padrão). Cria a maquete na 1ª vez. */
-  abrir: adminProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
+  abrir: editorProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "editar os itens da maquete");
     return carregarParaEdicao(input.planta, ctx.user.id);
   }),
   /** Salva os itens como rascunho (versão nova). `versaoBase`: a última versão que a tela conhecia. */
-  salvar: adminProcedure.input(z.object({
+  salvar: editorProcedure.input(z.object({
     planta: plantaSchema, versaoBase: z.number().int().min(0).max(1_000_000), itens: z.array(z.unknown()).max(150), motivo: z.string().trim().max(400).optional(),
   })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "salvar os itens da maquete");
@@ -254,18 +263,18 @@ const itensRouter = router({
   }),
   /** Publica a versão salva (troca o que o cliente vê). */
   /** `publicadaVista`: a versão publicada que a tela viu (null = nenhuma). Outra publicação no meio → CONFLICT. */
-  publicar: adminProcedure.input(z.object({
+  publicar: editorProcedure.input(z.object({
     planta: plantaSchema, versao: z.number().int().positive().max(1_000_000), publicadaVista: z.number().int().positive().max(1_000_000).nullable(),
   })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "publicar os itens da maquete");
     return publicarVersao({ slug: input.planta, versao: input.versao, publicadaVista: input.publicadaVista, autorId: ctx.user.id });
   }),
   /** Grava como rascunho os itens padrão da planta. */
-  restaurarPadrao: adminProcedure.input(z.object({ planta: plantaSchema, versaoBase: z.number().int().min(0).max(1_000_000) })).mutation(async ({ ctx, input }) => {
+  restaurarPadrao: editorProcedure.input(z.object({ planta: plantaSchema, versaoBase: z.number().int().min(0).max(1_000_000) })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "restaurar os itens da maquete");
     return restaurarPadrao({ slug: input.planta, versaoBase: input.versaoBase, autorId: ctx.user.id });
   }),
-  versoes: adminProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
+  versoes: editorProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
     exigirAdmin(ctx, "ver as versões dos itens da maquete");
     return listarVersoes(input.planta);
   }),
@@ -275,11 +284,11 @@ const itensRouter = router({
 // publicada de itens e o código do link público. Só o administrador (papel conferido antes de qualquer consulta).
 const textoCurto = (n: number) => z.string().trim().max(n).nullable();
 const lotesRouter = router({
-  listar: adminProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
+  listar: editorProcedure.input(z.object({ planta: plantaSchema })).query(async ({ ctx, input }) => {
     exigirAdmin(ctx, "ver os lotes da maquete");
     return listarLotes(input.planta);
   }),
-  salvar: adminProcedure.input(z.object({
+  salvar: editorProcedure.input(z.object({
     planta: plantaSchema, id: z.number().int().positive().optional(),
     empreendimentoSlug: z.string().regex(/^[a-z0-9-]{1,80}$/, "Endereço do empreendimento: só letras minúsculas, números e hífen."),
     loteSlug: z.string().regex(/^[a-z0-9-]{1,80}$/, "Endereço do lote: só letras minúsculas, números e hífen."),
@@ -290,16 +299,16 @@ const lotesRouter = router({
     return salvarLote(input, ctx.user.id);
   }),
   /** Gera ou troca o código do link (o anterior deixa de abrir). */
-  gerarCodigo: adminProcedure.input(z.object({ planta: plantaSchema, id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  gerarCodigo: editorProcedure.input(z.object({ planta: plantaSchema, id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "gerar o link do lote");
     return gerarCodigo(input.planta, input.id);
   }),
-  unidades: adminProcedure.input(z.object({ busca: z.string().trim().max(80).default("") })).query(async ({ ctx, input }) => {
+  unidades: editorProcedure.input(z.object({ busca: z.string().trim().max(80).default("") })).query(async ({ ctx, input }) => {
     exigirAdmin(ctx, "buscar unidades da Incorporação");
     return buscarUnidades(input.busca);
   }),
   /** Semente idempotente: Lote 4 da Quadra 18 (Vila Esmeralda) → planta lote4-qd18. */
-  semearPadrao: adminProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
+  semearPadrao: editorProcedure.input(z.object({ planta: plantaSchema })).mutation(async ({ ctx, input }) => {
     exigirAdmin(ctx, "ligar o lote padrão da planta");
     return semearLotePadrao(input.planta, ctx.user.id);
   }),

@@ -65,7 +65,7 @@ async function publicarV1() {
   const aberto = await admin().itens.abrir({ planta: PLANTA });
   const v1 = mover(aberto.fonte.itens, "sofa", { z: 6.2 });
   await admin().itens.salvar({ planta: PLANTA, versaoBase: 0, itens: v1 });
-  await admin().itens.publicar({ planta: PLANTA, versao: 1 });
+  await admin().itens.publicar({ planta: PLANTA, versao: 1, publicadaVista: null });
   return v1;
 }
 async function lotePadrao() {
@@ -203,7 +203,7 @@ describe("página pública por lote", () => {
     const v1 = await publicarV1();
     const v2 = fonteDoRepo(PLANTA).itens;
     await admin().itens.salvar({ planta: PLANTA, versaoBase: 1, itens: v2 });
-    await admin().itens.publicar({ planta: PLANTA, versao: 2 });
+    await admin().itens.publicar({ planta: PLANTA, versao: 2, publicadaVista: 1 });
     // Lote A fica fixo na v1 (hoje arquivada, mas foi publicada); lote B segue a publicada da maquete (v2), ligado à unidade reservada.
     await admin().lotes.salvar({ planta: PLANTA, id: a.id, empreendimentoSlug: "vila-esmeralda", loteSlug: "qd18-lote4", empreendimentoNome: "Vila Esmeralda", quadra: "18", lote: "4", itensVersao: 1, unitId: 1, ativo: true });
     const { id: idB } = await admin().lotes.salvar({ planta: PLANTA, empreendimentoSlug: "vila-esmeralda", loteSlug: "qd18-lote5", empreendimentoNome: "Vila Esmeralda", quadra: "18", lote: "5", itensVersao: null, unitId: 2, ativo: true });

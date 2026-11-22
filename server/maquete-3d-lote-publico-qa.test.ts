@@ -62,7 +62,7 @@ const partes = (c: string) => { const [, , empreendimento, lote] = c.split("/");
 async function publicarELigar(textos = { empreendimentoNome: "Vila Esmeralda", quadra: "18", lote: "4" }, unitId: number | null = 1) {
   const aberto = await admin().itens.abrir({ planta: PLANTA });
   await admin().itens.salvar({ planta: PLANTA, versaoBase: 0, itens: aberto.fonte.itens });
-  await admin().itens.publicar({ planta: PLANTA, versao: 1 });
+  await admin().itens.publicar({ planta: PLANTA, versao: 1, publicadaVista: null });
   const { id } = await admin().lotes.salvar({ planta: PLANTA, empreendimentoSlug: "vila-esmeralda", loteSlug: "qd18-lote4", ...textos, itensVersao: null, unitId, ativo: true });
   const { lotes } = await admin().lotes.listar({ planta: PLANTA });
   return { id, caminho: lotes.find(l => l.id === id)!.caminho! };
@@ -121,7 +121,7 @@ describe("QA E4 — rota pública sob ataque", () => {
     const semPublicacao = await erroDe(publico().porLote(certo));
     const aberto = await admin().itens.abrir({ planta: PLANTA });
     await admin().itens.salvar({ planta: PLANTA, versaoBase: 0, itens: aberto.fonte.itens });
-    await admin().itens.publicar({ planta: PLANTA, versao: 1 });
+    await admin().itens.publicar({ planta: PLANTA, versao: 1, publicadaVista: null });
     expect(await publico().porLote(certo)).toBeTruthy();
     const r = [semPublicacao, await erroDe(publico().porLote(errado)), await erroDe(publico().porLote(inexistente))];
     await admin().lotes.salvar({ planta: PLANTA, id, empreendimentoSlug: "vila-esmeralda", loteSlug: "qd18-lote4", empreendimentoNome: "Vila Esmeralda", quadra: "18", lote: "4", itensVersao: null, unitId: 1, ativo: false });
