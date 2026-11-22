@@ -1,4 +1,4 @@
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, FileText, MessageSquare, Paperclip, Plus, Scale, Send, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -23,6 +23,7 @@ import { nomeContrato, tituloContrato, faseDocumento } from "@shared/contratos/d
 import { rotuloAssinatura } from "@shared/rotulos";
 import { anexarPdfDoFormulario } from "@/lib/juridico-arquivos";
 const CertificadosJuridico = lazy(() => import("@/components/admin/CertificadosJuridico"));
+import ValidacaoAssinatura from "@/components/admin/ValidacaoAssinatura";
 
 const labels: Record<string, string> = {
   ...MODELOS_CONTRATO,
@@ -66,6 +67,18 @@ export default function AdminJuridico() {
   const excluir = trpc.juridico.delete.useMutation({ onSuccess: async () => { await invalidate(); setSelectedId(null); toast.success("Contrato excluído"); }, onError: e => toast.error(e.message) });
   const deleteDocument = trpc.juridico.deleteDocument.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
   const send = trpc.juridico.sendMessage.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
+  // Retentativa automática: ao abrir o contrato, confere de novo (no servidor, com limites) as pendências de rede cuja
+  // vez chegou. Uma vez por documento enquanto a tela estiver aberta; o servidor decide se já pode e nunca dá verde por timeout.
+  const revalidar = trpc.juridico.revalidarDocumento.useMutation({ onSuccess: async () => { await utils.juridico.getById.invalidate(); } });
+  const revalidados = useRef(new Set<number>());
+  useEffect(() => {
+    for (const v of detail?.validacoes || []) {
+      if (v.estado !== "pendente" || !v.transitoria || !v.proximaTentativa || new Date(v.proximaTentativa) > new Date() || revalidados.current.has(v.documentId)) continue;
+      revalidados.current.add(v.documentId);
+      revalidar.mutate({ documentId: v.documentId });
+      break;
+    }
+  }, [detail?.validacoes]);
 
   async function openDocument(id: number, fileName: string) {
     try {
@@ -139,7 +152,7 @@ export default function AdminJuridico() {
       <div className="grid gap-3 sm:grid-cols-2"><div><Label>Status</Label><Select value={detail.contract.status} onValueChange={value => status.mutate({ id: detail.contract.id, status: value as typeof CONTRATO_STATUS[number] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTRATO_STATUS.map(v => <SelectItem key={v} value={v}>{rotulo(v)}</SelectItem>)}</SelectContent></Select></div><div><Label>Assinatura</Label><p>{rotuloAssinatura(detail.contract.signatureStatus)}</p></div></div>
       <div><h3 className="mb-2 font-semibold text-[#C9A961]">Documentos</h3>{detail.documents.map(doc => <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#2C3E50] p-2">{doc.driveFileId || !doc.url
         ? <button type="button" onClick={() => void openDocument(doc.id, doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type))} className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</button>
-        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</a>}{!["assinatura_digital","assinado","recebido_assinado"].includes(doc.type) && detail.contract.signatureStatus !== "assinado" && <Button type="button" variant="outline" disabled={!!doc.url && !doc.driveFileId} onClick={() => setDocumentoAssinar({id:doc.id,contractId:detail.contract.id,name:nomeContrato(detail.contract.partyB,doc.type)})}>Assinar digitalmente</Button>}
+        : <a href={doc.url ?? "#"} target="_blank" rel="noreferrer" className="text-sm underline">{doc.type === "anexo" ? doc.name : nomeContrato(detail.contract.partyB,doc.type)} · {faseDocumento(doc.type)}</a>}{detail.validacoes?.find(v => v.documentId === doc.id) && <ValidacaoAssinatura v={detail.validacoes.find(v => v.documentId === doc.id)!} />}{!["assinatura_digital","assinado","recebido_assinado"].includes(doc.type) && detail.contract.signatureStatus !== "assinado" && <Button type="button" variant="outline" disabled={!!doc.url && !doc.driveFileId} onClick={() => setDocumentoAssinar({id:doc.id,contractId:detail.contract.id,name:nomeContrato(detail.contract.partyB,doc.type)})}>Assinar digitalmente</Button>}
         {doc.type === "recebido_assinado" && usuario?.role === "admin" && <Button variant="outline" disabled={confirmar.isPending} onClick={()=>{if(confirm("Conferi este PDF e confirmo que todas as partes e testemunhas assinaram."))confirmar.mutate({documentId:doc.id,confirmado:true});}}>Confirmar assinatura de todos</Button>}
         {doc.type === "assinatura_digital" && detail.contract.signatureStatus !== "assinado" && <><Button variant="outline" disabled={enviar.isPending} onClick={()=>{if(confirm("Enviar este contrato assinado ao e-mail cadastrado do cliente e disponibilizar no portal?"))enviar.mutate({id:detail.contract.id,email:true});}}>Enviar ao cliente por e-mail e portal</Button><Button variant="outline" disabled={enviar.isPending} onClick={()=>enviar.mutate({id:detail.contract.id,email:false})}>Disponibilizar no portal</Button></>}<Button size="icon" variant="ghost" aria-label="Excluir documento" onClick={() => deleteDocument.mutate({ id: doc.id })}><Trash2 className="h-4 w-4 text-red-400" /></Button></div>)}<form onSubmit={handlePdf} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"><Input name="file" type="file" accept="application/pdf" required className="h-auto min-h-10 w-full min-w-0 overflow-hidden text-slate-100 file:mr-2 file:text-slate-100" /><Select name="type" defaultValue="anexo"><SelectTrigger className="w-full min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="anexo">Anexo</SelectItem><SelectItem value="contrato_gerado">Contrato gerado</SelectItem><SelectItem value="assinado">Recebido assinado (conferir)</SelectItem></SelectContent></Select><Button type="submit" disabled={anexando}><Paperclip className="mr-2 h-4 w-4" />Anexar</Button></form></div>
       {detail.contract.signatureDate && <p>Data da assinatura {detail.contract.signatureDate.split("-").reverse().join("/")}</p>}
@@ -148,7 +161,7 @@ export default function AdminJuridico() {
         <Button disabled={gerar.isPending} onClick={() => gerar.mutate({ id: detail.contract.id })} className="flex-1 bg-[#C9A961] text-[#1A2332]">{gerar.isPending ? "Gerando e salvando…" : "Gerar PDF"}</Button> :
         <Button onClick={() => setFormOpen(true)} className="flex-1 bg-[#C9A961] text-[#1A2332]">Editar contrato</Button>}<Button variant="destructive" onClick={() => confirm("Excluir contrato e documentos?") && excluir.mutate({ id: detail.contract.id })}><Trash2 className="h-4 w-4" /></Button></div>
     </>}</DialogContent></Dialog>
-    {documentoAssinar && usuario && <Suspense fallback={<p role="status">Carregando assinador…</p>}><CertificadosJuridico key={documentoAssinar.id} owner={usuario.id} documento={documentoAssinar} fechar={() => setDocumentoAssinar(null)} concluiu={invalidate} /></Suspense>}
+    {documentoAssinar && usuario && <Suspense fallback={<p role="status">Carregando assinador…</p>}><CertificadosJuridico key={documentoAssinar.id} owner={usuario.id} documento={documentoAssinar} fechar={() => setDocumentoAssinar(null)} concluiu={invalidate} irParaCertificados={() => { setDocumentoAssinar(null); setSelectedId(null); setTab("certificados"); }} /></Suspense>}
   </div>;
 }
 

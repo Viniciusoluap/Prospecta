@@ -12,7 +12,7 @@ describe("item 16 — nomes em português", () => {
     expect(rotulo("pre_analise")).toBe("Pré-análise");
     expect(rotulo("followup")).toBe("Projetos e Vistorias");
     expect(rotulo("solicitado")).toBe("Solicitado");
-    expect(rotuloAssinatura("solicitado")).toBe("Assinatura solicitada");
+    expect(rotuloAssinatura("solicitado")).toBe("Aguardando assinatura do cliente");
     expect(rotulo("pending")).toBe("Pendente");
   });
   it("código desconhecido nunca aparece com sublinhado", () => {

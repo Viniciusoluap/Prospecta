@@ -1,6 +1,7 @@
 import { P12Signer, PDF, rgb } from "@libpdf/core";
 import { Certificate } from "pkijs";
 import { bytesBase64 } from "./juridico-arquivos";
+import { layoutDaMarca, linhasDaMarca } from "./marca-assinatura";
 
 export type CertificadoInfo = {
   id: string; titular: string; documento: string; emissor: string;
@@ -155,7 +156,22 @@ export async function pfxParaEmissao(salvo: CertificadoSalvo, senha: string): Pr
   } finally { pfx.fill(0); }
 }
 
-export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura) {
+ * Monta a cadeia antes de assinar: recebe SÓ o certificado público (DER) e a cadeia que veio no A1 e devolve os
+ * intermediários (DER) — no Jurídico, pela rota autenticada `juridico.montarCadeia`. Senha, PFX e chave nunca saem daqui.
+ */
+export type MontarCadeia = (certificado: Uint8Array, cadeia: Uint8Array[]) => Promise<Uint8Array[]>;
+
+/** Acrescenta à cadeia do assinante os intermediários que ainda não estão nela (sem duplicar e sem a própria folha). */
+export function incluirIntermediarios(signer: Pick<P12Signer, "certificate" | "certificateChain">, intermediarios: Uint8Array[]) {
+  const chave = (b: Uint8Array) => Array.from(b).join(",");
+  const presentes = new Set([signer.certificate, ...signer.certificateChain].map(chave));
+  // `certificateChain` é readonly no tipo da @libpdf/core 0.5.3, mas o array é o mesmo usado na assinatura CMS.
+  const cadeia = signer.certificateChain as Uint8Array[];
+  for (const item of intermediarios.slice(0, 5)) if (!presentes.has(chave(item))) { cadeia.push(Uint8Array.from(item)); presentes.add(chave(item)); }
+  return cadeia.length;
+}
+
+export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, senha: string, posicao?: PosicaoAssinatura, montarCadeia?: MontarCadeia) {
   let aberto: ArrayBuffer;
   try { aberto = await crypto.subtle.decrypt({ name: "AES-GCM", iv: Uint8Array.from(salvo.iv) }, await chave(senha, salvo.salt), salvo.protegido); }
   catch { throw new Error("Senha do certificado incorreta."); }
@@ -164,6 +180,8 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
     const { signer, info } = await abrirCertificado(pfx, senha);
     if (info.id !== salvo.id) throw new Error("O certificado selecionado não corresponde ao arquivo guardado.");
     conferirValidade(info);
+    // Intermediários até a raiz ICP-Brasil entram no CMS, para quem conferir o PDF não depender do AIA da certificadora.
+    if (montarCadeia) incluirIntermediarios(signer, await montarCadeia(Uint8Array.from(signer.certificate), signer.certificateChain.map(c => Uint8Array.from(c))));
     const pdf = await PDF.load(bytes);
     if (posicao) {
       const { pagina, x, y, largura, altura } = posicao;
@@ -171,11 +189,9 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
       const page = pdf.getPage(pagina)!;
       const limite=page.getCropBox();
       if (x < limite.x || y < limite.y || x + largura > limite.x+limite.width + 1 || y + altura > limite.y+limite.height + 1) throw new Error("A assinatura deve ficar dentro da página.");
-      const nome = info.titular.replace(/[^\u0020-\u00ff]/g, "") || "Consulte o certificado";
-      const linhas = ["ASSINADO DIGITALMENTE", ...nome.match(/.{1,48}(?:\s|$)|.{1,48}/g)!.map(x => x.trim()), `CPF/CNPJ: ${info.documento || "Ver certificado"}`, new Date().toLocaleString("pt-BR", { timeZone:"America/Fortaleza" })];
-      const size = Math.min(9, (altura - 8) / (linhas.length * 1.2), (largura - 8) / 30);
-      page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:0.6 });
-      linhas.forEach((linha, i) => page.drawText(linha, { x:x+4,y:y+altura-6-size-i*size*1.2,size,color:rgb(0.1,0.18,0.3),maxWidth:largura-8 }));
+      const marca = layoutDaMarca(largura, altura, linhasDaMarca(info.titular, info.documento, new Date()));
+      page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:marca.borda });
+      marca.linhas.forEach(linha => page.drawText(linha.texto, { x:x+linha.x,y:y+altura-linha.base,size:marca.fonte,color:rgb(0.1,0.18,0.3) }));
     }
     const result = await pdf.sign({ signer, level: "B-B", digestAlgorithm: "SHA-256", reason: "Assinatura digital de documento no Jurídico Prospecta" });
     if (result.warnings.length) throw new Error("O PDF exige tratamento adicional para preservar suas assinaturas. Use o arquivo original ou um assinador compatível.");
