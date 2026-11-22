@@ -16,7 +16,7 @@ const primeira = <T>(resultado: { rows?: unknown[] }): T | null => (resultado.ro
 
 export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpezaConta> {
   const resultado = await getDb().execute(sql`
-    SELECT a.id AS "contaId", concat_ws(' · ', nullif(btrim(coalesce(a.apelido, '')), ''), a.banco, nullif(a.conta, '')) AS "contaRotulo",
+    SELECT a.id AS "contaId", concat_ws(' · ', a.banco, nullif(a.conta, '')) AS "contaRotulo",
       count(DISTINCT t.id)::int AS transacoes,
       count(DISTINCT l.id) FILTER (WHERE l.id IS NOT NULL AND l.exclusao_lote_backup_id IS NULL AND l.asaas_payment_id IS NULL
         AND l.origem_efetiva = 'extrato' AND l.vinculo_operacional_id IS NULL
@@ -33,7 +33,7 @@ export async function previaLimpezaConta(contaId: number): Promise<PreviaLimpeza
     LEFT JOIN bank_transactions t ON t.account_id = a.id
     LEFT JOIN bpo_lancamentos l ON l.bank_transaction_id = t.id
     WHERE a.id = ${contaId}
-    GROUP BY a.id, a.banco, a.conta, a.apelido
+    GROUP BY a.id, a.banco, a.conta
   `);
   const row = primeira<PreviaLimpezaConta>(resultado);
   if (!row) throw new Error("Conta bancária não encontrada.");
@@ -51,7 +51,7 @@ export async function limparContaComBackup(contaId: number, confirmacao: string,
     WITH conta AS (
       SELECT id, banco, agencia, conta, tipo, descricao, saldo_atual, ativo, pluggy_item_id,
         pluggy_account_id, webhook_url, ultima_sincronizacao, provedor, data_inicial,
-        ultimo_erro, saldo_fonte, created_at, apelido, empresa_cnpj
+        ultimo_erro, saldo_fonte, created_at
       FROM bank_accounts WHERE id = ${contaId}
     ), movimentos AS (
       SELECT t.* FROM bank_transactions t JOIN conta a ON a.id = t.account_id
@@ -65,7 +65,7 @@ export async function limparContaComBackup(contaId: number, confirmacao: string,
       INSERT INTO bpo_conta_limpeza_backups
         (conta_referencia, conta_rotulo, snapshot_json, transacoes, lancamentos_removidos,
          lancamentos_preservados, criado_por_user_id)
-      SELECT a.id, concat_ws(' · ', nullif(btrim(coalesce(a.apelido, '')), ''), a.banco, nullif(a.conta, '')),
+      SELECT a.id, concat_ws(' · ', a.banco, nullif(a.conta, '')),
         jsonb_build_object(
           'conta', to_jsonb(a),
           'transacoes', COALESCE((SELECT jsonb_agg(to_jsonb(m)) FROM movimentos m), '[]'::jsonb),
