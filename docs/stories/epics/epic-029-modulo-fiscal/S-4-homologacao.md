@@ -139,3 +139,18 @@ consulta opcional da calculadora pública (`ind_gIBSCBS`, com cache), aviso de v
 ### Change Log
 - 22/11/2026 — @dev: fundação da emissão (cofre do A1 com envio pelo Jurídico, DPS v1.01 em duas variantes, assinatura,
   cliente mTLS), tudo desligado. Status segue Draft→InProgress (parte do dono pendente).
+- 22/11/2026 — @dev: correções do portão de QA (CONCERNS, `server/fiscal/emissao-qa.test.ts`, os 4 `it.fails` viraram `it`):
+  **M1** prazo TOTAL no cliente mTLS (além do de ociosidade), estouro = resultado incerto (R10); **B2** `montarUrl` recusa
+  `%` e confere que a URL continua dentro da base; **B3** a guarda da 0162 trava também `autoridade`, `cadeia_icp` e
+  `desativado_por/desativado_em` (gravados uma vez só, na passagem ativo → inativo); **B4** `escaparXml` remove U+FFFE/U+FFFF
+  e surrogates soltos e o `xDescServ` é cortado por caractere (code point). Assinatura: recusa `<!DOCTYPE>` e a verificação
+  confere, por `getSignedReferences()`, que o conteúdo assinado é o `infDPS` esperado (único, filho da raiz, irmão da Signature).
+- 22/11/2026 — @dev: **cAtvSN** (código da atividade do Simples, Anexo VIII: 7, 9, 12, 13) — coluna nova opcional
+  `fiscal_tipos_servico.codigo_atividade_simples` (na 0162, `ADD COLUMN IF NOT EXISTS` + CHECK), campo na tela "Tipos de
+  serviço", obrigatório na DPS de emissor do Simples (posição no XML: `prest/regTrib` depois de `regApTribSN`
+  [NÃO CONFIRMADO no XSD — ajustar em `CATVSN_EM_REGTRIB`/`serializarDps`]). **Grupo "obra" obrigatório para 7.02/7.05**
+  (hoje pelo CNO; CIB/endereço da obra ainda não têm onde ficar). **IM** só vai na DPS quando o emissor tem (evita E0120).
+  **Reembolso/repasse**: a montagem RECUSA com motivo claro (`reembolsoCentavos`), porque o campo muda entre os leiautes
+  (`vCalcReeRepRes` dedução 04 × `vCalcAjusteBCIBSCBS` tipos 103/104/199/99 da NT 009 §2.3) — tratar por variante depois.
+  Os testes do S-2 (`rascunhos*.test.ts`) passam a aplicar a 0162 (o schema lê a coluna nova). **A 0162 tem de ser
+  aplicada no Neon ANTES da publicação** (senão a leitura de `fiscal_tipos_servico` falha).
