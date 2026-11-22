@@ -105,7 +105,9 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
     const contas = [contaP(1, PROSPECTA), contaP(2, PROSPECTA), contaP(3, VFX)];
     const a = apurar({ perfis, contas,
       receitas: [rec(1, 10_000, "2026-11-10"), rec(1, 10_000, "2026-11-10"), rec(1, 7_000, "2026-11-10"), rec(1, 5_000, "2026-11-01"), rec(1, 3_000, "2026-11-10")],
-      debitos: [deb(2, 10_000, "2026-11-11"), deb(3, 7_000, "2026-11-10"), deb(2, 5_000, "2026-11-04"), deb(1, 3_000, "2026-11-10")] });
+      // QA2 S-6 (N1): as saídas do cenário são transferências MARCADAS (só elas casam)
+      debitos: [deb(2, 10_000, "2026-11-11", "transferencia"), deb(3, 7_000, "2026-11-10", "transferencia"), deb(2, 5_000, "2026-11-04", "transferencia"),
+        deb(1, 3_000, "2026-11-10", "transferencia")] });
     const p = prospecta(a);
     // só UMA das duas entradas de 10 mil sai (uma saída casa uma vez); 7 mil vindo da VFX (outra empresa) conta; 5 mil com 3 dias conta;
     // 3 mil com saída na MESMA conta conta
@@ -121,7 +123,7 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
     // corrigido: a saída de outra conta tem lançamento de DESPESA no BPO (pagamento) → não casa; a entrada conta
     const a = apurar({ receitas: [rec(1, 10_000, "2026-11-10", { txDescricao: "PIX RECEBIDO MARIA SOUZA" })], debitos: [deb(2, 10_000, "2026-11-11", "despesa")] });
     expect(prospecta(a).receitaCentavos).toBe(10_000_00);
-    // marcada como transferência (ou sem lançamento) continua casando
+    // marcada como transferência continua casando (sem classificação NÃO casa — QA2 N1)
     expect(prospecta(apurar({ receitas: [rec(1, 10_000, "2026-11-10")], debitos: [deb(2, 10_000, "2026-11-11", "transferencia")] })).receitaCentavos).toBe(0);
   });
 

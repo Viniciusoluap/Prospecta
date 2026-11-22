@@ -145,20 +145,41 @@ export function projecaoAnual(receitaCentavos: number, agora: Date): { centavos:
 
 // ── Regime vigente numa data (versões do perfil tributário) ─────────────────────────────────────────────────────────────────
 
-export type PerfilParaRegime = { id: number; companyName: string; cnpj: string; regime: string; effectiveFrom: Date; effectiveTo: Date | null; isActive: boolean };
+export type PerfilParaRegime = {
+  id: number; companyName: string; cnpj: string; regime: string; effectiveFrom: Date; effectiveTo: Date | null; isActive: boolean;
+  /** QA2 S-6 (N4): última desativação no histórico (tax_profiles_historico): "manual" = desativado; "nova_versao" = desativado_por_nova_versao. */
+  desativacao?: "manual" | "nova_versao" | null;
+};
 
 /**
- * Versões que VALEM (QA S-6, A3): a ativa e a inativa que foi SUBSTITUÍDA por uma versão posterior que vale (troca de regime normal: o
- * tax-router desativa a anterior ao criar a nova, e a anterior continua valendo até a nova começar). Inativa sem versão posterior que
- * a substitua foi DESATIVADA à mão (ex.: cadastrada errado) e não vale em data nenhuma.
+ * Versões que VALEM (QA S-6, A3; QA2, N4):
+ * - a ativa vale;
+ * - a desativada À MÃO (histórico "desativado") nunca vale;
+ * - a inativa que tem versão posterior (de início mais tarde) foi SUBSTITUÍDA (troca de regime normal: o tax-router desativa a anterior ao
+ *   criar a nova) e vale até a posterior começar — mesmo que a posterior tenha sido desativada à mão depois (N4: desativar a versão nova
+ *   errada devolve a vigência à anterior; a empresa não fica sem limite);
+ * - a inativa SEM versão posterior e sem histórico foi desativada à mão (ninguém a substituiu): não vale.
  */
 export function versoesQueValem<T extends PerfilParaRegime>(perfis: readonly T[]): T[] {
-  const ordem = [...perfis].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || b.id - a.id);
-  const valem: T[] = [];
-  for (const p of ordem) {
-    if (p.isActive || valem.some(v => v.effectiveFrom.getTime() > p.effectiveFrom.getTime())) valem.push(p);
-  }
-  return valem;
+  return perfis.filter(p => {
+    if (p.isActive) return true;
+    if (p.desativacao === "manual") return false;
+    return perfis.some(v => v.id !== p.id && v.effectiveFrom.getTime() > p.effectiveFrom.getTime());
+  });
+}
+
+/**
+ * QA2 S-6: a versão vigente da EMPRESA (raiz do CNPJ) numa data, com a MESMA precedência no painel de limites e no emissor das notas
+ * (CLAUDE.md/pedido do dono: a filial segue a matriz): primeiro as versões da matriz (0001); sem versão da matriz vigente, qualquer
+ * versão da mesma raiz. Devolve também o perfil para o NOME (vigente, ou o mais recente da empresa, matriz primeiro).
+ */
+export function perfilDaEmpresaNaData<T extends PerfilParaRegime>(perfis: readonly T[], raiz: string, data: Date): { vigente: T | null; paraNome: T | null } {
+  const versoes = perfis.filter(x => raizDoCnpj(x.cnpj) === raiz);
+  if (!versoes.length) return { vigente: null, paraNome: null };
+  const vigente = perfilVigenteNaData(versoes.filter(v => ehMatriz(v.cnpj)), data) ?? perfilVigenteNaData(versoes, data);
+  const maisRecente = [...versoes].sort((a, b) => Number(ehMatriz(b.cnpj)) - Number(ehMatriz(a.cnpj)) || Number(b.isActive) - Number(a.isActive)
+    || b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || b.id - a.id)[0]!;
+  return { vigente, paraNome: vigente ?? maisRecente };
 }
 
 /**
@@ -208,7 +229,11 @@ export const finalDaConta = (conta: string | null | undefined) => {
  * o banco + o final mascarado. NUNCA o número inteiro nem a descrição livre (pode ter número digitado). Dado bancário sempre mascarado.
  */
 export function nomeSeguroDaConta(c: { apelido?: string | null; banco: string; conta?: string | null }): string {
-  const apelido = (c.apelido ?? "").trim();
+  // QA2 S-6 (N5): o apelido é texto livre — sequência de 5+ dígitos (com ou sem pontuação) vira •••final (os 4 últimos), nunca vai inteira
+  const apelido = (c.apelido ?? "").trim().replace(/\d(?:[\d.\-\/ ]*\d)?/g, m => {
+    const d = m.replace(/\D/g, "");
+    return d.length >= 5 ? `•••${d.slice(-4)}` : m;
+  });
   if (apelido) return apelido;
   const final = finalDaConta(c.conta);
   return `${c.banco}${final ? ` ${final}` : ""}`;
@@ -239,6 +264,8 @@ export type ReceitaParaSoma = {
  * casa com uma entrada); "transferencia" = marcada como Transferência interna; null = sem lançamento (ainda não classificada).
  */
 export type DebitoParaSoma = { txId: number; contaId: number; valorCentavos: number; data: Date; classificacao?: "despesa" | "transferencia" | null };
+// QA2 S-6 (N1): SÓ a saída MARCADA como Transferência interna tira a entrada da soma. Sem classificação ("a classificar", sem lançamento),
+// a entrada CONTA e aparece como "possível transferência" para o dono conferir; despesa nunca casa.
 /** Crédito do extrato ainda "a classificar" ou sem lançamento (QA S-6, A6): não some — vira pendência com valor e entra no total possível. */
 export type CreditoPendente = { txId: number; contaId: number; valorCentavos: number; data: Date };
 
@@ -269,6 +296,8 @@ export type ApuracaoEmpresa = {
   /** receita + a classificar (lado seguro: o que a receita PODE ser). */
   receitaPossivelCentavos: number;
   foraDaSoma: { transferenciasCentavos: number; transferencias: number; estornosCentavos: number; estornos: number };
+  /** QA2 S-6 (N1): entradas que CONTAM na soma, mas têm uma saída de mesmo valor ainda sem classificação em outra conta dela (conferir). */
+  possiveisTransferencias: { centavos: number; entradas: number };
   projecaoCentavos: number; projecaoConfiavel: boolean;
   limites: ApuracaoLimite[];
 };
@@ -325,8 +354,8 @@ export function apurarReceitas(p: {
   }
   const usados = new Set<number>();
 
-  type Acumulado = { receita: number; reembolsos: number; n: number; trCent: number; tr: number; esCent: number; es: number };
-  const zero = (): Acumulado => ({ receita: 0, reembolsos: 0, n: 0, trCent: 0, tr: 0, esCent: 0, es: 0 });
+  type Acumulado = { receita: number; reembolsos: number; n: number; trCent: number; tr: number; esCent: number; es: number; possCent: number; poss: number };
+  const zero = (): Acumulado => ({ receita: 0, reembolsos: 0, n: 0, trCent: 0, tr: 0, esCent: 0, es: 0, possCent: 0, poss: 0 });
   const porEmpresa = new Map<string, Acumulado>(cnpjs.map(c => [c, zero()]));
   let semEmpresaReceita = 0;
   let semContaReceita = 0;
@@ -345,9 +374,14 @@ export function apurarReceitas(p: {
     if (!e) { if (!ehEstorno(r.descricao)) semEmpresaReceita += r.valorCentavos; continue; }
     const acc = porEmpresa.get(e)!;
     if (ehEstorno(r.descricao)) { acc.esCent += r.valorCentavos; acc.es++; continue; }
-    const par = (debitosPorEmpresa.get(e) ?? []).find(d => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
-      && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS);
+    const casa = (d: DebitoParaSoma) => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
+      && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS;
+    const saidas = debitosPorEmpresa.get(e) ?? [];
+    const par = saidas.find(d => d.classificacao === "transferencia" && casa(d));
     if (par) { usados.add(par.txId); acc.trCent += r.valorCentavos; acc.tr++; continue; }
+    // sem classificação: CONTA na soma; só aponta para o dono conferir (a saída fica reservada para não apontar duas entradas)
+    const talvez = saidas.find(d => d.classificacao == null && casa(d));
+    if (talvez) { usados.add(talvez.txId); acc.possCent += r.valorCentavos; acc.poss++; }
     acc.receita += r.valorCentavos;
     if (r.tipo === "reembolso") acc.reembolsos += r.valorCentavos;
     acc.n++;
@@ -366,11 +400,9 @@ export function apurarReceitas(p: {
 
   const empresas: ApuracaoEmpresa[] = cnpjs.map(raiz => {
     const versoes = p.perfis.filter(x => raizDoCnpj(x.cnpj) === raiz);
-    // o regime é da EMPRESA: a filial herda. Vale a versão vigente, preferindo a da matriz quando houver versões dos dois.
-    const daMatriz = versoes.filter(v => ehMatriz(v.cnpj));
-    const vigente = perfilVigenteNaData(daMatriz, p.agora) ?? perfilVigenteNaData(versoes, p.agora);
-    const maisRecente = [...versoes].sort((a, b) => Number(ehMatriz(b.cnpj)) - Number(ehMatriz(a.cnpj)) || Number(b.isActive) - Number(a.isActive)
-      || b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || b.id - a.id)[0]!;
+    // o regime é da EMPRESA: a filial herda (matriz primeiro) — a mesma regra do emissor das notas (perfilDaEmpresaNaData)
+    const { vigente, paraNome } = perfilDaEmpresaNaData(p.perfis, raiz, p.agora);
+    const maisRecente = paraNome!;
     const contasDela = p.contas.filter(c => c.empresaCnpj && raizDoCnpj(c.empresaCnpj) === raiz);
     const estab = Array.from(new Set([...versoes.map(v => v.cnpj), ...contasDela.map(c => cnpjDaEmpresa(c.empresaCnpj))])).sort();
     const cnpj = estab.find(ehMatriz) ?? maisRecente.cnpj;
@@ -381,12 +413,13 @@ export function apurarReceitas(p: {
     const possivel = acc.receita + pend.centavos;
     const proj = projecaoAnual(acc.receita, p.agora);
     return {
-      raiz, cnpj, estabelecimentos: estab.map(c => ({ cnpj: c, matriz: ehMatriz(c) })), nome: (vigente ?? maisRecente).companyName, perfilId: vigente?.id ?? null, perfilAtivo: versoes.some(v => v.isActive),
+      raiz, cnpj, estabelecimentos: estab.map(c => ({ cnpj: c, matriz: ehMatriz(c) })), nome: paraNome!.companyName, perfilId: vigente?.id ?? null, perfilAtivo: versoes.some(v => v.isActive),
       regime, regimeRotulo: rotuloRegime(regime), situacao: regra.situacao, explicacao: regra.explicacao,
       contas: contasDela.map(c => ({ id: c.id, nome: nomeSeguroDaConta(c), banco: c.banco, final: finalDaConta(c.conta), ativo: c.ativo, estabelecimento: cnpjDaEmpresa(c.empresaCnpj) })),
       receitaCentavos: acc.receita, reembolsosCentavos: acc.reembolsos, lancamentos: acc.n,
       aClassificar: { centavos: pend.centavos, movimentos: pend.n }, receitaPossivelCentavos: possivel,
       foraDaSoma: { transferenciasCentavos: acc.trCent, transferencias: acc.tr, estornosCentavos: acc.esCent, estornos: acc.es },
+      possiveisTransferencias: { centavos: acc.possCent, entradas: acc.poss },
       projecaoCentavos: proj.centavos, projecaoConfiavel: proj.confiavel,
       limites: limitesAcompanhados(regime).map(l => ({ ...l, percentual: percentualDe(acc.receita, l.valorCentavos), faixa: faixaDoLimite(acc.receita, l.valorCentavos, l.faixas),
         faltaCentavos: Math.max(0, l.valorCentavos - acc.receita), projecaoPercentual: percentualDe(proj.centavos, l.valorCentavos),

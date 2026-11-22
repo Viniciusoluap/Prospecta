@@ -49,6 +49,13 @@ export function LimitesReceita() {
             <p className="text-xs text-gray-300">
               Contas: {e.contas.length ? e.contas.map(c => c.nome).join(", ") : "nenhuma conta vinculada"}
             </p>
+            {e.possiveisTransferencias.entradas > 0 && (
+              <p className="text-xs text-amber-200">
+                Conferir: {e.possiveisTransferencias.entradas} entrada(s) ({dinheiro(e.possiveisTransferencias.centavos)}) têm uma saída de mesmo valor, ainda sem
+                classificação, em outra conta desta empresa. Elas CONTAM na receita; se for transferência entre contas, marque a saída como
+                "Transferência interna" em <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.
+              </p>
+            )}
             {e.aClassificar.movimentos > 0 && (
               <p className="text-xs text-amber-200">
                 Pendência: {e.aClassificar.movimentos} entrada(s) nas contas desta empresa ainda a classificar ({dinheiro(e.aClassificar.centavos)}) — fora da

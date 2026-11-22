@@ -32,6 +32,8 @@ export async function consultarLimitesReceita(args: z.infer<typeof entradaLimite
         aClassificar: e.aClassificar.movimentos ? { valor: reais(e.aClassificar.centavos), movimentos: e.aClassificar.movimentos, receitaPossivel: reais(e.receitaPossivelCentavos),
           usadoPossivel: e.limites.map(l => `${l.rotulo}: ${String(l.percentualPossivel).replace(".", ",")}%`) } : null,
         foraDaSoma: { transferenciasEntreContasDaEmpresa: reais(e.foraDaSoma.transferenciasCentavos), estornos: reais(e.foraDaSoma.estornosCentavos) },
+        // QA2 S-6 (N1): contam na receita, mas têm saída de mesmo valor ainda sem classificação em outra conta dela — o dono confere
+        possiveisTransferenciasParaConferir: e.possiveisTransferencias.entradas ? { valor: reais(e.possiveisTransferencias.centavos), entradas: e.possiveisTransferencias.entradas } : null,
         projecaoDoAnoPeloRitmo: reais(e.projecaoCentavos), projecaoConfiavel: e.projecaoConfiavel,
         limites: e.limites.map(l => ({ limite: l.rotulo, valor: reais(l.valorCentavos), usado: `${String(l.percentual).replace(".", ",")}%`, falta: reais(l.faltaCentavos),
           projecaoDoAno: `${String(l.projecaoPercentual).replace(".", ",")}%`, seEstourar: l.consequencia, soInformativo: l.informativo, fonte: l.fonte })),

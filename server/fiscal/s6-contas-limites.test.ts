@@ -106,8 +106,9 @@ async function entrada(contaId: number, valor: number, dia = "2026-11-10", descr
     VALUES ($1, $2, $3, $4, true, $4, $5, $6, 'Recebimento de cliente') RETURNING id`, [tipo, descricao, valor, `${dia}T12:00:00Z`, dia.slice(0, 7), t!.id]);
   return l!.id;
 }
+// QA2 S-6 (N1): só a saída MARCADA como Transferência interna tira a entrada da soma
 async function saida(contaId: number, valor: number, dia = "2026-11-10") {
-  await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, categoria, external_id) VALUES ($1, $2, 'TED enviada', $3, 'debito', 'Outros', $4)`,
+  await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, categoria, external_id) VALUES ($1, $2, 'TED enviada', $3, 'debito', 'Transferência interna', $4)`,
     [contaId, `${dia}T12:00:00Z`, valor, `ext-${++txSeq}`]);
 }
 

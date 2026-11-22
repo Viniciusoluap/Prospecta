@@ -16,7 +16,7 @@ import {
   type StatusNota,
 } from "../../shared/fiscal/status.js";
 import type { DrizzleDb } from "../db.js";
-import { ehMatriz, formatarCnpj, optanteDoSimples, perfilVigenteNaData, type PerfilParaRegime } from "../../shared/fiscal/regimes.js";
+import { formatarCnpj, optanteDoSimples, perfilDaEmpresaNaData, type PerfilParaRegime } from "../../shared/fiscal/regimes.js";
 import { lerPerfis } from "./teto.js";
 
 type Linha = Record<string, unknown>;
@@ -153,20 +153,13 @@ async function origensPorTipo(db: DrizzleDb, notas: FiscalNota[]): Promise<Map<s
 }
 
 /**
- * Perfil (versão) de um emissor numa data: o do próprio CNPJ; senão o da matriz da mesma raiz; senão qualquer um da mesma raiz (o regime é
- * da EMPRESA: a filial herda). QA S-6 (A8): vale a versão VIGENTE NA DATA (a mesma regra do painel de limites: perfilVigenteNaData), não a
- * mais recente — cadastrar hoje o regime de 2027 não muda a nota de 2026. Sem versão vigente na data → regime null (não emitir).
+ * Perfil (versão) de um emissor numa data. QA2 S-6: a MESMA precedência do painel de limites (shared/fiscal/regimes.ts#perfilDaEmpresaNaData):
+ * o regime é da EMPRESA (raiz do CNPJ) e a filial segue a matriz — versões da matriz primeiro, senão qualquer versão da mesma raiz.
+ * QA S-6 (A8): vale a versão VIGENTE NA DATA, não a mais recente. Sem versão vigente na data → regime null (não emitir).
  */
 function perfilDoEmissor(perfis: readonly PerfilParaRegime[], cnpj: string, data: Date): { nome: PerfilParaRegime | null; vigente: PerfilParaRegime | null } {
-  const raiz = cnpj.slice(0, 8);
-  const grupos = [perfis.filter(p => p.cnpj === cnpj), perfis.filter(p => p.cnpj.slice(0, 8) === raiz && ehMatriz(p.cnpj)), perfis.filter(p => p.cnpj.slice(0, 8) === raiz)];
-  for (const g of grupos) {
-    if (!g.length) continue;
-    const vigente = perfilVigenteNaData(g, data);
-    const nome = vigente ?? [...g].sort((a, b) => Number(b.isActive) - Number(a.isActive) || b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || b.id - a.id)[0]!;
-    return { nome, vigente };
-  }
-  return { nome: null, vigente: null };
+  const { vigente, paraNome } = perfilDaEmpresaNaData(perfis, cnpj.slice(0, 8), data);
+  return { nome: paraNome, vigente };
 }
 
 type LinhaEmissor = typeof fiscalEmissores.$inferSelect;

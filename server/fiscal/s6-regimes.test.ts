@@ -150,9 +150,10 @@ describe("S-6 — soma por empresa (apurarReceitas)", () => {
         receita(1, 3000, "2026-04-03"),                    // veio da conta da VFX (outra empresa) → conta
         receita(1, 200, "2026-04-04", { tipo: "reembolso" }),
       ],
-      debitos: [{ txId: 10, contaId: 2, valorCentavos: 500_000, data: new Date("2026-04-01T12:00:00Z") },
-        { txId: 11, contaId: 3, valorCentavos: 300_000, data: new Date("2026-04-03T12:00:00Z") },
-        { txId: 12, contaId: 1, valorCentavos: 500_000, data: new Date("2026-04-20T12:00:00Z") }], // saída da PRÓPRIA conta não casa
+      // QA2 S-6 (N1): só a saída marcada como Transferência interna casa
+      debitos: [{ txId: 10, contaId: 2, valorCentavos: 500_000, data: new Date("2026-04-01T12:00:00Z"), classificacao: "transferencia" },
+        { txId: 11, contaId: 3, valorCentavos: 300_000, data: new Date("2026-04-03T12:00:00Z"), classificacao: "transferencia" },
+        { txId: 12, contaId: 1, valorCentavos: 500_000, data: new Date("2026-04-20T12:00:00Z"), classificacao: "transferencia" }], // saída da PRÓPRIA conta não casa
     });
     const pro = ap.empresas.find(e => e.raiz === "41865900")!;
     expect(pro.receitaCentavos).toBe(500_000 + 300_000 + 20_000 + 70_000);
