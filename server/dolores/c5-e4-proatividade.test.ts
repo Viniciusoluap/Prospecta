@@ -475,7 +475,11 @@ describe("C5-E4 — texto pela IA (opcional) e o gasto", () => {
     agora = hora("2026-11-16T15:20:00Z");
     await doDono("como está a obra da Ana?");
     expect(pedidosModelo).toHaveLength(1);
-    expect(mensagens().at(-1)!.texto).toContain("A obra Casa Ana está atrasada.");
+    // integração 2: o alerta de 100% da parte "avisos" (registrado pendente quando a reserva foi barrada) sai no FIM do aviso do
+    // WhatsApp, depois da resposta — uma vez só, pelo caminho único dos alertas
+    expect(mensagens().some(m => m.texto.includes("A obra Casa Ana está atrasada."))).toBe(true);
+    expect(mensagens().filter(m => /aviso de gasto da IA/.test(m.texto))).toHaveLength(1);
+    expect(mensagens().findIndex(m => /aviso de gasto da IA/.test(m.texto))).toBeGreaterThan(mensagens().findIndex(m => m.texto.includes("A obra Casa Ana está atrasada.")));
   });
 
   it("alerta de gasto (E5) reaproveitado: tipo \"gasto\" silenciado segura só o de 80%; o de 100% sai sempre", async () => {
