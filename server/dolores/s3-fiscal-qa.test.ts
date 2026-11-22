@@ -1,6 +1,6 @@
 // EPIC-029 S-3 — PORTÃO DE QA DE SEGURANÇA (Quinn, 22/11/2026). Tenta quebrar o fluxo fiscal da Dolores: escopo (só o dono, só direto),
 // confirmação, argumentos forjados, prévia em PDF (destino, teto, filtro de segredos), dados pessoais em log/auditoria, aviso nota_fiscal,
-// reservas de gasto e a migração 0161. Achados abertos estão como `it.fails` (passam enquanto o problema existir).
+// reservas de gasto e a migração 0161. Achados M1 e B1 corrigidos pelo @dev (eram `it.fails`); B2 coberto em s3-fiscal.test.ts.
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -204,7 +204,7 @@ describe("QA S-3 — prévia em PDF", () => {
   });
   // ACHADO M1: o PDF da prévia NÃO passa pelo filtro de segredos/dados bancários da Dolores (CLAUDE.md 16/11, opção B: "continuam
   // sempre mascarados: senhas, tokens, chaves de API, códigos de acesso e dados bancários"). A descrição vem de texto livre do BPO.
-  it.fails("ACHADO M1: senha na descrição do rascunho sai em claro no PDF mandado pelo WhatsApp", async () => {
+  it("ACHADO M1 (corrigido): senha na descrição do rascunho sai em claro no PDF mandado pelo WhatsApp", async () => {
     const id = await rascunho("1200.00", { descricao: "Honorarios - senha do portal: Abc12345xyz" });
     roteiro = [() => ferramenta("ver_nota_fiscal", { notaFiscalId: id, enviarPrevia: true }), () => texto("Mandando.")];
     await dono("manda a prévia da nota do João");
@@ -215,7 +215,7 @@ describe("QA S-3 — prévia em PDF", () => {
 
 describe("QA S-3 — aviso nota_fiscal", () => {
   // ACHADO B1: a trava de palavra-comando do texto da IA só pega maiúsculas (VER/EMITIR…) e "responda/digite/escreva".
-  it.fails("ACHADO B1: texto da IA que ensina a resposta em minúsculas (\"me diga emite ou depois\") passa pela trava", () => {
+  it("ACHADO B1 (corrigido): texto da IA que ensina a resposta em minúsculas (\"me diga emite ou depois\") passa pela trava", () => {
     expect(temPalavraComando("Se quiser, é só me dizer \"emite\" ou \"depois\" que eu cuido.")).toBe(true);
   });
   it(`RESERVA_ENTRADA_AVISO (${RESERVA_ENTRADA_AVISO}) cobre o pior caso: todos os tipos × 5 itens com nomes longos + resumo`, () => {

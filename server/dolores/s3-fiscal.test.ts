@@ -157,6 +157,11 @@ describe("regras puras — conversa natural, sem palavra-comando", () => {
     expect(longo.length).toBeLessThanOrEqual(600);
     expect(longo.trimEnd().endsWith("?")).toBe(true);
     expect(temPalavraComando("Responda VER ou EMITIR")).toBe(true);
+    // QA S-3 (B1): ensinar a resposta em minúsculas, entre aspas, ou com "diga/mande/fale"
+    for (const t of ["Se quiser, é só me dizer \"emite\" ou \"depois\".", "Me manda 'ver' que eu mostro.", "Fale «sem nota» se não precisar.", "diga sim"]) expect(temPalavraComando(t), t).toBe(true);
+    // o texto natural (e a frase fixa de silenciar, com o exemplo dela) continua passando
+    expect(temPalavraComando(um)).toBe(false);
+    expect(temPalavraComando("Chegou o rascunho do João, R$ 1.200,00. Quer que eu te mostre a prévia?")).toBe(false);
   });
   it("o tipo novo é o último da mensagem e nasce silenciado", () => {
     expect(TIPOS_AVISO.at(-1)).toBe("nota_fiscal");
@@ -249,6 +254,20 @@ describe("leituras e prévia em PDF", () => {
     expect(JSON.stringify(r2.body)).not.toContain(CPF);
     vi.unstubAllEnvs();
     await auditoriaSemCpf();
+  });
+  it("QA S-3 (M1/B2): o PDF da Dolores passa pelo filtro de saída (texto livre) e tem teto de bytes antes do envio", async () => {
+    const { notaParaPreviaDaDolores, MAX_BYTES_PREVIA } = await import("./whatsapp.js");
+    const base = { descricao: "Honorários — senha do portal: Abc12345xyz", descricaoSugerida: "x", motivoTexto: "PIX chave 11122233344 agência 0001 conta 98765-4",
+      tomador: { nome: "João Silva", documento: CPF }, origem: { descricao: "token: tk_live_ABCDEF1234567890", centroCustos: "Obras", tomadorNomeOrigem: null },
+      obra: { titulo: "Casa do João", cidade: "Imperatriz" }, tipoServico: { nome: "Regularização", descricaoPadrao: null }, emissor: { razaoSocial: "Prospecta" }, municipio: { nome: "Imperatriz" } };
+    const { campoPessoal } = await import("./dados-pessoais.js");
+    const saida = JSON.stringify(notaParaPreviaDaDolores(base, campoPessoal));
+    for (const s of ["Abc12345xyz", "98765-4", "tk_live_ABCDEF1234567890"]) expect(saida, s).not.toContain(s);
+    expect(saida).toContain("João Silva");
+    expect(MAX_BYTES_PREVIA).toBeLessThanOrEqual(2_000_000);
+    const fonte = readFileSync(new URL("./whatsapp.ts", import.meta.url), "utf8");
+    expect(fonte.indexOf("pdf.byteLength > MAX_BYTES_PREVIA")).toBeGreaterThan(0);
+    expect(fonte.indexOf("pdf.byteLength > MAX_BYTES_PREVIA")).toBeLessThan(fonte.indexOf("await deps.enviarDocumento("));
   });
   it("a Evolution não aceitou o PDF: o dono recebe uma frase curta (sem link)", async () => {
     const id = await rascunho();

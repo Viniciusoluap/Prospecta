@@ -44,8 +44,15 @@ export const perguntaDoAvisoFiscal = (quantidade: number) => quantidade === 1
  * escrito pela IA dos avisos (server/dolores/avisos.ts recusa o texto da IA que as tiver e usa o fixo).
  */
 const COMANDO_EM_MAIUSCULAS = /(?:^|[^A-Za-zÀ-ú])(?:VER|EMITIR|EMITA|N[ÃA]O|DEPOIS|ADIAR|SIM|CONFIRMO)(?![A-Za-zÀ-ú])/;
-const PEDIDO_DE_RESPOSTA = /\b(?:responda|respondendo|digite|escreva)\b/i;
-export const temPalavraComando = (texto: string) => COMANDO_EM_MAIUSCULAS.test(texto) || PEDIDO_DE_RESPOSTA.test(texto);
+// QA S-3 (B1): também "diga/me diga/dizer/fale/mande/manda" (ensinar a resposta) e qualquer palavra de comando ENTRE ASPAS, em qualquer caixa
+const PEDIDO_DE_RESPOSTA = /\b(?:responda|respondendo|responder|digite|digitar|escreva|escrever|diga|dizer|me\s+diz|fale|falar|mande|manda|mandar)\b/i;
+const COMANDO_ENTRE_ASPAS = /["“'‘«]\s*(?:ver|veja|emit\w*|depois|adi[ae]\w*|sim|n[ãa]o|confirm\w*|pode|sem\s+nota|deixa\w*)\b[^"”'’»]{0,20}["”'’»]/i;
+/** A frase FIXA de silenciar (shared/dolores/avisos.ts#FRASE_SILENCIAR) tem "me diga" com um exemplo natural: não é ensinar comando. */
+const FRASE_DE_SILENCIAR = /Se não quiser mais um desses avisos, me diga \(ex\.: "pare de me avisar de [^"\n]{1,80}"\)\./g;
+export const temPalavraComando = (texto: string) => {
+  const t = texto.replace(FRASE_DE_SILENCIAR, " ");
+  return COMANDO_EM_MAIUSCULAS.test(t) || PEDIDO_DE_RESPOSTA.test(t) || COMANDO_ENTRE_ASPAS.test(t);
+};
 
 /** Hora (Brasília) a partir da qual o aviso de rascunho vira o RESUMO do dia (a rota dos avisos das 18h já existe; sem cron novo). */
 export const HORA_RESUMO_FISCAL = 18;

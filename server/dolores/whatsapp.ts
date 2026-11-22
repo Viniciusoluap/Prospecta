@@ -662,6 +662,38 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
 
 /** EPIC-029 S-3: frase ao dono quando a prévia não pôde ir (sem tempo, rascunho sumiu, a Evolution não aceitou). */
 export const FRASE_PREVIA_NAO_FOI = "Dolores: não consegui mandar o PDF da prévia agora. Ela está em BPO Financeiro › Contabilidade › Notas a decidir (botão Prévia), ou me peça de novo.";
+/** QA S-3 (B2): teto do PDF da prévia mandado pelo WhatsApp (a prévia normal tem dezenas de KB). */
+export const MAX_BYTES_PREVIA = 1_000_000;
+
+/**
+ * QA S-3 (M1): no caminho da Dolores, o PDF passa pelo MESMO filtro de saída da conversa do dono — texto livre (descrição, centro de
+ * custo, tomador, obra, tipo de serviço, emissor, motivo) sem senha, token, chave, código de acesso e dado bancário SEMPRE; dados pessoais
+ * conforme o interruptor (DOLORES_MASCARAR_DADOS_PESSOAIS). O CPF/CNPJ estruturado do tomador segue campoPessoal. A tela não muda.
+ */
+export function notaParaPreviaDaDolores<T extends {
+  descricao: string; descricaoSugerida: string; motivoTexto: string | null;
+  tomador: { nome: string | null; documento: string | null };
+  origem: { descricao: string; centroCustos: string | null; tomadorNomeOrigem: string | null } | null;
+  obra: { titulo: string; cidade: string | null } | null;
+  tipoServico: { nome: string; descricaoPadrao: string | null } | null;
+  emissor: { razaoSocial: string | null } | null;
+  municipio: { nome: string | null };
+}>(nota: T, campo: (v: string, tipo: "cpf" | "cnpj", canal: "whatsapp") => string | null | undefined): T {
+  const f = (t: string) => sanitizarTexto(t, filtroDaSaida("whatsapp"));
+  const fn = (t: string | null) => (t == null ? t : f(t));
+  const doc = nota.tomador.documento;
+  return {
+    ...nota,
+    descricao: f(nota.descricao), descricaoSugerida: f(nota.descricaoSugerida), motivoTexto: fn(nota.motivoTexto),
+    tomador: { ...nota.tomador, nome: fn(nota.tomador.nome), documento: doc ? (campo(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null },
+    origem: nota.origem ? { ...nota.origem, descricao: f(nota.origem.descricao), centroCustos: fn(nota.origem.centroCustos), tomadorNomeOrigem: fn(nota.origem.tomadorNomeOrigem) } : null,
+    obra: nota.obra ? { ...nota.obra, titulo: f(nota.obra.titulo), cidade: fn(nota.obra.cidade) } : null,
+    tipoServico: nota.tipoServico ? { ...nota.tipoServico, nome: f(nota.tipoServico.nome), descricaoPadrao: fn(nota.tipoServico.descricaoPadrao) } : null,
+    emissor: nota.emissor ? { ...nota.emissor, razaoSocial: fn(nota.emissor.razaoSocial) } : null,
+    municipio: { ...nota.municipio, nome: fn(nota.municipio.nome) },
+  };
+}
+
 /** Tempo mínimo para gerar e mandar uma prévia (PDF pequeno, base64). */
 const MINIMO_PARA_PREVIA_MS = 4_000;
 
@@ -684,9 +716,9 @@ async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, 
       const [{ carregarNota }, { gerarPreviaPdf }, { emTransacaoSomenteLeitura, bancoDaLeitura }, { campoPessoal }] = await Promise.all([
         import("../fiscal/notas.js"), import("../fiscal/previa-pdf.js"), import("./somente-leitura.js"), import("./dados-pessoais.js")]);
       const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id));
-      const doc = nota.tomador.documento;
-      const documento = doc ? (campoPessoal(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null;
-      const pdf = gerarPreviaPdf({ ...nota, tomador: { ...nota.tomador, documento } });
+      const pdf = gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
+      // QA S-3 (B2): teto explícito do arquivo antes do envio
+      if (pdf.byteLength > MAX_BYTES_PREVIA) { await auditar("erro", "prévia acima do tamanho máximo", { notaFiscalId: id, bytes: pdf.byteLength }); falhou = true; break; }
       const base64 = Buffer.from(pdf).toString("base64");
       const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64, nome: `previa-nota-${id}.pdf`,
         legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, resta - 1_000) });
