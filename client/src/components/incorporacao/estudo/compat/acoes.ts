@@ -289,6 +289,9 @@ export function sincronizarUnidades(estudoId: string) { return capturar(() => in
 export function editarUnidade(estudoId: string, unidadeId: string, d: { status: "disponivel" | "reservada" | "vendida"; comprador: string | null; compradorLeadId: string | null; valor: string | null; revisao: number }) {
   return capturar(() => inc.units.edit.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), status: d.status, buyer: d.comprador, buyerLeadId: d.compradorLeadId ? Number(d.compradorLeadId) : null, salePrice: d.valor, expectedRevision: d.revisao }));
 }
+export function cancelarVendaUnidade(estudoId: string, unidadeId: string, revisao: number) {
+  return capturar(() => inc.units.cancelSale.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), expectedRevision: revisao }));
+}
 export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }
 
 /** Correção 08: exclui uma proposta gravada (com auditoria no servidor). */
