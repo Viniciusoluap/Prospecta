@@ -93,7 +93,14 @@ terceiro, nunca ação séria (essas ele faz na conversa direta). Para todos os 
 - `server/dolores/marcacao.ts` (desvio em `tratarMarcacao` + `pedidoDoDonoNoGrupo`)
 - `server/dolores/pendencia.ts` (`abrirPendenciaDosCodigos`; proposta sem mensagem da conversa direta)
 - `server/dolores/whatsapp.ts` (`enviarAvisoAoDono` aceita o id da proposta: tira as outras da ordem e marca a pergunta como enviada)
-- `server/dolores/c5-e3-grupo-registro.test.ts` (novo)
+- `server/dolores/c5-e3-grupo-registro.test.ts` (novo); `server/dolores/marcacao.test.ts` (1 teste ajustado ao comportamento novo)
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Draft → InProgress → InReview (YOLO). Sem migração.
+- 21/11/2026 — @dev (Dex): prova do @lid do dono guardada por 10 min na instância (só positiva; chave = número do dono + grupo + @lid),
+  para um terceiro que esgote as 6 consultas da hora não calar o dono.
+- 21/11/2026 — testes (vitest `--maxWorkers=2`): `npx tsc --noEmit` limpo; `c5-e3-grupo-registro` 14/14; `marcacao`, `grupos`,
+  `grupos-automaticos`, `c5-e2-resolve`, `c5-e2-qa`, `whatsapp`, `c4-marcacao-lid`, `marcacao-qa-seg` → 201/202 na 1ª rodada. A única
+  falha era o comportamento novo decidido pelo dono: em `marcacao.test.ts`, o dono que escreve "aprovar CÓDIGO" marcando a Dolores no
+  grupo agora recebe "Isso eu vejo com você no privado." (antes, a frase de fora de escopo) e a orientação no privado; continua sem
+  aprovar nada. Teste ajustado e verde. Sem mudança de tela (sem `vite build`); não há script `lint`.
