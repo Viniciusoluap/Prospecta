@@ -33,6 +33,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { rotulo } from "@shared/rotulos";
+// EPIC-029 S-2: o fiscal vive DENTRO desta aba (decisão do dono k: "para não termos campos redundantes").
+import { NotasADecidir } from "@/components/fiscal/NotasADecidir";
+import { DadosFiscaisDoPerfil } from "@/components/fiscal/DadosFiscaisDoPerfil";
+import { TiposServico } from "@/components/fiscal/TiposServico";
+import { NotasReceitaMes } from "@/components/fiscal/NotasReceitaMes";
 
 const regimes = {
   simples_nacional: "Simples Nacional",
@@ -89,12 +94,20 @@ export default function TaxAccountingPanel() {
     aplicar: patch => setRet(r => ({ ...r, ...patch })),
   });
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.tax.overview.useQuery();
+  // EPIC-029 S-2: filtro "Empresa" (um por CNPJ de perfil tributário). Vazio = todas.
+  const [empresa, setEmpresa] = useState("");
+  const { data: empresas = [] } = trpc.fiscal.emissores.listar.useQuery();
+  const empresaEscolhida = empresas.find(e => e.cnpj === empresa) ?? null;
+  const emissorId = empresaEscolhida?.emissor?.id ?? null;
+  const { data, isLoading } = trpc.tax.overview.useQuery(empresa ? { cnpj: empresa } : undefined);
   const { data: profiles = [] } = trpc.tax.profiles.list.useQuery();
+  const { data: resumoFiscal } = trpc.fiscal.resumo.useQuery({ emissorId: emissorId ?? undefined });
+  const podeDecidir = resumoFiscal?.podeDecidir ?? false;
 
   const refresh = () => {
     void utils.tax.overview.invalidate();
     void utils.tax.profiles.list.invalidate();
+    void utils.fiscal.emissores.listar.invalidate();
   };
   const createProfile = trpc.tax.profiles.create.useMutation({
     onSuccess: () => {
@@ -114,6 +127,14 @@ export default function TaxAccountingPanel() {
   });
   const markPaid = trpc.tax.obligations.markPaid.useMutation({
     onSuccess: refresh,
+    onError: error => toast.error(error.message),
+  });
+  // QA S-2 (M4): desativar um perfil vigente (só admin; não apaga nada; fica no histórico).
+  const desativarPerfil = trpc.tax.profiles.desativar.useMutation({
+    onSuccess: () => {
+      toast.success("Perfil desativado (nada foi apagado).");
+      refresh();
+    },
     onError: error => toast.error(error.message),
   });
   const createRet = trpc.tax.ret.create.useMutation({
@@ -138,7 +159,33 @@ export default function TaxAccountingPanel() {
         cálculo oficial do tributo.
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {empresas.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[16rem]">
+            <Label>Empresa</Label>
+            <Select value={empresa || "todas"} onValueChange={v => setEmpresa(v === "todas" ? "" : v)}>
+              <SelectTrigger className="mt-1 bg-[#2C3E50]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as empresas</SelectItem>
+                {empresas.map(e => (
+                  <SelectItem key={e.cnpj} value={e.cnpj}>
+                    {e.razaoSocial}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {empresaEscolhida && !empresaEscolhida.emissor && (
+            <p className="text-xs text-amber-300">
+              Preencha os "Dados fiscais do perfil" desta empresa para separar as notas dela.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Regime vigente</p>
@@ -161,14 +208,25 @@ export default function TaxAccountingPanel() {
                 inclui {money(data.revenueBpo)} do BPO/extrato bancário
               </p>
             )}
+            {empresa && (
+              <p className="text-xs text-gray-400">
+                de todas as empresas (o lançamento não indica a empresa)
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="bg-[#2C3E50] border-amber-500/30 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Tributos estimados</p>
-            <p className="mt-1 text-xl font-bold text-amber-300">
-              {money(data.estimatedTax)}
-            </p>
+            {data.estimatedTax == null ? (
+              <p className="mt-1 text-sm text-amber-200">
+                {data.estimativaIndisponivel}
+              </p>
+            ) : (
+              <p className="mt-1 text-xl font-bold text-amber-300">
+                {money(data.estimatedTax)}
+              </p>
+            )}
             <p className="text-xs text-gray-400">
               alíquota {data.rate.toFixed(2)}%
             </p>
@@ -180,6 +238,15 @@ export default function TaxAccountingPanel() {
             <p className="mt-1 text-xl font-bold text-red-300">
               {data.overdue}
             </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-[#2C3E50] border-[#C9A961]/30 text-gray-100">
+          <CardContent className="pt-6">
+            <p className="text-xs text-gray-300">Notas a decidir</p>
+            <p className="mt-1 text-xl font-bold text-[#C9A961]">
+              {resumoFiscal?.aDecidir ?? 0}
+            </p>
+            <p className="text-xs text-gray-400">nenhuma é emitida sem você</p>
           </CardContent>
         </Card>
       </div>
@@ -524,6 +591,33 @@ export default function TaxAccountingPanel() {
         </Dialog>
       </div>
 
+      {podeDecidir && profiles.filter(p => p.isActive).length > 0 && (
+        <div className="space-y-1 rounded bg-[#2C3E50] p-3 text-sm">
+          <p className="text-xs text-gray-300">Perfis tributários vigentes</p>
+          {profiles
+            .filter(p => p.isActive)
+            .map(p => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-gray-100">
+                  {p.companyName} {p.cnpj ? `• ${p.cnpj}` : "• sem CNPJ"} •{" "}
+                  {regimes[p.regime as keyof typeof regimes] || p.regime}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={desativarPerfil.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Desativar o perfil "${p.companyName}"? Nada é apagado; fica no histórico.`))
+                      desativarPerfil.mutate({ id: p.id });
+                  }}
+                >
+                  Desativar perfil
+                </Button>
+              </div>
+            ))}
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
           <CardHeader>
@@ -574,6 +668,13 @@ export default function TaxAccountingPanel() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <NotasADecidir emissorId={emissorId} podeDecidir={podeDecidir} />
+      <NotasReceitaMes emissorId={emissorId} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DadosFiscaisDoPerfil podeEditar={podeDecidir} />
+        <TiposServico podeEditar={podeDecidir} />
       </div>
 
       <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">

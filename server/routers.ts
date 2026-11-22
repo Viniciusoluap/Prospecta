@@ -94,6 +94,8 @@ import {
 import { brokerPortalRouter } from "./broker-portal-router.js";
 import { geoRouter } from "./geo-router.js";
 import { consultaCadastralRouter } from "./consulta-cadastral.js";
+// EPIC-029 S-2: rascunhos de nota fiscal (dentro da aba Contabilidade do BPO; nada é emitido).
+import { fiscalRouter } from "./fiscal/router.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCatalogoObra } from "./obra-localizacao.js";
@@ -227,6 +229,7 @@ export const appRouter = router({
   geo: geoRouter,
   // EPIC-029 S-1: cadastro automático por CNPJ (admin/colaborador com BPO ou Obras) e CEP (qualquer conta ativa), com limite por usuário
   consultaCadastral: consultaCadastralRouter,
+  fiscal: fiscalRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
   obraLocalizacao: obraLocalizacaoRouter,
