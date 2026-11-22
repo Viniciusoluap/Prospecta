@@ -104,18 +104,17 @@ export function montarRelatorio(e: {
         explicacao: "sem rascunho de nota (antes da data de corte, gerador ainda não rodou ou lançamento combinado)" });
       continue;
     }
-    if (daLinha.length === 1) {
-      linhas.push({ fonte: "bpo", id: l.id, descricao: l.descricao ?? "", centavos: valor, notaId: daLinha[0]!.id, ...categoriaDa(daLinha[0]!) });
-      continue;
-    }
-    // Lançamento repartido entre vários recebimentos do módulo: cada nota leva o valor do seu recebimento; o resto é diferença.
+    // Revisão do PR #302 (2): SEMPRE por valor, mesmo com um só recebimento ligado (o lançamento pode estar alocado só em
+    // parte — as guardas da 0046 permitem). Cada nota leva o valor do seu registro de origem (limitado ao que resta do
+    // lançamento); o resto vai para "diferença" (sem decisão / descoberto). Nota cuja origem É o lançamento leva o inteiro.
     let resto = valor;
     for (const n of daLinha) {
-      const parte = Math.max(0, Math.min(resto, n.valorOrigemCentavos));
+      const valorDaNota = n.origemTipo === "bpo_lancamento" ? valor : n.valorOrigemCentavos;
+      const parte = Math.max(0, Math.min(resto, valorDaNota));
       resto -= parte;
       if (parte) linhas.push({ fonte: "bpo", id: l.id, descricao: l.descricao ?? "", centavos: parte, notaId: n.id, ...categoriaDa(n) });
     }
-    if (resto) linhas.push({ fonte: "bpo", id: l.id, descricao: l.descricao ?? "", centavos: resto, categoria: "diferenca", explicacao: "parte do lançamento sem recebimento ligado" });
+    if (resto) linhas.push({ fonte: "bpo", id: l.id, descricao: l.descricao ?? "", centavos: resto, categoria: "diferenca", explicacao: "parte do lançamento sem recebimento ligado (sem decisão)" });
   }
 
   const soma = (c: Categoria) => linhas.filter(l => l.categoria === c).reduce((a, l) => a + l.centavos, 0);

@@ -191,7 +191,20 @@ Testes depois da correção:
 
 **Atenção na publicação:** `tax.profiles.create`, `desativar` e `historico` agora usam `tax_profiles_historico`, que vem da 0154. Aplicar a migração ANTES de publicar o código.
 
+### Revisão do PR #302 (3 achados do revisor), corrigidos
+1. **Filtro de município depois do LIMIT** (`server/fiscal/notas.ts`). Agora todos os filtros rodam no SQL antes do limite: empresa, situação, cliente, obra, município e período.
+   - O município é resolvido no próprio SQL, na mesma ordem da tela (ajuste → obra → tomador → emissor).
+   - A lista vem em páginas por cursor (data do evento + id). O componente tem o botão "Carregar mais".
+   - As opções de Cliente e Obra saem de uma rota própria (`notas.opcoesFiltro`), calculada sobre todos os rascunhos.
+2. **Lançamento alocado em parte a um só recebimento** (`server/fiscal/relatorio-mensal.ts`). A repartição agora é sempre por valor, inclusive com um só recebimento ligado: cada nota leva o valor da sua origem e o resto vai para "diferença", sem decisão. Exemplo: R$ 1.000 com R$ 400 ligados e decididos "sem nota" dão 400 sem nota + 600 de diferença.
+3. **Tomador congelado na geração**. Para rascunho não emitido, cliente do BPO, card do CRM e obra são lidos da associação ATUAL da origem, na lista, no detalhe, nos filtros e no PDF.
+   - Emitido, ou com a origem apagada, continua usando o que foi guardado.
+   - Quando o atual difere do guardado, aparece o alerta "O tomador mudou na origem…" na tela e no PDF.
+
+Testes: `npx vitest run server/fiscal` 46 de 46 (3 novos no bloco "revisão do PR #302"). Vizinhos `bpo-extrato`, `consulta-cadastral` e `imports-esm`: 59 de 59. `tsc` e `vite build`: ok.
+
 ## Change Log
 - 22/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementação completa da S-2 no ramo `epic029-s2`; migração 0154 NÃO aplicada.
 - 22/11/2026 — @qa (Quinn): portão CONCERNS (M1–M5, B6–B8), commit `a6434e4`.
 - 22/11/2026 — @dev (Dex): correções M1–M5, B6 e B8; B7 registrado para a S-4. Continua InReview, aguardando a reconferência do @qa.
+- 22/11/2026 — @dev (Dex): 3 achados do revisor do PR #302 corrigidos (filtros e paginação no SQL, alocação parcial no relatório, tomador atual da origem).
