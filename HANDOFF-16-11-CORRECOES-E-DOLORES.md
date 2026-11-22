@@ -707,3 +707,20 @@ conferir produção. Depois: QA da S-2 → migração (0154+) → PR → publica
 
 ### Próximo passo exato
 Mesclar #304 e #305; receber S-3/S-4/S-5/S-6 dos agentes → portão de QA de cada uma → migração → PR → revisor → merge → produção.
+
+## Atualização de 22/11/2026 ~22:15 UTC — EPIC-029 S-3, S-4, S-5 e S-6
+
+**Concluído e publicado (produção READY):**
+- #313 (52fb63a): S-4 — cofre do A1 (reaproveita o certificado do Jurídico), DPS v1.01, assinatura XMLDSig e cliente mTLS da Sefin. Emissão continua BLOQUEADA. Migração 0162 aplicada.
+- #314 (0729c8b): S-3 — Dolores no fluxo fiscal (aviso `nota_fiscal` silenciado por padrão, prévia em PDF só ao dono, conversa natural). Migração renumerada para **0165** (a main já tinha 0161 do Jurídico) e aplicada: CHECK de `dolores_avisos_tipos` = 8 tipos + `nota_fiscal`.
+- Codex ficou SEM COTA de revisão em 22/11: cada PR passa por revisão independente de um agente @qa no lugar dele (S-4 e S-3 aprovadas, só achados baixos).
+
+**Em andamento:**
+- #315 S-5 (NFS-e recebidas pelo ADN, captura desligada): migração 0163 JÁ aplicada no Neon (0 linhas alteradas); falta revisão independente → merge → conferir produção.
+- S-6 (contas por empresa, apelido, limites de receita): portão de QA deu FAIL (A9 número da conta indo para a Dolores; A1 receita excluída por coincidência de valor) + médios A2–A8. @dev corrigindo na worktree `epic029-s6`. A 0164 NÃO foi aplicada; ela tem de levar a lista completa (8 + `nota_fiscal` + `limite_receita`) e ser aplicada DEPOIS da 0165.
+
+**Pendências leves (sem bloqueio), da revisão da S-3:** prévia PDF sai antes de marcar a mensagem como respondida (banco lento pode gerar "mande de novo" indevido); `tomador.cidade` fora do filtro do PDF; retomada de tarefa demorada não manda prévia. Da S-4: certificado sem cadeia ICP é aceito (só avisa); NOT_FOUND vira erro genérico em testarConexao; xNome do tomador sem corte.
+
+**Testes:** (a) automáticos — S-4 182 + 103; S-3 233 + 137; S-5 265 + 255; tsc e vite build limpos em todas. (b) manuais — nenhum. (c) pendentes em produção — PDF chegando como documento no WhatsApp real; emissão real depende do contador (alíquota PGDAS-D, códigos).
+
+**Próximo passo exato:** esperar a revisão do #315 → merge → produção READY; receber as correções da S-6 → nova revisão de QA → aplicar 0164 → PR → merge.
