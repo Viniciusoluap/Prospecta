@@ -120,9 +120,9 @@ describe("QA E3 — POST direto ao servidor", () => {
   it("restaurar padrão e publicar não apagam histórico; versões antigas continuam com os itens originais", async () => {
     await admin().abrir({ planta: PLANTA });
     await admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(padrao(), "sofa", { z: 6.2 }) });
-    await admin().publicar({ planta: PLANTA, versao: 1 });
+    await admin().publicar({ planta: PLANTA, versao: 1, publicadaVista: null });
     await admin().restaurarPadrao({ planta: PLANTA, versaoBase: 1 });
-    await admin().publicar({ planta: PLANTA, versao: 2 });
+    await admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: 1 });
     const { rows } = await banco.pg.query<{ versao: number; situacao: string; itens: string }>("SELECT versao, situacao, itens FROM maquete_3d_itens ORDER BY versao");
     expect(rows.map(r => [r.versao, r.situacao])).toEqual([[1, "arquivada"], [2, "publicada"]]);
     expect((JSON.parse(rows[0].itens) as ItemFonte[]).find(i => i.id === "sofa")!.z).toBe(6.2);
@@ -140,33 +140,57 @@ describe("QA E3 — POST direto ao servidor", () => {
   it("dois admins publicando ao mesmo tempo: no fim um único ponteiro e uma única versão publicada", async () => {
     await admin().abrir({ planta: PLANTA });
     await admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(padrao(), "sofa", { z: 6.2 }) });
-    await Promise.allSettled([admin().publicar({ planta: PLANTA, versao: 1 }), raiz(2).maquete3d.itens.publicar({ planta: PLANTA, versao: 1 })]);
+    await Promise.allSettled([admin().publicar({ planta: PLANTA, versao: 1, publicadaVista: null }), raiz(2).maquete3d.itens.publicar({ planta: PLANTA, versao: 1, publicadaVista: null })]);
     const { rows } = await banco.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM maquete_3d_itens WHERE situacao = 'publicada'");
     expect(rows[0].n).toBe(1);
   });
 });
 
-describe("QA E3 — achados (comportamento atual documentado)", () => {
-  it("[achado baixo] item com elevação acima da porta escapa das regras da porta (geladeira 'flutuando' a 2,2 m na frente da P3 é aceita)", async () => {
+describe("QA E3 — achados corrigidos", () => {
+  it("[achado baixo, corrigido] item de piso não pode ficar elevado: geladeira 'flutuando' a 2,2 m na frente da P3 é recusada", async () => {
     await admin().abrir({ planta: PLANTA });
     const itens = mover(padrao(), "geladeira", { x: 0.54, z: 1.36, rot: 0, elev: 2.2, alt: 0.3 });
-    const r = await admin().salvar({ planta: PLANTA, versaoBase: 0, itens }).then(() => "aceito", (e: { message: string }) => e.message);
-    // Hoje: aceita (regra "item pendurado acima da porta não bloqueia" vale para qualquer tipo, inclusive de piso).
-    expect(r).toBe("aceito");
+    await expect(admin().salvar({ planta: PLANTA, versaoBase: 0, itens })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/não pode ficar elevado/) });
+    // Mesmo longe da porta, geladeira com elevação é recusada.
+    await expect(admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(padrao(), "geladeira", { elev: 0.1 }) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await contar()).toBe(0);
   });
 
-  it("[achado médio] a maquete da planta (origem 'fonte') continua alcançável pelas rotas antigas por id para o colaborador com o módulo", async () => {
+  it("[achado médio, corrigido] a maquete da planta (origem 'fonte') não existe pelas rotas antigas para o colaborador; o admin só lê por elas", async () => {
     const { maqueteId } = await admin().abrir({ planta: PLANTA });
     const colab = raiz(3, "colaborador", JSON.stringify(["maquete3d"])).maquete3d;
-    const d = await colab.detalhe({ id: maqueteId }).then(x => x, (e: { code: string }) => e);
-    // Hoje: o detalhe (com token) sai para o colaborador; a lista esconde, mas por id ela responde.
-    expect(d).toMatchObject({ id: maqueteId, origem: "fonte" });
-    expect((d as { token?: string }).token).toMatch(/^[0-9a-f]{48}$/);
+    const inexistente = await colab.detalhe({ id: 999_999 }).then(() => null, (e: { code: string; message: string }) => e);
+    for (const chamada of [
+      () => colab.detalhe({ id: maqueteId }), () => colab.revisoes({ id: maqueteId }), () => colab.documentosDoPedido({ id: maqueteId }),
+      () => colab.salvarComercial({ id: maqueteId, comercial: {} as never }), () => colab.validar({ id: maqueteId }), () => colab.iniciarLeitura({ id: maqueteId }),
+    ]) {
+      const e = await chamada().then(() => null, (x: { code: string; message: string }) => x);
+      expect(e).toMatchObject({ code: "NOT_FOUND", message: inexistente!.message });
+    }
+    const adm = raiz(1).maquete3d;
+    expect(await adm.detalhe({ id: maqueteId })).toMatchObject({ id: maqueteId, origem: "fonte" });
+    const antes = (await banco.pg.query("SELECT modelo, comercial, status FROM maquetes_3d WHERE id = $1", [maqueteId])).rows[0];
+    for (const chamada of [
+      () => adm.salvarModelo({ id: maqueteId, versao: 1, modelo: {} as never }), () => adm.salvarComercial({ id: maqueteId, comercial: {} as never }),
+      () => adm.publicar({ id: maqueteId }), () => adm.validar({ id: maqueteId }), () => adm.excluir({ id: maqueteId }), () => adm.despublicar({ id: maqueteId }),
+    ]) await expect(chamada()).rejects.toMatchObject({ code: expect.stringMatching(/^(FORBIDDEN|BAD_REQUEST)$/) });
+    expect((await banco.pg.query("SELECT modelo, comercial, status FROM maquetes_3d WHERE id = $1", [maqueteId])).rows[0]).toEqual(antes);
   });
 
-  it("[achado baixo] planta 'constructor' passa em slugPlantaValido (`in` enxerga o protótipo) e vira erro 500, sem gravar nada", async () => {
-    const e = await admin().abrir({ planta: "constructor" }).then(() => null, (x: { code: string }) => x);
-    expect(e?.code).toBe("INTERNAL_SERVER_ERROR"); // o certo seria NOT_FOUND (Object.hasOwn)
+  it("[achado baixo, corrigido] planta 'constructor', '__proto__' e 'tostring' → NOT_FOUND, sem gravar nada", async () => {
+    for (const planta of ["constructor", "hasownproperty", "valueof"]) {
+      const e = await admin().abrir({ planta }).then(() => null, (x: { code: string }) => x);
+      expect(e?.code, planta).toBe("NOT_FOUND");
+    }
     expect((await banco.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM maquetes_3d WHERE fonte_slug IS NOT NULL")).rows[0].n).toBe(0);
+  });
+
+  it("[achado baixo, corrigido] 'alcanca' vindo da tela é ignorado: o servidor grava o derivado da geometria", async () => {
+    await admin().abrir({ planta: PLANTA });
+    const itens = padrao().map(i => (i.id === "sofa" ? { ...i, alcanca: ["Quarto 1", "Banheiro"] } : i.id === "balcao" ? { ...i, alcanca: ["Quarto 1", "Quarto 2", "Banheiro", "Garagem e frente"] } : i));
+    await admin().salvar({ planta: PLANTA, versaoBase: 0, itens });
+    const gravados = JSON.parse((await banco.pg.query<{ itens: string }>("SELECT itens FROM maquete_3d_itens WHERE versao = 1")).rows[0].itens) as ItemFonte[];
+    expect(gravados.find(i => i.id === "sofa")!.alcanca).toBeUndefined();
+    expect(gravados.find(i => i.id === "balcao")!.alcanca).toEqual(padrao().find(i => i.id === "balcao")!.alcanca);
   });
 });
