@@ -46,17 +46,25 @@ export async function salvarRetornoContrato(contract:typeof portalContracts.$inf
   if(viaPortal&&contract.leadId)conferirLimitePortal(contract.leadId);
   const base=await baseDaEmpresa(contract.id);
   const conf=await relatorioRetorno(viaPortal?"retorno_portal":"retorno_admin",contract,bytes,base,mesmoConteudo,opcoes.roots,opcoes);
-  const tipo=viaPortal&&conf.todos?"assinado":"recebido_assinado";
+  const podeConcluir=viaPortal&&conf.todos&&base;
   const reserved=await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents','id'))::int AS id`);
   const id=Number((reserved as unknown as {rows:{id:number}[]}).rows[0].id);
   const gravar=await tabelaValidacoes();
   await db.batch([
-    db.insert(portalContractDocuments).values({id,contractId:contract.id,type:tipo,name:nomeContrato(contract.partyB,tipo)}),
+    db.execute(sql`SELECT id FROM portal_contracts WHERE id=${contract.id} FOR UPDATE`),
+    db.insert(portalContractDocuments).values({id,contractId:contract.id,type:"recebido_assinado",name:nomeContrato(contract.partyB,"recebido_assinado")}),
     db.execute(sql`INSERT INTO portal_contract_file_data(document_id,mime,size_bytes,data) VALUES(${id},'application/pdf',${bytes.length},decode(${bytes.toString("base64")},'base64'))`),
     ...(gravar?[db.execute(sqlInserirValidacao(id,conf))]:[]),
-    db.update(portalContracts).set({signatureStatus:tipo==="assinado"?"assinado":"em_conferencia",updatedAt:new Date()}).where(eq(portalContracts.id,contract.id)),
+    ...(podeConcluir?[db.execute(sql`UPDATE portal_contract_documents SET type='assinado', name=${nomeContrato(contract.partyB,"assinado")}
+      WHERE id=${id}
+        AND EXISTS (SELECT 1 FROM portal_contracts WHERE id=${contract.id} AND signature_status=${contract.signatureStatus} AND signature_status<>'assinado')
+        AND ${base.id}=(SELECT id FROM portal_contract_documents WHERE contract_id=${contract.id} AND type='assinatura_digital' ORDER BY created_at DESC,id DESC LIMIT 1)
+        AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id=${base.id} AND estado='valida' AND relatorio->>'vinculoOrigem'='conferido')`)]:[]),
+    db.execute(sql`UPDATE portal_contracts SET signature_status=CASE WHEN EXISTS (SELECT 1 FROM portal_contract_documents WHERE id=${id} AND type='assinado') THEN 'assinado' ELSE 'em_conferencia' END, updated_at=now()
+      WHERE id=${contract.id} AND signature_status=${contract.signatureStatus} AND signature_status<>'assinado'`),
   ] as unknown as Parameters<typeof db.batch>[0]);
-  return {id,todos:tipo==="assinado",conferencia:conf,validacao:resumir(id,conf,0,gravar?proximaTentativa(conf,0,new Date()):null)};
+  const [salvo]=await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id,id)).limit(1);
+  return {id,todos:salvo?.type==="assinado",conferencia:conf,validacao:resumir(id,conf,0,gravar?proximaTentativa(conf,0,new Date()):null)};
 }
 /**
  * O PDF `depois` conserva o conteúdo de `antes`. Com `marca` (assinatura da empresa sobre o documento de origem), UMA

@@ -87,3 +87,12 @@ Item 7 do handoff original (contrato real da Maylanne): não há o PDF; não ped
 ## Testes
 (a) automáticos: testes PKI/conferência com ICP sintética passaram em 825265f (QA rodou 29/29 focados); o estado das
 correções do QA e da marca está no último commit de cada branch. (b) manuais: nenhum. (c) produção: nada publicado.
+
+## Retomada Codex — 22/11/2026
+
+- Integradas main 9e8a7e3 e marca proporcional d53250f nesta branch. Conflitos de api/index.ts e ROADMAP resolvidos preservando Fiscal e Jurídico. package.json/lockfile intactos.
+- Prévia recebe titular/documento do certificado selecionado.
+- Revisão identificou uma corrida na conclusão INICIAL do retorno pelo portal: a base podia mudar enquanto a rede era consultada. Agora o lote trava o contrato e só promove o documento se a base ainda for a última validada e o status esperado ainda conferir. Incluído teste específico. Upload da empresa também preserva contrato já concluído durante a consulta.
+- Automáticos até este checkpoint: 98/98 testes focados aprovados antes do ajuste da corrida. Regressão após ajuste, suíte completa, TypeScript e build em execução.
+- Ambiente local reaproveita dependências existentes e versões declaradas. Instalação frozen com pnpm 10.4.1 interrompida por lentidão de download, sem mudança de lock. Pacotes faltantes locais instalados fora do checkout.
+- Migração 0161 ainda NÃO aplicada. Produção ainda sem esta frente. Próximo passo: terminar checks, revisão automática do PR Completed e achados, aplicar migração, merge e validar produção/API/login. Docs de independência ainda pendentes.

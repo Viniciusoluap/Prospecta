@@ -204,7 +204,7 @@ export const juridicoRouter = router({
     if (relatorio && gravar) ops.push(db.execute(sqlInserirValidacao(id, relatorio)));
     if (input.type === "assinatura_digital") ops.push(db.update(portalContracts).set({
       signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
-    }).where(eq(portalContracts.id, input.contractId)));
+    }).where(and(eq(portalContracts.id, input.contractId),sql`${portalContracts.signatureStatus}<>'assinado'`)));
     try { await db.batch(ops as unknown as Parameters<typeof db.batch>[0]); }
     catch (e) {
       // B4: o lote falhou depois de o arquivo ir ao Drive → manda a cópia órfã para a lixeira (melhor esforço).

@@ -322,6 +322,23 @@ describe("retorno pelo portal", () => {
       expect(await linhaValidacao(pg, doc.id)).toMatchObject({ estado: "valida", origem: "retorno_portal" });
     } finally { await pg.close(); }
   }, 60_000);
+  it("conclusão inicial não usa a revisão antiga se outra assinatura da empresa foi salva durante a conferência", async () => {
+    const pg = await preparar();
+    try {
+      const empresa = await empresaAssinou(pg);
+      const retorno = await assinar(empresa, "cliente");
+      const db = banco.getDb();
+      const batch = db.batch.bind(db);
+      vi.spyOn(db, "batch").mockImplementationOnce(async ops => {
+        await pg.exec("INSERT INTO portal_contract_documents (contract_id,name,type) VALUES (1,'nova-revisao.pdf','assinatura_digital')");
+        return batch(ops);
+      });
+      const r = await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(retorno) });
+      expect(r.todos).toBe(false);
+      expect((await pg.query("SELECT type FROM portal_contract_documents WHERE id=$1", [r.id])).rows[0]).toEqual({ type: "recebido_assinado" });
+      expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "em_conferencia" });
+    } finally { await pg.close(); }
+  }, 60_000);
   it("anotação opaca por cima (P1 da PR #297) continua em conferência, mesmo com assinaturas válidas", async () => {
     const pg = await preparar();
     try {

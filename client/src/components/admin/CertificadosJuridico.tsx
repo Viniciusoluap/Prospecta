@@ -86,7 +86,7 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
       </select>
       {certificados.find(c => c.id === selecionado) && <p className="text-sm text-gray-300">Emitido por {certificados.find(c => c.id === selecionado)!.emissor}</p>}
       {lembrada ? <p className="text-sm text-green-300">Senha salva neste aparelho.</p> : <><Label htmlFor="senha-assinatura">Senha do certificado (será salva neste aparelho)</Label><Input id="senha-assinatura" type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={e => setSenha(e.target.value)} /></>}
-      {pdfBytes ? <div className={ocupado ? "pointer-events-none opacity-60" : ""}><PosicionarAssinaturaPdf bytes={pdfBytes} mudou={setPosicao} /></div> : <p>Carregando PDF…</p>}
+      {pdfBytes ? <div className={ocupado ? "pointer-events-none opacity-60" : ""}><PosicionarAssinaturaPdf bytes={pdfBytes} mudou={setPosicao} titular={certificados.find(c => c.id === selecionado)?.titular} documento={certificados.find(c => c.id === selecionado)?.documento} /></div> : <p>Carregando PDF…</p>}
       <p className="text-sm text-gray-300">Confira o documento e o titular antes de assinar. Esta assinatura é do titular selecionado; as demais partes continuam pendentes. Depois de salvar, o sistema confere sozinho a integridade, a cadeia ICP-Brasil e a revogação (LCR) e mostra o resultado no documento. É uma conferência técnica do próprio sistema, sem carimbo de tempo; não é o relatório oficial do VALIDAR/ITI.</p>
       <Button onClick={() => void assinar()} disabled={ocupado || !selecionado || !senha || !posicao || !pdfBytes}>{ocupado ? "Assinando e salvando…" : "Assinar digitalmente"}</Button>
     </> : <>
