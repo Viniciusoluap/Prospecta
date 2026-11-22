@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CATEGORIAS_GRUPO, categoriaDoTipo, type TipoGrupo } from "@shared/dolores/grupos-tipo";
-import { TEXTO_GRUPOS } from "@shared/whatsapp/grupos-central";
+import { TEXTO_GRUPOS, aplicarPaginaAntiga, aplicarPaginaRecente, vistaDoGrupo, type HistoricoDoGrupo } from "@shared/whatsapp/grupos-central";
 import { TEXTO_MODO } from "@shared/dolores/modo-conversa";
 
 const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -104,32 +104,35 @@ export function GruposWhatsApp() {
   const fim = useRef<HTMLDivElement>(null);
   const grupos = trpc.whatsappGrupos.listar.useQuery(undefined, { refetchInterval: 8000 });
   const mensagens = trpc.whatsappGrupos.mensagens.useQuery({ grupoId: grupoId ?? 0 }, { enabled: Boolean(grupoId), refetchInterval: 5000 });
-  // páginas mais antigas carregadas por "Ver mensagens anteriores" (a página mais nova se atualiza sozinha)
-  type Pagina = { mensagens: NonNullable<typeof mensagens.data>["mensagens"]; temMais: boolean; maisAntiga: Date | string | null };
-  const [antigas, setAntigas] = useState<Pagina | null>(null);
-  const [carregando, setCarregando] = useState(false);
+  // tudo o que já foi carregado do grupo aberto (páginas antigas + cada atualização da mais nova), amarrado ao id do grupo:
+  // união por chave (nada some quando chega mensagem nova) e página antiga de outro grupo é descartada (shared/whatsapp/grupos-central.ts)
+  type Mensagem = NonNullable<typeof mensagens.data>["mensagens"][number];
+  const [historico, setHistorico] = useState<HistoricoDoGrupo<Mensagem> | null>(null);
+  const [carregandoDe, setCarregandoDe] = useState<number | null>(null);
   const enviar = trpc.whatsappGrupos.enviar.useMutation({
     onSuccess: r => { if (r.aviso) toast.warning(r.aviso); setTexto(""); utils.whatsappGrupos.mensagens.invalidate(); utils.whatsappGrupos.listar.invalidate(); },
     onError: e => toast.error(e.message),
   });
-  useEffect(() => { setAntigas(null); setTexto(""); }, [grupoId]);
+  useEffect(() => { setTexto(""); }, [grupoId]);
+  useEffect(() => {
+    if (grupoId && mensagens.data) { const d = mensagens.data; setHistorico(h => aplicarPaginaRecente(h, grupoId, d)); }
+  }, [grupoId, mensagens.data]);
   async function verAnteriores(id: number, cursor: Date | string) {
-    setCarregando(true);
+    setCarregandoDe(id);
     try {
       const r = await utils.whatsappGrupos.mensagens.fetch({ grupoId: id, antes: new Date(cursor) });
-      setAntigas(p => ({ mensagens: [...r.mensagens, ...(p?.mensagens ?? [])], temMais: r.temMais, maisAntiga: r.maisAntiga }));
+      // se a pessoa já trocou de grupo, a página é descartada (confere o id do histórico, não o do pedido)
+      setHistorico(h => aplicarPaginaAntiga(h, id, r));
     } catch (e) { toast.error(e instanceof Error ? e.message : "Não consegui carregar as mensagens anteriores."); }
-    finally { setCarregando(false); }
+    finally { setCarregandoDe(c => (c === id ? null : c)); }
   }
-  useEffect(() => { fim.current?.scrollIntoView({ block: "end" }); }, [mensagens.data?.mensagens.length, grupoId]);
 
   const lista = (grupos.data?.grupos ?? []).filter(g => !busca || g.nome.toLowerCase().includes(busca.toLowerCase()));
   const atual = (grupos.data?.grupos ?? []).find(g => g.id === grupoId) ?? null;
-  const recentes = mensagens.data?.mensagens ?? [];
-  const chavesRecentes = new Set(recentes.map(m => m.chave));
-  const todas = [...(antigas?.mensagens ?? []).filter(m => !chavesRecentes.has(m.chave)), ...recentes];
-  const temMais = antigas ? antigas.temMais : mensagens.data?.temMais;
-  const cursor = antigas ? antigas.maisAntiga : mensagens.data?.maisAntiga;
+  const { mensagens: todas, temMais, cursor } = vistaDoGrupo(historico, grupoId, mensagens.data);
+  const ultimaChave = todas.at(-1)?.chave;
+  // desce até o fim quando chega mensagem nova ou troca de grupo (carregar as anteriores não mexe na última)
+  useEffect(() => { fim.current?.scrollIntoView({ block: "end" }); }, [ultimaChave, grupoId]);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 min-h-[520px]">
@@ -179,7 +182,7 @@ export function GruposWhatsApp() {
             <div className="flex-1 overflow-y-auto max-h-[460px] p-3 space-y-2">
               {temMais && cursor && (
                 <div className="text-center">
-                  <Button size="sm" variant="outline" className={botaoSec} disabled={carregando} onClick={() => verAnteriores(atual.id, cursor)}>Ver mensagens anteriores</Button>
+                  <Button size="sm" variant="outline" className={botaoSec} disabled={carregandoDe === atual.id} onClick={() => verAnteriores(atual.id, cursor)}>Ver mensagens anteriores</Button>
                 </div>
               )}
               {todas.map(m => (

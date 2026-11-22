@@ -791,10 +791,9 @@ export function textoEhDaCampanha(textoDoEco: string | null | undefined, envio: 
   const rodape = typeof p?.rodape === "string" ? textoComparavel(p.rodape) : "";
   const cabecalhoGuardado = completo !== null;
   const cabecalho = cabecalhoGuardado && completo !== corpo && completo.endsWith(corpo) ? completo.slice(0, completo.length - corpo.length).trim() : "";
-  const i = eco.indexOf(corpo);
-  if (i < 0) return false;
-  // a última ocorrência também é tentada (o corpo pode repetir uma palavra do cabeçalho)
-  for (const pos of Array.from(new Set([i, eco.lastIndexOf(corpo)]))) {
+  // TODA ocorrência do corpo é tentada: o corpo pode aparecer também dentro do cabeçalho e/ou do rodapé (ex.: corpo "Olá", cabeçalho
+  // "Olá, cliente", rodapé "Olá novamente"); só a primeira e a última não bastam. Cada posição continua exigindo o resto exato.
+  for (let pos = eco.indexOf(corpo); pos >= 0; pos = eco.indexOf(corpo, pos + 1)) {
     const antes = eco.slice(0, pos).trim();
     const depois = eco.slice(pos + corpo.length).trim();
     const antesOk = cabecalhoGuardado ? antes === "" || antes === cabecalho : antes.length <= TOLERANCIA_ECO_CAMPANHA;

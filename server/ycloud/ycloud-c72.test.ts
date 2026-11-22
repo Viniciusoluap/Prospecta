@@ -37,6 +37,7 @@ let chamadas: Array<{ url: string; metodo: string; chave: string | null; corpo: 
 let atrasoCriarMs = 0;
 let travarListagem = false;
 let sinalVisto: AbortSignal | null = null;
+let wabaDaChave = "waba1";
 
 const resposta = (status: number, json: unknown) => new Response(JSON.stringify(json), { status, headers: { "Content-Type": "application/json" } });
 
@@ -49,7 +50,7 @@ const fetchFalso = vi.fn(async (url: string | URL | Request, init?: RequestInit)
   if (!u.startsWith("https://api.ycloud.com/v2/")) throw new Error("URL fora da YCloud");
   if (h.get("X-API-Key") !== CHAVE) return resposta(401, { error: { status: 401, code: "UNAUTHORIZED" } });
   if (u.includes("/whatsapp/phoneNumbers")) {
-    return resposta(200, { items: [{ id: "p1", phoneNumber: `+${EMPRESA}`, wabaId: "waba1", verifiedName: "VFX Capital", status: "CONNECTED", qualityRating: "GREEN", whatsappBusinessManagerMessagingLimit: "TIER_250" }] });
+    return resposta(200, { items: [{ id: "p1", phoneNumber: `+${EMPRESA}`, wabaId: wabaDaChave, verifiedName: "VFX Capital", status: "CONNECTED", qualityRating: "GREEN", whatsappBusinessManagerMessagingLimit: "TIER_250" }] });
   }
   if (u.includes("/whatsapp/templates") && metodo === "GET") {
     if (travarListagem) {
@@ -116,6 +117,7 @@ beforeEach(async () => {
   atrasoCriarMs = 0;
   travarListagem = false;
   sinalVisto = null;
+  wabaDaChave = "waba1";
   chamadas = [];
   fetchFalso.mockClear();
   erroLog.mockClear();
@@ -437,5 +439,81 @@ describe("C7.2 — correções do portão de QA", () => {
   it("QA-4: o texto do cartão de modelos diz as condições reais do envio automático", () => {
     const fonte = readFileSync(new URL("../../client/src/components/whatsapp/CampanhaApiOficial.tsx", import.meta.url), "utf8");
     expect(fonte).toMatch(/Com a chave salva e o número conferido, se a conta não tiver nenhum modelo de marketing em português/);
+  });
+});
+
+describe("C7.3 — estado dos modelos por conta (WABA): chave trocada por uma de outra conta", () => {
+  const texto = "Olá, {{nome}}! Temos novidade sobre {{servicos}} para você.";
+  const salvar = (id?: number) => admin().whatsapp.salvarTemplate({ id, nome: "Novidade WABA", categoria: "Captação", conteudo: texto, apiOficial: { categoria: "MARKETING" } });
+  const vinculo = async (id: number) => { const [l] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = 'ycloud.template.${id}'`); return JSON.parse(l.value); };
+
+  it("troca de WABA → o template com o mesmo texto é enviado à conta nova e o modelo padrão é criado nela", async () => {
+    await integrar();
+    expect((await garantirModeloPadrao()).r).toBe("criado");
+    const r = await salvar();
+    expect(r.apiOficial).toMatchObject({ ok: true, repetido: false });
+    expect(await vinculo(r.id)).toMatchObject({ w: "waba1" });
+    expect(await estado()).toMatchObject({ s: "criado", w: "waba1" });
+    const antes = posts().length;
+
+    wabaDaChave = "waba2";
+    await integrar(); // a chave nova é de outra conta: cfg.wabaId passa a ser waba2
+    const de_novo = await salvar(r.id);
+    expect(de_novo.apiOficial).toMatchObject({ ok: true, repetido: false });
+    expect(posts()).toHaveLength(antes + 1);
+    expect(posts().at(-1)!.corpo.wabaId).toBe("waba2");
+    expect(await vinculo(r.id)).toMatchObject({ w: "waba2" });
+
+    // modelo padrão: o "criado" era da waba1 → na waba2 é como nunca tentado (mesmo dia: a contagem é por conta)
+    expect((await admin().whatsappOficial.status()).modeloPadrao).toMatchObject({ situacao: null, tentativas: 0 });
+    expect((await garantirModeloPadrao()).r).toBe("criado");
+    const padrao = posts().filter(p => p.corpo.name === "novidades_prospecta");
+    expect(padrao.map(p => p.corpo.wabaId)).toEqual(["waba1", "waba2"]);
+    expect(await estado()).toMatchObject({ s: "criado", t: 1, w: "waba2" });
+    expect((await garantirModeloPadrao()).r).toBe("ja_feito");
+    const [linha] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = '${CHAVE_ESTADO_MODELO_PADRAO}'`);
+    expect(linha.value.length).toBeLessThanOrEqual(500);
+  });
+
+  it("troca de WABA com recusas: 1 por dia e 3 no total POR WABA (recomeça na conta nova)", async () => {
+    await integrar();
+    respostaCriar = () => ({ status: 400, json: { error: { status: 400, code: "PARAM_INVALID", message: "rejeitado" } } });
+    for (const dia of [0, 1, 2]) { relogio = new Date(AGORA.getTime() + dia * 86_400_000); expect((await garantirModeloPadrao()).r).toBe("recusado"); }
+    relogio = new Date(AGORA.getTime() + 3 * 86_400_000);
+    expect((await garantirModeloPadrao()).r).toBe("desistiu");
+    wabaDaChave = "waba2";
+    await integrar();
+    expect((await garantirModeloPadrao()).r).toBe("recusado");
+    expect((await garantirModeloPadrao()).r).toBe("hoje_ja_tentou");
+    expect(await estado()).toMatchObject({ s: "recusado", t: 1, w: "waba2" });
+    expect(posts()).toHaveLength(4);
+  });
+
+  it("mesma WABA (chave salva de novo) → continua sem repetir", async () => {
+    await integrar();
+    expect((await garantirModeloPadrao()).r).toBe("criado");
+    const r = await salvar();
+    const antes = posts().length;
+    await integrar();
+    expect((await salvar(r.id)).apiOficial).toMatchObject({ ok: true, repetido: true });
+    expect((await garantirModeloPadrao()).r).toBe("ja_feito");
+    expect(posts()).toHaveLength(antes);
+  });
+
+  it("registro antigo sem WABA gravada conta como da WABA atual → não repete (nada de reenvio em massa)", async () => {
+    await integrar();
+    expect((await garantirModeloPadrao()).r).toBe("criado");
+    const r = await salvar();
+    const antes = posts().length;
+    // simula os registros gravados antes da correção (sem o campo w)
+    const semW = (v: string) => { const o = JSON.parse(v); delete o.w; return JSON.stringify(o); };
+    for (const k of [CHAVE_ESTADO_MODELO_PADRAO, `ycloud.template.${r.id}`]) {
+      const [l] = await q<{ value: string }>(`SELECT value FROM dashboard_settings WHERE key = '${k}'`);
+      await pg.query("UPDATE dashboard_settings SET value = $1 WHERE key = $2", [semW(l.value), k]);
+    }
+    expect((await salvar(r.id)).apiOficial).toMatchObject({ ok: true, repetido: true });
+    relogio = new Date(AGORA.getTime() + 86_400_000);
+    expect((await garantirModeloPadrao()).r).toBe("ja_feito");
+    expect(posts()).toHaveLength(antes);
   });
 });
