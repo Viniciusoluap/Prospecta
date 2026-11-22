@@ -14,7 +14,7 @@ import { getDb } from "../db.js";
 import { ensureTaxSchema } from "../tax-router.js";
 import { carregarConfigFiscal, gerarRascunhos } from "./gerador.js";
 import {
-  adiar, carregarNota, cnpjLimpo, contarADecidir, editar, emissoresComPerfil, emitir, historicoDaNota, listarNotas, naoEmitir, reabrir,
+  adiar, carregarNota, cnpjLimpo, contarADecidir, editar, emissoresComPerfil, emitir, historicoDaNota, listarNotas, naoEmitir, opcoesDosFiltros, reabrir, CURSOR_NOTAS,
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
@@ -176,8 +176,18 @@ export const fiscalRouter = router({
         municipio: z.string().trim().max(100).optional(),
         de: data.optional(),
         ate: data.optional(),
+        // Revisão do PR #302 (1): paginação por cursor ("carregar mais").
+        cursor: z.string().regex(CURSOR_NOTAS, "Página inválida.").optional(),
+        limite: z.number().int().min(1).max(200).optional(),
       }).optional())
-      .query(async ({ input, ctx }) => (await listarNotas(getDb(), input ?? {})).map(n => paraQuemVe(n, ctx.user.role))),
+      .query(async ({ input, ctx }) => {
+        const r = await listarNotas(getDb(), input ?? {});
+        return { itens: r.itens.map(n => paraQuemVe(n, ctx.user.role)), proximoCursor: r.proximoCursor };
+      }),
+    /** Opções dos filtros Cliente e Obra sobre TODOS os rascunhos (não só a página carregada). */
+    opcoesFiltro: fiscalProcedure
+      .input(z.object({ emissorId: id.nullable().optional() }).optional())
+      .query(({ input }) => opcoesDosFiltros(getDb(), input?.emissorId ?? null)),
     ver: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role)),
     historico: fiscalProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */

@@ -330,7 +330,7 @@ describe("permissões", () => {
     await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
     const [n] = await notas();
     const colab = caller("colaborador", ["bpo"]);
-    expect(await colab.fiscal.notas.listar()).toHaveLength(1);
+    expect((await colab.fiscal.notas.listar()).itens).toHaveLength(1);
     await expect(colab.fiscal.notas.naoEmitir({ id: n!.id, versao: n!.versao, motivo: "emitida_fora" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.notas.editar({ id: n!.id, versao: n!.versao, descricao: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.notas.atualizar()).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -442,7 +442,7 @@ describe("multi-CNPJ (emissor por CNPJ, lido do perfil tributário)", () => {
     expect(n1!.emissor_id).toBeNull(); // dois emissores: a empresa é escolhida pelo dono (ou pelo tipo de serviço)
     await a.fiscal.notas.editar({ id: n1!.id, versao: n1!.versao, emissorId: p!.id });
     await a.fiscal.notas.editar({ id: n2!.id, versao: n2!.versao, emissorId: e!.id });
-    const daProspecta = await a.fiscal.notas.listar({ emissorId: p!.id });
+    const daProspecta = (await a.fiscal.notas.listar({ emissorId: p!.id })).itens;
     expect(daProspecta.map(x => x.origemId)).toEqual([l1]);
     expect(daProspecta[0]!.emissor).toMatchObject({ razaoSocial: "Prospecta Construções", regime: "simples_nacional" });
     expect((await a.fiscal.resumo({ emissorId: e!.id })).aDecidir).toBe(1);
@@ -538,12 +538,92 @@ describe("correções do portão de QA (M1–M5, B6, B8)", () => {
     expect((await admin().fiscal.notas.ver({ id: n!.id })).tomador.documento).toBe("12345678909");
     const colab = caller("colaborador", ["bpo"]);
     expect((await colab.fiscal.notas.ver({ id: n!.id })).tomador.documento).toBe("***.456.789-**");
-    expect((await colab.fiscal.notas.listar())[0]!.tomador.documento).toBe("***.456.789-**");
+    expect((await colab.fiscal.notas.listar()).itens[0]!.tomador.documento).toBe("***.456.789-**");
     const descritor = Object.getOwnPropertyDescriptor(Array.prototype, "random");
     if (descritor?.enumerable) Object.defineProperty(Array.prototype, "random", { ...descritor, enumerable: false });
     const { extractText } = await import("unpdf");
     const { base64 } = await colab.fiscal.notas.previa({ id: n!.id });
     const { text } = await extractText(new Uint8Array(Buffer.from(base64, "base64")), { mergePages: true });
     expect(String(text)).not.toMatch(/123\.456\.789-09|12345678909/);
+  });
+});
+
+describe("revisão do PR #302", () => {
+  it("(1) município e demais filtros valem no SQL antes do limite; paginação por cursor sem repetir; opções sobre todos", async () => {
+    const imp = await obra("Imperatriz", "MA");
+    const par = await obra("Parauapebas", "PA");
+    await q(`INSERT INTO obra_movimentos (project_id, natureza, descricao, valor, data, origem)
+      SELECT $1, 'entrada', 'Entrada ' || g, 100, DATE '2026-11-20' - (g % 15), 'manual' FROM generate_series(1, 230) g`, [imp]);
+    await q(`INSERT INTO obra_movimentos (project_id, natureza, descricao, valor, data, origem) VALUES ($1, 'recebimento_cef', 'Parcela', 500, '2026-11-01', 'manual')`, [par]);
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    const a = admin();
+    const so = await a.fiscal.notas.listar({ municipio: "parauapebas" });
+    expect(so.itens.map(n => n.municipio.nome)).toEqual(["Parauapebas"]);
+    expect(so.proximoCursor).toBeNull();
+    expect((await a.fiscal.notas.listar({ obraId: par })).itens).toHaveLength(1);
+    const vistos: number[] = [];
+    let cursor: string | undefined;
+    let paginas = 0;
+    do {
+      const p = await a.fiscal.notas.listar({ limite: 100, cursor });
+      vistos.push(...p.itens.map(n => n.id));
+      cursor = p.proximoCursor ?? undefined;
+      paginas++;
+    } while (cursor);
+    expect(paginas).toBe(3);
+    expect(new Set(vistos).size).toBe(231);
+    const datas = (await a.fiscal.notas.listar({ limite: 200 })).itens.map(n => n.dataEvento);
+    expect([...datas].sort().reverse()).toEqual(datas);
+    const opcoes = await a.fiscal.notas.opcoesFiltro();
+    expect(opcoes.obras.map(o => o.nome).sort()).toEqual(["Casa Imperatriz", "Casa Parauapebas"]);
+    await expect(a.fiscal.notas.listar({ cursor: "x'; DROP" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("(2) lançamento alocado em PARTE a um só recebimento: só a parte ligada leva o status; o resto é diferença", async () => {
+    const r = montarRelatorio({
+      competencia: "2026-11", de: new Date("2026-11-01T03:00:00Z"), ate: new Date("2026-12-01T02:59:59Z"),
+      movimentos: [], lancamentosBpo: [{ id: 1, tipo: "receita", valor: "1000.00" }],
+      notas: [{ id: 10, status: "SEM_NOTA", motivoSemNota: "itbi_repassado", emissorId: null, origemTipo: "regularizacao_recebimento", origemId: 5,
+        dataEvento: "2026-11-02", lancamentoBpoId: 1, valorOrigemCentavos: 40_000 }],
+    });
+    expect([r.semNotaCentavos, r.diferencaCentavos, r.aDecidirCentavos]).toEqual([40_000, 60_000, 0]);
+    expect(r.diferencas).toEqual([expect.objectContaining({ centavos: 60_000, explicacao: expect.stringMatching(/sem recebimento ligado/) })]);
+    expect(r.fecha).toBe(true);
+    // no banco: R$ 1.000 no BPO com R$ 400 ligados a uma regularização decidida "sem nota"
+    const l = await lancamento({ tipo: "receita", valor: 1000 });
+    await regularizacao("itbi", 400, l);
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    const [n] = await notas();
+    await admin().fiscal.notas.naoEmitir({ id: n!.id, versao: n!.versao, motivo: "itbi_repassado" });
+    const rel = await admin().fiscal.relatorio.mensal({ competencia: "2026-11" });
+    expect([rel.receitaRealizadaCentavos, rel.semNotaCentavos, rel.diferencaCentavos]).toEqual([100_000, 40_000, 60_000]);
+    expect(rel.fecha).toBe(true);
+  });
+
+  it("(3) lançamento que troca de cliente depois: o rascunho usa o cliente ATUAL e avisa 'tomador mudou'", async () => {
+    const antigo = await cliente("Cliente Antigo Ltda", "11222333000181");
+    const novo = await cliente("Cliente Novo SA", "45723174000110");
+    const l = await lancamento({ clienteId: antigo });
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    const [n] = await notas();
+    const a = admin();
+    expect((await a.fiscal.notas.ver({ id: n!.id })).tomadorMudouNaOrigem).toBe(false);
+    await pg.query("UPDATE bpo_lancamentos SET cliente_id = $1 WHERE id = $2", [novo, l]);
+    const ver = await a.fiscal.notas.ver({ id: n!.id });
+    expect(ver.tomador).toMatchObject({ nome: "Cliente Novo SA", documento: "45723174000110" });
+    expect(ver.tomadorMudouNaOrigem).toBe(true);
+    expect(ver.bpoClientId).toBe(novo);
+    expect((await a.fiscal.notas.listar({ bpoClientId: novo })).itens.map(x => x.id)).toEqual([n!.id]);
+    expect((await a.fiscal.notas.listar({ bpoClientId: antigo })).itens).toEqual([]);
+    expect((await a.fiscal.notas.opcoesFiltro()).clientesBpo.map(c => c.nome)).toEqual(["Cliente Novo SA"]);
+    const descritor = Object.getOwnPropertyDescriptor(Array.prototype, "random");
+    if (descritor?.enumerable) Object.defineProperty(Array.prototype, "random", { ...descritor, enumerable: false });
+    const { extractText } = await import("unpdf");
+    const { base64 } = await a.fiscal.notas.previa({ id: n!.id });
+    const { text } = await extractText(new Uint8Array(Buffer.from(base64, "base64")), { mergePages: true });
+    const t = String(text).replace(/\s+/g, " ");
+    expect(t).toContain("Cliente Novo SA");
+    expect(t).not.toContain("Cliente Antigo");
+    expect(t).toContain("O tomador mudou na origem");
   });
 });

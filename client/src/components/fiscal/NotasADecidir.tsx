@@ -19,9 +19,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota } from "@shared/fiscal/motivos";
+import { ALERTA_TOMADOR_MUDOU } from "@shared/fiscal/origens";
 import { AVISO_EMISSAO_INDISPONIVEL, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
 
-type Nota = inferRouterOutputs<AppRouter>["fiscal"]["notas"]["listar"][number];
+type Nota = inferRouterOutputs<AppRouter>["fiscal"]["notas"]["listar"]["itens"][number];
 
 const dinheiro = (c: number) => formatCurrency(c / 100);
 const dataBr = (d: string | null | undefined) => (d ? d.split("-").reverse().join("/") : "—");
@@ -45,32 +46,28 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
   const [ate, setAte] = useState("");
   const filtroStatus: StatusNota[] | undefined = status === "pendentes" ? ["A_DECIDIR", "ADIADA"] : status === TODOS ? undefined : [status as StatusNota];
   const [bpoClientId, leadId] = cliente.startsWith("b:") ? [Number(cliente.slice(2)), undefined] : cliente.startsWith("l:") ? [undefined, Number(cliente.slice(2))] : [undefined, undefined];
-  const { data: notas = [], isLoading } = trpc.fiscal.notas.listar.useQuery({
+  // Revisão do PR #302 (1): todos os filtros valem no servidor, antes do limite; a lista vem em páginas ("Carregar mais").
+  const lista = trpc.fiscal.notas.listar.useInfiniteQuery({
     emissorId: emissorId ?? undefined, status: filtroStatus, bpoClientId, leadId, obraId: obra === TODOS ? undefined : Number(obra),
     municipio: municipio || undefined, de: de || undefined, ate: ate || undefined,
-  });
-  // Opções dos filtros a partir de todos os rascunhos (sem filtro de cliente/obra), para não sumirem ao filtrar.
-  const { data: todas = [] } = trpc.fiscal.notas.listar.useQuery({ emissorId: emissorId ?? undefined });
+  }, { getNextPageParam: pagina => pagina.proximoCursor ?? undefined });
+  const notas: Nota[] = useMemo(() => (lista.data?.pages ?? []).flatMap(p => p.itens), [lista.data]);
+  const isLoading = lista.isLoading;
+  // Opções dos filtros sobre TODOS os rascunhos (não só a página carregada), para não sumirem ao filtrar.
+  const { data: opcoes } = trpc.fiscal.notas.opcoesFiltro.useQuery({ emissorId: emissorId ?? undefined });
   const { data: resumo } = trpc.fiscal.resumo.useQuery({ emissorId: emissorId ?? undefined });
   const { data: emissores = [] } = trpc.fiscal.emissoresComPerfil.useQuery();
   const { data: tipos = [] } = trpc.fiscal.tipos.listar.useQuery();
 
-  const clientes = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const n of todas) {
-      if (n.bpoClientId) m.set(`b:${n.bpoClientId}`, n.tomador.nome ?? `Cliente ${n.bpoClientId}`);
-      else if (n.leadId) m.set(`l:${n.leadId}`, n.tomador.nome ?? `Card ${n.leadId}`);
-    }
-    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
-  }, [todas]);
-  const obras = useMemo(() => {
-    const m = new Map<number, string>();
-    for (const n of todas) if (n.obra) m.set(n.obra.id, n.obra.titulo);
-    return Array.from(m.entries());
-  }, [todas]);
+  const clientes = useMemo(() => [
+    ...(opcoes?.clientesBpo ?? []).map(c => [`b:${c.id}`, c.nome || `Cliente ${c.id}`] as const),
+    ...(opcoes?.cards ?? []).map(c => [`l:${c.id}`, c.nome || `Card ${c.id}`] as const),
+  ].sort((a, b) => a[1].localeCompare(b[1], "pt-BR")), [opcoes]);
+  const obras = useMemo(() => (opcoes?.obras ?? []).map(o => [o.id, o.nome] as const), [opcoes]);
 
   const invalidar = () => {
     void utils.fiscal.notas.listar.invalidate();
+    void utils.fiscal.notas.opcoesFiltro.invalidate();
     void utils.fiscal.resumo.invalidate();
     void utils.fiscal.relatorio.mensal.invalidate();
   };
@@ -213,6 +210,9 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                       {n.status === "ADIADA" && n.adiadaAte && <span className="ml-2 text-gray-300">até {dataBr(n.adiadaAte)}</span>}
                       {n.status !== "SEM_NOTA" && n.motivoSugerido && <span className="ml-2 text-amber-300">sugestão: {ROTULO_MOTIVO[n.motivoSugerido]}</span>}
                     </p>
+                    {n.tomadorMudouNaOrigem && (
+                      <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{ALERTA_TOMADOR_MUDOU}</p>
+                    )}
                     {n.alerta && <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{n.alerta}</p>}
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -236,6 +236,11 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                 </div>
               </div>
             ))}
+            {lista.hasNextPage && (
+              <Button size="sm" variant="outline" className="w-full" disabled={lista.isFetchingNextPage} onClick={() => void lista.fetchNextPage()}>
+                {lista.isFetchingNextPage ? "Carregando..." : "Carregar mais"}
+              </Button>
+            )}
           </div>
         )}
       </CardContent>

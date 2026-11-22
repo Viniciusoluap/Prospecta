@@ -75,3 +75,7 @@ export function primeiroDiaDoMesEmBrasilia(agora: Date = new Date()): string {
 export function inicioDoDiaEmBrasilia(data: string): Date {
   return new Date(`${data}T03:00:00.000Z`);
 }
+
+/** Revisão do PR #302 (3): aviso quando o cliente/card/obra da origem mudou depois que o rascunho nasceu. */
+export const ALERTA_TOMADOR_MUDOU =
+  "O tomador mudou na origem depois que este rascunho foi criado. A nota usa o cadastro ATUAL da origem; confira antes de decidir.";

@@ -4,7 +4,7 @@
 // Toda mudança passa por `mudar()`: confere a transição, exige a versão que a pessoa viu (edição concorrente é recusada)
 // e grava `atualizado_por`/`alterado_via`, que o gatilho da 0154 copia no histórico imutável (fiscal_notas_historico).
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { fiscalEmissores, fiscalNotas, fiscalNotasHistorico, fiscalTiposServico, type FiscalNota, type ViaFiscal } from "../../drizzle/schema-fiscal.js";
 import { problemaDoMotivo, type MotivoSemNota } from "../../shared/fiscal/motivos.js";
 import { ROTULO_ORIGEM, type OrigemNota } from "../../shared/fiscal/origens.js";
@@ -53,7 +53,50 @@ export type NotaDetalhada = FiscalNota & {
   emissor: EmissorLido | null;
   tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
   municipio: { nome: string | null; uf: string | null; fonte: "ajuste" | "obra" | "tomador" | "emissor" | "nenhum" };
+  /** Revisão do PR #302 (3): o cliente/card/obra ATUAL da origem difere do que o rascunho guardou ao nascer. */
+  tomadorMudouNaOrigem: boolean;
 };
+
+export { ALERTA_TOMADOR_MUDOU } from "../../shared/fiscal/origens.js";
+
+/** Referências usadas de fato: as ATUAIS da origem (rascunho não emitido) ou as guardadas (emitida, ou origem sumiu). */
+export type RefsEfetivas = { bpoClientId: number | null; leadId: number | null; obraId: number | null };
+
+/**
+ * Revisão do PR #302 (1 e 3): junções que resolvem, NO SQL, o tomador/obra atuais da origem e o município de incidência
+ * (ajuste → obra → tomador → emissor, a mesma ordem de `detalhar`). Assim filtros, paginação e município valem antes do
+ * LIMIT. Só nomes de tabela fixos aqui — nenhum valor do usuário entra neste texto.
+ */
+const BASE_EFETIVA = sql.raw(`
+  FROM fiscal_notas n
+  LEFT JOIN bpo_lancamentos ol ON n.origem_tipo = 'bpo_lancamento' AND ol.id = n.origem_id
+  LEFT JOIN obra_movimentos om ON n.origem_tipo = 'obra_movimento' AND om.id = n.origem_id
+  LEFT JOIN regularizacao_recebimentos rr ON n.origem_tipo = 'regularizacao_recebimento' AND rr.id = n.origem_id
+  LEFT JOIN regularizacoes rg ON rg.id = rr.regularizacao_id
+  LEFT JOIN avaliacoes av ON n.origem_tipo = 'avaliacao' AND av.id = n.origem_id
+  LEFT JOIN operational_commissions oc ON n.origem_tipo = 'comissao_empresa' AND oc.id = n.origem_id
+  LEFT JOIN bpo_lancamentos lm ON lm.id = COALESCE(om.bpo_lancamento_id, rr.bpo_lancamento_id)
+  CROSS JOIN LATERAL (SELECT
+    (n.status IN ('EMITINDO', 'EMITIDA', 'CANCELADA') OR COALESCE(ol.id, om.id, rr.id, av.id, oc.id) IS NULL) AS congelada,
+    CASE n.origem_tipo WHEN 'bpo_lancamento' THEN ol.cliente_id WHEN 'obra_movimento' THEN lm.cliente_id
+      WHEN 'regularizacao_recebimento' THEN lm.cliente_id END AS bc_atual,
+    CASE n.origem_tipo WHEN 'obra_movimento' THEN om.project_id WHEN 'comissao_empresa' THEN oc.construction_project_id END AS obra_atual
+  ) x
+  LEFT JOIN bpo_clients xbc ON xbc.id = x.bc_atual
+  LEFT JOIN construction_projects xcp ON xcp.id = x.obra_atual
+  CROSS JOIN LATERAL (SELECT
+    CASE WHEN x.congelada THEN n.bpo_client_id ELSE x.bc_atual END AS bpo_client_id,
+    CASE WHEN x.congelada THEN n.obra_id ELSE x.obra_atual END AS obra_id,
+    CASE WHEN x.congelada THEN n.lead_id ELSE CASE n.origem_tipo
+      WHEN 'bpo_lancamento' THEN xbc.lead_id WHEN 'obra_movimento' THEN xcp.lead_id WHEN 'regularizacao_recebimento' THEN rg.lead_id
+      WHEN 'avaliacao' THEN av.lead_id WHEN 'comissao_empresa' THEN xcp.lead_id END END AS lead_id
+  ) ef
+  LEFT JOIN construction_projects efcp ON efcp.id = ef.obra_id
+  LEFT JOIN leads efld ON efld.id = ef.lead_id
+  LEFT JOIN fiscal_emissores efem ON efem.id = n.emissor_id
+  CROSS JOIN LATERAL (SELECT COALESCE(NULLIF(btrim(n.municipio_incidencia_nome), ''), NULLIF(btrim(efcp.city), ''),
+    NULLIF(btrim(efld.city), ''), NULLIF(btrim(efem.municipio_nome), '')) AS municipio) mun
+`);
 
 const ids = (lista: number[]) => sql.join(lista.map(i => sql`${i}`), sql`, `);
 
@@ -116,8 +159,11 @@ export async function emissoresComPerfil(db: DrizzleDb): Promise<EmissorLido[]> 
   });
 }
 
-export async function detalhar(db: DrizzleDb, notas: FiscalNota[]): Promise<NotaDetalhada[]> {
-  if (!notas.length) return [];
+export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: Map<number, RefsEfetivas>): Promise<NotaDetalhada[]> {
+  if (!salvas.length) return [];
+  const refs = efetivas ?? (await refsEfetivas(db, salvas.map(n => n.id)));
+  // Daqui em diante, as referências são as efetivas (atuais da origem); as guardadas ficam só para o alerta.
+  const notas = salvas.map(n => ({ ...n, ...(refs.get(n.id) ?? {}) }));
   const origens = await origensPorTipo(db, notas);
   const uniq = (xs: (number | null)[]) => Array.from(new Set(xs.filter((x): x is number => x != null)));
   const clientes = uniq(notas.map(n => n.bpoClientId));
@@ -130,7 +176,9 @@ export async function detalhar(db: DrizzleDb, notas: FiscalNota[]): Promise<Nota
   const tipos = tiposIds.length ? await db.select().from(fiscalTiposServico).where(inArray(fiscalTiposServico.id, tiposIds)) : [];
   const emissores = await emissoresComPerfil(db);
 
-  return notas.map(n => {
+  return notas.map((n, i) => {
+    const salva = salvas[i]!;
+    const tomadorMudouNaOrigem = salva.bpoClientId !== n.bpoClientId || salva.leadId !== n.leadId || salva.obraId !== n.obraId;
     const origem = origens.get(`${n.origemTipo}:${n.origemId}`) ?? null;
     const cliente = bc.find(c => Number(c.id) === n.bpoClientId);
     const lead = ld.find(l => Number(l.id) === n.leadId);
@@ -172,8 +220,20 @@ export async function detalhar(db: DrizzleDb, notas: FiscalNota[]): Promise<Nota
       emissor,
       tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
       municipio,
+      tomadorMudouNaOrigem,
     };
   });
+}
+
+async function refsEfetivas(db: DrizzleDb, idsNotas: number[]): Promise<Map<number, RefsEfetivas>> {
+  const mapa = new Map<number, RefsEfetivas>();
+  if (!idsNotas.length) return mapa;
+  for (const r of linhas(await db.execute(sql`
+    SELECT n.id, ef.bpo_client_id, ef.lead_id, ef.obra_id ${BASE_EFETIVA} WHERE n.id IN (${ids(idsNotas)})`))) {
+    mapa.set(Number(r.id), { bpoClientId: r.bpo_client_id == null ? null : Number(r.bpo_client_id),
+      leadId: r.lead_id == null ? null : Number(r.lead_id), obraId: r.obra_id == null ? null : Number(r.obra_id) });
+  }
+  return mapa;
 }
 
 export type FiltrosNotas = {
@@ -185,22 +245,69 @@ export type FiltrosNotas = {
   municipio?: string;
   de?: string;
   ate?: string;
+  /** Paginação: "AAAA-MM-DD|id" do último item da página anterior (ordem: data do evento e id, decrescentes). */
+  cursor?: string;
+  limite?: number;
 };
 
-export async function listarNotas(db: DrizzleDb, f: FiltrosNotas = {}): Promise<NotaDetalhada[]> {
+export const LIMITE_PAGINA_NOTAS = 50;
+export const CURSOR_NOTAS = /^\d{4}-\d{2}-\d{2}\|\d{1,10}$/;
+
+function condicoes(f: FiltrosNotas): SQL[] {
   const conds: SQL[] = [];
-  if (f.emissorId) conds.push(eq(fiscalNotas.emissorId, f.emissorId));
-  if (f.status?.length) conds.push(inArray(fiscalNotas.status, f.status));
-  if (f.bpoClientId) conds.push(eq(fiscalNotas.bpoClientId, f.bpoClientId));
-  if (f.leadId) conds.push(eq(fiscalNotas.leadId, f.leadId));
-  if (f.obraId) conds.push(eq(fiscalNotas.obraId, f.obraId));
-  if (f.de) conds.push(gte(fiscalNotas.dataEvento, f.de));
-  if (f.ate) conds.push(lte(fiscalNotas.dataEvento, f.ate));
-  const notas = await db.select().from(fiscalNotas).where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(fiscalNotas.dataEvento), desc(fiscalNotas.id)).limit(500);
-  const detalhadas = await detalhar(db, notas);
-  const m = f.municipio?.trim().toLocaleLowerCase("pt-BR");
-  return m ? detalhadas.filter(n => (n.municipio.nome ?? "").toLocaleLowerCase("pt-BR").includes(m)) : detalhadas;
+  if (f.emissorId) conds.push(sql`n.emissor_id = ${f.emissorId}`);
+  if (f.status?.length) conds.push(sql`n.status IN (${sql.join(f.status.map(x => sql`${x}`), sql`, `)})`);
+  if (f.bpoClientId) conds.push(sql`ef.bpo_client_id = ${f.bpoClientId}`);
+  if (f.leadId) conds.push(sql`ef.lead_id = ${f.leadId}`);
+  if (f.obraId) conds.push(sql`ef.obra_id = ${f.obraId}`);
+  if (f.de) conds.push(sql`n.data_evento >= ${f.de}::date`);
+  if (f.ate) conds.push(sql`n.data_evento <= ${f.ate}::date`);
+  const m = f.municipio?.trim();
+  if (m) conds.push(sql`position(lower(${m}) in lower(coalesce(mun.municipio, ''))) > 0`);
+  return conds;
+}
+const onde = (conds: SQL[]) => (conds.length ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``);
+
+/**
+ * Revisão do PR #302 (1): TODOS os filtros (inclusive município, resolvido no SQL) valem ANTES do limite; a página vem
+ * por cursor (data do evento + id) e `proximoCursor` diz se há mais.
+ */
+export async function listarNotas(db: DrizzleDb, f: FiltrosNotas = {}): Promise<{ itens: NotaDetalhada[]; proximoCursor: string | null }> {
+  const limite = Math.min(Math.max(f.limite ?? LIMITE_PAGINA_NOTAS, 1), 200);
+  const conds = condicoes(f);
+  if (f.cursor) {
+    if (!CURSOR_NOTAS.test(f.cursor)) throw new TRPCError({ code: "BAD_REQUEST", message: "Página inválida." });
+    const [data, id] = f.cursor.split("|") as [string, string];
+    conds.push(sql`(n.data_evento, n.id) < (${data}::date, ${Number(id)})`);
+  }
+  const pagina = linhas(await db.execute(sql`
+    SELECT n.id, n.data_evento::text AS data_evento, ef.bpo_client_id, ef.lead_id, ef.obra_id ${BASE_EFETIVA} ${onde(conds)}
+    ORDER BY n.data_evento DESC, n.id DESC LIMIT ${limite + 1}`));
+  const temMais = pagina.length > limite;
+  const daPagina = pagina.slice(0, limite);
+  if (!daPagina.length) return { itens: [], proximoCursor: null };
+  const efetivas = new Map<number, RefsEfetivas>(daPagina.map(r => [Number(r.id), {
+    bpoClientId: r.bpo_client_id == null ? null : Number(r.bpo_client_id), leadId: r.lead_id == null ? null : Number(r.lead_id),
+    obraId: r.obra_id == null ? null : Number(r.obra_id) }]));
+  const ordem = daPagina.map(r => Number(r.id));
+  const salvas = await db.select().from(fiscalNotas).where(inArray(fiscalNotas.id, ordem));
+  salvas.sort((a, b) => ordem.indexOf(a.id) - ordem.indexOf(b.id));
+  const ultimo = daPagina[daPagina.length - 1]!;
+  return { itens: await detalhar(db, salvas, efetivas), proximoCursor: temMais ? `${ultimo.data_evento}|${ultimo.id}` : null };
+}
+
+/** Opções dos filtros Cliente/Obra sobre TODOS os rascunhos (não só a página), pelas referências efetivas. */
+export async function opcoesDosFiltros(db: DrizzleDb, emissorId?: number | null) {
+  const filtroEmissor = emissorId ? sql`WHERE n.emissor_id = ${emissorId}` : sql``;
+  const r = linhas(await db.execute(sql`
+    WITH e AS (SELECT n.id, ef.bpo_client_id, ef.lead_id, ef.obra_id ${BASE_EFETIVA} ${filtroEmissor})
+    SELECT DISTINCT 'b' AS tipo, e.bpo_client_id AS id, b.razao_social AS nome FROM e JOIN bpo_clients b ON b.id = e.bpo_client_id
+    UNION SELECT DISTINCT 'l', e.lead_id, l.name FROM e JOIN leads l ON l.id = e.lead_id WHERE e.bpo_client_id IS NULL
+    UNION SELECT DISTINCT 'o', e.obra_id, c.title FROM e JOIN construction_projects c ON c.id = e.obra_id
+    LIMIT 3000`));
+  const de = (t: string) => r.filter(x => x.tipo === t).map(x => ({ id: Number(x.id), nome: String(x.nome ?? "") }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  return { clientesBpo: de("b"), cards: de("l"), obras: de("o") };
 }
 
 export async function carregarNota(db: DrizzleDb, id: number): Promise<NotaDetalhada> {

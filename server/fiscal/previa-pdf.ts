@@ -3,6 +3,7 @@
 // O mesmo arquivo servirá à Dolores (S-3). Nada sai do sistema: o PDF só volta para quem pediu na tela.
 import { GState, jsPDF } from "jspdf";
 import { ROTULO_MOTIVO } from "../../shared/fiscal/motivos.js";
+import { ALERTA_TOMADOR_MUDOU } from "../../shared/fiscal/origens.js";
 import { ROTULO_STATUS } from "../../shared/fiscal/status.js";
 import type { NotaDetalhada } from "./notas.js";
 
@@ -83,6 +84,7 @@ export function gerarPreviaPdf(nota: NotaDetalhada, agora: Date = new Date()): U
   campo("Nome", nota.tomador.nome ?? "sem cadastro ligado");
   campo("CPF/CNPJ", formatarDocumento(nota.tomador.documento));
   if (nota.tomador.cidade) campo("Cidade", `${nota.tomador.cidade}/${nota.tomador.uf ?? ""}`);
+  if (nota.tomadorMudouNaOrigem) campo("Aviso", ALERTA_TOMADOR_MUDOU);
   y += 2;
 
   titulo("Serviço");
