@@ -15,6 +15,9 @@ import { confirmarTodasAssinaturas, salvarRetornoContrato, conteudoContrato } fr
 import { sendEmail } from "./_core/email-smtp.js";
 import { gerarESalvarContratoPdf } from "./juridico-pdf.js";
 import { readPrivateDbFile } from "./private-document-files.js";
+import { listarValidacoes, proximaTentativa, relatorioEmpresa, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
+import { revalidarDocumento } from "./juridico-revalidacao.js";
+import { montarCadeiaPublica } from "./juridico-cadeia.js";
 
 const documentType = z.enum(["contrato_gerado", "assinado", "anexo", "assinatura_digital"]);
 
@@ -38,7 +41,9 @@ export const juridicoRouter = router({
     if (!contract) return null;
     const documents = await db.select().from(portalContractDocuments)
       .where(eq(portalContractDocuments.contractId, input.id)).orderBy(desc(portalContractDocuments.createdAt));
-    return { contract, documents };
+    // Conferência técnica automática das assinaturas, por documento (vazia enquanto a migração 0161 não estiver aplicada).
+    const validacoes = await listarValidacoes(documents.map(d => d.id)).catch(() => []);
+    return { contract, documents, validacoes };
   }),
 
   options: adminProcedure.query(async () => {
@@ -155,6 +160,7 @@ export const juridicoRouter = router({
     name: z.string().trim().min(1).max(255),
     type: documentType.default("anexo"),
     base64: z.string().min(8).max(4 * 1024 * 1024),
+    documentoOrigemId: z.number().int().positive().optional(),
   })).mutation(async ({ input }) => {
     const db = getDb();
     const [contract] = await db.select().from(portalContracts).where(eq(portalContracts.id, input.contractId)).limit(1);
@@ -167,37 +173,49 @@ export const juridicoRouter = router({
     if(input.type==="assinado")return salvarRetornoContrato(contract,buffer,false);
     const nome=input.type==="anexo"?input.name:nomeContrato(contract.partyB,input.type);
     if(input.type==="assinatura_digital"&&contract.signatureStatus==="assinado")throw new TRPCError({code:"BAD_REQUEST",message:"O contrato já está assinado por todos."});
+    // Assinatura da empresa: conferência no servidor (integridade, cadeia ICP-Brasil, LCR, titular = Parte A e vínculo com o
+    // documento de origem). O resultado não bloqueia o salvamento: fica gravado junto e aparece no documento; inválido ou
+    // pendente nunca recebe rótulo de validado.
+    let relatorio: Awaited<ReturnType<typeof relatorioEmpresa>> | null = null;
+    if (input.type === "assinatura_digital") {
+      let origem: { id: number; bytes: Buffer } | null = null;
+      if (input.documentoOrigemId) {
+        const [doc] = await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.id, input.documentoOrigemId), eq(portalContractDocuments.contractId, contract.id))).limit(1);
+        if (!doc) throw new TRPCError({ code: "BAD_REQUEST", message: "O documento de origem não pertence a este contrato." });
+        const bytes = await conteudoContrato(doc);
+        if (bytes) origem = { id: doc.id, bytes };
+      }
+      relatorio = await relatorioEmpresa(contract, buffer, origem);
+    }
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
     const leadId = contract.leadId;
     const { driveFileId } = leadId
       ? await tryDriveUpload(() => uploadPrivateDocument({ leadId, serviceId: null, categoria: "juridico", rotulo: `Contrato ${contract.number}`, nomeOriginal: fileName, mimeType: "application/pdf", data: buffer }))
       : { driveFileId: null };
-    if (driveFileId) {
-      const [document] = await db.insert(portalContractDocuments).values({
-        contractId: input.contractId, name: nome, type: input.type, driveFileId,
-      }).returning();
-      if (input.type === "assinatura_digital") await db.update(portalContracts).set({
-        signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
-      }).where(eq(portalContracts.id, input.contractId));
-      return document;
-    }
     const reserved = await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents', 'id'))::int AS id`);
     const id = Number((reserved as unknown as { rows: { id: number }[] }).rows[0].id);
-    const insert = db.insert(portalContractDocuments).values({
-      id, contractId: input.contractId, name: nome, type: input.type,
-    });
-    const file = db.execute(sql`INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
-      VALUES (${id}, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))`);
-    if (input.type === "assinatura_digital") {
-      await db.batch([insert, file, db.update(portalContracts).set({
-        signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
-      }).where(eq(portalContracts.id, input.contractId))]);
-    } else {
-      await db.batch([insert, file]);
-    }
+    const gravar = relatorio ? await tabelaValidacoes() : false;
+    // Documento, arquivo (sem Drive), relatório e status do contrato no mesmo lote: tudo ou nada.
+    const ops: unknown[] = [db.insert(portalContractDocuments).values({ id, contractId: input.contractId, name: nome, type: input.type, driveFileId: driveFileId ?? null })];
+    if (!driveFileId) ops.push(db.execute(sql`INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
+      VALUES (${id}, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64'))`));
+    if (relatorio && gravar) ops.push(db.execute(sqlInserirValidacao(id, relatorio)));
+    if (input.type === "assinatura_digital") ops.push(db.update(portalContracts).set({
+      signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
+    }).where(eq(portalContracts.id, input.contractId)));
+    await db.batch(ops as unknown as Parameters<typeof db.batch>[0]);
     const [document] = await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id, id));
-    return document;
+    return { ...document, validacao: relatorio ? resumir(id, relatorio, 0, gravar ? proximaTentativa(relatorio, 0, new Date()) : null) : null };
   }),
+
+  /** Monta a cadeia do certificado PÚBLICO (DER) antes de assinar. Senha, PFX e chave privada nunca chegam aqui. */
+  montarCadeia: adminProcedure.input(z.object({
+    certificado: z.string().min(100).max(16_384),
+    cadeia: z.array(z.string().min(100).max(16_384)).max(5).default([]),
+  })).mutation(({ ctx, input }) => montarCadeiaPublica(ctx.user.id, input.certificado, input.cadeia)),
+
+  /** Retentativa automática (chamada pela tela ao abrir o contrato): só confere de novo pendência de rede cuja vez chegou. */
+  revalidarDocumento: adminProcedure.input(z.object({ documentId: z.number().int().positive() })).mutation(({ input }) => revalidarDocumento(input.documentId)),
 
   documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);

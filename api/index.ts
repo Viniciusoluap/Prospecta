@@ -47,6 +47,7 @@ import { cronAutorizado, tratarCronAvisos, tratarCronDolores } from "../server/d
 import { garantirModeloPadraoNoCron } from "../server/ycloud/modelos.js";
 import { CAMINHOS_CRON_AVISOS, CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
+import { revalidarPendentes } from "../server/juridico-revalidacao.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -192,7 +193,10 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     // EPIC-027 C7.2: modelo padrão da API oficial, DEPOIS de tudo e só com o tempo que sobra (no máximo 10 s, abortando as
     // chamadas à YCloud). Uma vez; no máximo 1 tentativa por dia e 3 no total; nunca lança nem muda a resposta deste cron.
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
-    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas });
+    // Jurídico (22/11): retentativa das conferências de assinatura pendentes por falha de rede, com o tempo que sobra
+    // (no máximo 10 s). Nunca lança nem muda a resposta deste cron; timeout nunca vira válido.
+    const juridico = await revalidarPendentes(Math.min(10_000, 57_000 - (Date.now() - inicio)));
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, juridico });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });

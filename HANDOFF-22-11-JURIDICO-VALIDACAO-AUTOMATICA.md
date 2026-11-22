@@ -1,5 +1,7 @@
 # Jurídico — validação automática e ajustes da assinatura
 
+**STATUS (checkpoint wip, Claude, 22/11):** núcleo PKI reescrito e testado (download com SSRF/prazo/limites, cadeia PKIjs 3.4.0 + regras extras, LCR com cache, conferência por assinatura com estados valida/pendente/invalida), relatório por documento (migração 0161, NÃO aplicada), validação no upload da empresa, retorno do portal, retentativa (tela + cron diário existente) e endpoint de cadeia. FALTA: UI (marca proporcional, aba de certificados, exibição), testes de integração do relatório/retentativa, suíte completa e build. Ver seção de status no fim quando houver.
+
 Atualizado em 22/11/2026. O dono pediu para salvar todo o progresso para continuar com outra IA. Esta frente está EM ANDAMENTO. O código desta branch ainda precisa de integração, testes e revisão antes de mesclar/publicar.
 
 ## Pedido e autorização do dono

@@ -5,30 +5,35 @@ import { nomeContrato } from "../shared/contratos/documentos.js";
 import { getDb } from "./db.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { readPrivateDocument } from "./drive-documents.js";
-import { conferirAssinaturas } from "./juridico-verificar-assinaturas.js";
+import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
+import { proximaTentativa, relatorioRetorno, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
+import type { Certificate } from "pkijs";
 import { PDF, PdfDict, PdfRef } from "@libpdf/core";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
 }
-export async function salvarRetornoContrato(contract:typeof portalContracts.$inferSelect,bytes:Buffer,viaPortal:boolean) {
+/**
+ * Retorno assinado pelo cliente (portal) ou anexado pelo admin. A conferência automática (integridade, cadeia ICP-Brasil,
+ * LCR, identidades e conservação da revisão da empresa) é gravada junto com o documento, o arquivo e o status, no mesmo
+ * lote. Só o portal conclui sozinho, e só com `todos` (identidades conferidas + revisão da empresa conservada).
+ */
+export async function salvarRetornoContrato(contract:typeof portalContracts.$inferSelect,bytes:Buffer,viaPortal:boolean,opcoes:OpcoesConferencia&{roots?:Certificate[]}={}) {
   const db=getDb();
-  let conf=await conferirAssinaturas(bytes,contract);
-  if(viaPortal&&conf.todos) {
-    const [base]=await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.contractId,contract.id),eq(portalContractDocuments.type,"assinatura_digital"))).orderBy(desc(portalContractDocuments.createdAt)).limit(1);
-    const original=base?await conteudoContrato(base):null;
-    // Retorno automático deve conservar a revisão assinada pela empresa e o conteúdo das páginas.
-    if(!original||!bytes.subarray(0,original.length).equals(original)||!(await mesmoConteudo(original,bytes)))conf={...conf,todos:false,motivo:"O documento retornado precisa de conferência do responsável."};
-  }
+  const [base]=await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.contractId,contract.id),eq(portalContractDocuments.type,"assinatura_digital"))).orderBy(desc(portalContractDocuments.createdAt)).limit(1);
+  const original=base?await conteudoContrato(base):null;
+  const conf=await relatorioRetorno(viaPortal?"retorno_portal":"retorno_admin",contract,bytes,base&&original?{id:base.id,bytes:original}:null,mesmoConteudo,opcoes.roots,opcoes);
   const tipo=viaPortal&&conf.todos?"assinado":"recebido_assinado";
   const reserved=await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents','id'))::int AS id`);
   const id=Number((reserved as unknown as {rows:{id:number}[]}).rows[0].id);
+  const gravar=await tabelaValidacoes();
   await db.batch([
     db.insert(portalContractDocuments).values({id,contractId:contract.id,type:tipo,name:nomeContrato(contract.partyB,tipo)}),
     db.execute(sql`INSERT INTO portal_contract_file_data(document_id,mime,size_bytes,data) VALUES(${id},'application/pdf',${bytes.length},decode(${bytes.toString("base64")},'base64'))`),
+    ...(gravar?[db.execute(sqlInserirValidacao(id,conf))]:[]),
     db.update(portalContracts).set({signatureStatus:tipo==="assinado"?"assinado":"em_conferencia",updatedAt:new Date()}).where(eq(portalContracts.id,contract.id)),
-  ]);
-  return {id,todos:tipo==="assinado",conferencia:conf};
+  ] as unknown as Parameters<typeof db.batch>[0]);
+  return {id,todos:tipo==="assinado",conferencia:conf,validacao:resumir(id,conf,0,gravar?proximaTentativa(conf,0,new Date()):null)};
 }
 export async function mesmoConteudo(antes:Buffer,depois:Buffer) {
   try {
