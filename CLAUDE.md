@@ -407,3 +407,7 @@ Palavras do dono, depois da conferência do regime (`docs/stories/epics/epic-029
    - **Efficaz Serviços Financeiros (04.578.232/0001-82)**: excluída em 31/12/2024; nova opção só em janeiro (até 29/01/2027),
      sem débitos e com atividade permitida no Simples.
 3. Obras no Anexo IV (INSS patronal fora do DAS); corretagem no III; gestão de imóveis e engenharia no V (ou III pelo Fator R).
+4. **Multi-regime (complemento do dono no mesmo dia)**: "As outras empresas que estão em outros regimes tributários terão os
+   próprios regimes delas com vínculos de suas contas e movimentações; o nosso sistema tem que abranger tudo isso". Cada empresa
+   (CNPJ) tem o próprio regime (Simples, Presumido, Real ou "a confirmar"), as próprias contas bancárias vinculadas e a própria
+   movimentação; limites e avisos seguem o regime de cada uma (story `docs/stories/epics/epic-029-modulo-fiscal/S-6-*.md`).
