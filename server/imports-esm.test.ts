@@ -25,3 +25,10 @@ describe("imports ESM do servidor", () => {
     expect(faltando).toEqual([]);
   });
 });
+
+it("declara o tipo JSON nos imports estáticos do servidor ESM", () => {
+  const raiz = join(__dirname, "..");
+  const faltando = ["server", "shared", "api"].flatMap(dir => arquivos(join(raiz, dir))).filter(arquivo =>
+    /\b(?:from|import)\s*["'][^"']+\.json["'](?!\s*with\s*\{\s*type\s*:\s*["']json["'])/.test(readFileSync(arquivo, "utf8")));
+  expect(faltando).toEqual([]);
+});

@@ -5,6 +5,8 @@ import { formatCPF } from "@shared/cpf";
 import { Download, Eye, FileArchive, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { AvisoConsultaCadastral } from "@/components/AvisoConsultaCadastral";
+import { useAutoPreenchimentoCep } from "@/hooks/useAutoPreenchimentoCadastral";
 import { enviarPartes } from "@/lib/documentos-partes";
 import { baixarDocumentoUsuario, baixarTodosDocumentosUsuario, visualizarDocumentoUsuario } from "@/lib/documentos-usuario";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,15 @@ export function PerfilEngenheiroPanel({ userId }: { userId: number }) {
   const enviar = trpc.engenheiros.enviarDocumento.useMutation();
   const excluir = trpc.engenheiros.excluirDocumento.useMutation();
   const pode = !!dados?.podeGerenciar;
+  // EPIC-029 S-1: CEP novo com 8 números preenche logradouro, bairro, cidade e UF vazios (o CEP já salvo não consulta de novo).
+  const consultaCep = useAutoPreenchimentoCep({
+    valor: form.cep,
+    ignorar: dados?.perfil.cep ?? null,
+    desligado: !pode,
+    campos: { logradouro: form.logradouro, bairro: form.bairro, cidade: form.cidade, uf: form.uf },
+    mapear: d => ({ logradouro: d.logradouro, bairro: d.bairro, cidade: d.cidade, uf: d.uf }),
+    aplicar: patch => setForm(f => ({ ...f, ...patch })),
+  });
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   function onSalvar(e: FormEvent) {
@@ -85,7 +96,7 @@ export function PerfilEngenheiroPanel({ userId }: { userId: number }) {
         <div><Label>Telefone</Label><Input value={form.telefone} onChange={set("telefone")} className={campo} inputMode="tel" /></div>
         <div><Label>Nº do CREA</Label><Input value={form.crea} onChange={set("crea")} className={campo} /></div>
         <div><Label>UF do CREA</Label><select aria-label="UF do CREA" value={form.creaUf} onChange={set("creaUf")} className={seletor}><option value="">—</option>{UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select></div>
-        <div><Label>CEP</Label><Input value={form.cep} onChange={set("cep")} className={campo} inputMode="numeric" placeholder="00000-000" /></div>
+        <div><Label>CEP</Label><Input value={form.cep} onChange={set("cep")} className={campo} inputMode="numeric" placeholder="00000-000" /><AvisoConsultaCadastral estado={consultaCep} textoBotao="Usar endereço do CEP" /></div>
         <div className="md:col-span-2"><Label>Logradouro</Label><Input value={form.logradouro} onChange={set("logradouro")} className={campo} /></div>
         <div><Label>Número</Label><Input value={form.numero} onChange={set("numero")} className={campo} /></div>
         <div><Label>Complemento</Label><Input value={form.complemento} onChange={set("complemento")} className={campo} /></div>

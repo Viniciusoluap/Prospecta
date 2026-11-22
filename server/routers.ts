@@ -93,6 +93,7 @@ import {
 } from "../shared/raffle.js";
 import { brokerPortalRouter } from "./broker-portal-router.js";
 import { geoRouter } from "./geo-router.js";
+import { consultaCadastralRouter } from "./consulta-cadastral.js";
 import { empreiteiroRouter, obraFinanceiroRouter } from "./obra-financeiro-router.js";
 import { obraProgressoRouter } from "./obra-progresso-router.js";
 import { obraLocalizacaoRouter, sincronizarImovelGeradoDaObra, garantirImovelCatalogoObra } from "./obra-localizacao.js";
@@ -224,6 +225,8 @@ export const appRouter = router({
   projetoIncorporacao: projetoIncorporacaoRouter,
   brokerPortal: brokerPortalRouter,
   geo: geoRouter,
+  // EPIC-029 S-1: cadastro automático por CNPJ (admin/colaborador com BPO ou Obras) e CEP (qualquer conta ativa), com limite por usuário
+  consultaCadastral: consultaCadastralRouter,
   obraFinanceiro: obraFinanceiroRouter,
   obraProgresso: obraProgressoRouter,
   obraLocalizacao: obraLocalizacaoRouter,

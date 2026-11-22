@@ -661,3 +661,26 @@ Detalhe da maquete: `HANDOFF-21-11-MAQUETE-EDITOR.md`.
 Receber o QA do pacote integrado → corrigir achados → aplicar `0148` e `0149` → branch a partir da `main` com
 `git -C ../epic027-c5int diff origin/main...HEAD` → PR → esperar o Codex concluir → merge → conferir a Vercel. Depois integrar
 proatividade, criadora de mesas e mesa comercial sobre a `main`, com QA, e publicar.
+
+## Atualização de 22/11/2026 ~16:30 UTC — EPIC-027 (Dolores) e EPIC-029 (Módulo Fiscal)
+
+### Em produção (desde a atualização anterior)
+- #295 (872f671): Dolores anota pelo grupo (E3), gasto por função com alerta 80%/100% (E5) e memória de longo prazo. Migrações 0148/0149.
+- #296 (a3fc88a): análise de REURB, só na conversa direta do dono (aviso fixo do jurídico preservado no corte e no filtro de voz).
+- #299 (757ae3d): EPIC-029 S-1 — CNPJ e CEP preenchem sozinhos (Brasil API + ViaCEP, cache 30 dias, CPF de MEI removido). Migração 0152.
+
+### Em andamento
+- #298 (branch `claude/epic027-c5-pacote2`): avisos proativos (entram DESLIGADOS), criadora de mesas, mesa comercial da maquete,
+  tarefa demorada. Migrações 0150, 0151, 0153 JÁ aplicadas no Neon. Falta: corrigir os 2 achados do revisor (retomada da tarefa sem
+  depender de aviso da Evolution; reserva gravada do aviso proativo) → testes → push → Codex → merge → conferir produção e os 15 crons.
+- EPIC-029 S-2 (rascunhos de nota na aba Contabilidade), worktree `epic029-s2` (a partir de `epic029-s1` + `epic029-fiscal-plano`):
+  em construção. Plano/diagnóstico/pesquisa na branch `claude/wip-epic029-plano` (entra com a S-2).
+
+### Testes
+- (a) automáticos: suíte server/dolores 79 arquivos / 1.451 testes verdes no pacote do #298 (antes das 2 correções); S-1: 73 testes + QA.
+- (b) manuais: consulta real à Brasil API/ViaCEP conferida (CNPJ público, CEP).
+- (c) pendentes em produção: Dolores no WhatsApp (anotar pelo grupo, memória, REURB); CNPJ/CEP nas telas.
+
+### Próximo passo exato
+Receber as correções do #298, rodar os testes afetados, push na `claude/epic027-c5-pacote2`, esperar o Codex "completed", mesclar e
+conferir produção. Depois: QA da S-2 → migração (0154+) → PR → publicar; seguir S-3 (Dolores no fluxo fiscal, conversa natural).

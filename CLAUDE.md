@@ -372,3 +372,23 @@ remover tabela/coluna, credenciais e serviço pago novo continuam exigindo confi
    `get_review_comments`; achado real é corrigido (o de segurança, antes de publicar). Em 22/11 uma mesclagem saiu 4 segundos
    antes de a revisão terminar — não repetir.
 7. O nome é **Dolores** (nunca "Jarvis" em tela, texto ou conversa).
+
+## Módulo Fiscal (NFS-e) e conversa natural com a Dolores — decisões do dono em 22/11/2026 (REGRA)
+
+Autorização do dono ao plano do EPIC-029 (`docs/stories/epics/epic-029-modulo-fiscal/`): "Autorizo — 1 a paridade eu faço em
+outro momento; 2 o ritmo continue sem parar e faça a migração e a produção ao terminar sempre; 3 não troque nenhum comando;
+4 pode começar em paralelo". E em seguida: "Eu não quero ter que decorar comandos pra Dolores, eu quero conversar com ela e quero
+que ela me responda como qualquer IA normal"; "Manter" (o "confirmo"); "coloque ele dentro da aba de serviço 'Contabilidade' lá em
+BPO financeiro, para não termos campos redundantes".
+
+1. **Ritmo**: etapas do EPIC-029 em sequência, sem parar, com migração aditiva e publicação a cada etapa (mesmas ressalvas de sempre:
+   apagar/alterar dados, remover tabela/coluna, credenciais e serviço pago continuam exigindo o dono).
+2. **Sem comandos para decorar**: com a Dolores o dono conversa em linguagem natural; nenhuma função nova cria palavra-comando
+   (nada de VER/EMITIR/NÃO/DEPOIS). A confirmação de registro simples aceita resposta natural ("pode", "sim", "isso", "manda ver"…);
+   **"confirmo" continua obrigatório só para ação séria** (inclui emitir nota fiscal).
+3. **Lugar**: o módulo fiscal fica dentro da aba "Contabilidade" do BPO Financeiro e reaproveita o que já está cadastrado (perfil
+   tributário, clientes do BPO/CRM, lançamentos). Nada já cadastrado é digitado de novo.
+4. **Emissão real** (homologação e produção na API Nacional) depende do dono e do contador: regime tributário, certificado A1 (enviado
+   por ele no painel, guardado cifrado), inscrição municipal, códigos de serviço/alíquotas, CNO das obras. Até lá, o botão Emitir fica
+   desligado e nada sai do sistema.
+5. **Paridade com o Grupo Santa Fé**: o dono decide depois; fica registrada como pendência no ROADMAP.
