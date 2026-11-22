@@ -7,7 +7,7 @@ import { requireModule } from "./_core/rbac.js";
 import { protectedProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 
-import { sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
+import { obterCenarioPrincipal, sincronizarUnidadesCenario } from "./incorporacao-unidades-cenario.js";
 
 const studyId = z.number().int().positive();
 const price = z.string().regex(/^\d{1,13}(\.\d{1,2})?$/).refine((v) => Number(v) > 0);
@@ -31,6 +31,26 @@ async function pendingLegacy(id: number) {
 
 function conflict(): never { throw new TRPCError({ code: "CONFLICT", message: "Estado da unidade alterado por outra operação. Atualize a lista." }); }
 
+/** Exclusão lógica e auditoria são atômicas, inclusive para todo o inventário. */
+async function excluirUnidades(estudoId: number, actor: number, unidadeId?: number) {
+  const result = await getDb().execute(sql`WITH changed AS (
+      UPDATE incorporation_units u SET deleted_at = now(), updated_at = now() WHERE u.study_id = ${estudoId}
+      ${unidadeId === undefined ? sql`` : sql`AND u.id = ${unidadeId}`}
+      AND deleted_at IS NULL AND status = 'disponivel'
+      AND COALESCE((
+        SELECT e.previous_status = 'vendida' AND e.next_status = 'disponivel'
+        FROM incorporation_unit_events e WHERE e.unit_id = u.id
+          AND (e.next_status IN ('vendida', 'reservada') OR (e.previous_status = 'vendida' AND e.next_status = 'disponivel'))
+        ORDER BY e.id DESC LIMIT 1
+      ), true)
+      RETURNING id, status
+    ), audit AS (
+      INSERT INTO incorporation_unit_events(unit_id, previous_status, next_status, performed_by_user_id)
+      SELECT id, status, 'excluida', ${actor} FROM changed RETURNING id
+    ) SELECT count(*)::int AS excluidas FROM audit`);
+  return { excluidas: Number(result.rows[0]?.excluidas ?? 0) };
+}
+
 export const incorporationUnitsRouter = router({
   clients: protectedProcedure.input(z.object({ query: z.string().max(120).optional() }).optional()).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); requireModule(ctx, "crm");
@@ -39,7 +59,7 @@ export const incorporationUnitsRouter = router({
   }),
   synchronize: protectedProcedure.input(z.object({ studyId })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
-    return sincronizarUnidadesCenario(input.studyId, ctx.user.id);
+    return sincronizarUnidadesCenario(input.studyId, ctx.user.id, true);
   }),
   edit: protectedProcedure.input(z.object({ studyId, unitId: studyId, status: z.enum(["disponivel", "reservada", "vendida"]), buyer: z.string().trim().max(255).nullable(), buyerLeadId: studyId.nullable(), salePrice: price.nullable(), expectedRevision: z.number().int().nonnegative() })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); await study(input.studyId);
@@ -88,22 +108,15 @@ export const incorporationUnitsRouter = router({
   }),
   delete: protectedProcedure.input(z.object({ studyId, unitId: studyId })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); await study(input.studyId);
-    const r = await getDb().execute(sql`WITH changed AS (
-      UPDATE incorporation_units u SET deleted_at = now(), updated_at = now() WHERE id = ${input.unitId} AND study_id = ${input.studyId}
-      AND deleted_at IS NULL AND status = 'disponivel'
-      AND COALESCE((
-        SELECT e.previous_status = 'vendida' AND e.next_status = 'disponivel'
-        FROM incorporation_unit_events e WHERE e.unit_id = u.id
-          AND (e.next_status IN ('vendida', 'reservada') OR (e.previous_status = 'vendida' AND e.next_status = 'disponivel'))
-        ORDER BY e.id DESC LIMIT 1
-      ), true)
-      RETURNING id, status
-    ), audit AS (
-      INSERT INTO incorporation_unit_events(unit_id, previous_status, next_status, performed_by_user_id)
-      SELECT id, status, 'excluida', ${ctx.user.id} FROM changed RETURNING id
-    ) SELECT id FROM audit`);
-    if (!r.rows.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Exclusão bloqueada: há reserva, venda ou histórico comercial. Cancele a venda ou revise os vínculos antes de excluir." });
+    const { excluidas } = await excluirUnidades(input.studyId, ctx.user.id, input.unitId);
+    if (!excluidas) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Exclusão bloqueada: há reserva, venda ou histórico comercial. Cancele a venda ou revise os vínculos antes de excluir." });
     return { success: true };
+  }),
+  deleteAll: protectedProcedure.input(z.object({ studyId })).mutation(async ({ ctx, input }) => {
+    requireModule(ctx, "incorporacao");
+    const legacy = await pendingLegacy(input.studyId);
+    if (legacy.invalido || legacy.pending.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Concilie as vendas históricas antes de excluir em lote." });
+    return excluirUnidades(input.studyId, ctx.user.id);
   }),
   temUnidades: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
@@ -114,11 +127,12 @@ export const incorporationUnitsRouter = router({
   }),
   list: protectedProcedure.input(z.object({ studyId })).query(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao");
-    const [units, legacy] = await Promise.all([
+    const [units, legacy, cenario] = await Promise.all([
       getDb().select().from(incorporationUnits).where(and(eq(incorporationUnits.studyId, input.studyId), isNull(incorporationUnits.deletedAt))).orderBy(incorporationUnits.code),
       pendingLegacy(input.studyId),
+      obterCenarioPrincipal(input.studyId),
     ]);
-    return { units, legacyPending: legacy.pending, legacyInvalid: legacy.invalido };
+    return { units, totalCenario: cenario?.lotes.length ?? null, legacyPending: legacy.pending, legacyInvalid: legacy.invalido };
   }),
   create: protectedProcedure.input(z.object({ studyId, code: z.string().trim().min(1).max(120), kind: z.string().trim().min(1).max(40) })).mutation(async ({ ctx, input }) => {
     requireModule(ctx, "incorporacao"); await study(input.studyId);

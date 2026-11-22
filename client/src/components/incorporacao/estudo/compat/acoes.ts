@@ -216,7 +216,7 @@ async function unidades(estudoId: string) {
       id: String(u.id), codigo: u.code, tipo: u.kind, status: u.status, comprador: u.buyer,
       valorVenda: u.salePrice ?? null, revisao: u.revision, compradorLeadId: u.buyerLeadId ? String(u.buyerLeadId) : null, cenarioId: u.scenarioId, criadoEm: new Date(u.createdAt).toISOString(), atualizadoEm: new Date(u.updatedAt).toISOString(),
     })),
-    legacyPending: r.legacyPending, legacyInvalid: r.legacyInvalid,
+    totalCenario: r.totalCenario, legacyPending: r.legacyPending, legacyInvalid: r.legacyInvalid,
   };
 }
 export function listarUnidades(estudoId: string) { return capturar(() => unidades(estudoId)); }
@@ -291,6 +291,9 @@ export function editarUnidade(estudoId: string, unidadeId: string, d: { status: 
 }
 export function cancelarVendaUnidade(estudoId: string, unidadeId: string, revisao: number) {
   return capturar(() => inc.units.cancelSale.mutate({ studyId: id(estudoId), unitId: Number(unidadeId), expectedRevision: revisao }));
+}
+export function excluirTodasUnidades(estudoId: string) {
+  return capturar(() => inc.units.deleteAll.mutate({ studyId: id(estudoId) }));
 }
 export function excluirUnidade(estudoId: string, unidadeId: string) { return capturar(() => inc.units.delete.mutate({ studyId: id(estudoId), unitId: Number(unidadeId) })); }
 

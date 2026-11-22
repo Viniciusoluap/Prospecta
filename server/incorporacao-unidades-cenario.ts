@@ -29,7 +29,7 @@ export async function obterCenarioPrincipal(studyId: number): Promise<CenarioPri
 }
 
 /** Chamado após gravar/selecionar cenário; insert e eventos no mesmo comando. */
-export async function sincronizarUnidadesCenario(studyId: number, actor: number) {
+export async function sincronizarUnidadesCenario(studyId: number, actor: number, restaurarExcluidas = false) {
   const c = await obterCenarioPrincipal(studyId);
   const rows = unidadesDoCenario(c);
   const totalCenario = c ? rows.length : null;
@@ -40,9 +40,13 @@ export async function sincronizarUnidadesCenario(studyId: number, actor: number)
     INSERT INTO incorporation_units(study_id, code, code_key, kind, source_key, scenario_id, sale_price)
     SELECT ${studyId}, codigo, chave, 'lote', origem, cenario, valor::numeric FROM fonte
     ON CONFLICT (study_id, code_key) DO UPDATE SET scenario_id = EXCLUDED.scenario_id,
-      source_key = COALESCE(incorporation_units.source_key, EXCLUDED.source_key), updated_at = now()
-    WHERE incorporation_units.deleted_at IS NULL AND incorporation_units.status = 'disponivel'
-      AND incorporation_units.scenario_id IS DISTINCT FROM EXCLUDED.scenario_id
+      source_key = COALESCE(incorporation_units.source_key, EXCLUDED.source_key),
+      sale_price = CASE WHEN incorporation_units.deleted_at IS NOT NULL THEN EXCLUDED.sale_price ELSE incorporation_units.sale_price END,
+      deleted_at = NULL, updated_at = now()
+    WHERE incorporation_units.status = 'disponivel' AND (
+      (incorporation_units.deleted_at IS NULL AND incorporation_units.scenario_id IS DISTINCT FROM EXCLUDED.scenario_id)
+      OR (incorporation_units.deleted_at IS NOT NULL AND ${restaurarExcluidas})
+    )
     RETURNING id, status
   ), audit AS (
     INSERT INTO incorporation_unit_events(unit_id, next_status, performed_by_user_id)

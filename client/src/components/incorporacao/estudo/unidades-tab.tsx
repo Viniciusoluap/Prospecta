@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { codigoExibicao, compararCodigoUnidade, paginar } from "@shared/incorporacao/unidades";
 import { exigirResultado, type ErroAcao } from "./compat/acao-resultado";
 import { NumeroBRField } from "./compat/numero-br-field";
-import { recarregarEstudo, listarUnidades, criarUnidade, conciliarVendaLegada, sincronizarUnidades, clientesUnidades, editarUnidade, cancelarVendaUnidade, excluirUnidade } from "./compat/acoes";
+import { recarregarEstudo, listarUnidades, criarUnidade, conciliarVendaLegada, sincronizarUnidades, clientesUnidades, editarUnidade, cancelarVendaUnidade, excluirTodasUnidades, excluirUnidade } from "./compat/acoes";
 type Snapshot = Exclude<Awaited<ReturnType<typeof listarUnidades>>, ErroAcao>;
 type Unidade = Snapshot["unidades"][number];
 type Cliente = { id: string; nome: string; telefone: string; valorNegociado?: string | null };
@@ -15,7 +15,8 @@ const brl = (v: string | number | null) => Number(v ?? 0).toLocaleString("pt-BR"
 
 export function UnidadesTab({ estudoId }: { estudoId: string }) {
   const [data, setData] = useState<Snapshot | null>(null); const [error, setError] = useState("");
-  const [totalCenario, setTotalCenario] = useState<number | null>(null);
+  const [mensagem, setMensagem] = useState("");
+  const totalCenario = data?.totalCenario ?? null;
   const [pending, start] = useTransition(); const [code, setCode] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]); const [busca, setBusca] = useState("");
   const [edit, setEdit] = useState<Unidade | null>(null);
@@ -29,15 +30,25 @@ export function UnidadesTab({ estudoId }: { estudoId: string }) {
   );
   usePendenciaManual(unidadeAlterada ? "Há uma edição de unidade sem confirmação. Use Salvar unidade para concluir." : null);
   const refresh = useCallback(async () => { setData(exigirResultado(await listarUnidades(estudoId))); }, [estudoId]);
-  useEffect(() => { let ativo = true; void (async () => { try { const sync = exigirResultado(await sincronizarUnidades(estudoId)); if (ativo) setTotalCenario(sync.totalCenario); void recarregarEstudo(); const r = exigirResultado(await listarUnidades(estudoId)); if (ativo) setData(r); } catch(e) { if (ativo) setError(e instanceof Error ? e.message : "Falha ao carregar unidades."); } })(); return () => { ativo = false; }; }, [estudoId]);
+  useEffect(() => { let ativo = true; void (async () => { try { const r = exigirResultado(await listarUnidades(estudoId)); if (ativo) setData(r); } catch(e) { if (ativo) setError(e instanceof Error ? e.message : "Falha ao carregar unidades."); } })(); return () => { ativo = false; }; }, [estudoId]);
   useEffect(() => { let ativo = true; const timer = setTimeout(() => { void clientesUnidades(busca).then((r) => { if (ativo) setClientes(exigirResultado(r)); }).catch(() => { if (ativo) setClientes([]); }); }, 250); return () => { ativo = false; clearTimeout(timer); }; }, [busca]);
   function run(fn: () => Promise<unknown>, fechar = false) {
-    setError(""); start(async () => { try { exigirResultado(await fn()); if (fechar) setEdit(null); await Promise.all([refresh(), recarregarEstudo()]); } catch (e) { setError(e instanceof Error ? e.message : "Operação falhou."); } });
+    setError(""); setMensagem(""); start(async () => { try { exigirResultado(await fn()); if (fechar) setEdit(null); await Promise.all([refresh(), recarregarEstudo()]); } catch (e) { setError(e instanceof Error ? e.message : "Operação falhou."); } });
   }
   async function atualizarDoCenario() {
     const resultado = exigirResultado(await sincronizarUnidades(estudoId));
-    setTotalCenario(resultado.totalCenario);
+    setMensagem(resultado.totalCenario === null
+      ? "Nenhum cenário disponível para importar."
+      : `Cenário com ${resultado.totalCenario} lote(s) vendável(is). ${resultado.geradas} cadastro(s) atualizado(s).`);
     return resultado;
+  }
+  function excluirTodas() {
+    if (!confirm("Excluir todas as unidades elegíveis deste estudo, em todas as páginas? Unidades com venda, reserva ou histórico comercial protegido serão mantidas.")) return;
+    run(async () => {
+      const resultado = exigirResultado(await excluirTodasUnidades(estudoId));
+      setMensagem(resultado.excluidas === 0 ? "Nenhuma unidade pôde ser excluída." : `${resultado.excluidas} unidade(s) excluída(s).`);
+      return resultado;
+    }, true);
   }
   function cancelarVenda(u: Unidade) {
     if (confirm(`Cancelar a venda de ${codigoExibicao(u.codigo)}? A unidade voltará a ficar disponível, e o histórico da venda será preservado.`)) {
@@ -57,9 +68,13 @@ export function UnidadesTab({ estudoId }: { estudoId: string }) {
   // inclusão/exclusão pode mudar o total de páginas: mantém a página dentro do intervalo
   useEffect(() => { if (pag.pagina !== pagina) setPagina(pag.pagina); }, [pag.pagina, pagina]);
   return <section className="space-y-4" aria-label="Unidades à Venda">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold">Unidades à Venda</h2><p className="mt-1 text-sm text-gray-600">{data?.unidades.length ?? 0} unidades · {counters.disponivel} disponíveis · {counters.reservada} reservadas · {counters.vendida} vendidas</p></div><button className={action} disabled={pending} onClick={() => run(atualizarDoCenario)}>Atualizar do cenário</button></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold">Unidades à Venda</h2><p className="mt-1 text-sm text-gray-600">{data?.unidades.length ?? 0} unidades · {counters.disponivel} disponíveis · {counters.reservada} reservadas · {counters.vendida} vendidas</p></div><div className="flex flex-wrap gap-2">
+      <button className={action} disabled={pending || !data} onClick={() => run(atualizarDoCenario)}>Atualizar do cenário</button>
+      <button className={`${action} text-red-700`} disabled={pending || locked || !data?.unidades.length} onClick={excluirTodas}>Excluir todas</button>
+    </div></div>
     {data && <p className="text-sm text-gray-600" aria-live="polite">{totalCenario === null ? "Nenhum cenário disponível para importar." : `Estudo de Massa · ${totalCenario} ${totalCenario === 1 ? "lote vendável" : "lotes vendáveis"}`}</p>}
-    <p className="text-xs text-gray-600">O cenário gera os lotes automaticamente. Reservas, vendas e exclusões são preservadas. Unidades de cenários anteriores permanecem para revisão comercial.</p>
+    <p className="text-xs text-gray-600">Atualizar do cenário cadastra ou restaura os lotes vendáveis do estudo principal. Reservas e vendas são preservadas.</p>
+    {mensagem && <p role="status" className="text-sm text-gray-700">{mensagem}</p>}
     {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {data?.legacyInvalid && <p role="alert" className="border border-amber-500 p-3 text-amber-900">Vendas históricas ambíguas ou incompletas. Revise os registros antes de movimentar unidades.</p>}
     {!!data?.legacyPending.length && <div className="space-y-2 rounded-lg border border-amber-500 p-3"><strong>Concilie {data.legacyPending.length} venda(s) histórica(s).</strong>{data.legacyPending.map((sale) => <div key={sale.id} className="flex flex-wrap items-center gap-2 text-sm"><span>{sale.unidade} · {sale.comprador} · {brl(sale.valorVenda)}</span><button className={action} disabled={pending} onClick={() => { if (confirm(`Conciliar venda de ${sale.unidade}?`)) run(() => conciliarVendaLegada(estudoId, sale.id, "lote")); }}>Conciliar</button></div>)}</div>}
@@ -71,7 +86,7 @@ export function UnidadesTab({ estudoId }: { estudoId: string }) {
       <p className="break-words text-sm">{u.comprador || "Sem comprador"} · {brl(u.valorVenda)}</p><p className="text-xs text-gray-500">{u.cenarioId ? `Origem: ${u.cenarioId}` : "Cadastro avulso"}</p>
       <div className="flex flex-wrap gap-2"><button className={action} disabled={pending || locked} onClick={() => abrir(u)}>Editar</button>{u.status === "vendida"
         ? <button className={`${action} text-red-700`} disabled={pending || locked} onClick={() => cancelarVenda(u)}>Cancelar venda</button>
-        : <button className={`${action} text-red-700`} disabled={pending || u.status !== "disponivel"} onClick={() => { if (confirm(`Excluir ${codigoExibicao(u.codigo)}? Ela não será recriada pelo cenário.`)) run(() => excluirUnidade(estudoId, u.id), edit?.id === u.id); }}>Excluir</button>}</div>
+        : <button className={`${action} text-red-700`} disabled={pending || u.status !== "disponivel"} onClick={() => { if (confirm(`Excluir ${codigoExibicao(u.codigo)}? Lotes do cenário poderão voltar ao usar Atualizar do cenário.`)) run(() => excluirUnidade(estudoId, u.id), edit?.id === u.id); }}>Excluir</button>}</div>
     </article>)}</div>
     {data && pag.total > 0 && <nav aria-label="Paginação das unidades" className="flex items-center justify-center gap-3">
       <button type="button" className={action} aria-label="Página anterior" disabled={!pag.temAnterior} onClick={() => setPagina(pag.pagina - 1)}><ChevronLeft size={16} /></button>
