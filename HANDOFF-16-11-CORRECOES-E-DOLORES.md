@@ -684,3 +684,26 @@ proatividade, criadora de mesas e mesa comercial sobre a `main`, com QA, e publi
 ### Próximo passo exato
 Receber as correções do #298, rodar os testes afetados, push na `claude/epic027-c5-pacote2`, esperar o Codex "completed", mesclar e
 conferir produção. Depois: QA da S-2 → migração (0154+) → PR → publicar; seguir S-3 (Dolores no fluxo fiscal, conversa natural).
+
+## Atualização de 22/11/2026 ~17:55 UTC — EPIC-029 (Módulo Fiscal) e regime tributário
+
+### Concluído (desde a atualização das 16:30)
+- #298 (1524c18): pacote final da Dolores no ar (avisos proativos desligados, mesas, mesa comercial, tarefa demorada). Migrações 0150, 0151, 0153 e 0160 aplicadas.
+- #302 (53a2344): EPIC-029 S-2 — rascunhos de NFS-e na aba Contabilidade (emitir bloqueado). Migração 0154 aplicada.
+- #303 (215aef4): REGIME-TRIBUTARIO.md (Receita + Drive: Prospecta 41.865.900 no Simples; VFX Capital 58.121.993 com exclusão do Simples em 30/11/2026; Efficaz 04.578.232 fora do Simples desde 31/12/2024).
+- Decisão do dono: "vamos trabalhar então tudo no Simples Nacional" (registrada no CLAUDE.md). Perfil tributário da Prospecta 41.865.900 cadastrado no Neon como Simples desde 07/05/2021 (tax_profiles id 1 + histórico); padrão da tela = Simples (#305).
+
+### Em andamento
+- S-3 Dolores no fluxo fiscal (worktree epic029-s3), S-4 base da emissão — cofre A1 reaproveitando o certificado do Jurídico, DPS, assinatura, mTLS, tudo desligado (epic029-s4), S-5 notas recebidas (epic029-s5), S-6 contas bancárias por empresa + apelido + aviso de teto do Simples (epic029-s6). Migrações reservadas: 0161 (S-3), 0162 (S-4), 0163 (S-5), 0164 (S-6).
+- #304: PESQUISA.md oficial da NFS-e Nacional (assinatura irmã de infDPS; base Sefin; calculadora pública).
+
+### Testes
+- (a) automáticos: S-2 173 testes depois do merge; #305 só `tsc` (mudança de valor padrão do formulário).
+- (b) manuais: consulta à Receita (Brasil API) das 3 empresas; leitura de contratos sociais e cartões CNPJ no Drive; conferência no Neon de que o perfil foi gravado.
+- (c) pendentes em produção: aba Contabilidade mostrando o perfil Simples; alíquota estimada (precisa do extrato PGDAS-D).
+
+### Pendências do dono / contador
+- Alíquota estimada da Prospecta (extrato PGDAS-D); VFX Capital — tratar a exclusão antes de 30/11/2026 ou nova opção em janeiro; Efficaz — nova opção em janeiro (até 29/01/2027); inscrição municipal e códigos de serviço/alíquotas para a S-4.
+
+### Próximo passo exato
+Mesclar #304 e #305; receber S-3/S-4/S-5/S-6 dos agentes → portão de QA de cada uma → migração → PR → revisor → merge → produção.
