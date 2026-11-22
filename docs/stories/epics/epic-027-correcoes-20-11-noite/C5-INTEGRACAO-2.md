@@ -100,6 +100,36 @@ Nada corrigido (sem causa no código); fica registrado.
   (o alerta de 100% da parte "avisos" sai no fim do aviso do WhatsApp, pelo caminho único, uma vez); listas fixas unidas.
 - `vercel.json`: 15 crons. Migrações 0145–0151 todas no repositório; 0150/0151 aplicadas 2× no banco de teste, depois da 0149.
 
+## Depois do portão de QA (PASS em `14262c0` + `05bebf2`): REURB da main e tarefa demorada
+### Merge da `origin/main` (análise de REURB, #296) — `ada9e61`
+- Conflitos em `cerebro.ts`, `funcoes.ts`, `permissoes.ts`, `ponte.ts`: a REURB trazia um segundo mecanismo (`FUNCOES_DO_DONO`,
+  `ferramentasDaConversaDoDono`, `funcaoPorNome` olhando as duas listas). Decisão: UM mecanismo só (o desta integração) —
+  `analisar_regularizacao_reurb` entrou em `LEITURAS_DO_DONO` (`soConversaDoDono`, fora de `FUNCOES`); `funcaoPorNome` volta a ver só
+  `FUNCOES`, `leituraPorNome` vê as duas; uma recusa 403 na porta, antes da etapa (a 2ª checagem da REURB, igual, saiu); a segunda trava
+  da própria leitura (`leitura/reurb.ts`, canal ≠ whatsapp) ficou; `analisouReurb` + `comAvisoReurb` no retorno de `cerebro.ts`;
+  `LIBERADAS_ETAPA_7_REURB` na etapa 7; rótulo e aviso em `shared/dolores/voz.ts`/`whatsapp.ts` sem mudança; a REURB continua oferecida
+  com e sem intenção de ação. `c5-reurb.test.ts`: só os nomes (`leituraPorNome`, `ferramentasDaConversa`); `c5-integracao2`: a lista
+  das só do dono ganhou a REURB.
+- Prefixo, pior caso: 2.474 + 14.809 = **17.283** (+500 = 17.783) → piso **19.000 mantido** (folga ~1,2 mil).
+- Suíte nesse ponto: `server/dolores/[a-e]*` **48 arquivos / 826 testes** e `[f-z]*` + `integracoes-anthropic` **29 / 574**, todos verdes.
+
+### Merge de `epic027-c5longa` (tarefa demorada sem travar a conversa) — `eece74d`
+- `drizzle.config.ts` (schema das tarefas depois das mesas) e `testes-banco.ts` (0153, 2×, depois da 0151): uniões.
+- `cerebro.ts`: `comAcoes` = `!somenteLeitura && !ehPedidoDeRelatorio && (… || pedido de mesa …)`; `abreMesa` também exige
+  `!somenteLeitura` → a retomada não oferece NENHUMA ação (nem `propor_aprovacao_mesa`, `gerar_link_maquete_lote`, `silenciar_aviso`) e a
+  porta recusa (`semAcoes`); as leituras só do dono (REURB, mesas, maquete) entram, executadas com canal "whatsapp" e o `mensagemId` da
+  mensagem do dono guardada na tarefa. Retorno com `respondeu`, `anexos` e o aviso da REURB.
+- `tarefa-demorada.ts`: o link/rascunho da maquete (`anexos`) vai intacto no quadro, antes do `FECHO_DA_TAREFA`.
+- `whatsapp.ts`: `credencialDosAvisos` e `retomarTarefasDemoradas` juntas; no fim do webhook, os alertas pendentes (dentro de
+  `tratarAvisoDaInstancia`) e só depois a retomada. Resultado da tarefa e aviso proativo conferem `podeEnviarAvisoAgora`.
+- `rondas.ts`: cron da manhã = ronda/relatório → alertas pendentes → retomada da tarefa → avisos proativos. `vercel.json`: 15 crons.
+- Prefixo: a tarefa não acrescenta ferramenta nem texto do sistema → 17.283, piso 19.000.
+- Testes novos em `c5-integracao2.test.ts` (+3, total 16): retomada só leitura com pedido cheio de verbos de ação — nenhuma ação oferecida,
+  as três ações recusadas pela porta, nada na fila/proposta/link/silêncio, a leitura da maquete executada (canal whatsapp) e o link no
+  quadro + fecho; parecer de REURB por tarefa com o aviso da REURB e o fecho; proposta aberta segura a tarefa e o aviso; no cron, a ordem
+  alerta → tarefa → aviso, cada um uma vez.
+- Suíte: NUMEROS_LONGA
+
 ## Pendências
 - Portão de QA de segurança (@qa) do pacote integrado antes da `main` (regra da Dolores de 16/11).
-- Na publicação: aplicar 0148, 0149, 0150 e 0151 no Neon (aditivas); conferir os 15 crons no painel da Vercel e `PUBLIC_SITE_URL`.
+- Na publicação: aplicar 0148, 0149, 0150, 0151 e 0153 no Neon (aditivas); conferir os 15 crons no painel da Vercel e `PUBLIC_SITE_URL`.
