@@ -29,7 +29,21 @@ Escrito pela sessão Claude em 22/11 porque os créditos do dono estão acabando
    `825265f`; precisa ser mesclada na branch principal (conflito possível só em `client/src/lib/certificados-digitais.ts`,
    bloco de desenho dentro de `assinarPdf` × `signer.certificateChain`).
 
-## Portão de QA (revisão de segurança do commit 825265f) — NEEDS_WORK
+## ATUALIZAÇÃO (fim da sessão Claude, 22/11)
+- **Todos os 9 achados do QA (A1, A2, M1, M2, M3, B1, B2, B3, B4) foram CORRIGIDOS e têm teste** no commit `7a77bbd`
+  (testes em `server/juridico-pki.test.ts` e `server/juridico-validacao.test.ts`; nova `server/juridico-marca-conferencia.ts`).
+  Ressalvas: política ICP A1–A4 só com teste negativo (sem certificado ICP real); B2 no CMS sem teste próprio; B4 (lixeira no
+  Drive) sem teste. Lacunas de teste listadas pelo QA também cobertas.
+- Últimos resultados: `tsc` 0 erros; focados `juridico-pki` 27/27, `juridico-validacao`+`certificados`+`pdf-db` 45/45,
+  `juridico-assinatura-cadeia` 3/3, `imports-esm` 2/2; `npx vite build` OK (e bundle ESM do api/index.ts OK).
+  **Suíte completa NÃO terminou** (interrompida com 189 aprovados, 0 falhas até ali) — rodar até o fim.
+- Marca proporcional (branch `claude/juridico-marca-proporcional`, `d53250f`): pronta, 9/9 testes novos + 7/7 certificados;
+  suíte completa e build não rodaram lá. Falta passar `titular`/`documento` de `CertificadosJuridico.tsx` para
+  `PosicionarAssinaturaPdf`. Mudança visível: fonte da marca no A4 100% vai de ~9pt para ~11–16pt. Limite: A5 a 50% com nome
+  longo ~3,8pt.
+- **Portanto o próximo passo começa no item 3 abaixo** (mesclar a marca), seguido do NOVO portão de QA (item 4).
+
+## Portão de QA (revisão de segurança do commit 825265f) — NEEDS_WORK (histórico; corrigido em 7a77bbd)
 Aprovado (não mexer): SSRF do download, vazamento (PFX/senha só no navegador), auth das rotas, migração 0161, corrida
 entre retentativas.
 A corrigir (cada um com teste):
