@@ -143,6 +143,46 @@ Antes de aplicar, conferir o nome real da restrição: `SELECT conname FROM pg_c
 "RASCUNHO — SEM VALOR FISCAL". 4. "essa não precisa, foi reembolso de cartório" → proposta → "pode" → aba Contabilidade mostra "Sem nota".
 5. "emite a outra" → "pode" pede "confirmo"; "confirmo" → "a emissão ainda não está ativa". 6. Na tela de avisos, religar "rascunhos de nota fiscal".
 
+## S-3b — pendências da revisão
+
+Revisão independente do S-3 (já na `main`, #314). Quatro pendências leves, todas corrigidas no ramo `epic029-s3b`. Sem migração, sem
+mudança de tela.
+
+- [x] **1. Prévia depois da resposta, com a mensagem já marcada e leitura com teto.** `whatsapp.ts`: `atualizarMensagem(... "respondida")`
+  passou para ANTES de `enviarPreviasFiscais` — se a função morrer gerando o PDF, `recuperarPedidosInterrompidos` (que só reivindica linha
+  "processando") não manda "mande de novo" de um pedido já respondido. A leitura `carregarNota` roda com `tempoLimiteMs` derivado do que
+  resta do prazo (`min(5 s, resta − 3 s)`, mínimo 1 s; o banco cancela a consulta) e, depois da leitura, o tempo é conferido de novo antes
+  do envio do documento.
+- [x] **2. Todo texto impresso no PDF pelo filtro de saída.** `notaParaPreviaDaDolores` deixou de ter lista de campos (ficava de fora
+  `tomador.cidade`/`uf`, `emissor.cnpj`/`regime`/`municipioNome`, códigos do serviço, `origem.competencia`, `origemRotulo`…): agora TODO
+  texto da nota, em qualquer nível, passa por `sanitizarTexto(…, filtroDaSaida("whatsapp"))`; só ficam intactos os campos fechados de
+  `CAMPOS_ESTRUTURADOS_DA_PREVIA` (enums e datas usados como chave de rótulo). O CPF/CNPJ do tomador passa pelo filtro e por `campoPessoal`
+  (opção B: completo; `DOLORES_MASCARAR_DADOS_PESSOAIS=1`: mascarado).
+- [x] **3. Retomada da tarefa demorada não manda prévia nem a promete (opção mais segura).** `cerebro.ts`: com `somenteLeitura`, um
+  `ver_nota_fiscal` com `enviarPrevia` não vira prévia — o resultado que o modelo lê perde `previaFiscal` e recebe `AVISO_PREVIA_NA_RETOMADA`
+  ("não diga que está mandando"); o id volta em `previasRecusadas`, e `tarefa-demorada.ts` acrescenta ao fecho, por código, a frase fixa
+  `FRASE_PREVIA_NA_RETOMADA` (peça a prévia de novo na conversa / tela). O único caminho do PDF continua o da conversa direta do dono.
+- [x] **4. Prévia e frase de falha na memória da conversa.** Depois do envio, `dolores_conversa` recebe (papel `sistema`, origem `aviso`,
+  função `whatsapp_previa_fiscal`) só `memoriaDaPrevia(ids)` — o número do rascunho, sem nome, CPF ou valor — com a referência
+  `nota_fiscal`; se a `FRASE_PREVIA_NAO_FOI` chegou ao dono, ela também entra.
+
+### Testes (S-3b)
+- (a) Automáticos: `server/dolores/s3-fiscal-revisao.test.ts` — 7 testes: banco lento simulado (a leitura "leva" 60 s e é cancelada; a
+  mensagem já estava "respondida" quando a leitura começou; `tempoLimiteMs` entre 1 s e 5 s e menor que o tempo restante; a entrada seguinte
+  não manda "mande de novo"); ordem no código; teste que percorre os campos impressos (cada texto da nota vira um marcador de segredo: o PDF
+  cru mostra os 20 campos impressos, inclusive `tomador.cidade`; o PDF da Dolores, nenhum); campos fechados intactos e CPF pelo interruptor;
+  retomada com `enviarPrevia` (sem documento, aviso ao modelo, frase fixa na resposta); memória da prévia e da frase de falha (sem CPF).
+  Rodados também `s3-fiscal*`, `c5-tarefa-demorada*`, `c5-integracao2*`, `ponte*`, `leitura-somente`: 9 arquivos, 185 testes, todos passam.
+  `npx tsc --noEmit` e `npx vite build` sem erro.
+- (b) Manuais: não feitos (sem WhatsApp real).
+- (c) Pendentes em produção: nenhuma nova (sem migração).
+
+### Arquivos (S-3b)
+- `server/dolores/whatsapp.ts` (ordem da marcação, teto da leitura, filtro total do PDF, memória da prévia)
+- `server/dolores/cerebro.ts` (`AVISO_PREVIA_NA_RETOMADA`, `FRASE_PREVIA_NA_RETOMADA`, `previasRecusadas`)
+- `server/dolores/tarefa-demorada.ts` (frase fixa no fecho da retomada)
+- `server/dolores/s3-fiscal-revisao.test.ts` (novo)
+
 ## Change Log
 - 22/11/2026 — @dev (Dex): Draft → InReview. Implementação completa no ramo `epic029-s3` (merge de `cf12927` da S-2); migração 0161 NÃO aplicada.
 - 22/11/2026 — @qa (Quinn): portão CONCERNS (`server/dolores/s3-fiscal-qa.test.ts`): M1 (PDF da Dolores sem o filtro de segredos), B1 (trava de
@@ -152,3 +192,4 @@ Antes de aplicar, conferir o nome real da restrição: `SELECT conname FROM pg_c
   mande/manda e palavra de comando entre aspas em qualquer caixa (a frase fixa de silenciar é ignorada); B2 — `MAX_BYTES_PREVIA` (1 MB)
   conferido antes do envio, com a frase de falha. Os 2 `it.fails` viraram `it`. Merge de `origin/main`. **Atenção: a `main` já tem
   `drizzle/0161_juridico_validacao_assinaturas.sql` — dois arquivos 0161 convivem; decidir com o coordenador se a desta story é renumerada.**
+- 22/11/2026 — @dev (Dex): S-3b — 4 pendências leves da revisão independente corrigidas (seção "S-3b — pendências da revisão").

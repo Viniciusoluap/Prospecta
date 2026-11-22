@@ -25,7 +25,7 @@ import { vozDaDolores } from "../../shared/dolores/voz.js";
 import { MAX_TEXTO_COMANDO, fraseDeBloqueio, type MotivoBloqueio } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { MAX_VOLTAS_TAREFA, NADA_ALTERADO, executarComando, type PedidoComando } from "./cerebro.js";
+import { FRASE_PREVIA_NA_RETOMADA, MAX_VOLTAS_TAREFA, NADA_ALTERADO, executarComando, type PedidoComando } from "./cerebro.js";
 import { lerPausa } from "./consumo.js";
 import { ehTabelaInexistente } from "./erro-de-banco.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -300,7 +300,8 @@ export async function retomarTarefaDemorada(d: DependenciasRetomada): Promise<Re
     let ok = false;
     try { ok = await d.responder(texto, { mensagemId: tarefa.mensagemId, tarefaId: tarefa.id, referencias: r.referencias, resumo,
       // integração 2 (C5-COM): link/rascunho da maquete que o modelo não repetiu exatamente vão intactos, antes do fecho fixo
-      fecho: [...r.anexos, FECHO_DA_TAREFA].join("\n\n") }); }
+      // S-3b (item 3): prévia pedida na retomada não vai (só a conversa direta manda o PDF) — a frase fixa diz isso, por código
+      fecho: [...r.anexos, ...(r.previasRecusadas?.length ? [FRASE_PREVIA_NA_RETOMADA] : []), FECHO_DA_TAREFA].join("\n\n") }); }
     catch (e) { console.error("[dolores/tarefa-demorada] falha no envio", erroParaLog(e)); ok = false; }
     // envio com erro pode ter chegado em parte: não reenvia (falhou), o dono pede de novo se faltar
     await getDb().update(t).set({ situacao: ok ? "concluida" : "falhou", concluidaEm: d.agora(), motivo: ok ? null : "o envio do resultado falhou" })

@@ -647,9 +647,11 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
+    // S-3b (revisão, item 1): a mensagem é marcada ANTES das prévias — se a função morrer gerando o PDF, a resposta já saiu e
+    // recuperarPedidosInterrompidos não manda "mande de novo" (ele só reivindica linha ainda "processando")
+    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: virouTarefa ? "virou tarefa demorada" : r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     // EPIC-029 S-3: a prévia em PDF que o dono pediu (ver_nota_fiscal), depois da resposta, ao MESMO número conferido como o dele
     if (envio.enviadas && r.previasFiscais?.length) await enviarPreviasFiscais(cfg, msg.numero, r.previasFiscais, { mensagemId: msg.id, autor, prazoFinal });
-    await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: virouTarefa ? "virou tarefa demorada" : r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {
     console.error("[dolores/whatsapp] falha no laço", erroCurto(e));
@@ -666,48 +668,62 @@ export const FRASE_PREVIA_NAO_FOI = "Dolores: não consegui mandar o PDF da pré
 export const MAX_BYTES_PREVIA = 1_000_000;
 
 /**
- * QA S-3 (M1): no caminho da Dolores, o PDF passa pelo MESMO filtro de saída da conversa do dono — texto livre (descrição, centro de
- * custo, tomador, obra, tipo de serviço, emissor, motivo) sem senha, token, chave, código de acesso e dado bancário SEMPRE; dados pessoais
- * conforme o interruptor (DOLORES_MASCARAR_DADOS_PESSOAIS). O CPF/CNPJ estruturado do tomador segue campoPessoal. A tela não muda.
+ * S-3b (revisão, item 2): campos da nota que NÃO são texto livre — valores fechados (enum), datas e o tipo do tomador. Não passam pelo
+ * filtro porque o PDF os usa como chave de rótulo (ROTULO_STATUS, ROTULO_MOTIVO) ou data. Todo o RESTO que for texto passa.
  */
-export function notaParaPreviaDaDolores<T extends {
-  descricao: string; descricaoSugerida: string; motivoTexto: string | null;
-  tomador: { nome: string | null; documento: string | null };
-  origem: { descricao: string; centroCustos: string | null; tomadorNomeOrigem: string | null } | null;
-  obra: { titulo: string; cidade: string | null } | null;
-  tipoServico: { nome: string; descricaoPadrao: string | null } | null;
-  emissor: { razaoSocial: string | null } | null;
-  municipio: { nome: string | null };
-}>(nota: T, campo: (v: string, tipo: "cpf" | "cnpj", canal: "whatsapp") => string | null | undefined): T {
+export const CAMPOS_ESTRUTURADOS_DA_PREVIA: ReadonlySet<string> = new Set([
+  "status", "motivoSemNota", "motivoSugerido", "origemTipo", "alteradoVia", "fonte", "tipo", "ambiente", "dataEvento", "adiadaAte"]);
+
+/**
+ * QA S-3 (M1) + S-3b (item 2): no caminho da Dolores, o PDF passa pelo MESMO filtro de saída da conversa do dono. Em vez de uma lista
+ * de campos (que deixava de fora o que fosse impresso depois — ex.: a cidade do tomador), TODO texto da nota, em qualquer nível, passa
+ * pelo filtro: senha, token, chave, código de acesso e dado bancário saem SEMPRE; dados pessoais conforme o interruptor
+ * (DOLORES_MASCARAR_DADOS_PESSOAIS). Só os campos fechados de CAMPOS_ESTRUTURADOS_DA_PREVIA ficam como estão. O CPF/CNPJ estruturado do
+ * tomador passa pelo filtro E por campoPessoal. Coberto por um teste que percorre os campos impressos no PDF. A tela não muda.
+ */
+export function notaParaPreviaDaDolores<T extends { tomador: { documento: string | null } }>(nota: T,
+  campo: (v: string, tipo: "cpf" | "cnpj", canal: "whatsapp") => string | null | undefined): T {
   const f = (t: string) => sanitizarTexto(t, filtroDaSaida("whatsapp"));
-  const fn = (t: string | null) => (t == null ? t : f(t));
-  const doc = nota.tomador.documento;
-  return {
-    ...nota,
-    descricao: f(nota.descricao), descricaoSugerida: f(nota.descricaoSugerida), motivoTexto: fn(nota.motivoTexto),
-    tomador: { ...nota.tomador, nome: fn(nota.tomador.nome), documento: doc ? (campo(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null },
-    origem: nota.origem ? { ...nota.origem, descricao: f(nota.origem.descricao), centroCustos: fn(nota.origem.centroCustos), tomadorNomeOrigem: fn(nota.origem.tomadorNomeOrigem) } : null,
-    obra: nota.obra ? { ...nota.obra, titulo: f(nota.obra.titulo), cidade: fn(nota.obra.cidade) } : null,
-    tipoServico: nota.tipoServico ? { ...nota.tipoServico, nome: f(nota.tipoServico.nome), descricaoPadrao: fn(nota.tipoServico.descricaoPadrao) } : null,
-    emissor: nota.emissor ? { ...nota.emissor, razaoSocial: fn(nota.emissor.razaoSocial) } : null,
-    municipio: { ...nota.municipio, nome: fn(nota.municipio.nome) },
+  const filtrar = (v: unknown, chave: string | null): unknown => {
+    if (typeof v === "string") return chave && CAMPOS_ESTRUTURADOS_DA_PREVIA.has(chave) ? v : f(v);
+    if (Array.isArray(v)) return v.map(x => filtrar(x, null));
+    if (v && typeof v === "object" && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)) {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, filtrar(x, k)]));
+    }
+    return v;
   };
+  const saida = filtrar(nota, null) as T;
+  const doc = saida.tomador.documento;
+  return { ...saida, tomador: { ...saida.tomador, documento: doc ? (campo(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null } };
 }
 
 /** Tempo mínimo para gerar e mandar uma prévia (PDF pequeno, base64). */
 const MINIMO_PARA_PREVIA_MS = 4_000;
+/** S-3b (item 1): teto da leitura do rascunho para a prévia (o banco cancela a consulta que passar; o envio ainda cabe depois). */
+const TETO_LEITURA_PREVIA_MS = 5_000;
+/** S-3b (item 1): tempo guardado, depois da leitura, para o envio do PDF (e, se falhar, da frase curta). */
+const RESERVA_ENVIO_PREVIA_MS = 3_000;
+/** S-3b (item 4): a linha que entra na memória da conversa quando a prévia chegou (só o número do rascunho; nada do conteúdo). */
+export const memoriaDaPrevia = (ids: readonly number[]) =>
+  `(O sistema mandou ao dono o PDF da prévia ${ids.length === 1 ? `do rascunho de nota nº ${ids[0]}` : `dos rascunhos de nota nº ${ids.join(", ")}`} — RASCUNHO, SEM VALOR FISCAL; nada foi emitido.)`;
 
 /**
  * EPIC-029 S-3 — a prévia em PDF de cada rascunho de nota que o dono pediu na conversa (ids vindos da leitura ver_nota_fiscal, por código).
  * O destino é o número do dono, conferido de novo aqui; o PDF é o mesmo da tela (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as
- * páginas), com o CPF/CNPJ do tomador seguindo o interruptor dos dados pessoais da Dolores. Nome do arquivo e legenda sem dado pessoal; na
+ * páginas), com todo o texto pelo filtro de saída da Dolores (notaParaPreviaDaDolores). Nome do arquivo e legenda sem dado pessoal; na
  * auditoria só o id e o tamanho. Falhou ou faltou tempo: uma frase curta ao dono (nunca um link público). Nunca lança.
+ * S-3b: a leitura do banco tem teto (tempoLimiteMs, derivado do que resta do prazo) e o que chegou ao dono — a prévia (só o número do
+ * rascunho) ou a frase de que não foi — entra na memória da conversa. Quem chama já marcou a mensagem como respondida.
  */
 async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, ids: readonly number[], ctx: { mensagemId: number; autor: number | null; prazoFinal: number }) {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, resumo: Record<string, unknown>) =>
     registrarAcao({ funcao: "whatsapp_previa_fiscal", resultado, motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`, resumo }).catch(() => false);
   if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) { await auditar("recusada", "destino não é o número do dono", { previas: ids.length }); return; }
   const destino = numero.replace(/\D/g, "");
+  const lembrar = (texto: string, notas: readonly number[]) =>
+    gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: "whatsapp_previa_fiscal", texto, agora: deps.agora(), mensagemId: ctx.mensagemId,
+      referencias: notas.map(id => ({ tipo: "nota_fiscal" as const, id, rotulo: "rascunho de nota fiscal" })) }).catch(() => false);
+  const mandadas: number[] = [];
   let falhou = false;
   for (const id of ids) {
     const resta = ctx.prazoFinal - deps.ms();
@@ -715,23 +731,30 @@ async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, 
     try {
       const [{ carregarNota }, { gerarPreviaPdf }, { emTransacaoSomenteLeitura, bancoDaLeitura }, { campoPessoal }] = await Promise.all([
         import("../fiscal/notas.js"), import("../fiscal/previa-pdf.js"), import("./somente-leitura.js"), import("./dados-pessoais.js")]);
-      const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id));
+      // S-3b (item 1): banco lento não segura a função além do prazo — o próprio banco cancela a leitura
+      const tempoLimiteMs = Math.max(1_000, Math.min(TETO_LEITURA_PREVIA_MS, resta - RESERVA_ENVIO_PREVIA_MS));
+      const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id), { tempoLimiteMs });
       const pdf = gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
       // QA S-3 (B2): teto explícito do arquivo antes do envio
       if (pdf.byteLength > MAX_BYTES_PREVIA) { await auditar("erro", "prévia acima do tamanho máximo", { notaFiscalId: id, bytes: pdf.byteLength }); falhou = true; break; }
+      const aposLer = ctx.prazoFinal - deps.ms();
+      if (aposLer < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para mandar a prévia (a leitura demorou)", { notaFiscalId: id }); falhou = true; break; }
       const base64 = Buffer.from(pdf).toString("base64");
       const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64, nome: `previa-nota-${id}.pdf`,
-        legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, resta - 1_000) });
+        legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, aposLer - 1_000) });
       await auditar(ok ? "ok" : "erro", ok ? null : "a Evolution não aceitou o documento", { notaFiscalId: id, bytes: pdf.byteLength });
       if (!ok) { falhou = true; break; }
+      mandadas.push(id);
     } catch (e) {
       await auditar("erro", `falha na prévia: ${erroCurto(e)}`, { notaFiscalId: id });
       falhou = true;
       break;
     }
   }
+  if (mandadas.length) await lembrar(memoriaDaPrevia(mandadas), mandadas);
   if (falhou && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_ENVIAR_MS) {
-    await deps.enviar({ instancia: cfg.instancia, numero: destino, texto: FRASE_PREVIA_NAO_FOI, prazoMs: Math.min(PRAZO_ENVIO_MS, ctx.prazoFinal - deps.ms()) }).catch(() => false);
+    const foi = await deps.enviar({ instancia: cfg.instancia, numero: destino, texto: FRASE_PREVIA_NAO_FOI, prazoMs: Math.min(PRAZO_ENVIO_MS, ctx.prazoFinal - deps.ms()) }).catch(() => false);
+    if (foi) await lembrar(FRASE_PREVIA_NAO_FOI, ids.filter(id => !mandadas.includes(id)));
   }
 }
 
