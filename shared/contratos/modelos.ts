@@ -70,6 +70,7 @@ export const CAMPOS_MODELO = [
   "corretorId", "matricula", "cartorio", "prazo", "cpfCliente", "enderecoCliente", "cpfConjuge",
   "terrenoTerceiro", "terrenoValor", "terrenistaNome", "terrenistaDocumento", "terrenistaEndereco",
   "outrosTitulares", "prazoTerreno", "nomeConjuge",
+  "testemunha1Nome", "testemunha1Cpf", "testemunha2Nome", "testemunha2Cpf",
 ] as const;
 export type CamposModelo = Record<typeof CAMPOS_MODELO[number], string>;
 
@@ -174,7 +175,7 @@ export function montarContrato(campos: CamposModelo, opcoes: OpcoesContrato) {
     assinaturas.push(`COMPRADOR — ${obra.cliente}`);
     if (conjuge) {
       qualificacaoParteB += `\nCÔNJUGE DO COMPRADOR — ${conjuge}, CPF nº ${campos.cpfConjuge}`;
-      assinaturas.push(`CÔNJUGE DO COMPRADOR — ${conjuge}`);
+      assinaturas.push(`CÔNJUGE DO COMPRADOR — ${conjuge} — CPF ${campos.cpfConjuge}`);
     }
   } else {
     qualificacaoParteB = `EMPREITEIRO CONTRATADO — ${empreiteiro!.nome}, CPF/CNPJ nº ${empreiteiroDoc}, endereço ${empreiteiroEndereco}`;
@@ -185,14 +186,14 @@ export function montarContrato(campos: CamposModelo, opcoes: OpcoesContrato) {
   const qualificacao = [`${atc ? "CONSTRUTORA" : "CONTRATANTE"} — ${qualificacaoEmpresa}`, qualificacaoParteB];
   if (terceiro) {
     qualificacao.push(`TERRENISTA / PROMITENTE VENDEDOR — ${campos.terrenistaNome}, CPF/CNPJ nº ${campos.terrenistaDocumento}, endereço ${campos.terrenistaEndereco}`);
-    assinaturas.push(`TERRENISTA / PROMITENTE VENDEDOR — ${campos.terrenistaNome}`);
+    assinaturas.push(`TERRENISTA / PROMITENTE VENDEDOR — ${campos.terrenistaNome} — CPF/CNPJ ${campos.terrenistaDocumento}`);
     if (campos.outrosTitulares) {
       for (const titular of campos.outrosTitulares.split("\n").map((v) => v.trim()).filter(Boolean)) {
         const [nome, doc, endereco] = titular.split("|").map((v) => v.trim());
         if (!nome || !doc || !documentoValido(doc) || !endereco)
           throw new Error("Informe nome, CPF/CNPJ e endereço de cada cotitular ou cônjuge anuente.");
         qualificacao.push(`COTITULAR OU CÔNJUGE ANUENTE — ${nome}, CPF/CNPJ nº ${doc}, endereço ${endereco}`);
-        assinaturas.push(`COTITULAR OU CÔNJUGE ANUENTE — ${nome}`);
+        assinaturas.push(`COTITULAR OU CÔNJUGE ANUENTE — ${nome} — CPF/CNPJ ${doc}`);
       }
     }
   }
@@ -237,12 +238,18 @@ export function montarContrato(campos: CamposModelo, opcoes: OpcoesContrato) {
     ? `Aquisição do terreno e construção de residência unifamiliar em ${obra.enderecoImovel}, matrícula nº ${matricula}.`
     : `Fornecimento de material e mão de obra para execução e entrega na chave da residência em ${obra.enderecoImovel}, matrícula nº ${matricula}, de ${obra.cliente}.`;
 
+  const testemunhas = [1,2].map(n=>{
+    const nome=campos[n===1?"testemunha1Nome":"testemunha2Nome"]?.trim();
+    const cpf=campos[n===1?"testemunha1Cpf":"testemunha2Cpf"]?.trim();
+    if((nome||cpf)&&(!nome||!cpf||!isValidCPF(cpf)))throw new Error(`Complete o nome e um CPF válido da ${n}ª testemunha.`);
+    return nome?`${n}ª TESTEMUNHA — ${nome} — CPF ${cpf}`:`${n}ª TESTEMUNHA — CPF`;
+  });
   return {
     tipo, obra, empresa, parteB: empreiteiro?.nome ?? obra.cliente, parteBDoc: atc ? cpfCliente : empreiteiroDoc,
     empreiteiroId: empreiteiro?.id ?? null, corretorId: corretor?.id ?? null,
     dataAssinatura: new Date(campos.dataAssinatura + "T12:00:00.000Z"),
     valor: (atc ? vgv! : valorExecucao!) / 100,
     description, clausulas: [...qualificacao, "", ...base].join("\n"),
-    assinaturas: [...assinaturas, "1ª TESTEMUNHA — CPF", "2ª TESTEMUNHA — CPF"],
+    assinaturas: [...assinaturas, ...testemunhas],
   };
 }
