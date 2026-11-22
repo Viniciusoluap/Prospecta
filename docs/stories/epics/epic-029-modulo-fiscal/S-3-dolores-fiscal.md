@@ -145,3 +145,10 @@ Antes de aplicar, conferir o nome real da restrição: `SELECT conname FROM pg_c
 
 ## Change Log
 - 22/11/2026 — @dev (Dex): Draft → InReview. Implementação completa no ramo `epic029-s3` (merge de `cf12927` da S-2); migração 0161 NÃO aplicada.
+- 22/11/2026 — @qa (Quinn): portão CONCERNS (`server/dolores/s3-fiscal-qa.test.ts`): M1 (PDF da Dolores sem o filtro de segredos), B1 (trava de
+  palavra-comando só em maiúsculas), B2 (sem teto de bytes do PDF).
+- 22/11/2026 — @dev (Dex): M1 — `whatsapp.ts#notaParaPreviaDaDolores` passa descrição, centro de custo, tomador, obra, serviço, emissor e motivo
+  por `sanitizarTexto(…, filtroDaSaida("whatsapp"))` antes do PDF (a tela não muda); B1 — `temPalavraComando` pega também diga/dizer/fale/
+  mande/manda e palavra de comando entre aspas em qualquer caixa (a frase fixa de silenciar é ignorada); B2 — `MAX_BYTES_PREVIA` (1 MB)
+  conferido antes do envio, com a frase de falha. Os 2 `it.fails` viraram `it`. Merge de `origin/main`. **Atenção: a `main` já tem
+  `drizzle/0161_juridico_validacao_assinaturas.sql` — dois arquivos 0161 convivem; decidir com o coordenador se a desta story é renumerada.**
