@@ -885,7 +885,7 @@ Aplicar `drizzle/0150_dolores_avisos.sql` no Neon (aditiva e idempotente). Confe
 15 crons (os 10 de antes e os 5 novos `/api/cron/dolores-avisos/15` … `/19`).
 
 ## 2. Ligar (você, administrador)
-1. Abra https://prospecta-crm.vercel.app/admin/integracoes (ou o endereço do sistema › Configurações › Integrações).
+1. Abra o Prospecta no endereço de sempre e acrescente `/admin/integracoes` (é a tela Configurações › Integrações).
 2. Desça até o cartão **"Dolores — operação contínua"** e, no fim dele, a seção **"Avisos automáticos ao dono"**.
 3. Ligue a chave **"Avisos"**. Ela só liga com o número do dono cadastrado (em "WhatsApp da empresa (Dolores e Central)").
 4. (Opcional) Ajuste os limites (ex.: "Obra atrasada há (dias)") e toque em **"Salvar limites"**.
