@@ -35,7 +35,10 @@ describe("leitura: estático", () => {
         const permitido = ["drizzle-orm", "drizzle-orm/pg-core", "zod"].includes(origem) || /^\.\.\/\.\.\/\.\.\/(drizzle\/schema|shared\/)/.test(origem)
           || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem)
           // o interruptor dos dados pessoais (opção B, 16/11): só lê a variável de ambiente e formata; não toca o banco
-          || origem === "../dados-pessoais.js";
+          || origem === "../dados-pessoais.js"
+          // EPIC-029 S-3: as leituras fiscais usam as MESMAS consultas da aba Contabilidade (listarNotas/detalhar, só SELECT) — a
+          // transação READ ONLY da porta continua recusando qualquer escrita (o banco é a trava, não o import)
+          || (a === "fiscal.ts" && origem === "../../fiscal/notas.js");
         expect(permitido, `${a} importa ${origem}`).toBe(true);
       }
     }

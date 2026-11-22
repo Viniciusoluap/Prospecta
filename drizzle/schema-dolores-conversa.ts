@@ -9,7 +9,8 @@ export const ORIGENS_CONVERSA = ["mensagem", "encaminhada", "com_midia", "respos
 export type OrigemConversa = (typeof ORIGENS_CONVERSA)[number];
 
 /** Entidade citada por uma consulta do sistema (id conferido no banco pela própria consulta; rótulo curto e limpo). */
-export type ReferenciaConversa = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota" | "financiamento"; id: number; rotulo: string };
+// EPIC-029 S-3: "nota_fiscal" = rascunho de NFS-e (fiscal_notas), separado de "nota" (nota de OBRA lida no grupo). Só tipo do jsonb: sem migração.
+export type ReferenciaConversa = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota" | "financiamento" | "nota_fiscal"; id: number; rotulo: string };
 
 export const doloresConversa = pgTable("dolores_conversa", {
   id: serial("id").primaryKey(),

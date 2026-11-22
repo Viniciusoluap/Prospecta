@@ -78,6 +78,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
     case "propor_mesa": case "revisar_mesa": case "recusar_mesa":
     // EPIC-027 C5-E4: silenciar/religar um tipo de aviso automático é configuração dela, reversível ("pode")
     case "silenciar_aviso":
+    // EPIC-029 S-3: decidir (sem nota / depois) e editar um RASCUNHO de nota fiscal é registro ("pode"); nada sai do sistema
+    case "decidir_nota_fiscal": case "editar_rascunho_nota":
       return "registro";
     case "classificar_grupo":
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser
@@ -91,7 +93,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
       // desligar (literalmente false) é registro; ligar só é registro nos tipos simples
       return a.ligado === false || (a.ligado === true && ehTipoSimples(a.tipo)) ? "registro" : "serio";
     // aprovar uma mesa é sério ("confirmo"), mesmo sem ligar nada: é a decisão de construir uma função nova
-    case "preparar_cobranca": case "conciliar_nota_obra": case "aceitar_grupo": case "propor_aprovacao_mesa":
+    // EPIC-029 S-3: emitir nota fiscal é sério ("confirmo"), decisão do dono (l) de 22/11
+    case "preparar_cobranca": case "conciliar_nota_obra": case "aceitar_grupo": case "propor_aprovacao_mesa": case "emitir_nota_fiscal":
     default:
       return "serio";
   }
@@ -117,6 +120,7 @@ const ehTroca = (i: ItemParaMotivo) => typeof i !== "string" && i.funcao === "cl
 /** Por que pede "confirmo" (uma frase curta, sem dado). Aceita só o nome da função ou o item (função + argumentos). */
 export function motivoDoSerio(itens: readonly ItemParaMotivo[]): string {
   const funcoes = itens.map(i => (typeof i === "string" ? i : i.funcao));
+  if (funcoes.includes("emitir_nota_fiscal")) return "é a emissão de uma nota fiscal";
   if (funcoes.includes("conciliar_nota_obra")) return "mexe com pagamento";
   if (funcoes.includes("preparar_cobranca")) return "é uma cobrança a cliente";
   if (funcoes.includes("aceitar_grupo")) return "é um grupo em que outra pessoa me colocou";
