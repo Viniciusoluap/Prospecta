@@ -30,5 +30,7 @@ Acrescentados nome/CPF opcionais das testemunhas na criação do contrato, para 
 ## Fechamento do QA
 Preview da correção 5a9b25e3a2f27350668f66760f1eb2de82dc1a35: dpl_HMSyuHDYVxnvLSMmtsHenq9ycuDi READY. Thread PRRT_kwDOR_rShc66lMy7 corrigido e resolvido; todos os comentários lidos. Conferência final incluiu também a rota legada de vínculo por URL: nunca declara assinatura de todos sem confirmação. Teste de negação para colaborador acrescentado. Interface impede trocar posição durante a assinatura e cancela recuperação de senha de certificado anterior.
 
+Também conferida a compatibilidade dos PDFs já gerados com nome antigo: Gerar PDF os reutiliza sem duplicar; download pelo portal padroniza o nome com o cliente.
+
 ## Próximo passo
 Publicar o checkpoint de correção do P1, resolver o thread com teste aprovado e aguardar seu build. A revisão já terminou; reler todos os comentários antes de integrar, verificar avanço de main/Fabel e confirmar produção READY/HTTP.

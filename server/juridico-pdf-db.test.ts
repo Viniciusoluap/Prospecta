@@ -34,6 +34,8 @@ describe("geração salva o contrato no mesmo clique", () => {
       const bytes = (await pg.query<{ data:Uint8Array }>("SELECT data FROM portal_contract_file_data WHERE document_id=$1",[doc.id])).rows[0].data;
       expect(Buffer.from(bytes).subarray(0,4).toString()).toBe("%PDF");
       expect((await gerarESalvarContratoPdf(1)).id).toBe(doc.id);
+      await pg.query("UPDATE portal_contract_documents SET name='TESTE-1.pdf' WHERE id=$1",[doc.id]);
+      expect((await gerarESalvarContratoPdf(1)).id).toBe(doc.id);
       await pg.query("UPDATE portal_contract_documents SET url='https://exemplo.invalid/legado' WHERE id=$1",[doc.id]);
       // Uma URL antiga não esconde a cópia privada, nem é acessada pelo servidor.
       const content = await caller().documentContent({ id:doc.id });

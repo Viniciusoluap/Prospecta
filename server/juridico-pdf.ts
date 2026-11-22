@@ -26,13 +26,13 @@ export async function gerarESalvarContratoPdf(id: number) {
       INSERT INTO portal_contract_documents (contract_id, name, type)
       SELECT ${id}, ${nome}, 'contrato_gerado'
       WHERE NOT EXISTS (SELECT 1 FROM portal_contract_documents
-        WHERE contract_id = ${id} AND name = ${nome} AND type = 'contrato_gerado')
+        WHERE contract_id = ${id} AND (name = ${nome} OR name = ${contrato.number + '.pdf'}) AND type = 'contrato_gerado')
       RETURNING id
     ) INSERT INTO portal_contract_file_data (document_id, mime, size_bytes, data)
       SELECT id, 'application/pdf', ${buffer.length}, decode(${buffer.toString("base64")}, 'base64') FROM novo`),
   ]);
   const [documento] = await db.select().from(portalContractDocuments).where(and(
-    eq(portalContractDocuments.contractId, id), eq(portalContractDocuments.name, nome),
+    eq(portalContractDocuments.contractId, id), sql`${portalContractDocuments.name} IN (${nome},${contrato.number + ".pdf"})`,
     eq(portalContractDocuments.type, "contrato_gerado"),
   )).orderBy(asc(portalContractDocuments.createdAt)).limit(1);
   return documento;

@@ -1,4 +1,5 @@
 import { isNull } from "drizzle-orm";
+import { nomeContrato } from "../shared/contratos/documentos.js";
 import { salvarRetornoContrato } from "./juridico-workflow.js";
 import { modeloNovo } from "../shared/contratos/modelos.js";
 import { DOCUMENT_LIMIT, readUpload, clearUpload } from "./document-upload-chunks.js";
@@ -524,16 +525,16 @@ export const portalRouter = router({
     .query(async ({ ctx, input }) => {
       const leadId = clientLeadId(ctx);
       const db = getDb();
-      const [row] = await db.select({ document: portalContractDocuments })
+      const [row] = await db.select({ document: portalContractDocuments, partyB:portalContracts.partyB })
         .from(portalContractDocuments)
         .innerJoin(portalContracts, eq(portalContractDocuments.contractId, portalContracts.id))
         .where(and(eq(portalContractDocuments.id, input.id), eq(portalContracts.leadId, leadId)))
         .limit(1);
-      if (!row || row.document.url) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       // Cópia no banco (fallback) tem prioridade; o Drive pode ter só a cópia organizada (29/10).
       const data = (await readPrivateDbFile("contract", row.document.id)) ?? (row.document.driveFileId ? await readPrivateDocument(row.document.driveFileId) : null);
       if (!data) throw new TRPCError({ code: "NOT_FOUND" });
-      return { fileName: row.document.name, base64: data.toString("base64") };
+      return { fileName: row.document.type === "anexo" ? row.document.name : nomeContrato(row.partyB,row.document.type), base64: data.toString("base64") };
     }),
 
   messages: protectedProcedure
