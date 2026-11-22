@@ -34,6 +34,7 @@ import {
 } from "./classificacao.js";
 import { liberarReservaClassificacao, registrarConsumo, registrarConsumoDaClassificacao, reservarClassificacao } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { divergenciasEntreOrigens } from "../fiscal/nfse-recebida.js";
 import { grupoAtivo, lerConfigGrupos, textoDeGrupoParaGravar } from "./grupos.js";
 import { bloqueioDaOperacao } from "./operacao.js";
 
@@ -114,7 +115,8 @@ export async function gravarNota(p: {
       if (motivo) { duplicadaDe = c.id; break; }
     }
     // S-5b: sem duplicata no grupo, a mesma nota já recebida pelo ADN (se houver; e se ela já foi cancelada, esta nasce cancelada)
-    const [doAdn] = !duplicadaDe && mesmoNumero ? await tx.select({ id: obraNotas.id, canceladaEm: obraNotas.canceladaEm, cancelamentoTipo: obraNotas.cancelamentoTipo })
+    const [doAdn] = !duplicadaDe && mesmoNumero ? await tx.select({ id: obraNotas.id, canceladaEm: obraNotas.canceladaEm, cancelamentoTipo: obraNotas.cancelamentoTipo,
+      valorCentavos: obraNotas.valorCentavos, dataEmissao: obraNotas.dataEmissao })
       .from(obraNotas).where(and(mesmoNumero, eq(obraNotas.origem, "adn"))).orderBy(asc(obraNotas.id)).limit(1) : [];
     // empreiteiro da obra: só SUGERIDO quando o CPF/CNPJ lido confere com o cadastro dele
     let empreiteiroUserId: number | null = null;
@@ -125,10 +127,13 @@ export async function gravarNota(p: {
       else if (l.categoria === "empreiteiro") duvidas.push("categoria \"empreiteiro\" sugerida, mas o CPF/CNPJ da nota não é o do empreiteiro cadastrado na obra: confira");
     }
     const cancelada = doAdn?.canceladaEm ? { em: doAdn.canceladaEm, tipo: doAdn.cancelamentoTipo } : null;
+    // QA S-5b (médio): valor/data diferentes da NFS-e oficial → "confira" com o alerta; a conciliação fica na oficial (do ADN)
+    const divergencias = doAdn ? divergenciasEntreOrigens(doAdn, l) : [];
     const alertas = [...(p.extraAlertas ?? []), ...(duplicadaDe ? [`nota DUPLICADA: ${motivo} (não é conciliada)`] : []),
       ...(doAdn ? [`mesma nota já recebida pelo ADN (nota ${doAdn.id}, mesmo número e mesmo emitente): a conciliação fica na nota ${doAdn.id}; o arquivo desta pode ir ao Drive`] : []),
+      ...(divergencias.length ? [`DIVERGE da nota oficial ${doAdn!.id} recebida pelo ADN (${divergencias.join("; ")}): vale a oficial`] : []),
       ...(cancelada ? [`NFS-e CANCELADA (evento ${cancelada.tipo} do ADN): não pode ser paga nem conciliada`] : []), ...l.alertas];
-    const situacao = l.situacao === "rascunho" && (duplicadaDe || cancelada || duvidas.length) ? "confira" : l.situacao;
+    const situacao = l.situacao === "rascunho" && (duplicadaDe || cancelada || divergencias.length || duvidas.length) ? "confira" : l.situacao;
     const [linha] = await tx.insert(obraNotas).values({
       grupoId: p.grupoId, mensagemId: p.mensagemId, obraId: p.obraId, arquivoSha256: p.sha256, arquivoMime: p.mime?.slice(0, 60) ?? null,
       arquivoBytes: p.bytes, situacao, tipo: l.tipo, emitenteNome: l.emitenteNome, emitenteDocumento: l.emitenteDocumento, numero: l.numero,

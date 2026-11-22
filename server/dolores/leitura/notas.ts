@@ -6,7 +6,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm"
 import { z } from "zod";
 import { bpoClients, bpoLancamentos, constructionProjects, obraMovimentos } from "../../../drizzle/schema.js";
 import { doloresGrupoMensagens } from "../../../drizzle/schema-dolores-grupos.js";
-import { obraNotas, obraNotasConfig, obraNotasRespostas } from "../../../drizzle/schema-dolores-notas.js";
+import { obraNotas, obraNotasConfig, obraNotasEventosAdn, obraNotasRespostas } from "../../../drizzle/schema-dolores-notas.js";
 import { isoFortaleza, paginar } from "../../../shared/dolores/formato.js";
 import { cnpjValido, normalizarDocumento } from "../../../shared/fiscal/documento.js";
 import {
@@ -168,13 +168,26 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
     };
   });
   const pagina = paginar(itens, args.pagina, args.limite);
+  const cancelamentosSemNota = await cancelamentosSemNotaDoAdn(conexao, ctx.agora);
   return {
     dados: {
+      // QA S-5b: cancelamentos do ADN guardados há mais de 7 dias sem a nota no sistema (só NSU, tipo e data — sem chave/CNPJ)
+      ...(cancelamentosSemNota.length ? { cancelamentosDoAdnSemNota: cancelamentosSemNota } : {}),
       observacao: `Rascunhos lidos das notas dos grupos de obra e, quando ligada, notas fiscais de serviço recebidas pelo ADN (dado de TERCEIRO; valores e CPF/CNPJ conferidos pelo sistema). ${AVISO_CONFIRMACAO} A Dolores não fala no grupo: o texto sugerido é para o DONO enviar, se quiser. Conciliação só aponta; ligar ao BPO é conciliar_nota_obra (fila).`,
       ...pagina,
     },
     resumo: { notas: itens.length, devolvidas: pagina.itens.length, semValor: itens.filter(i => i.valorBRL === null).length },
   };
+}
+
+/**
+ * QA S-5b: eventos de cancelamento do ADN guardados há mais de `dias` dias sem a nota correspondente (até 20, os mais antigos).
+ * Só o NSU, o tipo e a data: a chave (que tem o CNPJ do emitente) e o XML ficam de fora. */
+export async function cancelamentosSemNotaDoAdn(conexao: Conexao, agora: Date, dias = 7) {
+  const r = await conexao.select({ nsu: obraNotasEventosAdn.nsu, tipo: obraNotasEventosAdn.tipoEvento, recebidoEm: obraNotasEventosAdn.recebidoEm })
+      .from(obraNotasEventosAdn).where(and(isNull(obraNotasEventosAdn.notaId), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - dias * 86_400_000))))
+    .orderBy(asc(obraNotasEventosAdn.id)).limit(20);
+  return r.map(e => ({ nsu: e.nsu, tipoEvento: e.tipo, recebidoEm: isoFortaleza(e.recebidoEm), situacao: "cancelamento recebido do ADN sem a nota no sistema: confira" }));
 }
 
 /** Pagamentos da obra no BPO sem nota (para a tela): últimos `dias` dias. */

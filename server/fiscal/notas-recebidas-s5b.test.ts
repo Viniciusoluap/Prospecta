@@ -14,7 +14,7 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 
 import { getDb } from "../db.js";
 import { CENARIO, MIGRACAO_0166, criarBanco } from "../dolores/testes-banco.js";
-import { apontarNotas, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
+import { apontarNotas, cancelamentosSemNotaDoAdn, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
 import { REGRAS } from "../dolores/avisos.js";
 import { contarNotasDaRonda } from "../dolores/rondas.js";
 import { gravarNota } from "../dolores/notas-obra.js";
@@ -65,9 +65,9 @@ const leituraDoGrupo = (numero = "123"): LeituraConferida => ({
   valorCentavos: 150_000, descricao: "alvenaria", itens: [], chaveAcesso: null, categoria: "empreiteiro", etapa: null, confianca: {}, duvidas: [], alertas: [],
 });
 
-async function notaDeGrupo(externo: string, numero = "123", sha = SHA) {
+async function notaDeGrupo(externo: string, numero = "123", sha = SHA, o: Partial<LeituraConferida> = {}) {
   const { grupoId, mensagemId } = await mensagemDeGrupo(externo);
-  return gravarNota({ grupoId, mensagemId, obraId: 1, sha256: sha, mime: "application/pdf", bytes: 1000, leitura: leituraDoGrupo(numero), modelo: "m", lidaEm: AGORA });
+  return gravarNota({ grupoId, mensagemId, obraId: 1, sha256: sha, mime: "application/pdf", bytes: 1000, leitura: { ...leituraDoGrupo(numero), ...o }, modelo: "m", lidaEm: AGORA });
 }
 
 beforeEach(async () => {
@@ -308,5 +308,101 @@ describe("achado 5 — notas do ADN no contador 'sem conciliação' da ronda", (
     expect(await contarNotasDaRonda(banco.db as never)).toMatchObject({ totais: { notas: { confirmadasSemConciliacao: 1 } } });
     await gravarNotaRecebida(db(), { nsu: 2, xml: eventoXml() }, { tomadorCnpj: TOMADOR, agora: AGORA });
     expect(await contarNotasDaRonda(banco.db as never)).toMatchObject({ totais: { notas: { confirmadasSemConciliacao: 0 } } });
+  });
+});
+
+// ── Portão de QA da S-5b (CONCERNS): valor/data entre origens, todos os eventos casados, evento sem nota visível ──
+
+describe("QA S-5b — mesma nota por outra origem com valor/data diferentes", () => {
+  const conciliacaoDe = async (id: number) => {
+    const [l] = await notasDoBanco(banco.db as never, { ids: [id] });
+    return (await apontarNotas(banco.db as never, [paraConciliar(l.n)], 30)).get(id)!.apontamento.situacao;
+  };
+
+  it("ADN depois do grupo, valor diferente: a oficial fica 'confira' com o alerta e passa a ser a conciliada; a do grupo vira 'outra origem' (arquivo continua salvável)", async () => {
+    const g = await notaDeGrupo("G1", "123", SHA, { valorCentavos: 950_000 });
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [adn] = await q<{ id: number; situacao: string; alertas: string[]; outra_origem_de: number | null }>("SELECT id, situacao, alertas, outra_origem_de FROM obra_notas WHERE origem = 'adn'");
+    expect(adn).toMatchObject({ situacao: "confira", outra_origem_de: null });
+    expect(adn.alertas.join(" ")).toMatch(/DIVERGE da nota \d+ lida no grupo \(valor: oficial R\$\s1\.500,00 × grupo R\$\s9\.500,00\)/);
+    expect((await q("SELECT outra_origem_de FROM obra_notas WHERE id = $1", [g!.id]))[0].outra_origem_de).toBe(adn.id);
+    expect(await conciliacaoDe(g!.id)).toBe("outra_origem");
+    expect(await conciliacaoDe(adn.id)).not.toBe("outra_origem");
+    expect((await prepararSalvarNota({ notaId: g!.id }, ctx)).itens).toHaveLength(1);
+    const coleta = await REGRAS.nota_obra({ agora: AGORA, limites: { notaConfirmacaoDias: 7 } as never });
+    expect(coleta.achados.filter(a => a.entidade.endsWith(":origem_divergente")).map(a => a.entidade)).toEqual([`nota:${adn.id}:origem_divergente`]);
+  });
+
+  it("data diferente também diverge; a do grupo já conciliada: a oficial fica 'outra origem' + 'confira' (o dono confere o pagamento)", async () => {
+    const g = await notaDeGrupo("G1", "123", SHA, { dataEmissao: "2026-11-01" });
+    await banco.pg.exec(`INSERT INTO bpo_clients (razao_social, cnpj, responsavel, telefone, honorarios, data_inicio) VALUES ('X', '1', 'Z', '9', '0', '2026-01-01');
+      INSERT INTO bpo_lancamentos (cliente_id, tipo, descricao, valor, valor_recebido, vencimento, pago, competencia, a_classificar) VALUES (1, 'despesa', 'x', '1500.00', '0', '2026-11-12', true, '2026-11', false);
+      ALTER TABLE obra_notas DISABLE TRIGGER obra_notas_guarda; UPDATE obra_notas SET bpo_lancamento_id = 1; ALTER TABLE obra_notas ENABLE TRIGGER obra_notas_guarda;`);
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [adn] = await q<{ situacao: string; alertas: string[]; outra_origem_de: number }>("SELECT situacao, alertas, outra_origem_de FROM obra_notas WHERE origem = 'adn'");
+    expect(adn).toMatchObject({ situacao: "confira", outra_origem_de: g!.id });
+    expect(adn.alertas.join(" ")).toMatch(/data de emissão: oficial 10\/11\/2026 × grupo 01\/11\/2026.*confira esse pagamento/);
+    expect((await q("SELECT outra_origem_de FROM obra_notas WHERE id = $1", [g!.id]))[0].outra_origem_de).toBeNull();
+  });
+
+  it("grupo depois do ADN, valor diferente: a do grupo fica 'confira' com o alerta; a conciliação fica na oficial", async () => {
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [adn] = await q<{ id: number }>("SELECT id FROM obra_notas WHERE origem = 'adn'");
+    const g = await notaDeGrupo("G1", "123", SHA, { valorCentavos: 100 });
+    const [linha] = await q<{ situacao: string; alertas: string[] }>("SELECT situacao, alertas FROM obra_notas WHERE id = $1", [g!.id]);
+    expect(g).toMatchObject({ outraOrigemDe: adn.id });
+    expect(linha.situacao).toBe("confira");
+    expect(linha.alertas.join(" ")).toMatch(/DIVERGE da nota oficial \d+ recebida pelo ADN \(valor: oficial R\$\s1\.500,00 × grupo R\$\s1,00\)/);
+    expect(await conciliacaoDe(g!.id)).toBe("outra_origem");
+  });
+
+  it("sem divergência segue como antes (ADN é a outra origem, sem alerta de divergência nem aviso)", async () => {
+    const g = await notaDeGrupo("G1");
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [adn] = await q<{ situacao: string; alertas: string[]; outra_origem_de: number }>("SELECT situacao, alertas, outra_origem_de FROM obra_notas WHERE origem = 'adn'");
+    expect(adn).toMatchObject({ situacao: "rascunho", outra_origem_de: g!.id });
+    expect(adn.alertas.join(" ")).not.toMatch(/DIVERGE/);
+    const coleta = await REGRAS.nota_obra({ agora: AGORA, limites: { notaConfirmacaoDias: 7 } as never });
+    expect(coleta.achados.filter(a => a.entidade.endsWith(":origem_divergente"))).toEqual([]);
+  });
+
+  it("gatilho: a única troca de outra_origem_de aceita é grupo (sem vínculo, não conciliado) → NFS-e oficial do ADN", async () => {
+    const g = await notaDeGrupo("G1", "123", SHA, { valorCentavos: 950_000 });
+    const g2 = await notaDeGrupo("G2", "777", "b".repeat(64));
+    await expect(q("UPDATE obra_notas SET outra_origem_de = $2 WHERE id = $1", [g!.id, g2!.id])).rejects.toThrow(/OBRA_NOTAS_VINCULO/);
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [adn] = await q<{ id: number }>("SELECT id FROM obra_notas WHERE origem = 'adn'");
+    // já ligada: não troca; e outra nota de grupo não pode apontar para a oficial que já tem par... só sem vínculo e não duplicada
+    await expect(q("UPDATE obra_notas SET outra_origem_de = NULL WHERE id = $1", [g!.id])).resolves.toBeTruthy();
+    await expect(q("UPDATE obra_notas SET outra_origem_de = $2 WHERE id = $1", [adn.id, g!.id])).rejects.toThrow(/OBRA_NOTAS_VINCULO/);
+    await expect(q("UPDATE obra_notas SET outra_origem_de = $2 WHERE id = $1", [g2!.id, adn.id])).resolves.toBeTruthy();
+    await expect(q("UPDATE obra_notas SET outra_origem_de = $2 WHERE id = $1", [g2!.id, g!.id])).rejects.toThrow(/OBRA_NOTAS_VINCULO/);
+  });
+});
+
+describe("QA S-5b — eventos pendentes: todos casados; sem nota há mais de 7 dias, visíveis ao dono", () => {
+  it("dois cancelamentos antes da nota: os dois são casados", async () => {
+    await gravarNotaRecebida(db(), { nsu: 1, xml: eventoXml() }, { tomadorCnpj: TOMADOR, agora: AGORA });
+    await gravarNotaRecebida(db(), { nsu: 2, xml: eventoXml({ tipo: "305101" }) }, { tomadorCnpj: TOMADOR, agora: AGORA });
+    expect(await gravarNotaRecebida(db(), { nsu: 3, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    expect(await q("SELECT tipo_evento, nota_id IS NOT NULL casado FROM obra_notas_eventos_adn ORDER BY id")).toEqual([
+      { tipo_evento: "101101", casado: true }, { tipo_evento: "305101", casado: true },
+    ]);
+    expect((await q("SELECT cancelamento_tipo FROM obra_notas"))[0].cancelamento_tipo).toBe("101101");
+  });
+
+  it("evento sem nota há mais de 7 dias: aviso (só a quantidade) e lista na leitura (NSU, tipo e data — sem chave nem CNPJ)", async () => {
+    const outra = `${CHAVE.slice(0, 40)}5555555555`;
+    await gravarNotaRecebida(db(), { nsu: 9, xml: eventoXml({ chave: outra }) }, { tomadorCnpj: TOMADOR, agora: AGORA });
+    const cedo = await REGRAS.nota_obra({ agora: AGORA, limites: { notaConfirmacaoDias: 7 } as never });
+    expect(cedo.achados.filter(a => a.entidade === "eventos_adn:sem_nota")).toEqual([]);
+    expect(await cancelamentosSemNotaDoAdn(banco.db as never, AGORA)).toEqual([]);
+    const depois = new Date(AGORA.getTime() + 8 * 86_400_000);
+    const coleta = await REGRAS.nota_obra({ agora: depois, limites: { notaConfirmacaoDias: 7 } as never });
+    const achado = coleta.achados.filter(a => a.entidade === "eventos_adn:sem_nota");
+    expect(achado).toEqual([expect.objectContaining({ dados: expect.objectContaining({ quantidade: 1, marca: "evento_sem_nota" }) })]);
+    const lista = await cancelamentosSemNotaDoAdn(banco.db as never, depois);
+    expect(lista).toEqual([expect.objectContaining({ nsu: 9, tipoEvento: "101101" })]);
+    for (const sensivel of [outra, EMPREITEIRO, TOMADOR]) expect(JSON.stringify([achado, lista])).not.toContain(sensivel);
   });
 });

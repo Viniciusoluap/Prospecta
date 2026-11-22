@@ -225,9 +225,9 @@ describe("QA 3 — cancelamento: nem preparo, nem execução, nem BPO; aviso sem
     expect((await q("SELECT count(*)::int n FROM obra_notas_eventos_adn WHERE nota_id IS NULL"))[0].n).toBe(0);
   });
 
-  // ACHADO (baixo): com DOIS eventos de cancelamento guardados antes da nota, só o primeiro é casado; o outro fica pendente
+  // ACHADO (baixo, CORRIGIDO): com DOIS eventos de cancelamento guardados antes da nota, só o primeiro é casado; o outro fica pendente
   // para sempre (distribuicao.ts:191-193, `.limit(1)`), embora a 0166 prometa que o evento "é casado quando ela chegar".
-  it.fails("dois cancelamentos que chegam ANTES da nota: os dois são casados quando ela chega", async () => {
+  it("dois cancelamentos que chegam ANTES da nota: os dois são casados quando ela chega", async () => {
     expect(await gravar(1, eventoXml())).toBe("cancelamento");
     expect(await gravar(2, eventoXml({ tipo: "105102" }))).toBe("cancelamento");
     expect(await gravar(3, FIXTURE)).toBe("gravada");
@@ -264,12 +264,12 @@ describe("QA 4 — mesma nota por outra origem × duplicata real", () => {
     await expect(prepararConciliarNota({ notaId: g2!.id }, ctx)).rejects.toThrow(/duplicada/);
   });
 
-  // ACHADO (médio): a NFS-e OFICIAL do ADN que chega depois de uma nota de grupo com o mesmo emitente + número vira a
+  // ACHADO (médio, CORRIGIDO): a NFS-e OFICIAL do ADN que chega depois de uma nota de grupo com o mesmo emitente + número vira a
   // "outra origem" e a conciliação fica na nota do GRUPO — cujos valor e data vieram da leitura por IA de um arquivo enviado
   // por terceiro no grupo. Se o valor diverge (leitura errada ou arquivo adulterado), nada sinaliza: a do ADN nasce
   // "rascunho" sem dúvida/alerta de divergência (distribuicao.ts:181-200, nfse-recebida.ts:274-286). O certo é, no mínimo,
   // apontar a divergência (confira + alerta) — ou conciliar pela nota oficial.
-  it.fails("NFS-e do ADN com VALOR diferente da nota de grupo ligada: a divergência é sinalizada", async () => {
+  it("NFS-e do ADN com VALOR diferente da nota de grupo ligada: a divergência é sinalizada", async () => {
     await notaDeGrupo("G1", { valorCentavos: 950_000 });
     expect(await gravar(1, FIXTURE)).toBe("gravada");
     const [adn] = await q<{ situacao: string; alertas: string[]; duvidas: string[] }>("SELECT situacao, alertas, duvidas FROM obra_notas WHERE origem = 'adn'");

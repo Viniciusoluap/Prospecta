@@ -12,8 +12,9 @@
 --      os dois juntos; depois não muda nem volta. Nota cancelada não pode ser ligada a um pagamento do BPO (gatilho novo);
 --      se já estava ligada, o vínculo NÃO é desfeito aqui (nada existente é alterado): o dono recebe o aviso e decide.
 --    - "outra_origem_de": a MESMA nota já registrada pela OUTRA origem (ADN × grupo da obra, mesmo emitente e número). Não é
---      "duplicada" (a nota de grupo pode ter o arquivo salvo no Drive), mas só a primeira é conciliada. Nunca junto com
---      "duplicada_de"; como "duplicada_de", só pode VIRAR NULL depois de gravada.
+--      "duplicada" (a nota de grupo pode ter o arquivo salvo no Drive), mas só UMA é conciliada: a primeira, ou a oficial do
+--      ADN quando valor/data divergem (a de grupo ainda não conciliada passa a apontar para ela — único preenchimento depois
+--      de gravada; ver o gatilho). Nunca junto com "duplicada_de"; fora isso, só pode VIRAR NULL.
 -- 2. "obra_notas_eventos_adn" (NOVA): eventos de cancelamento lidos na distribuição do ADN (chave da NFS-e, tipo, NSU, XML e
 --    SHA-256). Se a nota ainda não chegou, o evento fica guardado e é casado quando ela chegar. Só inserção; o único campo
 --    que muda é o vínculo com a nota (vazio → nota, uma vez, com a data). Nunca é apagado.
@@ -54,8 +55,16 @@ BEGIN
      OR NEW."cancelamento_tipo" IS DISTINCT FROM OLD."cancelamento_tipo") THEN
     RAISE EXCEPTION 'OBRA_NOTAS_CANCELADA: o cancelamento registrado da nota não muda nem é desfeito';
   END IF;
+  -- outra_origem_de só pode VIRAR NULL, com UMA exceção (portão de QA da S-5b): a nota de GRUPO ainda sem vínculo, não
+  -- conciliada e não duplicada passa a apontar para a NFS-e OFICIAL do ADN que chegou depois com valor/data diferentes (a
+  -- conciliação passa para a oficial). Nunca de grupo para grupo, nunca para outra nota de grupo, nunca trocada depois.
   IF NEW."outra_origem_de" IS DISTINCT FROM OLD."outra_origem_de" AND NEW."outra_origem_de" IS NOT NULL THEN
-    RAISE EXCEPTION 'OBRA_NOTAS_VINCULO: a nota da outra origem não é trocada';
+    IF NOT (OLD."outra_origem_de" IS NULL AND NEW."origem" = 'grupo' AND NEW."duplicada_de" IS NULL
+            AND OLD."bpo_lancamento_id" IS NULL AND NEW."bpo_lancamento_id" IS NULL
+            AND EXISTS (SELECT 1 FROM "obra_notas" o WHERE o."id" = NEW."outra_origem_de" AND o."origem" = 'adn'
+                        AND o."outra_origem_de" IS NULL AND o."duplicada_de" IS NULL)) THEN
+      RAISE EXCEPTION 'OBRA_NOTAS_VINCULO: a nota da outra origem não é trocada';
+    END IF;
   END IF;
   IF NEW."cancelada_em" IS NOT NULL AND NEW."bpo_lancamento_id" IS NOT NULL
      AND NEW."bpo_lancamento_id" IS DISTINCT FROM OLD."bpo_lancamento_id" THEN

@@ -197,6 +197,23 @@ export function lerEventoNfse(xml: string): LeituraEvento {
   return { ok: true, evento: { chave, tipo, ambiente: tpAmb === "1" ? "producao" : tpAmb === "2" ? "producao_restrita" : null } };
 }
 
+// ── Mesma nota por outra origem: valor e data (EPIC-029 S-5b, portão de QA) ──
+
+type ValorEData = { valorCentavos: number | null; dataEmissao: string | null };
+const brl = (c: number | null) => (c === null ? "não lido" : (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+const dataBr = (d: string | null) => (d ? d.split("-").reverse().join("/") : "não lida");
+
+/**
+ * Diferenças entre a NFS-e OFICIAL (ADN) e a mesma nota lida no grupo (mesmo emitente + número): valor ao centavo e data de
+ * emissão. Valor/data que só um dos lados tem também conta (a leitura do grupo pode ter falhado). Puro; sem diferença → [].
+ */
+export function divergenciasEntreOrigens(oficial: ValorEData, grupo: ValorEData): string[] {
+  const r: string[] = [];
+  if (oficial.valorCentavos !== grupo.valorCentavos) r.push(`valor: oficial ${brl(oficial.valorCentavos)} × grupo ${brl(grupo.valorCentavos)}`);
+  if (oficial.dataEmissao !== grupo.dataEmissao) r.push(`data de emissão: oficial ${dataBr(oficial.dataEmissao)} × grupo ${dataBr(grupo.dataEmissao)}`);
+  return r;
+}
+
 // ── Vínculo com obra e empreiteiro (por CNPJ/CPF, por código) ──
 
 /** Obra ativa cujo empreiteiro cadastrado (usuário ativo, papel empreiteiro) tem o MESMO documento do emitente. */
@@ -248,6 +265,11 @@ export type MapeamentoNota =
 export function mapearNotaRecebida(nota: NfseRecebida, p: {
   tomadorCnpj: string; nsu: number; agora: Date; vinculo: Vinculo; duplicadaDe?: { id: number; motivo: string } | null;
   outraOrigemDe?: { id: number; motivo: string } | null; cancelamento?: { em: Date; tipo: string } | null;
+  /**
+   * QA S-5b: a mesma nota lida no grupo diverge desta (valor/data). `conciliadaNoGrupo` = a do grupo já foi ligada a um
+   * pagamento (aí esta fica como "outra origem" e o dono confere); senão a conciliação passa para ESTA (a oficial).
+   */
+  divergenciaComGrupo?: { notaId: number; divergencias: string[]; conciliadaNoGrupo: boolean } | null;
 }): MapeamentoNota {
   const tomador = normalizarDocumento(p.tomadorCnpj);
   if (nota.ambiente === "producao_restrita") return { gravar: false, motivo: "producao_restrita" };
@@ -274,6 +296,11 @@ export function mapearNotaRecebida(nota: NfseRecebida, p: {
   const outraOrigem = p.duplicadaDe ? null : p.outraOrigemDe ?? null;
   if (outraOrigem) alertas.push(`mesma nota já registrada pelo grupo da obra: ${outraOrigem.motivo} (a conciliação fica na nota ${outraOrigem.id})`);
   if (p.cancelamento) alertas.push(`NFS-e CANCELADA (evento ${p.cancelamento.tipo} do ADN): não pode ser paga nem conciliada`);
+  const div = p.duplicadaDe ? null : p.divergenciaComGrupo?.divergencias.length ? p.divergenciaComGrupo : null;
+  if (div) {
+    alertas.push(`DIVERGE da nota ${div.notaId} lida no grupo (${div.divergencias.join("; ")}): `
+      + (div.conciliadaNoGrupo ? `a do grupo já foi ligada a um pagamento — confira esse pagamento` : `a conciliação passa para esta, a nota oficial`));
+  }
   const emitenteNome = lerTexto(nota.emitente.nome, 160);
   const descricao = lerTexto(nota.descricao, 400);
   if (bancario) alertas.push(ALERTA_BANCARIO);
@@ -283,7 +310,7 @@ export function mapearNotaRecebida(nota: NfseRecebida, p: {
     linha: {
       origem: "adn", grupoId: null, mensagemId: null, arquivoSha256: null, tipo: "nfse",
       obraId: p.vinculo.obraId, empreiteiroUserId: p.vinculo.empreiteiroUserId,
-      situacao: duvidas.length || p.duplicadaDe || p.cancelamento ? "confira" : "rascunho",
+      situacao: duvidas.length || p.duplicadaDe || p.cancelamento || div ? "confira" : "rascunho",
       emitenteNome, emitenteDocumento: doc && !doc.alfanumerico ? doc.valor : null, emitenteCnpjAlfa: doc?.alfanumerico ? doc.valor : null,
       numero: nota.numero, dataEmissao: nota.dataEmissao, valorCentavos: valor, descricao,
       itens: [], chaveNfse: nota.chave, nsu: p.nsu, categoria: p.vinculo.empreiteiroUserId ? "empreiteiro" : null, etapa: null,

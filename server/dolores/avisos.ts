@@ -17,7 +17,8 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, s
 import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import { HORA_RESUMO_FISCAL, temPalavraComando } from "../../shared/dolores/fiscal.js";
 import { bankAccounts, constructionProjects, leadDocuments, leads, tasks } from "../../drizzle/schema.js";
-import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
+import { obraNotas, obraNotasEventosAdn } from "../../drizzle/schema-dolores-notas.js";
+import { alias } from "drizzle-orm/pg-core";
 import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresAvisosAchados, doloresAvisosConfig, doloresAvisosEnvios, doloresAvisosTipos, type DoloresAvisosConfig } from "../../drizzle/schema-dolores-avisos.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
@@ -103,6 +104,8 @@ type CtxColeta = { agora: Date; limites: ConfigAvisos["limites"] };
 const DIA_MS = 86_400_000;
 /** EPIC-029 S-5b: por quantos dias a NFS-e cancelada continua no aviso (depois disso, sai: o dono já foi avisado). */
 export const DIAS_AVISO_CANCELADA = 30;
+/** QA S-5b: evento de cancelamento guardado sem a nota há mais que isso entra no aviso (e na leitura das notas). */
+export const DIAS_EVENTO_SEM_NOTA = 7;
 const nomeLimpo = (s: string | null | undefined) => limparNomeDeTerceiro(sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO));
 const corte = (lista: Achado[]): Coleta => {
   const ordenada = lista.sort((a, b) => b.faixa - a.faixa || (b.dados.dias ?? 0) - (a.dados.dias ?? 0));
@@ -192,8 +195,23 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     for (const x of canceladas) {
       achados.push({ tipo: "nota_obra", entidade: `nota:${x.id}:cancelada`, faixa: 1, dados: { nome: nomeLimpo(x.emitente ?? x.obra), marca: "cancelada", ref: { tipo: "nota", id: x.id } } });
     }
+    // QA S-5b (médio): a mesma nota pelo ADN e pelo grupo com valor/data diferentes (últimos 30 dias) — o achado vai na OFICIAL
+    const par = alias(obraNotas, "par");
+    const divergentes = await conexao.select({ a: obraNotas.id, aOrigem: obraNotas.origem, b: par.id, emitente: obraNotas.emitenteNome }).from(obraNotas)
+      .innerJoin(par, eq(par.id, obraNotas.outraOrigemDe))
+      .where(and(gte(obraNotas.criadoEm, new Date(agora.getTime() - DIAS_AVISO_CANCELADA * DIA_MS)), isNull(obraNotas.canceladaEm),
+        or(sql`${obraNotas.valorCentavos} is distinct from ${par.valorCentavos}`, sql`${obraNotas.dataEmissao} is distinct from ${par.dataEmissao}`)))
+      .orderBy(desc(obraNotas.id)).limit(MAX_ACHADOS_POR_TIPO);
+    for (const d of divergentes) {
+      const oficial = d.aOrigem === "adn" ? d.a : d.b;
+      achados.push({ tipo: "nota_obra", entidade: `nota:${oficial}:origem_divergente`, faixa: 1, dados: { nome: nomeLimpo(d.emitente), marca: "origem_divergente", ref: { tipo: "nota", id: oficial } } });
+    }
+    // QA S-5b (baixo): cancelamento guardado sem a nota há mais de 7 dias — um achado só, com a quantidade (sem chave, CNPJ ou valor)
+    const [semNota] = await conexao.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(obraNotasEventosAdn)
+      .where(and(isNull(obraNotasEventosAdn.notaId), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - DIAS_EVENTO_SEM_NOTA * DIA_MS))));
+    if (semNota?.n) achados.push({ tipo: "nota_obra", entidade: "eventos_adn:sem_nota", faixa: 1, dados: { nome: "Notas recebidas pelo ADN", quantidade: semNota.n, marca: "evento_sem_nota" } });
     const c = corte(achados);
-    return { ...c, completo: c.completo && linhas.length < 300 && canceladas.length < MAX_ACHADOS_POR_TIPO };
+    return { ...c, completo: c.completo && linhas.length < 300 && canceladas.length < MAX_ACHADOS_POR_TIPO && divergentes.length < MAX_ACHADOS_POR_TIPO };
   },
   // processo de regularização sem nenhuma movimentação há N dias ou mais (mesma conta de listar_processos_regularizacao)
   regularizacao_parada: async ({ agora, limites }) => {

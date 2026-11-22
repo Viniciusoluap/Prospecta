@@ -198,3 +198,19 @@ ANTES de publicar este código — o esquema passa a ler as colunas novas de `ob
 - `server/dolores/notas-obra.ts`, `server/dolores/acoes/notas.ts`, `server/dolores/conciliacao.ts`, `server/dolores/leitura/notas.ts`,
   `server/dolores/notas-router.ts`, `server/dolores/avisos.ts`, `server/dolores/rondas.ts`, `server/dolores/testes-banco.ts`
 - `shared/dolores/notas.ts`, `shared/dolores/avisos.ts`, `shared/dolores/operacao.ts`, `client/src/components/admin/DoloresNotasCard.tsx`
+
+### S-5b — correções do portão de QA (CONCERNS, `server/fiscal/s5b-qa.test.ts`) — 22/11/2026
+- **MÉDIO — valor/data entre origens.** Ao ligar a "mesma nota por outra origem", valor (centavos) e data de emissão são
+  comparados (`divergenciasEntreOrigens`, `server/fiscal/nfse-recebida.ts`). Sem divergência, nada muda. Com divergência:
+  - ADN depois do grupo (grupo ainda não conciliado): a oficial do ADN fica "confira" com o alerta e passa a ser a conciliada; a
+    de grupo ganha `outra_origem_de` → oficial (continua com o arquivo para o Drive). Única troca aceita pelo gatilho da 0166
+    (grupo sem vínculo, não conciliado, não duplicado → NFS-e do ADN sem par); qualquer outra continua `OBRA_NOTAS_VINCULO`;
+  - ADN depois do grupo já conciliado: a oficial fica "outra origem" + "confira" com o alerta para o dono conferir o pagamento;
+  - grupo depois do ADN: a de grupo fica "confira" com o alerta; a conciliação continua na oficial.
+  Aviso `nota_obra` novo, marca `origem_divergente`, no id da oficial (30 dias).
+- **BAIXO — todos os eventos pendentes da chave** são casados quando a nota chega (antes, `.limit(1)`).
+- **BAIXO — evento sem nota há mais de 7 dias** (`DIAS_EVENTO_SEM_NOTA`): um aviso `nota_obra` só com a quantidade (marca
+  `evento_sem_nota`) e a lista `cancelamentosDoAdnSemNota` em `listar_notas_obra` (`cancelamentosSemNotaDoAdn`: NSU, tipo e data;
+  sem chave, CNPJ nem XML).
+- 0166 alterada (ainda não aplicada): só o gatilho `obra_notas_guarda_cancelamento` (exceção acima) e o comentário; continua
+  aditiva e idempotente. Os 2 `it.fails` do QA viraram `it`; 7 testes novos em `notas-recebidas-s5b.test.ts`.

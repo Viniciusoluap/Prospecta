@@ -28,7 +28,7 @@ import { obraNotas, obraNotasAdn, obraNotasEventosAdn } from "../../drizzle/sche
 import { fiscalDistribuicaoEstado } from "../../drizzle/schema-fiscal.js";
 import { numeroComparavel } from "../../shared/dolores/notas.js";
 import {
-  EVENTOS_DE_CANCELAMENTO, MAX_CARACTERES_XML, ehCancelamento, lerEventoNfse, lerNfseRecebida, mapearNotaRecebida, vincularPorDocumento,
+  EVENTOS_DE_CANCELAMENTO, MAX_CARACTERES_XML, divergenciasEntreOrigens, ehCancelamento, lerEventoNfse, lerNfseRecebida, mapearNotaRecebida, vincularPorDocumento,
 } from "./nfse-recebida.js";
 import type { DrizzleDb } from "../db.js";
 
@@ -182,19 +182,27 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
     // dentro da MESMA origem (outra NFS-e do ADN); a nota de GRUPO igual é a "mesma nota por outra origem" (não trava o arquivo)
     const numero = numeroComparavel(nota.numero);
     const colunaDoc = documento && /[A-Z]/.test(documento) ? obraNotas.emitenteCnpjAlfa : obraNotas.emitenteDocumento;
-    const anteriorDa = (origem: "adn" | "grupo") => documento && numero ? tx.select({ id: obraNotas.id }).from(obraNotas).where(and(eq(colunaDoc, documento), eq(obraNotas.origem, origem),
+    const anteriorDa = (origem: "adn" | "grupo") => documento && numero ? tx.select({ id: obraNotas.id, valorCentavos: obraNotas.valorCentavos,
+      dataEmissao: obraNotas.dataEmissao, bpoLancamentoId: obraNotas.bpoLancamentoId }).from(obraNotas).where(and(eq(colunaDoc, documento), eq(obraNotas.origem, origem),
         sql`regexp_replace(regexp_replace(coalesce(${obraNotas.numero}, ''), '[^0-9]', '', 'g'), '^0+([0-9])', '\\1') = ${numero}`))
       .orderBy(asc(obraNotas.id)).limit(1) : Promise.resolve([]);
     const [anterior] = await anteriorDa("adn");
     const [doGrupo] = anterior ? [] : await anteriorDa("grupo");
-    // S-5b: o cancelamento que chegou ANTES da nota (evento guardado) já vale na gravação
-    const [pendente] = await tx.select({ id: obraNotasEventosAdn.id, tipo: obraNotasEventosAdn.tipoEvento }).from(obraNotasEventosAdn)
+    // QA S-5b (médio): a do grupo diverge da oficial (valor/data)? Sem divergência, segue como antes (esta é a "outra origem" e a
+    // conciliação fica na do grupo). Com divergência, a conciliação passa para ESTA, a oficial — salvo se a do grupo já foi
+    // ligada a um pagamento (aí esta fica como "outra origem", em "confira", e o dono confere o pagamento).
+    const divergencias = doGrupo ? divergenciasEntreOrigens({ valorCentavos: nota.valorServicoCentavos, dataEmissao: nota.dataEmissao }, doGrupo) : [];
+    const passaParaOficial = !!doGrupo && divergencias.length > 0 && doGrupo.bpoLancamentoId === null;
+    // S-5b: os cancelamentos que chegaram ANTES da nota (eventos guardados) já valem na gravação — QA S-5b: TODOS são casados
+    const pendentes = await tx.select({ id: obraNotasEventosAdn.id, tipo: obraNotasEventosAdn.tipoEvento }).from(obraNotasEventosAdn)
       .where(and(eq(obraNotasEventosAdn.chaveNfse, nota.chave), isNull(obraNotasEventosAdn.notaId), inArray(obraNotasEventosAdn.tipoEvento, [...EVENTOS_DE_CANCELAMENTO])))
-      .orderBy(asc(obraNotasEventosAdn.id)).limit(1);
+      .orderBy(asc(obraNotasEventosAdn.id));
+    const pendente = pendentes[0];
     const mapa = mapearNotaRecebida(nota, {
       tomadorCnpj: p.tomadorCnpj, nsu: doc.nsu, agora: p.agora, vinculo: vincularPorDocumento(candidatos, usuarios),
       duplicadaDe: anterior ? { id: anterior.id, motivo: `mesmo número e mesmo emitente da nota ${anterior.id}` } : null,
-      outraOrigemDe: doGrupo ? { id: doGrupo.id, motivo: `mesmo número e mesmo emitente da nota ${doGrupo.id}, lida no grupo` } : null,
+      outraOrigemDe: doGrupo && !passaParaOficial ? { id: doGrupo.id, motivo: `mesmo número e mesmo emitente da nota ${doGrupo.id}, lida no grupo` } : null,
+      divergenciaComGrupo: doGrupo && divergencias.length ? { notaId: doGrupo.id, divergencias, conciliadaNoGrupo: !passaParaOficial } : null,
       cancelamento: pendente ? { em: p.agora, tipo: pendente.tipo } : null,
     });
     if (!mapa.gravar) return "ignorada";
@@ -203,8 +211,14 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
     await tx.insert(obraNotasAdn).values({
       notaId: linha.id, tomadorCnpj: p.tomadorCnpj, xml, xmlSha256: createHash("sha256").update(xml, "utf8").digest("hex"), capturadaEm: p.agora,
     });
+    // QA S-5b: a nota do grupo (ainda não conciliada) passa a ser a "outra origem" desta; ela continua com o arquivo para o Drive
+    // (o gatilho da 0166 só deixa preencher isso uma vez, de nota de grupo para a NFS-e oficial do ADN)
+    if (passaParaOficial) {
+      await tx.update(obraNotas).set({ outraOrigemDe: linha.id })
+        .where(and(eq(obraNotas.id, doGrupo!.id), isNull(obraNotas.outraOrigemDe), isNull(obraNotas.bpoLancamentoId)));
+    }
     if (pendente) {
-      await tx.update(obraNotasEventosAdn).set({ notaId: linha.id, casadoEm: p.agora }).where(eq(obraNotasEventosAdn.id, pendente.id));
+      await tx.update(obraNotasEventosAdn).set({ notaId: linha.id, casadoEm: p.agora }).where(inArray(obraNotasEventosAdn.id, pendentes.map(e => e.id)));
       // a nota de grupo igual (a que é conciliada) também fica cancelada
       await cancelarNota(tx, { id: linha.id, outraOrigemDe: mapa.linha.outraOrigemDe }, p.agora, pendente.tipo);
     }
