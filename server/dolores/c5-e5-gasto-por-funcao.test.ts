@@ -87,7 +87,7 @@ describe("C5-E5 — regras puras", () => {
       "Nada foi alterado no sistema.",
     ].join("\n"));
     const t100 = textoDoAlerta({ alvo: "total", nivel: 100 }, s, MES);
-    expect(t100).toMatch(/O gasto total com a IA chegou a 100% do limite do mês\./);
+    expect(t100).toMatch(/O gasto total com a IA chegou a 8% do limite do mês — não cabe mais uma chamada à IA\./);
     expect(t100).toMatch(/Entrei em modo sem IA: não uso mais a IA neste mês/);
     expect(t100).toMatch(/Por função: as respostas em grupo R\$\s1,62\./);
     for (const t of [t100, textoDoAlerta({ alvo: "conversa", nivel: 100 }, s, MES)]) {

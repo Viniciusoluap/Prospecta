@@ -160,7 +160,7 @@ export function textoDoAlerta(a: { alvo: AlvoAlerta; nivel: NivelAlerta }, s: Si
   const deQue = a.alvo === "total" ? "do limite do mês" : `da parte dela (${s.funcoes.find(f => f.funcao === a.alvo)!.parte}% do limite do mês)`;
   const quem = a.alvo === "total" ? "O gasto total com a IA" : maiuscula(NOME_DA_FUNCAO_NA_FRASE[a.alvo]);
   const verbo = a.alvo === "grupos" || a.alvo === "avisos" ? "chegaram" : "chegou";
-  const L: string[] = [`Dolores: aviso de gasto da IA (mês ${mes}). ${quem} ${verbo} a ${pctTxt(a.nivel === 100 ? Math.max(100, m.pct) : m.pct)} ${deQue}.`];
+  const L: string[] = [`Dolores: aviso de gasto da IA (mês ${mes}). ${quem} ${verbo} a ${pctTxt(m.pct)} ${deQue}${a.nivel === 100 && m.pct < 100 ? " — não cabe mais uma chamada à IA" : ""}.`];
   L.push(m.reais !== null
     ? `Gasto: ${brlAlerta(m.reais)} de ${brlAlerta(m.limiteReais)} (resta ${brlAlerta(Math.max(0, m.limiteReais - m.reais))}).`
     : "Gasto em reais: sem preço cadastrado para algum modelo (ou sem a cotação) — contei pelos tokens.");
