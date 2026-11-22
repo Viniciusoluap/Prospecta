@@ -43,6 +43,8 @@ export const fiscalTiposServico = pgTable("fiscal_tipos_servico", {
   codigoTributacaoNacional: varchar("codigo_tributacao_nacional", { length: 6 }),
   codigoNbs: varchar("codigo_nbs", { length: 9 }),
   itemLc116: varchar("item_lc116", { length: 5 }),
+  /** EPIC-029 S-4 (0162): cAtvSN — código da atividade do Simples (Anexo VIII). */
+  codigoAtividadeSimples: varchar("codigo_atividade_simples", { length: 2 }),
   descricaoPadrao: text("descricao_padrao"),
   aliquotaIss: numeric("aliquota_iss", { precision: 7, scale: 4 }),
   retencoes: jsonb("retencoes"),
@@ -124,4 +126,38 @@ export const fiscalDistribuicaoEstado = pgTable("fiscal_distribuicao_estado", {
   documentosGravados: integer("documentos_gravados").default(0).notNull(),
   nsusIlegiveis: jsonb("nsus_ilegiveis").$type<number[]>().default([]).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// EPIC-029 S-4 (22/11/2026) — cofre do certificado A1 (migração 0162_fiscal_certificados.sql). Ler/decifrar SÓ em
+// server/fiscal/certificado.ts (teste-vigia em server/fiscal/certificado.test.ts).
+export type OrigemCertificadoFiscal = "juridico" | "arquivo";
+export const fiscalEmissoresCertificado = pgTable("fiscal_emissores_certificado", {
+  id: serial("id").primaryKey(),
+  emissorId: integer("emissor_id").notNull(),
+  pfxCifrado: text("pfx_cifrado").notNull(),
+  senhaCifrada: text("senha_cifrada").notNull(),
+  titular: varchar("titular", { length: 200 }).notNull(),
+  cnpj: varchar("cnpj", { length: 14 }).notNull(),
+  autoridade: varchar("autoridade", { length: 200 }),
+  validoDe: timestamp("valido_de", { withTimezone: true }).notNull(),
+  validoAte: timestamp("valido_ate", { withTimezone: true }).notNull(),
+  impressaoDigital: varchar("impressao_digital", { length: 64 }).notNull(),
+  cadeiaIcp: boolean("cadeia_icp").default(false).notNull(),
+  origem: varchar("origem", { length: 12 }).$type<OrigemCertificadoFiscal>().notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  enviadoPor: integer("enviado_por"),
+  enviadoEm: timestamp("enviado_em", { withTimezone: true }).defaultNow().notNull(),
+  desativadoPor: integer("desativado_por"),
+  desativadoEm: timestamp("desativado_em", { withTimezone: true }),
+});
+
+export type AcaoCertificadoFiscal = "enviado" | "desativado" | "recusado" | "teste_conexao";
+export const fiscalCertificadosHistorico = pgTable("fiscal_certificados_historico", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  emissorId: integer("emissor_id"),
+  certificadoId: integer("certificado_id"),
+  acao: varchar("acao", { length: 20 }).$type<AcaoCertificadoFiscal>().notNull(),
+  detalhe: varchar("detalhe", { length: 300 }),
+  usuarioId: integer("usuario_id"),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
 });
