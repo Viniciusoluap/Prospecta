@@ -213,4 +213,8 @@ ANTES de publicar este código — o esquema passa a ler as colunas novas de `ob
   `evento_sem_nota`) e a lista `cancelamentosDoAdnSemNota` em `listar_notas_obra` (`cancelamentosSemNotaDoAdn`: NSU, tipo e data;
   sem chave, CNPJ nem XML).
 - 0166 alterada (ainda não aplicada): só o gatilho `obra_notas_guarda_cancelamento` (exceção acima) e o comentário; continua
-  aditiva e idempotente. Os 2 `it.fails` do QA viraram `it`; 7 testes novos em `notas-recebidas-s5b.test.ts`.
+  aditiva e idempotente. Os 2 `it.fails` do QA viraram `it`; 7 testes novos em `notas-recebidas-s5b.test.ts`. Ajuste em
+  `notas-recebidas.test.ts`: a nota de grupo do teste "sem divergência" ganhou o mesmo valor/data da oficial (sem valor lido
+  conta como divergência e a conciliação passa para a oficial).
+- Rodada: 19 arquivos, 429/429 (server/fiscal/* com s5b-qa, notas-obra, notas-regras, acoes, acoes-whatsapp, c5-e4-proatividade,
+  operacao, operacao-regras, s3-fiscal(+qa), c4-horario-relatorio); tsc e vite build verdes; `origin/main` sem novidade no merge.

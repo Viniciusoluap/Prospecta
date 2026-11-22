@@ -323,10 +323,11 @@ describe("captura por NSU — desligada, idempotente, com último NSU e espera d
   it("nota de grupo com o mesmo emitente e número já registrada → a do ADN é a mesma nota por OUTRA origem (S-5b; não concilia duas vezes)", async () => {
     await aplicarMigracao();
     const { grupoId, mensagemId } = await mensagemDeGrupo("DUP");
-    const [g] = await q<{ id: number }>(`INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao, tipo, emitente_documento, numero) VALUES ($1, $2, 1, 'rascunho', 'nfse', $3, '000123') RETURNING id`, [grupoId, mensagemId, EMPREITEIRO]);
+    const [g] = await q<{ id: number }>(`INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao, tipo, emitente_documento, numero, valor_centavos, data_emissao) VALUES ($1, $2, 1, 'rascunho', 'nfse', $3, '000123', 150000, '2026-11-10') RETURNING id`, [grupoId, mensagemId, EMPREITEIRO]);
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
     const [n] = await q<{ duplicada_de: number; outra_origem_de: number; situacao: string }>("SELECT duplicada_de, outra_origem_de, situacao FROM obra_notas WHERE origem = 'adn'");
     expect(n).toEqual({ duplicada_de: null, outra_origem_de: g.id, situacao: "rascunho" });
+    // QA S-5b: a do grupo SEM valor/data lidos diverge da oficial → a conciliação passa para a do ADN (s5b-qa / notas-recebidas-s5b)
   });
 
   it("falha do ADN: registra 'erro', não avança o NSU e não lança", async () => {
