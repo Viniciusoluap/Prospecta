@@ -86,7 +86,9 @@ export async function conferirAlertasDoGasto(mes: string, o: { bloqueadas?: read
     // nada a conferir se todos os alertas possíveis do mês já saíram (barato: sem ler consumo e preços)
     if (jaSaiu.size >= 6 * NIVEIS_ALERTA.length) return enviados;
     const g = await gastoPorFuncaoDoMes(mes);
-    const devidos = alertasDevidos(g.situacao, o).filter(a => !jaSaiu.has(`${a.alvo}:${a.nivel}`));
+    // EPIC-027 C5-E4: o tipo de aviso "gasto" silenciado pelo dono segura só o alerta de 80% (o de 100% — a função parou — sai sempre)
+    const silenciado = await import("./avisos.js").then(m => m.tipoSilenciado("gasto")).catch(() => false);
+    const devidos = alertasDevidos(g.situacao, o).filter(a => !jaSaiu.has(`${a.alvo}:${a.nivel}`) && !(silenciado && a.nivel === 80));
     if (!devidos.length) return enviados;
     const enviar = await envio();
     for (const a of devidos) {

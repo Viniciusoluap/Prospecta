@@ -273,7 +273,9 @@ const comAvisoDeFalta = (t: string) => {
  */
 export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown>;
   /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
-  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null }> {
+  pendenciaId?: number | null;
+  /** EPIC-027 C5-E4: referências (ids do banco, por código) que o aviso cita, para a memória da conversa ("e esse atraso aí?"). */
+  referencias?: readonly ReferenciaConversa[] }): Promise<{ ok: boolean; motivo: string | null }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
     registrarAcao({ funcao: ctx.funcao, resultado, motivo, autorUserId: ctx.autor, canal: ctx.canal, pedidoId: ctx.pedidoId, resumo: { ...ctx.resumo, ...extra }, duracaoMs });
   let cfg: DoloresWhatsappConfig | null = null;
@@ -303,7 +305,7 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   if (ok) {
     const doGrupo = ctx.funcao.startsWith("grupo_");
     await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
-      referencias: await referenciaDoGrupo(ctx.resumo?.grupoId) });
+      referencias: [...(ctx.referencias ?? []), ...(await referenciaDoGrupo(ctx.resumo?.grupoId))] });
   }
   return { ok, motivo };
 }
@@ -313,9 +315,11 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
  * que lê a chave da Anthropic do painel (o nome da função aparece só no import e na chamada abaixo), e só depois da pausa e do interruptor da IA.
  */
 /** EPIC-027 C5-E5: a parte do gasto de cada função da Anthropic (documentos e notas dividem a mesma parte). */
-const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes" } as const;
+const PARTE_DA_FUNCAO = { dolores_whatsapp: "conversa", dolores_documentos: "documentos_e_notas", dolores_notas: "documentos_e_notas", dolores_grupo: "grupos", dolores_cliente: "clientes",
+  // EPIC-027 C5-E4: o texto dos avisos automáticos (só quando a IA no texto está ligada na tela de avisos)
+  dolores_avisos: "avisos" } as const;
 
-async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: "dolores_whatsapp" | "dolores_documentos" | "dolores_grupo" | "dolores_notas" | "dolores_cliente" = "dolores_whatsapp"): Promise<
+async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: keyof typeof PARTE_DA_FUNCAO = "dolores_whatsapp"): Promise<
   { motivo: MotivoBloqueio; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number }> {
   const pausa = await lerPausa();
   if (!pausa) return { motivo: "indisponivel" };
@@ -390,6 +394,21 @@ export async function credencialDoAtendimento(): Promise<CredencialGrupo> {
  * "dolores_notas", limite mensal, usuária ativa). A chave só sai daqui para o pedido ao modelo (server/dolores/notas-obra.ts).
  */
 export const credencialDaLeituraDeNota = () => credencialDaClassificacao("dolores_notas");
+
+/**
+ * EPIC-027 C5-E4 — o texto dos avisos automáticos ao dono (server/dolores/avisos.ts), quando a IA no texto está ligada: a MESMA porta
+ * da chave (bloqueioAtual, na mesma ordem: pausa, interruptor da IA, chave, modelo da função "dolores_avisos", limite mensal, parte
+ * "avisos" do gasto, usuária ativa). Bloqueado → o aviso sai com o texto fixo (nada deixa de ser avisado por falta de IA).
+ */
+export async function credencialDosAvisos(): Promise<CredencialGrupo> {
+  let cfg: DoloresWhatsappConfig | null;
+  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  if (!cfg) return { motivo: "indisponivel" };
+  const mes = mesFortaleza(deps.agora());
+  const estado = await bloqueioAtual(cfg, mes, "dolores_avisos");
+  if (estado.motivo !== null) return estado;
+  return { ...estado, mes, limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida } };
+}
 
 /** QA C5-E1 (achado 3): o que fica na memória quando o dono responde com um comando de confirmação (sem o código). */
 export const FRASE_DECISAO_NA_MEMORIA = "(o dono respondeu a um pedido de confirmação do sistema)";

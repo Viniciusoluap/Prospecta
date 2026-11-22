@@ -519,3 +519,27 @@ export async function liberarReservaAtendimento(atendimentoId: number) {
     console.error("[dolores/consumo] falha ao liberar a reserva da resposta a cliente", e instanceof Error ? e.name : "erro");
   }
 }
+
+// ── EPIC-027 C5-E4 — texto dos avisos automáticos ao dono ──
+
+export type BloqueioDosAvisos = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_avisos";
+
+/**
+ * C5-E4 — confere, sob a MESMA trava (linha 1 de dolores_whatsapp_config em FOR UPDATE), se UMA chamada que só redige o aviso cabe:
+ * 1) uso real do mês contra o limite inteiro; 2) folga do dono e a PARTE "avisos" (padrão 5%) — uso real dos avisos + esta reserva.
+ * Não grava reserva: só um aviso é montado por vez (a vaga do envio é única por dia e ordem, server/dolores/avisos.ts), e a chamada é
+ * curta (teto de saída 400). Bloqueado → o aviso sai com o texto fixo; a conversa do dono e as outras funções não são tocadas.
+ */
+export async function reservarAvisos(p: { mes: string; limites: Limites; reserva: Uso }): Promise<BloqueioDosAvisos | null> {
+  const r = await getDb().transaction(async (tx): Promise<BloqueioDosAvisos | "parte" | null> => {
+    await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
+    const [usado] = await tx.select({
+      entrada: entradaNoLimiteSql(),
+      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
+    }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
+    const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
+    if (real) return real;
+    return conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "avisos" });
+  });
+  return depoisDaReserva(p.mes, "avisos", r, "orcamento_avisos");
+}
