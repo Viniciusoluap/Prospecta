@@ -16,6 +16,8 @@ import { useConexaoEditor, type ConexaoEditor } from "@/components/maquete-3d/ed
 const VisualizadorFonte = lazy(() => import("@/components/maquete-3d/visualizador/VisualizadorFonte"));
 // Etapa 3: o editor de itens é um pedaço à parte, baixado só quando o administrador toca em "Editar".
 const EditorItens = lazy(() => import("@/components/maquete-3d/editor/EditorItens"));
+// Etapa 4: lotes que mostram esta planta (link público por lote), também só para o administrador.
+const PainelLotes = lazy(() => import("@/components/maquete-3d/editor/PainelLotes"));
 const PLANTAS = import.meta.glob<{ default: unknown }>("../../../data/plantas/*.json");
 
 type Estado = { tipo: "carregando" } | { tipo: "erro"; texto: string } | { tipo: "ok"; fonte: FontePlanta };
@@ -85,6 +87,9 @@ function Pagina({ fonte: original, slug, conexao }: { fonte: FontePlanta; slug: 
         <Suspense fallback={<div className="p-6 text-[#6B6B66]">Abrindo o editor…</div>}>
           <EditorItens planta={slug} conexao={conexao} aoSair={itens => { if (itens) setItensEditados(itens); setEditando(false); }} />
         </Suspense>
+        {conexao.lotes && (
+          <Suspense fallback={null}><PainelLotes planta={slug} conexao={conexao.lotes} /></Suspense>
+        )}
       </div>
     </div>
   );

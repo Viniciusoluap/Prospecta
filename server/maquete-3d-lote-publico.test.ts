@@ -103,14 +103,14 @@ describe("regras compartilhadas do lote", () => {
   it("WhatsApp: número da empresa (99) 98139-2210 e mensagem com empreendimento, quadra e lote, codificada", () => {
     expect(WHATSAPP_EMPRESA).toBe("5599981392210");
     const t = { empreendimento: "Vila Esmeralda", quadra: "18", lote: "4" };
-    expect(mensagemWhatsAppDoLote(t)).toBe("Olá! Vi a maquete 3D do Lote 4, Quadra 18 do Vila Esmeralda e quero saber mais sobre este lote.");
+    expect(mensagemWhatsAppDoLote(t)).toBe("Olá! Vi a maquete 3D do Lote 4, Quadra 18 (Vila Esmeralda) e quero saber mais sobre este lote.");
     const link = linkWhatsAppDoLote(t);
     expect(link).toBe(`https://wa.me/5599981392210?text=${encodeURIComponent(mensagemWhatsAppDoLote(t))}`);
-    expect(link).toContain("Ol%C3%A1!%20Vi%20a%20maquete%203D%20do%20Lote%204%2C%20Quadra%2018%20do%20Vila%20Esmeralda");
+    expect(link).toContain("Ol%C3%A1!%20Vi%20a%20maquete%203D%20do%20Lote%204%2C%20Quadra%2018%20(Vila%20Esmeralda)");
     expect(link).not.toMatch(/[ áç,]/);
     expect(decodeURIComponent(new URL(link).searchParams.get("text")!)).toBe(mensagemWhatsAppDoLote(t));
     // Texto com & ou # não quebra o link.
-    expect(new URL(linkWhatsAppDoLote({ empreendimento: "A & B #1", quadra: null, lote: "7" })).searchParams.get("text")).toBe("Olá! Vi a maquete 3D do Lote 7 do A & B #1 e quero saber mais sobre este lote.");
+    expect(new URL(linkWhatsAppDoLote({ empreendimento: "A & B #1", quadra: null, lote: "7" })).searchParams.get("text")).toBe("Olá! Vi a maquete 3D do Lote 7 (A & B #1) e quero saber mais sobre este lote.");
   });
 
   it("endereço: código é o último pedaço do lote; status da Incorporação mapeado, desconhecido = sem status", () => {

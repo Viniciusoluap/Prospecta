@@ -17,7 +17,9 @@ const raiz = path.resolve(aqui, "..", "..");
 const args = process.argv.slice(2);
 const opcao = n => args.find(a => a.startsWith(`--${n}=`))?.split("=")[1];
 const EDITOR = args.includes("--editor");
-const saida = path.resolve(args.find(a => !a.startsWith("--")) ?? path.join(raiz, `docs/stories/epics/epic-028-maquete-editor/screenshots/${EDITOR ? "etapa-3" : "etapa-2"}`));
+// Etapa 4: `--lote` captura a página pública do lote (status e WhatsApp) e o painel de lotes do admin no editor.
+const LOTE = args.includes("--lote");
+const saida = path.resolve(args.find(a => !a.startsWith("--")) ?? path.join(raiz, `docs/stories/epics/epic-028-maquete-editor/screenshots/${LOTE ? "etapa-4" : EDITOR ? "etapa-3" : "etapa-2"}`));
 mkdirSync(saida, { recursive: true });
 
 if (!args.includes("--sem-build")) execFileSync("npx", ["vite", "build", "--config", path.join(aqui, "harness", "vite.config.ts")], { cwd: raiz, stdio: "inherit" });
@@ -161,12 +163,63 @@ async function editor(t, page) {
   if (!celular) await capturar(page, `${t.nome}-editor-pagina`, { inteira: true });
 }
 
+async function paginaDoLote(t, page) {
+  const celular = t.nome === "celular";
+  const abrir = async (status, modo) => {
+    await page.goto("about:blank");
+    await page.goto(`http://localhost:${porta}/?pagina=lote&status=${status}${modo ? `#${modo}` : ""}`);
+    await page.waitForSelector("[data-teste=figura][data-pronto=\"1\"]", { timeout: 240_000 });
+    await page.waitForTimeout(800);
+  };
+  // 1) Como o cliente abre: celular na planta 2D (o 3D não é baixado), computador já no 3D.
+  await abrir("disponivel");
+  const modo = await page.locator("[data-teste=figura]").getAttribute("data-modo");
+  conferir(`[${t.nome}] abre em ${celular ? "planta" : "geral"} (${modo})`, modo === (celular ? "planta" : "geral"));
+  conferir(`[${t.nome}] nome do lote`, (await page.locator("[data-teste=nome-lote]").innerText()) === "Lote 4, Quadra 18");
+  conferir(`[${t.nome}] status Disponível`, (await page.locator("[data-teste=status]").innerText()) === "Disponível");
+  const whats = page.locator("[data-teste=whatsapp]:visible");
+  const href = await whats.first().getAttribute("href");
+  const texto = new URL(href).searchParams.get("text");
+  conferir(`[${t.nome}] WhatsApp da empresa com o lote: ${texto}`, href.startsWith("https://wa.me/5599981392210?text=") && texto.includes("Lote 4, Quadra 18") && texto.includes("Vila Esmeralda"));
+  conferir(`[${t.nome}] botão do WhatsApp visível`, await whats.first().isVisible());
+  if (celular) {
+    const scripts = await page.evaluate(() => performance.getEntriesByType("resource").map(r => r.name).filter(n => /VisualizadorFonte/.test(n)).length);
+    conferir(`[${t.nome}] 3D não baixado na abertura (planta primeiro)`, scripts === 0);
+  }
+  await capturar(page, `${t.nome}-lote-${celular ? "planta" : "geral"}`);
+  await capturar(page, `${t.nome}-lote-pagina`, { inteira: true });
+  // 2) 3D sob demanda (celular) e outros status.
+  if (celular) { await page.getByRole("button", { name: "Ver em 3D" }).click(); await page.waitForSelector("[data-teste=figura][data-modo=geral][data-pronto=\"1\"]", { timeout: 240_000 }); await page.waitForTimeout(800); await capturar(page, `${t.nome}-lote-geral`); }
+  await abrir("reservado", celular ? "planta" : "geral");
+  conferir(`[${t.nome}] status Reservado`, (await page.locator("[data-teste=status]").innerText()) === "Reservado");
+  await capturar(page, `${t.nome}-lote-reservado`);
+  await abrir("nenhum", "planta");
+  conferir(`[${t.nome}] lote sem unidade: sem status`, (await page.locator("[data-teste=status]").count()) === 0);
+  if (celular) await capturar(page, `${t.nome}-lote-sem-status`);
+  // 3) Painel de lotes do admin dentro do editor.
+  await page.goto("about:blank");
+  await page.goto(`http://localhost:${porta}/?planta=lote4-qd18&admin=1#planta`);
+  await page.click("[data-teste=editar]");
+  await page.waitForSelector("[data-teste=semear-lote]", { timeout: 240_000 });
+  await page.click("[data-teste=semear-lote]");
+  await page.waitForSelector("[data-teste=lote][data-lote=qd18-lote4] [data-teste=link-lote]");
+  const link = await page.locator("[data-teste=link-lote]").inputValue();
+  conferir(`[${t.nome}] admin: lote padrão ligado com link ${link}`, /\/maquete\/vila-esmeralda\/qd18-lote4-[a-z0-9]{10}$/.test(link));
+  await capturar(page, `${t.nome}-admin-lotes`, { elemento: "[data-teste=painel-lotes]" });
+}
+
 for (const t of TELAS) {
   const ctx = await browser.newContext({ ...t, locale: "pt-BR", reducedMotion: "reduce" });
   const page = await ctx.newPage();
   const erros = [];
   page.on("pageerror", e => erros.push(String(e)));
   page.on("console", m => { if (m.type() === "error") erros.push(m.text()); });
+  if (LOTE) {
+    await paginaDoLote(t, page);
+    if (erros.length) console.log(`[${t.nome}] erros no console:\n  ${Array.from(new Set(erros)).join("\n  ")}`);
+    await ctx.close();
+    continue;
+  }
   if (EDITOR) {
     await editor(t, page);
     if (erros.length) console.log(`[${t.nome}] erros no console:\n  ${Array.from(new Set(erros)).join("\n  ")}`);

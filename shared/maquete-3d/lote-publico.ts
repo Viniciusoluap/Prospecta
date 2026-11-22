@@ -49,7 +49,7 @@ export function nomeDoLote(t: Pick<TextosDoLote, "quadra" | "lote">): string {
 
 /** Mensagem pronta: empreendimento, quadra e lote. */
 export function mensagemWhatsAppDoLote(t: TextosDoLote): string {
-  return `Olá! Vi a maquete 3D do ${nomeDoLote(t)} do ${t.empreendimento} e quero saber mais sobre este lote.`;
+  return `Olá! Vi a maquete 3D do ${nomeDoLote(t)} (${t.empreendimento}) e quero saber mais sobre este lote.`;
 }
 
 /** https://wa.me/55…?text=… com o texto codificado. */
