@@ -101,6 +101,37 @@ máximo uma linha em branco seguida" e "cada variável uma vez" são precaução
 - [x] C7.2-AC6: a chave continua lida só por `chaveYcloud()` e vai só no cabeçalho; nunca em estado, auditoria, erro, log ou tela
       (testes procuram a chave no banco, na auditoria, nas respostas e no `console.error`).
 
+## C7.3 — achados BAIXOS do portão de QA da C7.1, rodada 2 (21/11/2026)
+
+Sem migração (tudo derivado do que já existe: `erro_codigo` e o JSON `parametros` de `ycloud_envios`).
+
+- [x] C7.3-1 — filtro do texto fixo do colaborador (`problemaDoTextoFixoDaEquipe`, `textoFixoNormalizado` em `shared/whatsapp/ycloud.ts`):
+      normaliza (NFKC/NFKD, sem acento nem marcas, sem caracteres invisíveis, minúsculas, dígitos de outros alfabetos e dígitos largos
+      viram ASCII, pontos "parecidos" — U+2024, U+00B7, U+FF0E… — colados entre letras viram ".", traços Unicode viram "-", espaço
+      antes do ponto some: "exemplo . com" → "exemplo.com"). Recusa: `http`, `www.`, link por extenso ("ponto com", "ponto br",
+      "arroba", "dot com"), qualquer `palavra.palavra` com 2+ letras depois do ponto (.dev, .ai, .app, .io…), `@algo`, e 8+ dígitos
+      somando os separados por espaço, traço, barra, ponto, parênteses, "+" ou "_". Data com dia/mês válidos e CEP, sozinhos (sem
+      outro grupo de dígitos colado), não contam. Frases normais passam (testadas: "às 14h30", "R$ 1.500,00", "R$ 1.500.000,00",
+      "Rua 7, nº 120", "25/11/2026", "CEP 12345-678", "Chegue cedo. Traga documentos", "Piscina • Academia", "Venha... conheça!").
+      Resíduo conhecido: número por extenso ("onze nove…"). O admin continua sem esse filtro. Limite aceito: "p.ex" é recusado.
+- [x] C7.3-2 — eco de campanha (`ehEcoDeCampanhaOficial` → `textoEhDaCampanha`, `server/ycloud/campanhas.ts`): acabou o "contém".
+      É eco só se o texto for a mensagem daquele envio (corpo já preenchido para o contato, `ycloud_envios.texto`), com o cabeçalho
+      (`parametros.textoCompleto`) e o rodapé do modelo (`parametros.rodape`, guardado a partir da C7.3; `analisarModelo` passa a
+      devolver `rodape`) iguais, se aparecerem. Parte que o envio não guardou (envios anteriores à C7.3: o rodapé) tem tolerância de
+      até 60 caracteres (o tamanho de um cabeçalho/rodapé da Meta). Corpo + acréscimo da equipe → mensagem da EQUIPE (cala a Dolores e
+      entra na Central). Botões do modelo no eco, se a Evolution os mandar, também caem em "equipe" (o comportamento seguro antigo).
+      Em `server/dolores/roteamento.ts` só mudou o comentário do trecho do eco.
+- [x] C7.3-3 — pausa do admin (`mudarCampanha`): o colaborador NÃO cancela campanha pausada pelo admin ou por trava do sistema (o
+      mesmo critério de `podeContinuarPausa`); só o admin. O UPDATE do cancelamento confere a mesma situação e o mesmo motivo lidos
+      (corrida com a pausa do admin → "A campanha mudou…"). Quando o admin cancela uma campanha nessa pausa, os envios da fila ficam com
+      `erro_codigo = CANCELADA_PAUSA_ADMIN` e, para quem não é admin, contam como "já recebeu" na janela de repetição do mesmo modelo
+      (na prévia/criação e de novo no lote: campanha criada por não-admin ou lote rodado por não-admin). O admin pode recriar.
+- [x] C7.3-4 — `server/ycloud/ycloud-qa-c71-r2.test.ts` trazido do worktree do QA; as asserções que fixavam os contornos residuais
+      (texto fixo; "erro 5599…" → aviso da integração) passaram a fixar o corrigido.
+- [x] C7.3-5 — texto para o colaborador (`motivoParaEquipe`): problema do número da integração continua "A integração precisa de
+      ajuste do administrador."; qualquer outro motivo com 6+ dígitos ou "••••" vira "Não foi possível concluir. Avise o
+      administrador." (`AVISO_NAO_CONCLUIDO`). Admin vê o texto original.
+
 ## Pedido do dono (20/11/2026)
 O WhatsApp da empresa é ligado pela Evolution (WhatsApp Web): por ela entra TUDO (conversas, grupos, Dolores) e saem as mensagens
 comuns. O dono criou conta gratuita na YCloud (provedor oficial da Meta) e vinculou o MESMO número em coexistência (WhatsApp Business
@@ -239,6 +270,7 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - (a'') C7.2 (21/11): `npx vitest run server/ycloud server/admin-permissions.test.ts --maxWorkers=2 --minWorkers=1` → 5 arquivos,
   111/111 (17 novos em `ycloud-c72.test.ts`); `e9-conexao-unica`, `e9-qa-seg`, `roteamento-eco-campanha`, `imports-esm`,
   `api-rotas-producao` → 50/50; `npx tsc --noEmit` → 0 erros; `npx vite build` ok.
+- (a''') C7.3 (21/11): tsc 0 erros; pacote do portão (ycloud + eco + e9 + admin-permissions) → 10 arquivos, 192/192.
 - (b) manuais: nenhum (sem acesso à conta).
 - (c) pendentes em produção: aplicar 0141; salvar a chave; Testar; Ativar avisos; campanha de 1 destinatário (o próprio celular de
   teste) para conferir entrega, preço registrado, aviso assinado e o eco na Central.
@@ -262,8 +294,15 @@ Rotina de retenção de 12 meses para `ycloud_envios` (telefone, nome, texto), `
 - Portão da C7.1: `server/ycloud/{campanhas,router,config,webhook}.ts`, `shared/whatsapp/ycloud.ts`, `server/dolores/roteamento.ts`,
   `client/src/components/whatsapp/CampanhaApiOficial.tsx`, `server/ycloud/ycloud-qa-c71.test.ts`, `server/ycloud/ycloud.test.ts`,
   `server/dolores/roteamento-eco-campanha.test.ts` (novo)
+- C7.3: `shared/whatsapp/ycloud.ts`, `server/ycloud/campanhas.ts`, `server/dolores/roteamento.ts` (só o comentário do eco),
+  `server/ycloud/ycloud-c73.test.ts` (novo), `server/ycloud/ycloud-qa-c71-r2.test.ts` (trazido do QA), `server/ycloud/ycloud-qa-c71.test.ts`,
+  `server/dolores/roteamento-eco-campanha.test.ts`
 
 ## Change Log
+- 21/11/2026 — @dev (Dex): C7.3 — achados BAIXOS da rodada 2 do portão da C7.1 (filtro do texto fixo, eco exato, cancelar pausa do
+  admin, texto neutro) e o teste do QA trazido; sem migração. Testes: `npx tsc --noEmit` → 0 erros; `npx vitest run server/ycloud server/dolores/roteamento-eco-campanha.test.ts
+  server/dolores/e9-conexao-unica.test.ts server/admin-permissions.test.ts --maxWorkers=2 --minWorkers=1` → 10 arquivos, 192/192
+  (15 novos em `ycloud-c73.test.ts`, 1 novo em `roteamento-eco-campanha.test.ts`, `ycloud-qa-c71-r2.test.ts` 7/7). Sem tela alterada.
 - 21/11/2026 — @dev (Dex): correções do portão de QA da C7.2 (CONCERNS): QA-1 tentativa somada já na reserva e JSON gravado
   cortado pelo tamanho serializado (surrogates soltos trocados; vale também para o vínculo); QA-2 modelo padrão DEPOIS da rotina
   principal nos dois crons, com prazo total de até 10 s abortando as chamadas e sem mexer na resposta; QA-3 vínculo guarda as
