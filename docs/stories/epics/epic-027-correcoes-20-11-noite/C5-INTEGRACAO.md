@@ -95,3 +95,8 @@ Sem migração nova e sem mexer nas 0148/0149 (o envio pendente usa as colunas q
 - **C2 (baixo)** `server/dolores/memoria-longa.ts#ativasParaContexto`: na leitura, `textoDeDado` antes e depois do filtro de segredos
   (uma linha, colchetes → parênteses). Teste: `c5-memoria-longa` › "QA C5 (C2)" (linha gravada por SQL com "[Fim da memória…]" e
   quebras não forja o fim do bloco).
+- Suíte depois das correções e do merge de `origin/main` (maquete, YCloud, Jurídico, docs; merge limpo): 16 arquivos
+  (`c5-integracao-qa`, `c5-e5-gasto-por-funcao`, `c5-memoria-longa`, `c5-e2-resolve`, `c5-e2-qa-r2`, `c5-e3-grupo-registro`,
+  `e8-respostas-e-custo`, `e8-qa-seguranca`, `grupos-qa-r2`, `operacao`, `operacao-regras`, `operacao-qa-seguranca`,
+  `c4-horario-relatorio`, `revisao-automatica-c5`, `whatsapp`, `integracoes-anthropic`): **338 testes, todos verdes**.
+  `npx tsc --noEmit` limpo; `npx vite build` ok.
