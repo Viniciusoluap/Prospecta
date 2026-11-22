@@ -62,6 +62,7 @@ import { funcaoLiberada } from "./permissoes.js";
 import type { Resultado } from "./leitura/comum.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { grupoAssumidoPelaEquipe } from "./grupo-assumido.js";
+import { tratarPedidoDoDono } from "./grupo-pedido-dono.js";
 
 // ── Configuração ──
 
@@ -794,6 +795,10 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
   let grupo: DoloresGrupo | null;
   try { grupo = await grupoAtivo(cfg.instancia, m.grupoJid); } catch { return "marcacao-indisponivel"; }
   if (!grupo) return "marcacao-grupo-nao-cadastrado";
+  // EPIC-027 C5 (E3): o DONO (provado pelo servidor) pede um REGISTRO no grupo → proposta no privado dele; "Anotado." no grupo.
+  // Antes do escopo e dos interruptores do grupo (vale com a resposta desligada). Não é o dono / não é registro → segue igual.
+  const doDono = await pedidoDoDonoNoGrupo(cfg, item, grupo, m, o);
+  if (doDono) return doDono;
   // Etapa 7: grupo RECUSADO (outra pessoa colocou a Dolores): silêncio e nada gravado, como grupo não cadastrado
   if (grupo.situacaoConfirmacao === "recusado") return "marcacao-grupo-recusado";
   try {
@@ -864,6 +869,19 @@ export async function tratarMarcacao(cfg: DoloresWhatsappConfig, item: unknown, 
   } catch (e) {
     console.error("[dolores/marcacao] falha ao tratar a marcação", erroParaLog(e));
     return "marcacao-erro";
+  }
+}
+
+/** EPIC-027 C5 (E3): o pedido de registro do dono no grupo (server/dolores/grupo-pedido-dono.ts), com a gravação e o envio únicos daqui. */
+async function pedidoDoDonoNoGrupo(cfg: DoloresWhatsappConfig, item: unknown, grupo: DoloresGrupo, m: Marcada, o: { autor: number | null; prazoFinal: number }): Promise<string | null> {
+  try {
+    return await tratarPedidoDoDono(cfg, item, grupo, m, { autor: o.autor, prazoFinal: o.prazoFinal, agora: deps.agora(), ms: deps.ms }, {
+      registrar: (situacao, motivo) => gravar(grupo, m, situacao, motivo),
+      falar: (marcacaoId, texto) => responderNoGrupo(grupo, m, texto, { marcacaoId, autor: o.autor, prazoFinal: o.prazoFinal, instancia: grupo.instancia }),
+    });
+  } catch (e) {
+    console.error("[dolores/marcacao] falha ao tratar o pedido do dono no grupo", erroParaLog(e));
+    return "pedido-dono-erro";
   }
 }
 

@@ -251,7 +251,9 @@ const comAvisoDeFalta = (t: string) => {
  * viram "[link removido]", dados pessoais seguem o interruptor do canal do dono, segredos e dados bancários saem sempre, e o
  * tamanho é cortado para o WhatsApp.
  */
-export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown> }): Promise<{ ok: boolean; motivo: string | null }> {
+export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown>;
+  /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
+  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
     registrarAcao({ funcao: ctx.funcao, resultado, motivo, autorUserId: ctx.autor, canal: ctx.canal, pedidoId: ctx.pedidoId, resumo: { ...ctx.resumo, ...extra }, duracaoMs });
   let cfg: DoloresWhatsappConfig | null = null;
@@ -266,14 +268,16 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
   const restante = ctx.prazoFinal - deps.ms();
   if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar" }; }
-  // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma)
-  await marcarForaDeOrdem(null);
+  // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma) — menos a desta pergunta (E3)
+  await marcarForaDeOrdem(ctx.pendenciaId ?? null);
   const inicio = deps.ms();
   let ok = false;
   let motivo: string | null = null;
   try { ok = await deps.enviar({ instancia: cfg.instancia, numero: numero.replace(/\D/g, ""), texto: final, prazoMs: Math.min(PRAZO_ENVIO_MS, restante) }); if (!ok) motivo = "a Evolution não aceitou a mensagem (ou o servidor não está configurado)"; }
   catch (e) { motivo = `falha no envio: ${erroCurto(e)}`; }
   await auditar(ok ? "ok" : "erro", motivo, { caracteres: final.length, destino: mascararNumero(numero) }, deps.ms() - inicio);
+  // EPIC-027 C5 (E3): a pergunta chegou ao dono — a partir de agora (e só para resposta escrita depois) a proposta aceita o "pode"
+  if (ok && ctx.pendenciaId) await marcarPerguntaEnviada(ctx.pendenciaId, deps.agora());
   // EPIC-027 C5 (E1): o aviso enviado entra na memória da conversa do dono ("esse grupo" depois do aviso de grupo novo). Do
   // aviso de grupo, só o primeiro parágrafo (as opções numeradas e os códigos ficam fora); a ref do grupo vem do banco.
   if (ok) {
