@@ -1,81 +1,139 @@
 # Jurídico — validação automática e ajustes da assinatura
 
-**STATUS (checkpoint wip, Claude, 22/11):** núcleo PKI reescrito e testado (download com SSRF/prazo/limites, cadeia PKIjs 3.4.0 + regras extras, LCR com cache, conferência por assinatura com estados valida/pendente/invalida), relatório por documento (migração 0161, NÃO aplicada), validação no upload da empresa, retorno do portal, retentativa (tela + cron diário existente) e endpoint de cadeia. FALTA: UI (marca proporcional, aba de certificados, exibição), testes de integração do relatório/retentativa, suíte completa e build. Ver seção de status no fim quando houver.
+**STATUS (22/11/2026, Claude/AIOX @dev):** itens 2 a 11 implementados e testados nesta branch. O item 1 (marca proporcional)
+foi para outra frente (`claude/juridico-marca-proporcional`). O item 12 (contrato real da Maylanne) NÃO foi feito. As correções
+do portão de QA (A1, A2, M1, M2, M3 e B1 a B4) foram aplicadas, cada uma com teste; **falta o novo portão de QA**. A migração
+0161 foi criada e **NÃO foi aplicada**. Nada foi publicado, mesclado ou migrado. Nenhum e-mail real, nenhum contrato real e
+nenhuma chamada de rede real nos testes.
 
-Atualizado em 22/11/2026. O dono pediu para salvar todo o progresso para continuar com outra IA. Esta frente está EM ANDAMENTO. O código desta branch ainda precisa de integração, testes e revisão antes de mesclar/publicar.
+Branch: `codex/juridico-validacao-automatica-2211` (base main `1524c18`). Commits desta etapa: `825265f` (núcleo PKI,
+relatório, retentativa), `b0b7421` (testes), `02789aa` (cadeia antes de assinar, aba de certificados, exibição, retentativa na
+tela), `7a77bbd` (correções do QA) e o commit deste handoff.
 
-## Pedido e autorização do dono
+## Pedido e autorização do dono (sem mudança)
 
-1. Automatizar a conferência técnica do PDF no fluxo de assinatura: integridade, cadeia ICP-Brasil e revogação, salvando o resultado junto ao documento. Falha/inconclusão deve aparecer como pendência, nunca como aprovação. O dono autorizou implementar.
-2. Print IMG_4201.jpeg/IMG_4200.jpeg: trocar o controle "Largura da assinatura" por tamanho proporcional da marca inteira. Largura, altura, texto, bordas e espaçamento devem acompanhar a escala e a marca deve continuar posicionável por toque/arrasto.
-3. Remover o formulário "Importar certificado digital" da janela de assinatura. Importação permanece na aba Certificados digitais do Jurídico. Se não houver certificado, orientar essa aba usando navegação existente.
-4. Migração aditiva, merge e produção já autorizados na conversa, quando a implementação passar pelos checks. Preservar as correções paralelas do Fabel. Nunca enviar e-mails reais nem assinar contratos reais em testes.
+1. Automatizar a conferência técnica do PDF no fluxo de assinatura: integridade, cadeia ICP-Brasil e revogação, com o
+   resultado salvo junto ao documento. Falha ou inconclusão aparece como pendência, nunca como aprovação.
+2. Marca da assinatura proporcional por inteiro (prints IMG_4200/IMG_4201). **Agora na frente `claude/juridico-marca-proporcional`.**
+3. Importação do certificado só na aba Certificados digitais; sem certificado, a janela orienta a ir para essa aba.
+4. Migração aditiva, merge e produção autorizados quando passar nos checks. Preservar as correções do Fabel. Nunca enviar
+   e-mail real nem assinar contrato real em teste.
 
-## Base e situação da produção
+## O que foi entregue (por item)
 
-Repositório Viniciusoluap/Prospecta. Esta branch nasce da main 1524c1830e3c1a6bde7ae66cfbfcb1194381b6d3. Conferir a main novamente antes de continuar e integrar somente esta frente.
+- **Download PKI seguro** (`server/juridico-pki-download.ts`). Uma `SessaoPki` por conferência, com:
+  - prazo total de 18 s (inclui DNS, conexões e redirecionamentos);
+  - até 12 requisições e 24 MiB por sessão, 10 MiB por resposta e 4 downloads simultâneos no processo;
+  - só http/https em porta padrão, sem usuário/senha, sem IP literal (v4/v6) e com nome de domínio completo;
+  - resolução SÓ em IPv4, e todos os IPs precisam ser públicos (redes privadas/reservadas bloqueadas, IPv6 recusado);
+  - IP fixado na conexão (o lookup trata `all: true`);
+  - redirecionamento reconferido, no máximo 2, e HTTPS→HTTP recusado.
+  Só recebe URLs AIA/LCR de certificados em conferência. O AIA só é seguido quando o emissor declarado é da hierarquia das
+  raízes confiáveis (O= da raiz; nas oficiais, ICP-Brasil).
+- **Cadeia e revogação** (`server/juridico-pki.ts`).
+  - Montagem própria (certificados fornecidos → raízes → AIA) + `CertificateChainValidationEngine` do PKIjs 3.4.0: folha por
+    último em `certs`, sem duplicata de raiz/folha, `certificatePath` folha→raiz conferido.
+  - Regras que o PKIjs não aplica: extensão crítica desconhecida (pendente manual), pathLen, CA com keyCertSign, keyUsage e EKU
+    da folha (e-mail, qualquer, assinatura de documento), política ICP-Brasil A1–A4 quando a raiz é oficial, CPF/CNPJ pelo SAN
+    otherName (2.16.76.1.3.1/3.3) com o CN como alternativa.
+  - LCR: emissor certo com cRLSign, assinatura válida, thisUpdate/nextUpdate, sem delta, sem extensão crítica desconhecida, IDP
+    compatível (onlyUser/onlyCA/URI), entradas com crítica desconhecida recusadas.
+  - Cache por URL+emissor até o nextUpdate (máx. 6 h, 32 itens, 48 MiB).
+  - Algoritmo não suportado pelo WebCrypto (ex.: secp256k1) → pendente manual.
+- **Verificação** (`server/juridico-verificar-assinaturas.ts`). Por assinatura: ByteRange, /Contents, um único signerInfo e
+  integridade CMS. Por documento: cobertura total. Estados `valida`/`pendente`/`invalida`, com `transitoria`. Falha de rede
+  nunca vira inválida, timeout nunca vira válido. A regra antiga de partes e testemunhas foi preservada.
+- **Endpoint de cadeia** (`server/juridico-cadeia.ts` + `juridico.montarCadeia`, admin).
+  - Só aceita certificado DER estrito (sem bytes extras; PFX recusado) e até 5 da cadeia; 12 chamadas a cada 10 min por usuário.
+  - No navegador, `assinarPdf(..., montarCadeia)` inclui os intermediários em `signer.certificateChain` antes de assinar
+    (`incluirIntermediarios`, sem duplicar). Senha, PFX e chave não saem do navegador.
+- **Upload `assinatura_digital`** (`server/juridico-router.ts`).
+  - `documentoOrigemId` é obrigatório: contrato gerado ou anexo do mesmo contrato.
+  - `relatorioEmpresa` confere integridade, cadeia e LCR, e que o titular da última assinatura é a Parte A.
+  - Confere também o vínculo com a origem: prefixo idêntico + conteúdo conservado. Só a marca visível do titular pode entrar
+    (`server/juridico-marca-conferencia.ts`).
+  - Inválido ou pendente nunca recebe rótulo de validado. O upload normal e o original ficam preservados.
+- **Persistência** (`server/juridico-validacao.ts` + `drizzle/0161_juridico_validacao_assinaturas.sql`).
+  - Relatório por documento com SHA-256, origem, horário, tentativas e `execucao` (token), gravado no MESMO lote do
+    documento, do arquivo e do status.
+  - Sem a migração, nada é gravado e o fluxo continua; o resultado volta na resposta.
+  - Se o lote falhar com o Drive ativo, a cópia vai para a lixeira.
+- **Exibição** (`client/src/components/admin/ValidacaoAssinatura.tsx` no detalhe do contrato, `AdminJuridico.tsx`).
+  - Mostra válida/pendente/inválida, titular(es), motivo, horário e próxima tentativa, com o aviso "não é o relatório oficial
+    do VALIDAR/ITI".
+  - As fases "Assinado pela empresa" e "Assinado por todos" continuam separadas.
+  - Os avisos depois de assinar refletem o resultado real (`client/src/lib/juridico-conferencia.ts`).
+- **Aba de certificados** (`CertificadosJuridico.tsx`). Sem certificado, a janela mostra o aviso e o botão "Ir para
+  Certificados digitais", que troca para a aba existente. O formulário de importação fica só na aba.
+- **Retentativa** (`server/juridico-revalidacao.ts`).
+  - Roda ao abrir o contrato (a tela chama `juridico.revalidarDocumento`) e no cron diário existente `/api/cron/lead-card-due`
+    (até 10 s, nunca lança).
+  - Esperas de 10 min, 30 min, 2 h, 6 h e 24 h. Teto de 6 tentativas e 7 dias, aplicado NA reserva; no teto vira pendência
+    manual. Try/catch por documento.
+- **Portal** (`salvarRetornoContrato`).
+  - Base = última `assinatura_digital` cuja conferência gravada é `valida` com vínculo `conferido`.
+  - Conclui sozinho só com todas as identidades + revisão da empresa conservada (P1 da PR #297 mantido).
+  - A retentativa só conclui se o contrato ainda está `em_conferencia` e a base ainda é a última assinatura válida da empresa.
+  - Limite de 6 envios por hora por cliente.
+- **Paridade**: pendência registrada no fim de `docs/stories/epics/ROADMAP.md`. O Santa Fé não foi tocado.
 
-Entregas anteriores concluídas:
-- PR #297, merge 7626b6d849e6bbbd214cb8e1679d1cda6ecbee01: senha lembrada cifrada por conta/aparelho, PDF com marca visível e posição selecionável, nomes por cliente, fases empresa/retorno/todos, envio explícito por e-mail e portal. 27 testes aprovados na etapa anterior. HANDOFF-22-11-JURIDICO-FLUXO.md contém os detalhes.
-- PR #301, merge 6a09e01a69e42c9f9a240d63b854fe1ca2e128d8: corrigiu import JSON ESM que derrubava TODA a API/login com ERR_IMPORT_ATTRIBUTE_MISSING. Deploy dpl_EaWCfciVeCnT1jgaNgRzyHUm9E74 READY. /api/health 200 com banco conectado e /api/trpc/auth.me 200 sem sessão verificados. NÃO remover o atributo with { type: "json" } dos imports JSON de servidor. HANDOFF-22-11-LOGIN-API.md.
-- Main atual pode conter outras entregas do Fabel além desses merges.
+## Migração (para o Neon — NÃO aplicada)
 
-## Código preparado nesta branch
+`drizzle/0161_juridico_validacao_assinaturas.sql`. Número 0161 porque o maior da main é 0160 e a faixa 0154–0159 está reservada
+à frente fiscal; conferir de novo com `git fetch` antes de aplicar. Aditiva e idempotente:
+`CREATE TABLE IF NOT EXISTS portal_contract_document_validacoes` com document_id (PK → portal_contract_documents, ON DELETE
+CASCADE), estado (CHECK valida/pendente/invalida), origem (CHECK), sha256 (char(64) hex), relatorio jsonb, verificado_em,
+tentativas, proxima_tentativa, primeira_em, execucao, versao e atualizado_em, mais um índice parcial das pendentes.
+Reversão: `DROP TABLE`.
 
-client/src/components/admin/PosicionarAssinaturaPdf.tsx
-- Slider renomeado Tamanho da assinatura, escala 50–160%, dimensões base 0.52 x 0.11 relativas à página.
-- Largura/altura variam proporcionalmente, preserva centro e limita o retângulo à página.
-- Atualiza boxRef e posição publicada.
-- PENDENTE: a prévia ainda usa texto fixo em 10px e o desenho real ainda limita a fonte a 9pt/padding fixo. Corrigir ambos para que a marca inteira escale, conforme pedido. Testar coordenadas após resize e arrasto, páginas e tamanhos distintos.
+## Pendências
 
-client/src/components/admin/CertificadosJuridico.tsx
-- Formulário de importação envolvido por !documento, ficando somente na aba própria.
-- PENDENTE: estado sem certificado deve orientar a aba própria. Integrar chamada de montagem da cadeia e resultado real da validação; texto e toast atuais ainda dizem sem revogação e assinado/salvo sem resultado da análise.
-
-server/juridico-pki-download.ts (NOVO, rascunho)
-- Download HTTP/HTTPS limitado, sem credenciais/portas incomuns/IP literal. Resolve IPv4, bloqueia redes privadas/reservadas e fixa IP na conexão, revalida redirects, timeout de conexão e limite de 10MiB.
-- PENDENTE: revisar tipos Node lookup, deadline total inclusive DNS/redirects, quantidade de requisições/concurrência e proteção SSRF. Não aceitar URLs arbitrárias fornecidas diretamente por usuário. Material de rede deve servir só a certificados/LCR públicos.
-
-server/juridico-pki.ts (NOVO, rascunho)
-- Raízes públicas oficiais já existentes em server/certificados/icp-raizes.json com import JSON tipado.
-- Busca intermediários via AIA dos certificados, verifica vínculo criptográfico com emissor e usa CertificateChainValidationEngine do PKIjs com raízes fixas.
-- Consulta LCR, confere emissor/assinatura/período e serial revogado. Escopos parciais/delta não suportados deixam pendente. Não faz OCSP.
-- validarCertificado devolve cadeia, revogação, motivo e intermediários DER base64 para inclusão no PDF.
-- PENDENTE: validar no runtime real PKIjs 3.4.0, ordem certificatePath, chave cRLSign e todos os limites/escopos/extensões críticas. Adicionar testes reais com CA/folha/LCR sintéticas válidas, revogadas, vencidas, indisponíveis, adulteradas e de outro emissor. Rejeitar dados incompletos sem dar verde. Cache/retentativa ainda ausentes. Consulta atual não equivale a validação histórica com timestamp.
-
-server/juridico-verificar-assinaturas.ts
-- Rascunho troca conferência CMS com cadeia embutida por integridade CMS seguida da nova rotina de cadeia/revogação.
-- Relatório expandido com estado valida/pendente/invalida, assinaturas, titular/documento, integridade, cadeia, revogação e verificadoEm.
-- todos exige estado válido e todas as identidades obrigatórias, preservando a lógica de testemunhas/partes do código anterior.
-- PENDENTE: distinguir falha transitória da consulta de assinatura criptograficamente inválida, capturar exceções sem classificar indisponibilidade como invalida, testar integridade/cobertura e múltiplas assinaturas. Os testes anteriores de raízes sintéticas precisam continuar significativos.
-
-## Integração que falta fazer
-
-1. Endpoint autenticado de montagem da cadeia recebe APENAS certificado público DER e cadeia existente; servidor devolve intermediários. Senha/PFX/chave privada continuam no navegador. Antes de assinar, incluir intermediários em signer.certificateChain. O P12Signer da @libpdf/core 0.5.3 expõe certificateChain como array readonly no atributo mas mutável nos itens. A chamada local abrirCertificado hoje usa buildChain:false. Não simplesmente habilitar fetch no navegador porque CORS/HTTP em HTTPS pode impedir AIA.
-2. Validar o PDF assinado durante uploadDocument type assinatura_digital no servidor. Conferir integridade e titular esperado da Parte A, vincular ao documento de origem e ao contrato correto. Arquivo inválido/revogado não recebe rótulo de assinatura validada. Pendência de rede pode ser guardada como pendência explícita. Preservar original e comportamento de upload normal.
-3. Persistir relatório por documento e SHA-256 dos bytes analisados, com horário e origem. Criar migração ADITIVA se necessário. Nenhuma migração desta frente foi escrita/aplicada. Guardar relatório atomicamente com PDF/documento/status e evitar estado inconsistente ou sobrescrita concorrente de arquivo/análise.
-4. Exibir resultado técnico nos documentos: assinatura válida, pendente ou inválida, titular e explicação curta. "Assinado pela empresa" continua separado de "Assinado por todos". Nunca alegar relatório/validação oficial ITI quando o sistema fez só sua própria conferência.
-5. Retentativa automática para consultas pendentes, com limites e prazo/cache de revogação. Pode acontecer ao consultar documento e/ou tarefa agendada autenticada conforme infraestrutura disponível. Nunca dar verde por timeout. A política exata ainda não foi implementada.
-6. Retorno via portal só conclui automaticamente quando todas as identidades obrigatórias têm assinaturas conferidas E o arquivo conserva a revisão da empresa/conteúdo. Preservar proteção contra sobreposição de anotações (P1 corrigido na PR297). Retorno externo por e-mail/WhatsApp continua anexo + confirmação do dono conforme pedido. Retentativa do portal pode concluir quando a validação antes pendente passar, preservando origem/arquivo.
-7. Comparar estrutura e cadeia do contrato real da Maylanne somente se necessário, com acesso autorizado. O PDF real NÃO está nesta branch. O usuário relatou OpenSSL/pdfsig com integridade válida, issuer unknown; isso não prova cadeia inválida. Não mudar certificado nem pedir sua senha em chat.
-8. Revisar/verificar/testar e então migrar/publicar. Ler CLAUDE.md atual e AGENTS.md. Antes de merge esperar revisão Codex Completed, ler comentários de revisão e corrigir achados reais.
+- **Novo portão de QA** sobre o commit das correções (A1, A2, M1, M2, M3 e B1 a B4).
+- Item 1 (marca proporcional) está na outra frente. Quando ela mudar o desenho, conferir que `desenhoSoDaMarca` continua
+  aceitando a marca. Operadores permitidos: q/Q, cores, w, m/l/h/S/re, BT/ET, Tf/TL/Tm/Td, Tj/TJ; texto do vocabulário da
+  marca; tudo dentro da caixa.
+- Item 12 (contrato real da Maylanne): não feito, porque não há acesso autorizado ao PDF real.
+- Não há OCSP nem carimbo de tempo: a conferência vale para a data da consulta, não é histórica. Uma âncora de confiança
+  assinando diretamente (raiz como folha) é aceita sem LCR; isso só acontece com raízes de teste.
+- A política ICP-Brasil (A1–A4) só é exigida com as raízes oficiais. Sem certificado ICP real nos testes, essa regra tem só o
+  teste negativo de unidade.
+- Antes de publicar: revisão automática Codex do PR, preview e smoke de `/api/health` e `/api/trpc/auth.me` (por causa do
+  incidente do import JSON).
 
 ## Verificações desta etapa
 
-(a) Automáticos: ainda NÃO executados nesta branch. Sem pnpm check, Vitest ou build concluídos para o código novo. Código não deve ser tratado como pronto.
-(b) Manuais: prints observados no contexto. Alterações de UI feitas em código, sem validação visual desta etapa. Documentação/tipos instalados das versões exatas consultados.
-(c) Produção: nenhuma mudança desta branch foi publicada. Nada foi migrado e nenhum contrato real foi assinado/enviado. As 27 aprovações citadas acima pertencem à etapa ANTERIOR, não a esta.
+(a) Automáticos:
+- `npx tsc --noEmit -p .`: sem erros. Os 3 TS2802 do rascunho foram corrigidos com `Array.from`, sem mexer no tsconfig.
+- Testes focados com `npx vitest run`:
+  - `server/juridico-pki.test.ts`: 27/27;
+  - `server/juridico-validacao.test.ts`: 30/30;
+  - `server/juridico-assinatura-cadeia.test.ts`: 3/3;
+  - aprovados também `juridico-certificados`, `juridico-pdf-db`, `juridico`, `juridico-modelos` e `juridico-formulario`. Os
+    testes antigos de raízes sintéticas continuam valendo (integridade + raízes + todas as partes).
+  - Dois testes antigos de `juridico-pdf-db.test.ts` passaram a informar `documentoOrigemId` (exigência A2), sem apagar asserções.
+- Suíte completa e `npx vite build`: resultado na seção "Resultado final", abaixo.
+- Cobertura nova:
+  - ICP sintética real (OpenSSL + PKIjs): válida, revogada, intermediária revogada, vencida, indisponível, prazo esgotado, LCR
+    adulterada/de outro emissor/vencida/delta/IDP, CA sem cRLSign, pathLen, EKU, SAN, secp256k1 e outro emissor;
+  - SSRF: IPs privados/reservados/IPv6, redirecionamentos, limites, concorrência e IP fixado (com servidor local);
+  - PDF: múltiplas assinaturas, testemunha, byte alterado, conteúdo depois da assinatura, ByteRange manipulado, dois signerInfos;
+  - upload: relatório atômico, sem migração, A1 ("VALOR ALTERADO 999", retângulo preenchido), A2, retentativa, corrida, teto
+    M3, M2 e portal.
 
-## Dependências e ambiente de continuidade
+(b) Manuais: nenhuma validação visual em navegador nesta etapa (não há navegador no executor).
 
-Checkout local /workspace/scratch/8b7f794f86dd/prospecta-juridico-validacao. Histórico local é snapshot antigo e alguns arquivos foram atualizados da main por connector. NÃO fazer push de toda a cópia local para main, pois há diferenças de outras frentes. Esta branch remota contém só os cinco arquivos de implementação desta frente e este HANDOFF, com parent na base remota atual consultada.
+(c) Produção: nada publicado, nada migrado. Falta: aplicar a 0161 no Neon, preview, smoke da API e do login, assinatura real
+de teste pelo dono e conferência do resultado no detalhe do contrato.
 
-Pacotes já declarados no repositório: @libpdf/core 0.5.3, pkijs 3.4.0, fake-indexeddb 6.2.5, pdfjs-dist 6.5.438. Reinstalados temporariamente em /tmp/prospecta-jurpdf para o ambiente local após poda. Links node_modules apontam para outros snapshots e podem ficar quebrados após limpeza. Não introduzir troca de versão ou lockfile por causa do ambiente local.
+## Resultado final
 
-Referências técnicas consultadas: https://pkijs.org/docs/api/classes/CertificateChainValidationEngine/ e https://pkijs.org/docs/api/classes/CertificateRevocationList/ . VALIDAR oficial https://validar.iti.gov.br/ . Integração de emissão automática do relatório OFICIAL ainda não foi verificada e não foi prometida como implementada.
-
-Paridade Grupo Santa Fé continua pendência registrada da frente do Jurídico. Não tocar na frente paralela ao fazer este checkpoint.
+(preenchido no commit seguinte com a suíte completa e o build)
 
 ## Próximo passo exato
 
-Criar checkout LIMPO desta branch remota, ler este HANDOFF e CLAUDE.md, executar primeiro TypeScript/testes focados para corrigir os rascunhos PKI; depois concluir dimensionamento integral, integração frontend/backend, persistência e retentativa. Atualizar este HANDOFF, commit/push e confirmar GitHub a cada etapa. Só publicar após revisão Completed e checks, com smoke da API/login para evitar o incidente anterior.
+1. Pedir o novo portão de QA (@qa) sobre esta branch.
+2. Corrigir os achados.
+3. Rodar `git fetch` e reconferir o número 0161.
+4. Abrir o PR (por @devops), esperar a revisão Codex "Completed" e ler os comentários.
+5. Aplicar a 0161 no Neon (aditiva), mesclar, conferir a Vercel e fazer o smoke de `/api/health` + `/api/trpc/auth.me`.
+6. O dono assina um contrato de teste e confere o selo.
