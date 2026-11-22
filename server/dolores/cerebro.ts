@@ -85,8 +85,8 @@ const PRAZO_CONSULTA_MS = 15_000;
 // prefixo foi a ~14,7 mil (+500 da API = ~15,2 mil, acima do piso): 15.000 → 17.000 (mais rígido, com folga para as frentes em paralelo).
 // EPIC-027 C5 (criadora de mesas): +listar_mesas e +4 ações de mesa (~1,8 mil tokens pela estimativa): sozinha, ~15,2 mil; piso 17.000.
 // Integração 2 (C5-COM + C5-MESAS + C5-E4 juntas): prefixo medido no pior caso (todas as ferramentas com ações, inclusive as de mesa)
-// = sistema 2.526 + ferramentas 14.527 = 17.053 (+500 da API = 17.553 > 17.000): piso 17.000 → 19.000 (folga ~1,4 mil). Sem pedido de
-// mesa, as 4 ações de mesa ficam fora (≈ 15,5 mil + 500).
+// = sistema 2.474 + ferramentas 14.527 = 17.001 (+500 da API = 17.501 > 17.000): piso 17.000 → 19.000 (folga ~1,5 mil). Sem pedido de
+// mesa, as 4 ações de mesa ficam fora (≈ 15,4 mil + 500).
 export const RESERVA_MINIMA_ENTRADA = 19_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
