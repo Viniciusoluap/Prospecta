@@ -872,3 +872,28 @@ Ao final, cada barra mostra o gasto da função contra a nova parte.
 - **100%**: aviso de que entrou em modo sem IA (no total ou só naquela função).
 - Cada um sai **uma vez por mês** (o estado aparece no cartão, abaixo das barras). Só números e nomes de função: nunca nome de
   cliente, telefone ou CPF.
+
+# EPIC-027 C5-E4 — Avisos automáticos ao dono (decisão do dono de 21/11/2026)
+
+A Dolores avisa você sozinha, no seu WhatsApp, do que as REGRAS do sistema acharem relevante (obras com atraso, tarefas vencidas
+paradas, documentos pendentes no card do cliente, notas de obra sem confirmação ou divergentes, regularizações paradas, grupos esperando
+a sua decisão, contas bancárias sem sincronizar). De segunda a sábado, das 07h às 20h (Brasília), no máximo 6 avisos por dia, tudo
+agrupado num aviso só. Nasce DESLIGADO. Story: `docs/stories/epics/epic-027-correcoes-20-11-noite/C5-E4-proatividade.md`.
+
+## 1. Banco (equipe técnica, já autorizado)
+Aplicar `drizzle/0150_dolores_avisos.sql` no Neon (aditiva e idempotente). Conferir na Vercel (Settings › Cron Jobs) que aparecem os
+15 crons (os 10 de antes e os 5 novos `/api/cron/dolores-avisos/15` … `/19`).
+
+## 2. Ligar (você, administrador)
+1. Abra https://prospecta-crm.vercel.app/admin/integracoes (ou o endereço do sistema › Configurações › Integrações).
+2. Desça até o cartão **"Dolores — operação contínua"** e, no fim dele, a seção **"Avisos automáticos ao dono"**.
+3. Ligue a chave **"Avisos"**. Ela só liga com o número do dono cadastrado (em "WhatsApp da empresa (Dolores e Central)").
+4. (Opcional) Ajuste os limites (ex.: "Obra atrasada há (dias)") e toque em **"Salvar limites"**.
+5. (Opcional) Ligue **"IA escreve o texto"** — só redige o aviso, gastando a parte "avisos" (5%) do limite; precisa do interruptor da
+   IA da Dolores ligado. Desligada, sai o texto fixo (o conteúdo é o mesmo).
+6. Ao final, você deve ver "Avisos **ligados**". O primeiro aviso sai na próxima chamada do cron dentro da janela.
+
+## 3. Silenciar um tipo
+- Na mesma seção, desligue a chave do tipo (ex.: "tarefas vencidas paradas"); ou
+- no WhatsApp, diga à Dolores: "pare de me avisar de tarefas vencidas" e responda **pode** à pergunta dela. Para voltar: "volta a me
+  avisar de tarefas vencidas" e **pode**.
