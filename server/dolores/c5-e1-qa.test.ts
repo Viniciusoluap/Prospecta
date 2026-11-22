@@ -97,9 +97,9 @@ describe("QA 1 — injeção pela memória", () => {
     expect(await q("SELECT situacao FROM dolores_aprovacoes")).toEqual([{ situacao: "aguardando" }]);
   });
 
-  it("linha de base: sem histórico, tarefa pedida pelo dono executa direto", async () => {
+  it("linha de base (EPIC-027 C5 E2): nem sem histórico a tarefa executa direto — espera o \"pode\" do dono", async () => {
     await pedirTarefa();
-    expect(await tarefaCriada()).toBe(true);
+    expect(await tarefaCriada()).toBe(false);
   });
 
   // ACHADO 2: só referências (itens com mais de 6 h, refs com menos de 24 h) → o cabeçalho leva o RÓTULO de terceiro (nome de

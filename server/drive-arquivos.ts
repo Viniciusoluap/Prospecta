@@ -11,6 +11,7 @@ import {
   nomeModeloPci, nomePciGerada, nomePlanilhaOrcamento, ROTULO_DOCUMENTO, type EntidadeRegistro, type PastaAlvo,
 } from "../shared/drive-estrutura.js";
 import { MIME_MODELO_PCI, type FormatoModeloPci } from "../shared/pci-gerador.js";
+import { formatoPciPeloNome, MIME_PCI } from "../shared/pci-upload.js";
 import { getDb } from "./db.js";
 import { caminhoDocumentoCliente, destinoDocumentoEstudo } from "./drive-pastas.js";
 
@@ -194,7 +195,7 @@ const fotosObra: FonteArquivos = {
 
 // ─── PCI original da obra (fica em Medições CAIXA, onde já é gravada) ────────
 
-const mimePciOriginal = (nome: string) => (/\.xlsb$/i.test(nome) ? "application/vnd.ms-excel.sheet.binary.macroEnabled.12" : "application/vnd.ms-excel");
+const mimePciOriginal = (nome: string) => MIME_PCI[formatoPciPeloNome(nome) ?? "xls"];
 const destinoPciOriginal = (l: Linha): DestinoDrive => ({
   caminho: caminhoMedicoesObra({ id: num(l.project_id), numero: num(l.project_id), nome: (l.titulo as string | null) ?? null }),
   nome: nomeArquivo("PCI original", data(l.uploaded_at), l.file_name as string, mimePciOriginal(String(l.file_name))),

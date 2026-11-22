@@ -2,6 +2,7 @@
 // dos ataques A8 (dado de terceiro induz ação direta) e A9 (pedido repetido sem código), mais os cenários da regra de
 // contaminação. Modelo da Anthropic e envio pela Evolution falsos (PGlite, sem rede).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
@@ -35,7 +36,8 @@ function aviso(p: { de?: string; texto: string; encaminhada?: boolean }) {
     data: {
       key: { remoteJid: `${p.de ?? DONO}@s.whatsapp.net`, fromMe: false, id: `MSG${++seq}` },
       message: p.encaminhada ? { extendedTextMessage: { text: p.texto, contextInfo: { isForwarded: true, forwardingScore: 1 } } } : { conversation: p.texto },
-      messageTimestamp: Math.floor((AGORA.getTime() - 30_000) / 1000),
+      // QA C5-E2 (A1): a resposta curta ("pode"/"confirmo") é escrita DEPOIS da pergunta (enviada em AGORA)
+      messageTimestamp: Math.floor((AGORA.getTime() + (lerConfirmacao(p.texto) ? 1_000 : -30_000)) / 1000),
     },
   };
 }
@@ -101,16 +103,19 @@ describe("achado 1 (A8) — dado de terceiro não induz ação: regra de contami
     expect(ultimaResposta()).not.toMatch(/Registrado no sistema por mim|Aguardando a sua aprovação/);
   });
 
-  it("ação pedida explicitamente ANTES de qualquer leitura de dados: executa direto (como antes)", async () => {
+  it("ação pedida explicitamente ANTES de qualquer leitura (EPIC-027 C5 E2): espera o \"pode\"; com ele, grava", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Ligar para a Maria amanhã", responsavel: "Bianca Souza" }]),
       () => ferramenta(["historico_atendimento", { leadId: 1 }]),
       () => texto("Criei a tarefa e aqui está o histórico."),
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para a Maria amanhã e me mostra o histórico dela." }));
+    expect(await tarefasDolores()).toEqual([]);
+    // pedida antes da leitura: o resumo não leva o aviso de leitura
+    expect(((await fila())[0] as any).resumo).toMatch(/^criar a tarefa "Ligar para a Maria amanhã"/);
+    expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
+    await chamar(aviso({ texto: "pode" }));
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para a Maria amanhã"]);
-    expect(await fila()).toEqual([]);
-    expect(ultimaResposta()).toMatch(/Registrado no sistema por mim/);
   });
 
   it("ação pedida explicitamente DEPOIS de uma leitura de dados: vai para a FILA (marcada), nada gravado; aprovada pelo código, grava", async () => {
@@ -124,7 +129,8 @@ describe("achado 1 (A8) — dado de terceiro não induz ação: regra de contami
     const [item] = await fila();
     expect(item).toMatchObject({ funcao: "registrar_acompanhamento", situacao: "aguardando" });
     expect((item as any).resumo).toMatch(/^Pedido surgido durante a leitura de dados; confira antes de aprovar: registrar LIGAÇÃO no histórico de Maria Trello \(cliente 1\): "Liguei e ela vai mandar o RG\."/);
-    expect(ultimaResposta()).toContain(`[${item.codigo}] Pedido surgido durante a leitura de dados; confira antes de aprovar`);
+    expect(ultimaResposta()).toContain("- Pedido surgido durante a leitura de dados; confira antes de aprovar");
+    expect(ultimaResposta()).not.toContain(item.codigo);
     expect(ultimaResposta()).not.toMatch(/Registrado no sistema por mim/);
     await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
     expect((await fila())[0].situacao).toBe("executada");
@@ -151,14 +157,16 @@ describe("achado 1 (A8) — dado de terceiro não induz ação: regra de contami
 });
 
 describe("achado 8 (A9) — pedido repetido enquanto o anterior aguarda", () => {
-  it("o quadro do comando novo mostra o item que já aguardava, com o código dele (sem duplicar)", async () => {
+  it("o comando novo mostra o item que já aguardava (sem duplicar); a proposta anterior fica de lado, e o \"confirmo\" faz uma vez", async () => {
     roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei.")];
     await chamar(aviso({ texto: ACEITE }));
     const [item] = await fila();
     roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei de novo.")];
     await chamar(aviso({ texto: ACEITE }));
     expect(await fila()).toHaveLength(1);
-    expect(ultimaResposta()).toMatch(/Aguardando a sua aprovação/);
-    expect(ultimaResposta()).toContain(`[${item.codigo}]`);
+    expect(ultimaResposta()).toMatch(/\(A proposta anterior ficou de lado\.\)\n\*Isto precisa da sua confirmação por escrito\*/);
+    expect(ultimaResposta()).toContain(`- ${(item as any).resumo}`);
+    await chamar(aviso({ texto: "confirmo" }));
+    expect((await fila())[0].situacao).toBe("executada");
   });
 });

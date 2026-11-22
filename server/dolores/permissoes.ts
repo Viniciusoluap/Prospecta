@@ -5,7 +5,7 @@
 // apagar lançamento financeiro confirmado; nunca pagar nem autorizar pagamento; nunca mexer em usuários, acessos,
 // credenciais ou dados bancários; nunca assinar ou validar documento técnico/jurídico; nunca inventar dado.
 
-export const ETAPA_ATUAL = 6;
+export const ETAPA_ATUAL = 7;
 
 /** Etapa 1 — Leitura: somente consultas. */
 export const LIBERADAS_ETAPA_1 = [
@@ -60,7 +60,13 @@ export const LIBERADAS_ETAPA_6 = [
   "plano_de_atrasos",
 ] as const;
 
-const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6 };
+/**
+ * Etapa 7 — EPIC-027 C5 (E2, "a Dolores resolve"): o dono configura os grupos dela pela conversa. Todas de FILA e só com a resposta
+ * dele no WhatsApp ("pode"; "confirmo" no que é sério), reconhecida por código. Nenhuma envia, paga, apaga ou mexe em usuário.
+ */
+export const LIBERADAS_ETAPA_7 = ["classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo"] as const;
+
+const LIBERADAS: Record<number, readonly string[]> = { 1: LIBERADAS_ETAPA_1, 2: LIBERADAS_ETAPA_2, 3: LIBERADAS_ETAPA_3, 4: LIBERADAS_ETAPA_4, 5: LIBERADAS_ETAPA_5, 6: LIBERADAS_ETAPA_6, 7: LIBERADAS_ETAPA_7 };
 
 /** Funções previstas para etapas seguintes (ainda não liberadas): a recusa diz quando chegam. Nenhuma depois da etapa 6. */
 export const PREVISTAS: Record<string, number> = {};
@@ -77,7 +83,7 @@ export const PROIBIDAS: Record<string, string> = {
   enviar_mensagem_grupo: "o modelo não escreve em grupo: só o sistema responde, quando a Dolores é marcada num grupo cadastrado com o interruptor ligado, e só sobre aquele cliente",
   pedir_confirmacao_nota: "a Dolores não fala no grupo nem com o empreiteiro: a tela e listar_notas_obra mostram o texto sugerido para o DONO enviar",
   apagar_arquivo_drive: "limite fixo: a Dolores nunca apaga nem sobrescreve arquivo",
-  aprovar_item: "só o dono aprova itens da fila (resposta \"aprovar CÓDIGO\" no WhatsApp ou a tela do administrador)",
+  aprovar_item: "só o dono aprova o que você propõe (a resposta dele, reconhecida pelo sistema, ou a tela do administrador)",
   excluir_registro: "limite fixo: a Dolores nunca exclui registros",
   registrar_pagamento: "limite fixo: a Dolores nunca faz, autoriza, baixa ou estorna pagamento",
   editar_lancamento: "limite fixo: a Dolores nunca edita lançamento financeiro",
