@@ -139,8 +139,10 @@ describe("QA achado 3 — limite mensal reservado sob trava antes da chamada", (
     expect(chamadas).toHaveLength(1);
     const [{ e }] = await q<{ e: number }>("SELECT coalesce(sum(tokens_entrada), 0)::int AS e FROM dolores_consumo");
     expect(e).toBeLessThanOrEqual(1500);
-    expect(enviar).toHaveBeenCalledTimes(2);
-    const textos = enviar.mock.calls.map(c => c[0].texto as string);
+    // EPIC-027 C5-E5: com o limite de teste (1.500), a chamada passa da parte da conversa e o alerta de gasto (texto fixo, só ao
+    // dono) sai também; aqui contam só as respostas aos dois comandos
+    const textos = enviar.mock.calls.map(c => c[0].texto as string).filter(t => !t.startsWith("Dolores: aviso de gasto da IA"));
+    expect(textos).toHaveLength(2);
     // QA r2 N3: quem foi barrado pela reserva do outro ouve "outro pedido em andamento", não "limite atingido"
     expect(textos.filter(t => /outro pedido meu em andamento/.test(t))).toHaveLength(1);
     expect(textos.filter(t => /limite mensal de gasto com a IA foi atingido/.test(t))).toHaveLength(0);

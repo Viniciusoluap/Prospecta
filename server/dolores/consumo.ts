@@ -10,9 +10,108 @@ import { doloresGrupoMensagens, doloresGruposConsumoMes } from "../../drizzle/sc
 import { doloresMarcacoes } from "../../drizzle/schema-dolores-marcacoes.js";
 import { doloresAtendimentos } from "../../drizzle/schema-whatsapp-atendimento.js";
 import { bloqueioDoLimite, type Limites, type Uso } from "../../shared/dolores/whatsapp.js";
-import { FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA } from "../../shared/dolores/custo.js";
+import {
+  FATOR_CACHE_ESCRITA, FATOR_CACHE_LEITURA, FUNCOES_DO_GASTO, PARADA_CLIENTE, PARADA_GRUPO, PARTES_PADRAO, erroDasPartes, funcaoDaChamada, limiteDaParte,
+  type FuncaoDoConsumo, type PartesDoGasto,
+} from "../../shared/dolores/custo.js";
+import { doloresGastoPartes } from "../../drizzle/schema-dolores-operacao.js";
 import { getDb } from "../db.js";
 import { erroParaLog } from "./erro-seguro.js";
+
+export { PARADA_CLIENTE, PARADA_GRUPO };
+
+// ── EPIC-027 C5-E5 — gasto separado por função ──
+// Cada chamada à IA da Dolores conta na FUNÇÃO dela (coluna `dolores_consumo.funcao`, migração 0148; linha antiga sai pela regra
+// antiga, `funcaoSql`). Cada função tem a sua PARTE do limite mensal (dolores_gasto_partes; padrão do dono: conversa 55 ·
+// documentos 20 · grupos 10 · clientes 10 · avisos 5). Ao atingir a parte, SÓ aquela função para; a soma das partes é 100%, então o
+// total nunca passa do limite. Toda conferência continua sob a MESMA trava (linha 1 de dolores_whatsapp_config em FOR UPDATE).
+
+type Executor = { execute: ReturnType<typeof getDb>["execute"] };
+const linhas = (r: unknown) => (r as { rows?: Array<Record<string, unknown>> }).rows ?? [];
+let colunaFuncao = false;
+/** A coluna `funcao` existe (0148 aplicada)? Só o "sim" fica guardado: antes da migração, confere de novo a cada vez (é barato). */
+export async function temColunaFuncao(x: Executor = getDb()): Promise<boolean> {
+  if (colunaFuncao) return true;
+  const r = await x.execute(sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'dolores_consumo' AND column_name = 'funcao') AS existe`);
+  colunaFuncao = linhas(r)[0]?.existe === true;
+  return colunaFuncao;
+}
+/** Só para testes (banco novo a cada teste). */
+export const esquecerColunaFuncao = () => { colunaFuncao = false; };
+
+// a regra antiga, como LITERAL (constantes do código, só letras): com parâmetro, o Postgres não reconhece a mesma expressão no
+// SELECT e no GROUP BY
+const REGRA_ANTIGA = sql.raw(`CASE WHEN "dolores_consumo"."mensagem_id" IS NOT NULL THEN 'conversa' WHEN "dolores_consumo"."parada" LIKE '${PARADA_GRUPO.replace(/[^a-z_]/g, "")}%' THEN 'grupos' WHEN "dolores_consumo"."parada" LIKE '${PARADA_CLIENTE.replace(/[^a-z_]/g, "")}%' THEN 'clientes' ELSE 'documentos_e_notas' END`);
+/** A função de cada linha de dolores_consumo: a gravada (0148) ou, em linha antiga, a regra antiga (a mesma de `funcaoDaChamada`). */
+export const funcaoSql = (comColuna: boolean) => (comColuna ? sql<string>`COALESCE("dolores_consumo"."funcao", ${REGRA_ANTIGA})` : sql<string>`${REGRA_ANTIGA}`);
+
+const USO_VAZIO = (): Record<FuncaoDoConsumo, Uso> => Object.fromEntries(FUNCOES_DO_GASTO.map(f => [f, { entrada: 0, saida: 0 }])) as Record<FuncaoDoConsumo, Uso>;
+
+/** Uso do mês POR FUNÇÃO, com o mesmo peso do cache do limite (entradaNoLimiteSql). Função desconhecida vai para documentos. */
+export async function usoPorFuncaoNoMes(mes: string, x: Transacao | ReturnType<typeof getDb> = getDb()): Promise<Record<FuncaoDoConsumo, Uso>> {
+  const f = funcaoSql(await temColunaFuncao(x));
+  const r = await x.select({ funcao: f, entrada: entradaNoLimiteSql(), saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number) })
+    .from(doloresConsumo).where(eq(doloresConsumo.mes, mes)).groupBy(f);
+  const uso = USO_VAZIO();
+  for (const l of r) {
+    const k = ((FUNCOES_DO_GASTO as readonly string[]).includes(l.funcao) ? l.funcao : "documentos_e_notas") as FuncaoDoConsumo;
+    uso[k] = { entrada: uso[k].entrada + Number(l.entrada ?? 0), saida: uso[k].saida + Number(l.saida ?? 0) };
+  }
+  return uso;
+}
+
+/**
+ * Partes do gasto (linha única da 0148). Sem a migração, sem a linha ou valor inválido → a divisão PADRÃO do dono (nunca "sem
+ * parte": a conversa continua com 55%, e nenhuma função ganha mais do que a parte padrão).
+ */
+export async function lerPartesDoGasto(x: Transacao | ReturnType<typeof getDb> = getDb()): Promise<{ partes: PartesDoGasto; disponivel: boolean }> {
+  try {
+    const existe = linhas(await x.execute(sql`SELECT to_regclass('public.dolores_gasto_partes') IS NOT NULL AS existe`))[0]?.existe;
+    if (!existe) return { partes: { ...PARTES_PADRAO }, disponivel: false };
+    const [c] = await x.select().from(doloresGastoPartes).where(eq(doloresGastoPartes.id, 1)).limit(1);
+    if (!c) return { partes: { ...PARTES_PADRAO }, disponivel: false };
+    const partes: PartesDoGasto = { conversa: c.conversaPct, documentos_e_notas: c.documentosPct, grupos: c.gruposPct, clientes: c.clientesPct, avisos: c.avisosPct };
+    return erroDasPartes(partes) ? { partes: { ...PARTES_PADRAO }, disponivel: true } : { partes, disponivel: true };
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao ler as partes do gasto; usei a divisão padrão", erroParaLog(e));
+    return { partes: { ...PARTES_PADRAO }, disponivel: false };
+  }
+}
+
+/** A reserva cabe na parte da função (uso real dela + o que já está reservado nela + esta reserva ≤ a parte)? */
+const cabeNaParte = (uso: Uso, reservado: Uso, reserva: Uso, limites: Limites, pct: number) => {
+  const parte = limiteDaParte(limites, pct);
+  return uso.entrada + reservado.entrada + reserva.entrada <= parte.entrada && uso.saida + reservado.saida + reserva.saida <= parte.saida;
+};
+/** A parte da função já acabou pelo uso REAL (sem reservas)? Mesma regra do limite inteiro: atingido em entrada OU saída. */
+const parteEsgotada = (uso: Uso, limites: Limites, pct: number) => {
+  const parte = limiteDaParte(limites, pct);
+  return uso.entrada >= parte.entrada || uso.saida >= parte.saida;
+};
+
+/**
+ * Conferência rápida (sem trava) para a porta da chave (whatsapp.ts#bloqueioAtual): a parte desta função já acabou neste mês?
+ * A trava de verdade é a reserva (abaixo); isto só evita ler a chave e montar o pedido à toa. Falha → true (falha fechada).
+ */
+export async function parteDaFuncaoEsgotada(mes: string, funcao: FuncaoDoConsumo, limites: Limites): Promise<boolean> {
+  try {
+    const [uso, { partes }] = await Promise.all([usoPorFuncaoNoMes(mes), lerPartesDoGasto()]);
+    return parteEsgotada(uso[funcao], limites, partes[funcao]);
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao conferir a parte da função", erroParaLog(e));
+    return true;
+  }
+}
+
+/** Dispara a conferência dos alertas de 80%/100% (server/dolores/operacao-gasto.ts). Nunca lança nem derruba quem chamou. */
+async function dispararAlertas(mes: string, o: { bloqueadas?: FuncaoDoConsumo[]; totalBloqueado?: boolean } = {}) {
+  try {
+    const { conferirAlertasDoGasto } = await import("./operacao-gasto.js");
+    await conferirAlertasDoGasto(mes, o);
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao conferir os alertas de gasto", erroParaLog(e));
+  }
+}
 
 /** Linha única da configuração do WhatsApp (criada pela migração 0124). Sem ela → null. */
 export async function lerConfigWhatsapp(): Promise<DoloresWhatsappConfig | null> {
@@ -55,18 +154,30 @@ export type UsoDaChamada = { entrada: number; saida: number; cacheEscrita: numbe
  * Uma linha por chamada ao modelo. Falha ao gravar não derruba a resposta, mas vai para o log. Devolve se gravou: a
  * classificação de grupo falha fechado quando não gravou (QA r3 N7); a conversa do dono só registra.
  */
-export async function registrarConsumo(c: { mes: string; mensagemId: number | null; modelo: string; volta: number; uso: UsoDaChamada; parada: string | null }): Promise<boolean> {
+export async function registrarConsumo(c: { mes: string; mensagemId: number | null; modelo: string; volta: number; uso: UsoDaChamada; parada: string | null;
+  /** C5-E5: a função da chamada. Sem ela, sai pela origem (mensagem do dono = conversa; parada "grupo…"/"cliente…"; o resto = documentos). */
+  funcao?: FuncaoDoConsumo }): Promise<boolean> {
+  const parada = c.parada?.slice(0, 30) ?? null;
+  const funcao = funcaoDaChamada({ funcao: c.funcao ?? null, mensagemId: c.mensagemId, parada });
   try {
-    await getDb().insert(doloresConsumo).values({
-      mes: c.mes, mensagemId: c.mensagemId, modelo: c.modelo.slice(0, 120), volta: c.volta,
-      tokensEntrada: c.uso.entrada, tokensSaida: c.uso.saida, tokensCacheEscrita: c.uso.cacheEscrita, tokensCacheLeitura: c.uso.cacheLeitura,
-      parada: c.parada?.slice(0, 30) ?? null,
-    });
-    return true;
+    const db = getDb();
+    if (await temColunaFuncao(db)) {
+      // a coluna da 0148 fica fora do schema Drizzle (ver drizzle/schema-dolores-operacao.ts): insert por SQL
+      await db.execute(sql`INSERT INTO "dolores_consumo" ("mes", "mensagem_id", "modelo", "volta", "tokens_entrada", "tokens_saida", "tokens_cache_escrita", "tokens_cache_leitura", "parada", "funcao")
+        VALUES (${c.mes}, ${c.mensagemId}, ${c.modelo.slice(0, 120)}, ${c.volta}, ${c.uso.entrada}, ${c.uso.saida}, ${c.uso.cacheEscrita}, ${c.uso.cacheLeitura}, ${parada}, ${funcao})`);
+    } else {
+      await db.insert(doloresConsumo).values({
+        mes: c.mes, mensagemId: c.mensagemId, modelo: c.modelo.slice(0, 120), volta: c.volta,
+        tokensEntrada: c.uso.entrada, tokensSaida: c.uso.saida, tokensCacheEscrita: c.uso.cacheEscrita, tokensCacheLeitura: c.uso.cacheLeitura, parada,
+      });
+    }
   } catch (e) {
     console.error("[dolores/consumo] falha ao registrar o consumo", erroParaLog(e));
     return false;
   }
+  // C5-E5: o gasto cruzou 80%/100% (do total ou da parte da função)? O alerta sai uma vez por mês por limite; nunca derruba o registro.
+  await dispararAlertas(c.mes);
+  return true;
 }
 
 /** Marca o aviso do limite deste mês numa só instrução: true só na primeira vez do mês (o aviso sai uma vez). */
@@ -85,7 +196,7 @@ export async function marcarAvisoDoMes(mes: string): Promise<boolean> {
  * morreu no meio não prende o limite para sempre). Devolve o motivo do bloqueio ou null (reservado).
  */
 export async function reservarChamada(p: { mes: string; mensagemId: number; limites: Limites; reserva: Uso; validadeMs: number }) {
-  return getDb().transaction(async tx => {
+  const r = await getDb().transaction(async tx => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
     const [usado] = await tx.select({
@@ -110,16 +221,32 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
+    // C5-E5: a PARTE da conversa (padrão 55%), pela MESMA regra do limite inteiro: esgotada pelo uso REAL da conversa → só a
+    // conversa para ("orcamento_conversa"); grupos, clientes e documentos seguem com as partes deles. Como no limite inteiro, a
+    // reserva da própria chamada não barra a primeira que chega (uma chamada pode passar da parte em no máximo o teto por pedido);
+    // a de OUTRA mensagem em andamento barra ("outro_pedido"). Os terceiros, ao contrário, contam a própria reserva (abaixo).
+    const [porFuncao, { partes }] = await Promise.all([usoPorFuncaoNoMes(p.mes, tx), lerPartesDoGasto(tx)]);
+    if (parteEsgotada(porFuncao.conversa, p.limites, partes.conversa)) return "orcamento_conversa" as const;
     const comReservas = bloqueioDoLimite({
       entrada: Number(usado?.entrada ?? 0) + Number(reservado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) + Number(reservado?.saida ?? 0),
     }, p.limites);
     if (comReservas) return "outro_pedido" as const;
+    // outra mensagem do dono em andamento ocupa o que resta da parte da conversa: tente de novo em um minuto
+    const [daConversa] = await tx.select({
+      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
+      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
+    }).from(doloresMensagens).where(and(gt(doloresMensagens.reservaAte, agora), ne(doloresMensagens.id, p.mensagemId)));
+    if (parteEsgotada({ entrada: porFuncao.conversa.entrada + Number(daConversa?.entrada ?? 0), saida: porFuncao.conversa.saida + Number(daConversa?.saida ?? 0) },
+      p.limites, partes.conversa)) return "outro_pedido" as const;
     await tx.update(doloresMensagens).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),
     }).where(eq(doloresMensagens.id, p.mensagemId));
     return null;
   });
+  if (r === "orcamento_conversa") await dispararAlertas(p.mes, { bloqueadas: ["conversa"] });
+  else if (r === "limite_mensal") await dispararAlertas(p.mes, { totalBloqueado: true });
+  return r;
 }
 
 /** Solta a reserva da mensagem (depois de registrar o consumo real). Falha só vai para o log: a reserva vence sozinha. */
@@ -156,6 +283,30 @@ export const FRACAO_DO_LIMITE_PARA_CLASSIFICACAO = 0.8;
 /** QA E4 r2, N0 — orçamento PRÓPRIO da classificação (padrão; o admin ajusta em dolores_grupos_config, de 1% a 50%). */
 export const ORCAMENTO_CLASSIFICACAO_PCT_PADRAO = 20;
 
+/**
+ * C5-E5 — conferência comum das funções de TERCEIROS (documentos, grupos, clientes; e os avisos da E4), já sob a trava, depois do
+ * "uma chamada por vez" e do limite inteiro:
+ * 1. Folga do dono: o uso real dos terceiros (tudo menos a conversa) + esta reserva ≤ FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite.
+ *    Antes contava também o uso da conversa; agora a conversa tem a PARTE dela e não come o crédito dos outros (decisão do dono:
+ *    "cada função com seu gasto"). A folga continua valendo para o caso de o admin dar aos terceiros mais do que 80% somados.
+ * 2. A PARTE da função: uso real dela + esta reserva ≤ a parte (dolores_gasto_partes). Acabou → "parte" (só ela para).
+ */
+async function conferirTerceiro(tx: Transacao, p: { mes: string; limites: Limites; reserva: Uso; funcao: Exclude<FuncaoDoConsumo, "conversa"> }): Promise<"folga_do_dono" | "parte" | null> {
+  const [porFuncao, { partes }] = await Promise.all([usoPorFuncaoNoMes(p.mes, tx), lerPartesDoGasto(tx)]);
+  const terceiros = FUNCOES_DO_GASTO.filter(f => f !== "conversa").reduce((s, f) => ({ entrada: s.entrada + porFuncao[f].entrada, saida: s.saida + porFuncao[f].saida }), { entrada: 0, saida: 0 });
+  const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
+  if (terceiros.entrada + p.reserva.entrada > teto.entrada || terceiros.saida + p.reserva.saida > teto.saida) return "folga_do_dono";
+  if (!cabeNaParte(porFuncao[p.funcao], { entrada: 0, saida: 0 }, p.reserva, p.limites, partes[p.funcao])) return "parte";
+  return null;
+}
+
+/** Depois da transação: a parte acabou → o código próprio da função e o alerta de 100% dela; limite inteiro → o alerta do total. */
+async function depoisDaReserva<B extends string>(mes: string, funcao: FuncaoDoConsumo, r: B | "parte" | null, codigoDaParte: B): Promise<B | null> {
+  if (r === "parte") { await dispararAlertas(mes, { bloqueadas: [funcao] }); return codigoDaParte; }
+  if (r === "limite_mensal") await dispararAlertas(mes, { totalBloqueado: true });
+  return r;
+}
+
 /** Tokens usados pela classificação no mês (dolores_grupos_consumo_mes). Sem a linha → zero. */
 async function usoDaClassificacaoNoMes(tx: Transacao, mes: string): Promise<Uso> {
   const [r] = await tx.select({ entrada: doloresGruposConsumoMes.tokensEntrada, saida: doloresGruposConsumoMes.tokensSaida })
@@ -178,7 +329,7 @@ export type BloqueioDaClassificacao = "sem_limite" | "limite_mensal" | "folga_do
  * A reserva fica na própria mensagem do grupo e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
  */
 export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: number; limites: Limites; reserva: Uso; validadeMs: number; orcamentoPct?: number }): Promise<BloqueioDaClassificacao | null> {
-  return getDb().transaction(async tx => {
+  const r = await getDb().transaction(async (tx): Promise<BloqueioDaClassificacao | "parte" | null> => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
     const classificacoes = await reservasDasClassificacoes(tx, agora, p.mensagemGrupoId);
@@ -196,16 +347,8 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
-    const [comandos] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
-      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
-    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
-    const total = {
-      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada,
-      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida,
-    };
-    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono";
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "documentos_e_notas" });
+    if (terceiro) return terceiro;
     const pct = Math.min(50, Math.max(1, Math.round(p.orcamentoPct ?? ORCAMENTO_CLASSIFICACAO_PCT_PADRAO)));
     const orcamento = { entrada: Math.floor((p.limites.entrada * pct) / 100), saida: Math.floor((p.limites.saida * pct) / 100) };
     const daClassificacao = await usoDaClassificacaoNoMes(tx, p.mes);
@@ -216,6 +359,7 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
     }).where(eq(doloresGrupoMensagens.id, p.mensagemGrupoId));
     return null;
   });
+  return depoisDaReserva(p.mes, "documentos_e_notas", r, "orcamento_classificacao");
 }
 
 /**
@@ -262,10 +406,11 @@ async function reservasDasMarcacoes(tx: Transacao, agora: Date, excetoId: number
   return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
 }
 
-/** E4b — orçamento PRÓPRIO das respostas em grupo: % do limite mensal (como o da classificação, mas separado). */
-export const ORCAMENTO_MARCACAO_PCT = 10;
-/** E4b — prefixo de `dolores_consumo.parada` das chamadas das respostas em grupo (o uso delas no mês sai daí). */
-export const PARADA_GRUPO = "grupo";
+/**
+ * E4b — orçamento PRÓPRIO das respostas em grupo: % do limite mensal. C5-E5: virou a PARTE "grupos" (dolores_gasto_partes, editável
+ * pelo admin); este é o padrão. O prefixo da parada ("grupo…") continua o mesmo (PARADA_GRUPO, shared/dolores/custo.ts).
+ */
+export const ORCAMENTO_MARCACAO_PCT = PARTES_PADRAO.grupos;
 
 export type BloqueioDaMarcacao = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_marcacao" | "outra_chamada";
 
@@ -281,7 +426,7 @@ export type BloqueioDaMarcacao = "sem_limite" | "limite_mensal" | "folga_do_dono
  * A reserva fica na própria marcação e vence sozinha. Devolve o motivo do bloqueio ou null (reservado).
  */
 export async function reservarMarcacao(p: { mes: string; marcacaoId: number; limites: Limites; reserva: Uso; validadeMs: number }): Promise<BloqueioDaMarcacao | null> {
-  return getDb().transaction(async tx => {
+  const r = await getDb().transaction(async (tx): Promise<BloqueioDaMarcacao | "parte" | null> => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
     const classificacoes = await reservasDasClassificacoes(tx, agora, null);
@@ -294,28 +439,16 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
-    const [comandos] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
-      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
-    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
-    const total = {
-      entrada: Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada,
-      saida: Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida,
-    };
-    if (total.entrada > teto.entrada || total.saida > teto.saida) return "folga_do_dono";
-    const [doGrupo] = await tx.select({
-      entrada: entradaNoLimiteSql(),
-      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
-    }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_GRUPO + "%"}`));
-    const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_MARCACAO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_MARCACAO_PCT) / 100) };
-    if (Number(doGrupo?.entrada ?? 0) + p.reserva.entrada > orcamento.entrada || Number(doGrupo?.saida ?? 0) + p.reserva.saida > orcamento.saida) return "orcamento_marcacao";
+    // C5-E5: folga do dono e a PARTE das respostas em grupo (padrão 10%, a mesma do ORCAMENTO_MARCACAO_PCT fixo de antes)
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "grupos" });
+    if (terceiro) return terceiro;
     await tx.update(doloresMarcacoes).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),
     }).where(eq(doloresMarcacoes.id, p.marcacaoId));
     return null;
   });
+  return depoisDaReserva(p.mes, "grupos", r, "orcamento_marcacao");
 }
 
 /** Solta a reserva da resposta em grupo. Falha só vai para o log: a reserva vence sozinha. */
@@ -341,10 +474,8 @@ async function reservasDosAtendimentos(tx: Transacao, agora: Date, excetoId: num
   return { entrada: Number(r?.entrada ?? 0), saida: Number(r?.saida ?? 0) };
 }
 
-/** E9 — orçamento PRÓPRIO das respostas a clientes cadastrados: % do limite mensal (separado do dos grupos). */
-export const ORCAMENTO_ATENDIMENTO_PCT = 10;
-/** E9 — prefixo de `dolores_consumo.parada` das chamadas das respostas a clientes (o uso delas no mês sai daí). */
-export const PARADA_CLIENTE = "cliente";
+/** E9 — orçamento PRÓPRIO das respostas a clientes cadastrados. C5-E5: virou a PARTE "clientes" (editável); este é o padrão. */
+export const ORCAMENTO_ATENDIMENTO_PCT = PARTES_PADRAO.clientes;
 
 export type BloqueioDoAtendimento = "sem_limite" | "limite_mensal" | "folga_do_dono" | "orcamento_atendimento" | "outra_chamada";
 
@@ -355,7 +486,7 @@ export type BloqueioDoAtendimento = "sem_limite" | "limite_mensal" | "folga_do_d
  * (ORCAMENTO_ATENDIMENTO_PCT% do limite, pelo uso com `parada` "cliente…"). A reserva fica no atendimento e vence sozinha.
  */
 export async function reservarAtendimento(p: { mes: string; atendimentoId: number; limites: Limites; reserva: Uso; validadeMs: number }): Promise<BloqueioDoAtendimento | null> {
-  return getDb().transaction(async tx => {
+  const r = await getDb().transaction(async (tx): Promise<BloqueioDoAtendimento | "parte" | null> => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const agora = new Date();
     const classificacoes = await reservasDasClassificacoes(tx, agora, null);
@@ -368,25 +499,16 @@ export async function reservarAtendimento(p: { mes: string; atendimentoId: numbe
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
-    const [comandos] = await tx.select({
-      entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
-      saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
-    }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, agora));
-    const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
-    if (Number(usado?.entrada ?? 0) + Number(comandos?.entrada ?? 0) + p.reserva.entrada > teto.entrada
-      || Number(usado?.saida ?? 0) + Number(comandos?.saida ?? 0) + p.reserva.saida > teto.saida) return "folga_do_dono";
-    const [doCliente] = await tx.select({
-      entrada: entradaNoLimiteSql(),
-      saida: sql<number>`coalesce(sum(${doloresConsumo.tokensSaida}), 0)`.mapWith(Number),
-    }).from(doloresConsumo).where(and(eq(doloresConsumo.mes, p.mes), sql`${doloresConsumo.parada} LIKE ${PARADA_CLIENTE + "%"}`));
-    const orcamento = { entrada: Math.floor((p.limites.entrada * ORCAMENTO_ATENDIMENTO_PCT) / 100), saida: Math.floor((p.limites.saida * ORCAMENTO_ATENDIMENTO_PCT) / 100) };
-    if (Number(doCliente?.entrada ?? 0) + p.reserva.entrada > orcamento.entrada || Number(doCliente?.saida ?? 0) + p.reserva.saida > orcamento.saida) return "orcamento_atendimento";
+    // C5-E5: folga do dono e a PARTE do atendimento a clientes (padrão 10%, a mesma do ORCAMENTO_ATENDIMENTO_PCT fixo de antes)
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "clientes" });
+    if (terceiro) return terceiro;
     await tx.update(doloresAtendimentos).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
       reservaAte: new Date(agora.getTime() + p.validadeMs),
     }).where(eq(doloresAtendimentos.id, p.atendimentoId));
     return null;
   });
+  return depoisDaReserva(p.mes, "clientes", r, "orcamento_atendimento");
 }
 
 /** Solta a reserva da resposta a cliente. Falha só vai para o log: a reserva vence sozinha. */

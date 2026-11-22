@@ -31,7 +31,7 @@ import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { lerConfigWhatsapp, usoDoMes } from "./consumo.js";
+import { lerConfigWhatsapp, lerPartesDoGasto, usoDoMes } from "./consumo.js";
 import { consumoDoMesDetalhado, lerPrecos } from "./custo.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -192,7 +192,9 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     const uso = await usoDoMes(mes);
     // Etapa 8: o detalhe por modelo e função (4 tipos de token) para a estimativa por modelo do relatório
     const linhas = await consumoDoMesDetalhado(mes);
-    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas } } };
+    // EPIC-027 C5-E5: a parte de cada função (o relatório mostra o gasto por função em uma linha)
+    const { partes } = await lerPartesDoGasto();
+    return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas, partes } } };
   })],
 ];
 

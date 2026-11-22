@@ -209,7 +209,9 @@ export function mensagemAntiga(enviadaEm: Date | null, agora: Date, maxMs = IDAD
 export const mesFortaleza = (d: Date) => new Date(d.getTime() - 3 * 60 * 60_000).toISOString().slice(0, 7);
 
 export type MotivoBloqueio =
-  | "pausada" | "usuaria_desativada" | "ia_desligada" | "sem_chave" | "sem_modelo" | "sem_limite" | "limite_mensal" | "indisponivel";
+  | "pausada" | "usuaria_desativada" | "ia_desligada" | "sem_chave" | "sem_modelo" | "sem_limite" | "limite_mensal" | "indisponivel"
+  /** EPIC-027 C5-E5: a PARTE do mês desta função acabou (só ela para; as outras seguem). */
+  | "limite_da_funcao";
 
 /**
  * Frases FIXAS para o dono quando a IA não pode rodar. Nada aqui vem de modelo: quando a Dolores está desligada ela diz
@@ -226,6 +228,7 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
     case "sem_limite": return `Dolores: estou desligada — falta definir o limite mensal de gasto em Integrações › Dolores.${fim}`;
     case "limite_mensal": return `Dolores: o limite mensal de gasto com a IA foi atingido; volto no mês que vem ou quando o limite for aumentado em Integrações › Dolores.${fim}`;
     case "indisponivel": return `Dolores: não consegui ler a minha configuração agora; tente de novo em instantes.${fim}`;
+    case "limite_da_funcao": return FRASE_LIMITE_DA_CONVERSA;
   }
 }
 
@@ -234,6 +237,11 @@ export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de 
 /** Vários comandos no mesmo aviso e o prazo de 60 s acabou antes deste. */
 export const fraseSemTempo = (hora: string) =>
   `Dolores: recebi vários pedidos juntos e não deu tempo de tratar o de ${hora}. Nada foi consultado; mande de novo, por favor.`;
+/**
+ * EPIC-027 C5-E5 — a parte do mês da conversa com o dono acabou (as outras funções têm a parte delas e continuam). Texto fixo.
+ * Só a conversa do dono recebe frase: grupo e cliente ficam no comportamento silencioso de sempre.
+ */
+export const FRASE_LIMITE_DA_CONVERSA = "Dolores: bati o limite do mês da nossa conversa; os grupos e os documentos continuam funcionando. Volto no mês que vem ou quando a parte da conversa for aumentada em Dolores — operação contínua. Nada foi consultado.";
 /** QA r2 N3: a reserva de OUTRO pedido em andamento ocupa o que resta do limite do mês (não é o limite atingido). */
 export const FRASE_OUTRO_PEDIDO = "Dolores: há outro pedido meu em andamento usando o que resta do limite do mês; tente de novo em um minuto, por favor. Nada foi consultado.";
 export const FRASE_ERRO = "Dolores: tive uma falha ao montar a resposta e parei. Nada foi alterado no sistema; tente de novo em instantes.";
