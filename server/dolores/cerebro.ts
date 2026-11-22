@@ -13,7 +13,8 @@ import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, funcaoPorNome } from "./funcoes.js";
-import { executarFuncao, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { executarFuncao, ferramentasDaConversaDoDono, ferramentasDoWhatsapp, ferramentasLiberadas } from "./ponte.js";
+import { FUNCAO_REURB, comAvisoReurb } from "../../shared/dolores/reurb-conhecimento.js";
 import { pedeDetalhe, rotulosDasConsultas } from "../../shared/dolores/voz.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { HISTORICO_VAZIO, montarMensagens, referenciasDoResultado, referenciasDoTurno, tokensEstimadosDoHistorico, tokensEstimadosDoTexto, type Historico } from "./memoria.js";
@@ -216,7 +217,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
   const comAcoes = intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
-  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
+  const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasDaConversaDoDono());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
   // no laço, nenhuma ação direta roda no resto do comando (vai para a fila de aprovação do dono).
   // QA R2 N1: mensagem com cara de texto colado/citado (e-mail, conversa) nasce CONTAMINADA — o pedido pode não ser do
@@ -256,6 +257,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
+  /** EPIC-027 C5 (REURB): a análise deu caso analisável — o aviso fixo vai no fim da resposta, por código. */
+  let analisouReurb = false;
   let voltas = 0;
   let parou: MotivoParada | null = null;
   let ultimoTexto = "";
@@ -363,6 +366,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       if (contamina && !contaminado) { contaminado = true; motivoContaminacao = "leitura"; }
       // EPIC-027 C5 (E1): ids que a consulta devolveu do banco (por código) — para "ela", "esse grupo" no próximo pedido
       if (resp.body.ok === true) refsPorConsulta.push(referenciasDoResultado(resp.body));
+      if (u.name === FUNCAO_REURB && resp.body.ok === true && (resp.body.dados as { analisavel?: unknown } | undefined)?.analisavel === true) analisouReurb = true;
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
@@ -398,5 +402,6 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
     const aviso = `(Parei antes de terminar: ${ROTULO_PARADA[parou]}.${consultou}${sobreAcoes})`;
     texto = corpo ? `${corpo}\n\n${aviso}` : `Dolores: não consegui concluir. ${aviso}`;
   }
+  texto = comAvisoReurb(texto, analisouReurb);
   return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), podeConfirmar };
 }
