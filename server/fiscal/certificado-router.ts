@@ -64,7 +64,7 @@ export const certificadoFiscalRouter = router({
 
   /**
    * Testar conexão: com ambiente "desligado" recusa sem sair do sistema; "producao" recusado nesta etapa; em
-   * "producao_restrita" só consulta se o endereço e o caminho inofensivo estiverem CONFIRMADOS (hoje não estão).
+   * "producao_restrita" (base da Sefin confirmada) faz só um GET de leitura do convênio do município sede.
    */
   testarConexao: adminDoCofre
     .input(z.object({ emissorId: z.number().int().positive() }).strict())

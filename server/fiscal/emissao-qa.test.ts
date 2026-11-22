@@ -1,6 +1,5 @@
 // EPIC-029 S-4 — PORTÃO DE QA DE SEGURANÇA (@qa Quinn, 22/11/2026). Tenta quebrar o cofre do A1, o cliente mTLS, a DPS e
-// a assinatura. Achados confirmados ficam como `it.fails` (passam enquanto o defeito existir; quando corrigido, o teste
-// "falha" e deve virar `it`). Certificados de TESTE gerados aqui; nada sai da máquina (servidor HTTPS local).
+// a assinatura. Os 4 achados (M1, B2, B3, B4) ficaram como `it.fails` no portão e viraram `it` depois da correção (@dev). Certificados de TESTE gerados aqui; nada sai da máquina (servidor HTTPS local).
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
@@ -125,7 +124,7 @@ describe("QA — cofre: papel, entrada e resposta", () => {
   });
 
   // ACHADO (baixo): a guarda da 0162 não trava "autoridade" nem "cadeia_icp" (dados exibidos na tela, lidos do arquivo).
-  it.fails("o banco recusa trocar a autoridade/cadeia ICP do certificado guardado (dados lidos do arquivo)", async () => {
+  it("o banco recusa trocar a autoridade/cadeia ICP do certificado guardado (dados lidos do arquivo)", async () => {
     await admin().enviar(envio());
     await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET autoridade = 'AC FALSA', cadeia_icp = true`)).rejects.toThrow(/IMUTAVEL/);
   });
@@ -134,10 +133,11 @@ describe("QA — cofre: papel, entrada e resposta", () => {
 describe("QA — cliente mTLS", () => {
   // ACHADO (baixo): "%2e%2e" passa no filtro de montarUrl e o WHATWG URL resolve como "..", saindo da base (o host continua
   // fixo; hoje só caminhoDe — valores alfanuméricos — alimenta montarUrl, então não é explorável por rota).
-  it.fails("caminho com '..' codificado (%2e%2e) não sai da base da API", () => {
+  it("caminho com '..' codificado (%2e%2e) não sai da base da API", () => {
+    // Correção (B2): "%" é recusado no caminho, e a URL montada é conferida contra a base.
     const destino = ENDERECOS.producao_restrita.sefin;
-    const url = montarUrl(destino, "/%2e%2e/%2E%2E/qualquer");
-    expect(url.pathname.startsWith(destino.base)).toBe(true);
+    expect(() => montarUrl(destino, "/%2e%2e/%2E%2E/qualquer")).toThrow(/Caminho recusado/);
+    expect(montarUrl(destino, "/nfse").pathname.startsWith(`${destino.base}/`)).toBe(true);
   });
 
   describe("servidor falso LOCAL", () => {
@@ -172,7 +172,7 @@ describe("QA — cliente mTLS", () => {
 
     // ACHADO (médio): o tempo-limite é de OCIOSIDADE do socket (opção `timeout` do https.request), não um prazo total.
     // Um servidor que goteja bytes nunca estoura os 25 s e prende a requisição (e a credencial em memória) indefinidamente.
-    it.fails("servidor que goteja bytes sem terminar é cortado pelo prazo total", async () => {
+    it("servidor que goteja bytes sem terminar é cortado pelo prazo total", async () => {
       modo = "gotejar";
       const c = criarClienteSefin({ ambiente: "producao_restrita", servico: "sefin", credencial: cred, enderecos: local(), ca: [servidorCert.certPem], tempoLimiteMs: 300 });
       const resultado = await Promise.race([
@@ -190,7 +190,7 @@ describe("QA — DPS e assinatura", () => {
     ambiente: "producao_restrita", emitidoEm: new Date("2026-11-22T13:00:00.000Z"), competencia: "2026-11-20", serie: "1", numero: 7,
     prestador: { cnpj: "11222333000181", inscricaoMunicipal: "12345", municipioIbge: "2105302" },
     tomador: { documento: "12345678909", nome: "Cliente Teste" },
-    servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", codigoNbs: "114011000", descricao: "Obra", cno: null },
+    servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", codigoNbs: "114011000", itemLc116: "7.02", codigoAtividadeSimples: "13", descricao: "Obra", cno: "900012345678" },
     valorCentavos: 100_00, regimeTributario: "simples_nacional", aliquotaIss: "5.0000",
     parametros: { opSimpNac: "3", regApTribSN: "1", regEspTrib: "0", tribIssqn: "1", tpRetIssqn: "1", indTotTrib: "0",
       ibscbs: { indFinal: "0", cIndOp: "100301", indDest: "0", cst: "000", cClassTrib: "000001" } },
@@ -209,7 +209,7 @@ describe("QA — DPS e assinatura", () => {
 
   // ACHADO (baixo): escaparXml remove só C0; U+FFFE/U+FFFF e surrogates soltos (inválidos no XML 1.0) passam, e o
   // slice(0, 2000) do xDescServ pode cortar um par surrogate (emoji) ao meio → DPS mal formada (recusa da Sefin, não injeção).
-  it.fails("caracteres proibidos no XML 1.0 (U+FFFE, surrogate solto) são removidos", () => {
+  it("caracteres proibidos no XML 1.0 (U+FFFE, surrogate solto) são removidos", () => {
     expect(escaparXml("a￾b\uD800c")).toBe("abc");
   });
 

@@ -12,7 +12,7 @@ import { PARAMETROS_VAZIOS, PADRAO_ID_DPS, type EntradaDps, type ParametrosConta
 import { ALGORITMOS, assinarXml, ErroAssinatura, verificarAssinaturaXml } from "./assinatura.js";
 import { abrirPfx, type CredencialA1 } from "./certificado.js";
 import { gerarCertificado, pastaDeTeste, SENHA_TESTE } from "./certificados-teste.helper.js";
-import { entradaDaNota, ErroDps, faltasDps, idDps, montarDps, serializarDps } from "./dps.js";
+import { entradaDaNota, ErroDps, escaparXml, faltasDps, idDps, montarDps, serializarDps } from "./dps.js";
 import {
   CA_CONFIAVEIS, CAMINHOS, caminhoDe, compactarXml, criarClienteSefin, descompactarXml, destinoDo, ENDERECOS, ErroSefin, montarUrl,
   MENSAGEM_DESLIGADO, MENSAGEM_PRODUCAO_BLOQUEADA, opcoesTls, testarConexaoSefin, type MapaEnderecos,
@@ -43,7 +43,8 @@ const ENTRADA: EntradaDps = {
   numero: 42,
   prestador: { cnpj: "11.222.333/0001-81", inscricaoMunicipal: "12345", municipioIbge: "2105302" },
   tomador: { documento: "123.456.789-09", nome: "Cliente & Filhos <Teste>" },
-  servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", codigoNbs: "114011000", descricao: "Administração de obra", cno: null },
+  servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", codigoNbs: "114011000", itemLc116: "7.02", codigoAtividadeSimples: "13",
+    descricao: "Administração de obra", cno: "900012345678" },
   valorCentavos: 1_234_56,
   regimeTributario: "simples_nacional", // decisão do dono (22/11): todas as empresas no Simples Nacional
   aliquotaIss: "5.0000",
@@ -55,9 +56,9 @@ const ID = "DPS210530221122233300018100001000000000000042";
 const FIXTURE_PR = `<?xml version="1.0" encoding="UTF-8"?><DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${ID}">`
   + `<tpAmb>2</tpAmb><dhEmi>2026-11-22T10:00:00-03:00</dhEmi><verAplic>Prospecta-1.0</verAplic><serie>1</serie><nDPS>42</nDPS>`
   + `<dCompet>2026-11-20</dCompet><tpEmit>1</tpEmit><finNFSe>0</finNFSe><cLocEmi>2105302</cLocEmi>`
-  + `<prest><CNPJ>11222333000181</CNPJ><IM>12345</IM><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><regEspTrib>0</regEspTrib></regTrib></prest>`
+  + `<prest><CNPJ>11222333000181</CNPJ><IM>12345</IM><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><cAtvSN>13</cAtvSN><regEspTrib>0</regEspTrib></regTrib></prest>`
   + `<toma><CPF>12345678909</CPF><xNome>Cliente &amp; Filhos &lt;Teste&gt;</xNome></toma>`
-  + `<serv><locPrest><cLocPrestacao>2105302</cLocPrestacao></locPrest><cServ><cTribNac>070201</cTribNac><xDescServ>Administração de obra</xDescServ><cNBS>114011000</cNBS></cServ></serv>`
+  + `<serv><locPrest><cLocPrestacao>2105302</cLocPrestacao></locPrest><cServ><cTribNac>070201</cTribNac><xDescServ>Administração de obra</xDescServ><cNBS>114011000</cNBS></cServ><obra><cObra>900012345678</cObra></obra></serv>`
   + `<valores><vServPrest><vServ>1234.56</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN><pAliq>5.0000</pAliq></tribMun>`
   + `<totTrib><indTotTrib>0</indTotTrib></totTrib></trib></valores>`
   + `<IBSCBS><indFinal>0</indFinal><cIndOp>100301</cIndOp><indDest>0</indDest><valores><trib><CST>000</CST><cClassTrib>000001</cClassTrib></trib></valores></IBSCBS>`
@@ -122,6 +123,25 @@ describe("DPS — montagem pura por fixture", () => {
     expect(faltasDps({ ...ENTRADA, valorCentavos: 0 })).toEqual([expect.stringMatching(/valor/)]);
     expect(() => idDps("2105302", "11222333000181", "1", 0)).toThrow(ErroDps);
   });
+  it("QA S-4 (B4): xDescServ cortado em 2000 caracteres sem partir emoji; U+FFFE/U+FFFF e surrogates soltos saem", () => {
+    const { xml } = montarDps({ ...ENTRADA, servico: { ...ENTRADA.servico, descricao: `${"a".repeat(1999)}😀😀` } });
+    const desc = /<xDescServ>([^<]*)<\/xDescServ>/.exec(xml)![1]!;
+    expect(Array.from(desc)).toHaveLength(2000);
+    expect(desc.endsWith("😀")).toBe(true);
+    expect(escaparXml("a\uFFFEb\uFFFFc\uD800d\uDC00e😀")).toBe("abcde😀");
+  });
+    it("Simples exige cAtvSN do tipo de serviço; 7.02/7.05 exigem o grupo obra (CNO); IM só quando o emissor tem; reembolso recusado", () => {
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, codigoAtividadeSimples: null } })).toEqual([expect.stringMatching(/cAtvSN/)]);
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, codigoAtividadeSimples: "IMP" } })).toEqual([expect.stringMatching(/cAtvSN/)]);
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, cno: null } })).toEqual([expect.stringMatching(/grupo "obra"/)]);
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, itemLc116: "7.05", codigoTributacaoNacional: "070501", cno: null } })).toEqual([expect.stringMatching(/grupo "obra"/)]);
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, itemLc116: "28.01", codigoTributacaoNacional: "280101", cno: null } })).toEqual([]);
+    // não optante: sem cAtvSN na DPS
+    const presumido = { ...ENTRADA, regimeTributario: "lucro_presumido", parametros: { ...PARAMETROS, opSimpNac: "1", regApTribSN: null } };
+    expect(montarDps(presumido).xml).not.toContain("cAtvSN");
+    expect(montarDps({ ...ENTRADA, prestador: { ...ENTRADA.prestador, inscricaoMunicipal: null } }).xml).toContain("<prest><CNPJ>11222333000181</CNPJ><regTrib>");
+    expect(faltasDps({ ...ENTRADA, reembolsoCentavos: 5_000 })).toEqual([expect.stringMatching(/reembolso\/repasse.*vCalcAjusteBCIBSCBS/)]);
+  });
   it("Id aceita CNPJ alfanumérico (NT 009) e nDPS sai sem zero à esquerda", () => {
     expect(idDps("2105302", "12ABC34501DE35", "49999", 7)).toBe("DPS2105302212ABC34501DE3549999000000000000007");
     expect(montarDps({ ...ENTRADA, numero: 7 }).xml).toContain("<nDPS>7</nDPS>");
@@ -130,12 +150,12 @@ describe("DPS — montagem pura por fixture", () => {
     const nota = {
       dataEvento: "2026-11-20", valorCentavos: 50_000, descricao: "Regularização", municipioIncidenciaIbge: null,
       municipio: { nome: "Imperatriz", uf: "MA", fonte: "emissor" }, emissor: { regime: "simples_nacional" }, tomador: { tipo: "bpo", nome: "Fulano", documento: "12345678909", cidade: null, uf: null },
-      tipoServico: { codigoTributacaoNacional: "070201", codigoNbs: null, aliquotaIss: "2.0000" },
+      tipoServico: { codigoTributacaoNacional: "280101", codigoNbs: null, itemLc116: "28.01", codigoAtividadeSimples: "9", aliquotaIss: "2.0000" },
     } as unknown as NotaDetalhada;
     const emissor = { cnpj: "11222333000181", ambiente: "producao_restrita", serieDps: "1", inscricaoMunicipal: null, municipioIbge: "2105302" } as unknown as FiscalEmissor;
     const e = entradaDaNota(nota, emissor, { numero: 1, emitidoEm: ENTRADA.emitidoEm, parametros: PARAMETROS });
     expect(e).toMatchObject({ regimeTributario: "simples_nacional", competencia: "2026-11-20", valorCentavos: 50_000, serie: "1", tomador: { nome: "Fulano" }, aliquotaIss: "2.0000",
-      servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", descricao: "Regularização" } });
+      servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "280101", itemLc116: "28.01", codigoAtividadeSimples: "9", descricao: "Regularização" } });
     expect(faltasDps(e)).toEqual([]);
   });
 });
@@ -193,7 +213,13 @@ describe("assinatura XML-DSig envelopada (certificado de TESTE)", () => {
     expect(() => assinarXml('<DPS><infDPS Id="a1"/><infDPS Id="a2"/></DPS>', cred)).toThrow(ErroAssinatura);
     expect(() => assinarXml(dps(), { ...cred, certPem: cred.certPem + outroCred.certPem })).toThrow(/certificado final/);
   });
-  it("assina também o pedido de evento (infPedReg dentro de pedRegEvento)", () => {
+  it("XML com DOCTYPE é recusado ao assinar e não verifica", () => {
+    const comDoctype = dps().replace("?>", "?><!DOCTYPE DPS>");
+    expect(() => assinarXml(comDoctype, cred)).toThrow(/DOCTYPE/);
+    const assinado = assinarXml(dps(), cred);
+    expect(verificarAssinaturaXml(assinado.replace("?>", "?><!DOCTYPE DPS>"), cred.certPem)).toBe(false);
+  });
+    it("assina também o pedido de evento (infPedReg dentro de pedRegEvento)", () => {
     const evento = `<?xml version="1.0" encoding="UTF-8"?><pedRegEvento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infPedReg Id="PRE1">x</infPedReg></pedRegEvento>`;
     const assinado = assinarXml(evento, cred, "infPedReg");
     expect(assinado).toMatch(/<\/infPedReg><Signature/);
@@ -217,6 +243,7 @@ describe("cliente mTLS (Sefin/ADN) — sem chamada real", () => {
     expect(montarUrl(d, "/nfse").href).toBe("https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional/nfse");
     expect(montarUrl({ ...d, baseAlternativa: "/SefinNacional" }, "/nfse", true).href).toBe("https://sefin.producaorestrita.nfse.gov.br/SefinNacional/nfse");
     expect(() => montarUrl(d, "/nfse", true)).toThrow(/alternativa/);
+    expect(() => montarUrl(d, "/%2e%2e/x")).toThrow(ErroSefin);
     for (const ruim of ["//evil.example/x", "/../x", "https://evil.example/x", "/x@evil.example", "nfse", "/a\\b"]) expect(() => montarUrl(d, ruim), ruim).toThrow(ErroSefin);
   });
   it("caminhos oficiais com valores só alfanuméricos; DANFSe não existe mais como caminho (API suspensa)", () => {

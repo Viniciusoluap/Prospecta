@@ -85,6 +85,14 @@ export const OP_SIMPLES = { naoOptante: "1", mei: "2", meEpp: "3" } as const;
  */
 export const CALCULADORA_RECEITA_BASE = "https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/api";
 
+/**
+ * cAtvSN — código da atividade do Simples (Anexo VIII v01.02.00; regra 449 do Anexo VI): obrigatório para optante.
+ * 7 = Anexo III; 9 = sujeito ao Fator R (Anexo III ou V); 12 = construção 7.02/7.05 no Anexo III; 13 = construção
+ * 7.02/7.05 no Anexo IV. "IMP" (atividade impeditiva) não é aceito. Mesma lista no CHECK de fiscal_tipos_servico (0162).
+ */
+export const CODIGOS_ATIVIDADE_SIMPLES = ["7", "9", "12", "13"] as const;
+export type CodigoAtividadeSimples = (typeof CODIGOS_ATIVIDADE_SIMPLES)[number];
+
 export const PARAMETROS_VAZIOS: ParametrosContador = {
   opSimpNac: null, regApTribSN: null, regEspTrib: null, tribIssqn: null, tpRetIssqn: null, indTotTrib: null,
   ibscbs: { indFinal: null, cIndOp: null, indDest: null, cst: null, cClassTrib: null },
@@ -103,11 +111,21 @@ export type EntradaDps = {
     municipioIncidenciaIbge: string | null;
     codigoTributacaoNacional: string | null;
     codigoNbs: string | null;
+    /** Item da LC 116 (ex.: "7.02"): 7.02 e 7.05 exigem o grupo "obra" (ISS no local da obra). */
+    itemLc116?: string | null;
+    /** cAtvSN do tipo de serviço (obrigatório para emissor do Simples). */
+    codigoAtividadeSimples?: string | null;
     descricao: string;
     /** CNO da obra, quando construção civil e o leiaute exigir [a confirmar]. */
     cno: string | null;
   };
   valorCentavos: number;
+  /**
+   * Reembolso/repasse de despesa embutido no valor (ex.: cartório repassado). AINDA NÃO TRATADO: produção usa
+   * `vCalcReeRepRes` (dedução tipo 04) e a NT 009 (produção restrita) usa `vCalcAjusteBCIBSCBS` com tipos 103/104/199
+   * (ou 99 autorizado pelo município, só no ISS). Enquanto não for tratado por variante, a DPS com reembolso é recusada.
+   */
+  reembolsoCentavos?: number | null;
   /** Regime do perfil tributário do emissor (`tax_profiles.regime`: simples_nacional, lucro_presumido…). */
   regimeTributario: string | null;
   /** Alíquota do ISS do tipo de serviço (cadastrada pelo contador), em texto. */

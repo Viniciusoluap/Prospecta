@@ -7,7 +7,7 @@
 // quando o XSD for obtido (não está no repositório).
 import type { FiscalEmissor } from "../../drizzle/schema-fiscal.js";
 import {
-  FIN_NFSE_REGULAR, NAMESPACE_NFSE, OP_SIMPLES, PADRAO_ID_DPS, PADRAO_NUMERO_DPS, SERIE_MAX_API, SERIE_MIN_API, TIPO_INSCRICAO_ID, TP_AMB,
+  CODIGOS_ATIVIDADE_SIMPLES, FIN_NFSE_REGULAR, NAMESPACE_NFSE, OP_SIMPLES, PADRAO_ID_DPS, PADRAO_NUMERO_DPS, SERIE_MAX_API, SERIE_MIN_API, TIPO_INSCRICAO_ID, TP_AMB,
   TP_EMIT_PRESTADOR, VARIANTE_DO_AMBIENTE, VERSAO_APLICATIVO, VERSAO_LEIAUTE_DPS,
   type EntradaDps, type ParametrosContador, type VarianteLeiaute,
 } from "../../shared/fiscal/dps-campos.js";
@@ -23,9 +23,16 @@ export class ErroDps extends Error {
 const doc = (v: string | null | undefined) => (v ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "");
 const vazio = (v: string | null | undefined) => v == null || String(v).trim() === "";
 
+/** Corta em `max` caracteres sem partir um caractere em dois (conta por code point, não por unidade UTF-16). */
+export function cortarTexto(v: string, max: number): string {
+  const pontos = Array.from(v);
+  return pontos.length <= max ? v : pontos.slice(0, max).join("");
+}
+
 /** Escapa texto para conteúdo XML; remove caracteres de controle que o XML 1.0 não aceita. */
 export function escaparXml(v: string): string {
-  return v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+  // QA S-4 (B4): fora também U+FFFE/U+FFFF e metades de par surrogate soltas (proibidos no XML 1.0).
+  return v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
@@ -78,6 +85,9 @@ export function faltasDps(e: EntradaDps): string[] {
   if (vazio(e.servico.codigoTributacaoNacional)) f.push("código de tributação nacional do tipo de serviço (contador)");
   if (vazio(e.servico.descricao)) f.push("descrição do serviço");
   if (!(Number.isSafeInteger(e.valorCentavos) && e.valorCentavos > 0)) f.push("valor do serviço maior que zero");
+  if ((e.reembolsoCentavos ?? 0) > 0) {
+    f.push("nota com reembolso/repasse de despesa: ainda não tratado na DPS (o campo muda entre os leiautes — vCalcReeRepRes × vCalcAjusteBCIBSCBS, NT 009 §2.3); emita sem o reembolso ou marque como \"sem nota\"");
+  }
   const p = e.parametros;
   const contador: [keyof Omit<ParametrosContador, "ibscbs">, string][] = [
     ["opSimpNac", "situação no Simples Nacional (opSimpNac)"], ["regEspTrib", "regime especial de tributação (regEspTrib)"],
@@ -93,6 +103,14 @@ export function faltasDps(e: EntradaDps): string[] {
     if (!simples && optante) f.push("opção do Simples (opSimpNac) coerente com o regime do perfil (não optante) — contador");
     if (simples && p.opSimpNac === OP_SIMPLES.meEpp && vazio(p.regApTribSN)) f.push("regime de apuração do Simples (regApTribSN) — contador");
   }
+  // cAtvSN (Anexo VIII; regra 449 do Anexo VI): obrigatório para optante do Simples, vem do tipo de serviço.
+  const atv = e.servico.codigoAtividadeSimples;
+  if (simples && !(CODIGOS_ATIVIDADE_SIMPLES as readonly string[]).includes(atv ?? "")) {
+    f.push("código da atividade do Simples (cAtvSN: 7, 9, 12 ou 13) no tipo de serviço — contador");
+  }
+  // 7.02/7.05 (construção): ISS no local da obra e grupo "obra" obrigatório (Anexo I, MUN.INCID INFO.SERV.). Hoje o
+  // sistema informa a obra pelo CNO; CIB ou endereço da obra ficam para quando houver onde guardá-los.
+  if (exigeGrupoObra(e) && vazio(e.servico.cno)) f.push("CNO da obra (grupo \"obra\" obrigatório para os itens 7.02 e 7.05)");
   // Obrigatórios da classificação (PESQUISA §5). indFinal e cIndOp são opcionais no leiaute da produção restrita (o cIndOp
   // só é exigido quando o cClassTrib pede — E0860; a Sefin recusa e a mensagem dela volta para a tela).
   // Optante do Simples: o grupo IBSCBS só é obrigatório a partir de 2027 (Anexo I, PESQUISA §5) — sem classificação
@@ -104,6 +122,19 @@ export function faltasDps(e: EntradaDps): string[] {
   if (!(simples && semClassificacao && e.competencia < "2027-01-01")) for (const [k, rotulo] of ib) if (vazio(p.ibscbs[k])) f.push(`${rotulo} — contador`);
   return f;
 }
+
+/** Itens 7.02 / 7.05 da LC 116 (pelo item ou pelo código de tributação nacional 0702xx / 0705xx). */
+export function exigeGrupoObra(e: Pick<EntradaDps, "servico">): boolean {
+  const item = (e.servico.itemLc116 ?? "").trim().replace(/^0/, "");
+  const ctn = e.servico.codigoTributacaoNacional ?? "";
+  return item === "7.02" || item === "7.05" || /^070[25]/.test(ctn);
+}
+
+/**
+ * Posição do cAtvSN no XML: [NÃO CONFIRMADO linha a linha no XSD] — vem do leiaute RTC (Anexo VI); colocado em
+ * prest/regTrib, logo depois do regApTribSN. Ajustar só aqui quando conferido no XSD da produção restrita.
+ */
+const CATVSN_EM_REGTRIB = true;
 
 const tag = (nome: string, valor: string | null | undefined) => (vazio(valor) ? "" : `<${nome}>${escaparXml(String(valor).trim())}</${nome}>`);
 
@@ -137,12 +168,14 @@ export function serializarDps(e: EntradaDps, id: string, variante: VarianteLeiau
     tag("tpEmit", TP_EMIT_PRESTADOR),
     nt009 ? tag("finNFSe", FIN_NFSE_REGULAR) : "",
     tag("cLocEmi", e.prestador.municipioIbge),
+    // IM só quando o emissor tem (a prefeitura cadastrou): informar sem cadastro gera E0120.
     `<prest>`, tag("CNPJ", doc(e.prestador.cnpj)), tag("IM", e.prestador.inscricaoMunicipal),
-    `<regTrib>`, tag("opSimpNac", p.opSimpNac), tag("regApTribSN", p.regApTribSN), tag("regEspTrib", p.regEspTrib), `</regTrib>`, `</prest>`,
+    `<regTrib>`, tag("opSimpNac", p.opSimpNac), tag("regApTribSN", p.regApTribSN),
+    CATVSN_EM_REGTRIB && e.regimeTributario === "simples_nacional" ? tag("cAtvSN", e.servico.codigoAtividadeSimples) : "", tag("regEspTrib", p.regEspTrib), `</regTrib>`, `</prest>`,
     `<toma>`, tomadorDoc.length === 11 ? tag("CPF", tomadorDoc) : tag("CNPJ", tomadorDoc), tag("xNome", e.tomador!.nome), `</toma>`,
     `<serv>`,
     `<locPrest>`, tag("cLocPrestacao", e.servico.municipioIncidenciaIbge), `</locPrest>`,
-    `<cServ>`, tag("cTribNac", e.servico.codigoTributacaoNacional), tag("xDescServ", e.servico.descricao.slice(0, 2000)), tag("cNBS", e.servico.codigoNbs), `</cServ>`,
+    `<cServ>`, tag("cTribNac", e.servico.codigoTributacaoNacional), tag("xDescServ", cortarTexto(e.servico.descricao, 2000)), tag("cNBS", e.servico.codigoNbs), `</cServ>`,
     vazio(e.servico.cno) ? "" : `<obra>${tag("cObra", e.servico.cno)}</obra>`,
     `</serv>`,
     `<valores>`,
@@ -186,6 +219,8 @@ export function entradaDaNota(nota: NotaDetalhada, emissor: FiscalEmissor, o: {
       municipioIncidenciaIbge: nota.municipioIncidenciaIbge ?? (nota.municipio.fonte === "emissor" ? emissor.municipioIbge : null),
       codigoTributacaoNacional: nota.tipoServico?.codigoTributacaoNacional ?? null,
       codigoNbs: nota.tipoServico?.codigoNbs ?? null,
+      itemLc116: nota.tipoServico?.itemLc116 ?? null,
+      codigoAtividadeSimples: nota.tipoServico?.codigoAtividadeSimples ?? null,
       descricao: nota.descricao,
       cno: o.cno ?? null,
     },

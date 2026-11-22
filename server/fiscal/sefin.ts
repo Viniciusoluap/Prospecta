@@ -93,7 +93,8 @@ export function destinoDo(ambiente: AmbienteFiscal | string, servico: ServicoNac
 
 /** Monta a URL com host fixo. Caminho com esquema, host, "..", "//", "@" ou "\" é recusado. */
 export function montarUrl(destino: Endereco, caminho: string, usarBaseAlternativa = false): URL {
-  if (!/^\/[A-Za-z0-9_\-./{}%=?&]*$/.test(caminho) || caminho.includes("..") || caminho.includes("//")) {
+  // QA S-4 (B2): sem "%" (nada de ".." codificado) e, depois de montada, a URL tem de continuar dentro da base.
+  if (!/^\/[A-Za-z0-9_\-./{}=?&]*$/.test(caminho) || caminho.includes("..") || caminho.includes("//")) {
     throw new ErroSefin("Caminho recusado pelo cliente fiscal.");
   }
   const autoridade = destino.porta ? `${destino.host}:${destino.porta}` : destino.host;
@@ -101,6 +102,7 @@ export function montarUrl(destino: Endereco, caminho: string, usarBaseAlternativ
   if (base == null) throw new ErroSefin("Este serviço não tem base alternativa.");
   const url = new URL(`https://${autoridade}${base}${caminho}`);
   if (url.protocol !== "https:" || url.host !== autoridade || url.username || url.password) throw new ErroSefin("Endereço fora da lista do cliente fiscal.");
+  if (!(url.pathname === base || url.pathname.startsWith(`${base}/`))) throw new ErroSefin("Caminho fora da base da API.");
   return url;
 }
 
@@ -153,8 +155,15 @@ export function criarClienteSefin(o: {
       const url = montarUrl(destino, caminho, o.usarBaseAlternativa ?? false);
       const corpo = corpoJson === undefined ? undefined : JSON.stringify(corpoJson);
       const cabecalhos: Record<string, string> = { Accept: "application/json", ...(corpo ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(corpo)) } : {}) };
-      return new Promise<RespostaSefin>((resolve, reject) => {
-        let req: ClientRequest;
+      return new Promise<RespostaSefin>((resolveBruto, rejectBruto) => {
+        let req: ClientRequest | undefined;
+        // QA S-4 (M1): `timeout` do https.request é de OCIOSIDADE; este é o prazo TOTAL (conexão + resposta inteira).
+        // Estourou → resultado incerto (R10): a emissão deve consultar a DPS antes de qualquer reenvio.
+        let terminado = false;
+        const incerto = () => new ErroSefin(`O serviço nacional não respondeu em ${Math.round(tempo / 1000)} s (resultado incerto: consultar antes de reenviar).`);
+        const prazo = setTimeout(() => { reject(incerto()); req?.destroy(); }, tempo);
+        function resolve(r: RespostaSefin) { if (terminado) return; terminado = true; clearTimeout(prazo); resolveBruto(r); }
+        function reject(e: Error) { if (terminado) return; terminado = true; clearTimeout(prazo); rejectBruto(e); }
         try {
           req = enviar(opcoesTls(url, o.credencial, metodo, cabecalhos, tempo, o.ca ?? CA_CONFIAVEIS), res => {
             const partes: Buffer[] = []; let total = 0;
@@ -165,15 +174,16 @@ export function criarClienteSefin(o: {
             });
             res.on("end", () => resolve({ status: res.statusCode ?? 0, corpo: Buffer.concat(partes).toString("utf8") }));
             res.on("error", () => reject(new ErroSefin("A resposta do serviço nacional foi interrompida.")));
+            res.on("aborted", () => reject(new ErroSefin("A resposta do serviço nacional foi interrompida.")));
           });
         } catch { reject(new ErroSefin("Não foi possível abrir a conexão segura.")); return; }
-        req.on("timeout", () => req.destroy(Object.assign(new Error("tempo"), { code: "ETIMEDOUT" })));
+        const r = req;
+        r.on("timeout", () => r.destroy(Object.assign(new Error("tempo"), { code: "ETIMEDOUT" })));
         // Só o código do erro (ex.: DEPTH_ZERO_SELF_SIGNED_CERT, ETIMEDOUT): nada do corpo, do XML ou do certificado.
-        req.on("error", (e: NodeJS.ErrnoException) => reject(new ErroSefin(e.code === "ETIMEDOUT"
-          ? `O serviço nacional não respondeu em ${Math.round(tempo / 1000)} s (resultado incerto: consultar antes de reenviar).`
-          : `Falha na conexão segura com o serviço nacional (${e.code ?? "erro de rede"}).`)));
-        if (corpo) req.write(corpo);
-        req.end();
+        r.on("error", (e: NodeJS.ErrnoException) => reject(e.code === "ETIMEDOUT" ? incerto()
+          : new ErroSefin(`Falha na conexão segura com o serviço nacional (${e.code ?? "erro de rede"}).`)));
+        if (corpo) r.write(corpo);
+        r.end();
       });
     },
   };
@@ -182,8 +192,8 @@ export function criarClienteSefin(o: {
 export type ResultadoTeste = { ok: boolean; mensagem: string; ambiente: string };
 
 /**
- * "Testar conexão" do cartão. Desligado → recusa sem rede. Produção → bloqueado. Produção restrita → só se a base estiver
- * CONFIRMADA (hoje não está) e houver certificado ativo; consulta o convênio do município sede e devolve só o status HTTP.
+ * "Testar conexão" do cartão. Desligado → recusa sem rede. Produção → bloqueado. Produção restrita (base confirmada) → com
+ * certificado ativo, faz só o GET de leitura do convênio do município sede e devolve só o status HTTP.
  */
 export async function testarConexaoSefin(
   db: DrizzleDb, emissor: { id: number; ambiente: string; municipioIbge?: string | null },

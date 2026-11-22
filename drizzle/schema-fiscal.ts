@@ -43,6 +43,8 @@ export const fiscalTiposServico = pgTable("fiscal_tipos_servico", {
   codigoTributacaoNacional: varchar("codigo_tributacao_nacional", { length: 6 }),
   codigoNbs: varchar("codigo_nbs", { length: 9 }),
   itemLc116: varchar("item_lc116", { length: 5 }),
+  /** EPIC-029 S-4 (0162): cAtvSN — código da atividade do Simples (Anexo VIII). */
+  codigoAtividadeSimples: varchar("codigo_atividade_simples", { length: 2 }),
   descricaoPadrao: text("descricao_padrao"),
   aliquotaIss: numeric("aliquota_iss", { precision: 7, scale: 4 }),
   retencoes: jsonb("retencoes"),

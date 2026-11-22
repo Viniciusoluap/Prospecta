@@ -29,8 +29,12 @@ const seletor = (elemento: string) => {
   return `//*[local-name(.)='${elemento}']`;
 };
 
+/** QA S-4: DPS e evento nunca têm DOCTYPE — recusar evita entidade (XXE) e confusão de Id. */
+const temDoctype = (xml: string) => /<!DOCTYPE/i.test(xml);
+
 /** O elemento existe UMA vez e tem Id? (referência por Id, sem ambiguidade). */
 function idDoElemento(xml: string, elemento: string): string {
+  if (temDoctype(xml)) throw new ErroAssinatura("XML com DOCTYPE não é aceito.");
   const doc = new DOMParser().parseFromString(xml, "text/xml");
   const achados = Array.from(doc.getElementsByTagNameNS("*", elemento));
   if (achados.length !== 1) throw new ErroAssinatura(`O XML precisa ter exatamente um elemento ${elemento}.`);
@@ -66,13 +70,27 @@ export function assinarXml(xml: string, credencial: { certPem: string; chavePem:
  */
 export function verificarAssinaturaXml(xml: string, certPem: string, elemento = "infDPS"): boolean {
   try {
-    const id = new DOMParser().parseFromString(xml, "text/xml").getElementsByTagNameNS("*", elemento)[0]?.getAttribute("Id");
+    if (temDoctype(xml)) return false;
     const doc = new DOMParser().parseFromString(xml, "text/xml");
-    const assinaturas = doc.getElementsByTagNameNS(NS_DSIG, "Signature");
-    if (assinaturas.length !== 1 || !id) return false;
+    const raiz = doc.documentElement;
+    // O elemento esperado: UM só no documento, filho direto da raiz, com Id; a Signature: UMA só, irmã dele.
+    const elementos = Array.from(doc.getElementsByTagNameNS("*", elemento));
+    const assinaturas = Array.from(doc.getElementsByTagNameNS(NS_DSIG, "Signature"));
+    if (!raiz || elementos.length !== 1 || assinaturas.length !== 1) return false;
+    const esperado = elementos[0]!;
+    const id = esperado.getAttribute("Id");
+    if (!id || esperado.parentNode !== raiz || assinaturas[0]!.parentNode !== raiz) return false;
     const sig = new SignedXml({ publicCert: certPem, getCertFromKeyInfo: () => null });
     sig.loadSignature(assinaturas[0]!.toString());
     if (!sig.checkSignature(xml)) return false;
-    return sig.getReferences().length === 1 && sig.getReferences()[0]!.uri === `#${id}`;
+    const refs = sig.getReferences();
+    if (refs.length !== 1 || refs[0]!.uri !== `#${id}`) return false;
+    // QA S-4: o conteúdo efetivamente assinado (depois das transformações) tem de ser o elemento esperado.
+    const assinados = sig.getSignedReferences();
+    if (assinados.length !== 1) return false;
+    const assinado = new DOMParser().parseFromString(assinados[0]!, "text/xml").documentElement;
+    return Boolean(assinado) && assinado!.localName === elemento && assinado!.getAttribute("Id") === id
+      && assinado!.textContent === esperado.textContent
+      && assinado!.getElementsByTagName("*").length === esperado.getElementsByTagName("*").length;
   } catch { return false; }
 }

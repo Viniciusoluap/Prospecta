@@ -161,6 +161,11 @@ describe("cofre — status, desativar e guarda do banco", () => {
     await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET senha_cifrada = 'x'`)).rejects.toThrow(/FISCAL_CERTIFICADO_IMUTAVEL/);
     await pg.exec(`UPDATE fiscal_emissores_certificado SET ativo = false`);
     await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET ativo = true`)).rejects.toThrow(/FISCAL_CERTIFICADO_DESATIVADO/);
+    // QA S-4 (B3): quem/quando desativou é gravado uma vez só; AC e cadeia também não mudam
+    await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET desativado_por = 99`)).rejects.toThrow(/FISCAL_CERTIFICADO_IMUTAVEL/);
+    await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET desativado_em = now() - interval '1 day'`)).rejects.toThrow(/FISCAL_CERTIFICADO_IMUTAVEL/);
+    await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET autoridade = 'AC FALSA'`)).rejects.toThrow(/FISCAL_CERTIFICADO_IMUTAVEL/);
+    await expect(pg.exec(`UPDATE fiscal_emissores_certificado SET cadeia_icp = true`)).rejects.toThrow(/FISCAL_CERTIFICADO_IMUTAVEL/);
     await expect(pg.exec(`UPDATE fiscal_certificados_historico SET detalhe = 'x'`)).rejects.toThrow(/IMUTAVEL/);
     await expect(pg.exec(`DELETE FROM fiscal_certificados_historico`)).rejects.toThrow(/IMUTAVEL/);
   });
@@ -178,7 +183,9 @@ describe("a emissão continua recusada", () => {
       .rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);
     await expect(pg.exec(`INSERT INTO fiscal_notas (origem_tipo, origem_id, data_evento, status) VALUES ('bpo_lancamento', 2, '2026-11-20', 'EMITIDA')`))
       .rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);
-    const semComentarios = M0162.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
+    // Única alteração em tabela existente: a coluna nova (opcional) do tipo de serviço.
+    const semComentarios = M0162.split("\n").filter(l => !l.trim().startsWith("--")).join("\n")
+      .replace(/ALTER TABLE "fiscal_tipos_servico" ADD COLUMN IF NOT EXISTS "codigo_atividade_simples"/, "");
     expect(semComentarios).not.toMatch(/fiscal_notas\b|fiscal_notas_guarda|ALTER TABLE|DROP TABLE|DROP COLUMN|DELETE FROM/);
   });
 });
