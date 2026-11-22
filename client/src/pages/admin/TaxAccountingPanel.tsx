@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { AvisoConsultaCadastral } from "@/components/AvisoConsultaCadastral";
+import { useAutoPreenchimentoCnpj } from "@/hooks/useAutoPreenchimentoCadastral";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -72,6 +74,19 @@ export default function TaxAccountingPanel() {
     retRate: "4",
     effectiveFrom: "",
     notes: "",
+  });
+  // EPIC-029 S-1: CNPJ completo e válido preenche o nome vazio e mostra o alerta se a empresa não estiver ATIVA.
+  const consultaCnpjPerfil = useAutoPreenchimentoCnpj({
+    valor: profile.cnpj,
+    campos: { companyName: profile.companyName },
+    mapear: d => ({ companyName: d.razaoSocial }),
+    aplicar: patch => setProfile(p => ({ ...p, ...patch })),
+  });
+  const consultaCnpjRet = useAutoPreenchimentoCnpj({
+    valor: ret.cnpj,
+    campos: { name: ret.name },
+    mapear: d => ({ name: d.nomeFantasia ?? d.razaoSocial }),
+    aplicar: patch => setRet(r => ({ ...r, ...patch })),
   });
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.tax.overview.useQuery();
@@ -205,6 +220,7 @@ export default function TaxAccountingPanel() {
                   }
                   className="mt-1 bg-[#2C3E50]"
                 />
+                <AvisoConsultaCadastral estado={consultaCnpjPerfil} rotulos={{ companyName: "Empresa" }} />
               </div>
               <div>
                 <Label>Regime *</Label>
@@ -411,6 +427,7 @@ export default function TaxAccountingPanel() {
                   onChange={e => setRet({ ...ret, cnpj: e.target.value })}
                   className="mt-1 bg-[#2C3E50]"
                 />
+                <AvisoConsultaCadastral estado={consultaCnpjRet} rotulos={{ name: "Empreendimento" }} />
               </div>
               <div>
                 <Label>Nº da inscrição/adesão</Label>

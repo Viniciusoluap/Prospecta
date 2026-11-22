@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { AvisoConsultaCadastral } from "@/components/AvisoConsultaCadastral";
+import { useAutoPreenchimentoCnpj } from "@/hooks/useAutoPreenchimentoCadastral";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { parseNumeroBR } from "@shared/numero-br";
@@ -353,6 +355,13 @@ function Investidores({ form, setForm, calculo }: { form: FormFinanceiro; setFor
   const lista = trpc.obraFinanceiro.listarInvestidores.useQuery();
   const [novoAberto, setNovoAberto] = useState(false);
   const [novo, setNovo] = useState({ nome: "", documento: "", telefone: "", email: "" });
+  // EPIC-029 S-1: documento com 14 caracteres de CNPJ válido preenche o nome vazio (CPF não consulta nada).
+  const consultaCnpj = useAutoPreenchimentoCnpj({
+    valor: novo.documento,
+    campos: { nome: novo.nome },
+    mapear: d => ({ nome: d.razaoSocial }),
+    aplicar: patch => setNovo(n => ({ ...n, ...patch })),
+  });
   const criar = trpc.obraFinanceiro.criarInvestidor.useMutation({
     onSuccess: (inv) => {
       utils.obraFinanceiro.listarInvestidores.invalidate();
@@ -405,7 +414,8 @@ function Investidores({ form, setForm, calculo }: { form: FormFinanceiro; setFor
           <DialogHeader><DialogTitle className="text-[#C9A961]">Novo investidor</DialogTitle></DialogHeader>
           {(["nome", "documento", "telefone", "email"] as const).map((k) => (
             <div key={k}><Label className="text-gray-300 capitalize">{k === "documento" ? "CPF/CNPJ" : k}</Label>
-              <Input value={novo[k]} onChange={(e) => setNovo({ ...novo, [k]: e.target.value })} className={campo} /></div>
+              <Input value={novo[k]} onChange={(e) => setNovo({ ...novo, [k]: e.target.value })} className={campo} />
+              {k === "documento" && <AvisoConsultaCadastral estado={consultaCnpj} />}</div>
           ))}
           <Button disabled={criar.isPending || novo.nome.trim().length < 2} className="bg-[#C9A961] text-[#1A2332]" onClick={() => criar.mutate(novo)}>Cadastrar</Button>
         </DialogContent>
