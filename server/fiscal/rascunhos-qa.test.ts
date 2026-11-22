@@ -1,5 +1,5 @@
 // EPIC-029 S-2 — portão de QA (@qa Quinn, 22/11/2026). Tentativas de quebrar os rascunhos de nota.
-// Achados ainda abertos ficam como `it.fails` (passam enquanto o defeito existir; quando corrigido, viram `it`).
+// Os 5 achados do portão (antes `it.fails`) foram corrigidos pelo @dev e viraram `it` (QA Results na story).
 // Mesmo banco em memória do teste do dev (PGlite + DDL do schema + 0154 aplicada duas vezes). Vigia de fetch em todos.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -121,7 +121,7 @@ describe("QA — integridade do gerador (devem passar)", () => {
   it("duas varreduras ao mesmo tempo (dois crons) não duplicam rascunho nem histórico", async () => {
     for (let i = 0; i < 5; i++) await lancamento({ valor: 100 + i });
     await pg.exec("UPDATE fiscal_config SET ligado = true");
-    const r = await Promise.all([gerarRascunhosNoCron(getDb), gerarRascunhosNoCron(getDb), gerarRascunhos(getDb(), { origem: "botao", agora: AGORA })]);
+    const r = await Promise.all([gerarRascunhosNoCron(getDb, 30_000), gerarRascunhosNoCron(getDb, 30_000), gerarRascunhos(getDb(), { origem: "botao", agora: AGORA })]);
     expect(r.filter(x => "erro" in x)).toEqual([]);
     expect(await notas()).toHaveLength(5);
     expect(await q("SELECT nota_id FROM fiscal_notas_historico WHERE acao = 'criada'")).toHaveLength(5);
@@ -129,7 +129,7 @@ describe("QA — integridade do gerador (devem passar)", () => {
 
   it("falha do banco no cron não lança e não registra dado pessoal no log", async () => {
     const espiao = vi.spyOn(console, "error").mockImplementation(() => {});
-    const r = await gerarRascunhosNoCron(() => { throw new Error("CPF 123.456.789-09 do cliente Maria"); });
+    const r = await gerarRascunhosNoCron(() => { throw new Error("CPF 123.456.789-09 do cliente Maria"); }, 30_000);
     expect(r).toEqual({ erro: true });
     expect(JSON.stringify(espiao.mock.calls)).not.toMatch(/123\.456|Maria/);
     espiao.mockRestore();
@@ -147,11 +147,11 @@ describe("QA — integridade do gerador (devem passar)", () => {
   });
 });
 
-describe("QA — achados abertos (it.fails)", () => {
+describe("QA — achados do portão, corrigidos", () => {
   // [MÉDIO] gerador.ts:130-139 + 193-195: o LIMIT 500 é aplicado ANTES de descartar os tipos "nunca_gerar". Como esses
   // nunca viram linha em fiscal_notas, continuam sendo os 500 primeiros candidatos em toda passada e os recebimentos de id
   // maior (ex.: honorários) nunca ganham rascunho.
-  it.fails("500+ origens 'nunca_gerar' não podem travar para sempre os rascunhos das demais origens do mesmo tipo", async () => {
+  it("500+ origens 'nunca_gerar' não podem travar para sempre os rascunhos das demais origens do mesmo tipo", async () => {
     await pg.exec(`UPDATE fiscal_tipos_servico SET regra = 'nunca_gerar' WHERE nome = 'Outras receitas do BPO'`);
     await pg.exec(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, pago, pago_em, competencia)
       SELECT 'receita', 'Receita ' || g, 10, now(), true, '2026-11-10T12:00:00Z', '2026-11' FROM generate_series(1, ${LIMITE_POR_ORIGEM}) g`);
@@ -162,7 +162,7 @@ describe("QA — achados abertos (it.fails)", () => {
 
   // [MÉDIO] relatorio-mensal.ts:177: o CSV só põe aspas. Excel/LibreOffice executam célula que começa com = + - @ mesmo entre
   // aspas. A descrição vem do BPO, inclusive de extrato bancário/importação (texto de terceiro, ex.: mensagem de PIX).
-  it.fails("CSV do contador neutraliza fórmula vinda da descrição do lançamento (CSV injection)", () => {
+  it("CSV do contador neutraliza fórmula vinda da descrição do lançamento (CSV injection)", () => {
     const r = montarRelatorio({
       competencia: "2026-11", de: new Date("2026-11-01T03:00:00Z"), ate: new Date("2026-12-01T02:59:59Z"),
       movimentos: [], lancamentosBpo: [{ id: 1, tipo: "receita", valor: "10.00", descricao: "=HYPERLINK(\"http://x\";\"clique\")" }], notas: [],
@@ -174,7 +174,7 @@ describe("QA — achados abertos (it.fails)", () => {
   // [MÉDIO] tax-router.ts:142-172 + TaxAccountingPanel.tsx:210-219: com o filtro "Empresa", o cartão "Tributos estimados"
   // aplica a alíquota DA empresa escolhida sobre a receita de TODAS as empresas (a tela avisa só no cartão da receita).
   // "Obrigações vencidas" também não é filtrada. AC 11 diz que o filtro separa os cartões.
-  it.fails("filtro 'Empresa' não aplica a alíquota de uma empresa sobre a receita de todas", async () => {
+  it("filtro 'Empresa' não aplica a alíquota de uma empresa sobre a receita de todas", async () => {
     const a = admin();
     await a.tax.profiles.create({ companyName: "Prospecta", cnpj: "11222333000181", regime: "simples_nacional", estimatedRate: 6, effectiveFrom: new Date("2026-01-01") });
     await a.tax.profiles.create({ companyName: "Efficaz", cnpj: "45723174000110", regime: "lucro_presumido", estimatedRate: 11, effectiveFrom: new Date("2026-02-01") });
@@ -182,12 +182,14 @@ describe("QA — achados abertos (it.fails)", () => {
     const de = new Date("2026-11-01T03:00:00Z"), ate = new Date("2026-12-01T02:59:59Z");
     const geral = await a.tax.overview({ from: de, to: ate });
     const efficaz = await a.tax.overview({ from: de, to: ate, cnpj: "45723174000110" });
-    expect(efficaz.estimatedTax).not.toBeCloseTo(geral.revenue * 0.11, 2);
+    expect(geral.estimatedTax).not.toBeNull();
+    expect(efficaz.estimatedTax).toBeNull();
+    expect(efficaz.estimativaIndisponivel).toMatch(/indisponível por empresa/);
   });
 
   // [MÉDIO] tax-router.ts:236-246: quem tinha perfil SEM CNPJ e cadastra a versão nova COM CNPJ (ou corrige um CNPJ digitado
   // errado) fica com dois perfis vigentes, e não há rota para desativar o antigo. Antes da S-2 sempre ficava um só.
-  it.fails("nova versão do perfil (passando a ter CNPJ) não deixa o perfil antigo vigente junto", async () => {
+  it("nova versão do perfil (passando a ter CNPJ) não deixa o perfil antigo vigente junto", async () => {
     const a = admin();
     await a.tax.profiles.create({ companyName: "Prospecta", regime: "simples_nacional", estimatedRate: 6, effectiveFrom: new Date("2026-01-01") });
     await a.tax.profiles.create({ companyName: "Prospecta", cnpj: "11222333000181", regime: "lucro_presumido", estimatedRate: 11, effectiveFrom: new Date("2026-06-01") });
@@ -196,7 +198,7 @@ describe("QA — achados abertos (it.fails)", () => {
 
   // [BAIXO] router.ts:31 e 177: UF só com max(2) e data só com regex; "M1" ou "2026-02-31" passam pela rota e estouram no
   // CHECK/tipo do banco como erro interno (500), sem frase para o dono.
-  it.fails("UF e data inválidas viram erro de validação (BAD_REQUEST), não erro interno", async () => {
+  it("UF e data inválidas viram erro de validação (BAD_REQUEST), não erro interno", async () => {
     await lancamento();
     await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
     const [n] = await notas();

@@ -129,6 +129,14 @@ export default function TaxAccountingPanel() {
     onSuccess: refresh,
     onError: error => toast.error(error.message),
   });
+  // QA S-2 (M4): desativar um perfil vigente (só admin; não apaga nada; fica no histórico).
+  const desativarPerfil = trpc.tax.profiles.desativar.useMutation({
+    onSuccess: () => {
+      toast.success("Perfil desativado (nada foi apagado).");
+      refresh();
+    },
+    onError: error => toast.error(error.message),
+  });
   const createRet = trpc.tax.ret.create.useMutation({
     onSuccess: () => {
       toast.success("Empreendimento RET registrado.");
@@ -210,9 +218,15 @@ export default function TaxAccountingPanel() {
         <Card className="bg-[#2C3E50] border-amber-500/30 text-gray-100">
           <CardContent className="pt-6">
             <p className="text-xs text-gray-300">Tributos estimados</p>
-            <p className="mt-1 text-xl font-bold text-amber-300">
-              {money(data.estimatedTax)}
-            </p>
+            {data.estimatedTax == null ? (
+              <p className="mt-1 text-sm text-amber-200">
+                {data.estimativaIndisponivel}
+              </p>
+            ) : (
+              <p className="mt-1 text-xl font-bold text-amber-300">
+                {money(data.estimatedTax)}
+              </p>
+            )}
             <p className="text-xs text-gray-400">
               alíquota {data.rate.toFixed(2)}%
             </p>
@@ -576,6 +590,33 @@ export default function TaxAccountingPanel() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {podeDecidir && profiles.filter(p => p.isActive).length > 0 && (
+        <div className="space-y-1 rounded bg-[#2C3E50] p-3 text-sm">
+          <p className="text-xs text-gray-300">Perfis tributários vigentes</p>
+          {profiles
+            .filter(p => p.isActive)
+            .map(p => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-gray-100">
+                  {p.companyName} {p.cnpj ? `• ${p.cnpj}` : "• sem CNPJ"} •{" "}
+                  {regimes[p.regime as keyof typeof regimes] || p.regime}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={desativarPerfil.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Desativar o perfil "${p.companyName}"? Nada é apagado; fica no histórico.`))
+                      desativarPerfil.mutate({ id: p.id });
+                  }}
+                >
+                  Desativar perfil
+                </Button>
+              </div>
+            ))}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">

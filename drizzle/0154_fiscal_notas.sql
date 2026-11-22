@@ -10,13 +10,14 @@
 --     centro de custo NÃO são copiados: a nota guarda só a REFERÊNCIA (cliente do BPO / card do CRM / obra) e um ajuste,
 --     se o dono editar. As colunas de emissão (dps, chave, xml, congelado…) ficam reservadas e nulas até a S-4.
 --   - "fiscal_notas_historico": histórico imutável de cada nota (quem, o quê, quando), gravado pelo gatilho.
+--   - "tax_profiles_historico": histórico imutável da criação/desativação dos perfis tributários (portão de QA, M4).
 --   - "fiscal_config": linha única — gerador ligado/desligado (padrão desligado) e a data de corte da varredura.
 --
 -- Somente ADITIVA e IDEMPOTENTE: só CREATE ... IF NOT EXISTS, CREATE OR REPLACE (funções/gatilhos das tabelas NOVAS) e
 -- INSERT dos tipos de serviço iniciais na tabela nova (ON CONFLICT DO NOTHING). Nenhuma tabela existente é alterada e
 -- nenhum dado existente muda. Sem chave estrangeira para tabelas existentes (as referências são conferidas pelo servidor),
 -- para não travar nem prender tabela nenhuma de produção.
--- Reversão: DROP TABLE fiscal_notas_historico, fiscal_notas, fiscal_tipos_servico, fiscal_emissores, fiscal_config
+-- Reversão: DROP TABLE tax_profiles_historico, fiscal_notas_historico, fiscal_notas, fiscal_tipos_servico, fiscal_emissores, fiscal_config
 -- (e as funções fiscal_*); nada fora do fiscal depende delas.
 
 CREATE TABLE IF NOT EXISTS "fiscal_config" (
@@ -145,6 +146,18 @@ CREATE TABLE IF NOT EXISTS "fiscal_notas_historico" (
 );
 CREATE INDEX IF NOT EXISTS "fiscal_notas_historico_nota_idx" ON "fiscal_notas_historico" ("nota_id", "id");
 
+-- QA S-2 (M4): histórico imutável dos perfis tributários (criação e desativação). Tabela NOVA; tax_profiles não muda.
+CREATE TABLE IF NOT EXISTS "tax_profiles_historico" (
+  "id" bigserial PRIMARY KEY,
+  "profile_id" integer NOT NULL,
+  "acao" varchar(30) NOT NULL CHECK ("acao" IN ('criado', 'desativado', 'desativado_por_nova_versao')),
+  "antes" jsonb,
+  "depois" jsonb NOT NULL,
+  "usuario_id" integer,
+  "criado_em" timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "tax_profiles_historico_profile_idx" ON "tax_profiles_historico" ("profile_id", "id");
+
 -- Guarda da nota: nunca é apagada; nesta etapa nenhuma nota pode ir para emissão (EMITINDO/EMITIDA/CANCELADA/ERRO só
 -- com a S-4, que troca esta função); a origem não muda; o que foi emitido nunca muda.
 CREATE OR REPLACE FUNCTION fiscal_notas_guarda() RETURNS trigger AS $$
@@ -202,4 +215,8 @@ CREATE OR REPLACE TRIGGER "fiscal_notas_historico_trg" AFTER INSERT OR UPDATE ON
 CREATE OR REPLACE TRIGGER "fiscal_notas_historico_guarda_trg" BEFORE UPDATE OR DELETE ON "fiscal_notas_historico"
   FOR EACH ROW EXECUTE FUNCTION fiscal_bloquear_alteracao();
 CREATE OR REPLACE TRIGGER "fiscal_notas_historico_truncate_trg" BEFORE TRUNCATE ON "fiscal_notas_historico"
+  FOR EACH STATEMENT EXECUTE FUNCTION fiscal_bloquear_alteracao();
+CREATE OR REPLACE TRIGGER "tax_profiles_historico_guarda_trg" BEFORE UPDATE OR DELETE ON "tax_profiles_historico"
+  FOR EACH ROW EXECUTE FUNCTION fiscal_bloquear_alteracao();
+CREATE OR REPLACE TRIGGER "tax_profiles_historico_truncate_trg" BEFORE TRUNCATE ON "tax_profiles_historico"
   FOR EACH STATEMENT EXECUTE FUNCTION fiscal_bloquear_alteracao();

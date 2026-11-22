@@ -195,7 +195,8 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     // chamadas à YCloud). Uma vez; no máximo 1 tentativa por dia e 3 no total; nunca lança nem muda a resposta deste cron.
     // EPIC-029 S-2: rascunhos de nota fiscal no mesmo cron diário (sem cron novo). Só com o gerador LIGADO na aba;
     // idempotente; nunca lança nem muda a resposta deste cron.
-    const fiscal = await gerarRascunhosNoCron(getDb);
+    // QA S-2 (M5): com prazo — no máximo 15 s e sempre deixando ~10 s para o modelo padrão abaixo; com menos de 5 s, pula.
+    const fiscal = await gerarRascunhosNoCron(getDb, Math.min(15_000, 45_000 - (Date.now() - inicio)));
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
     return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal });
   }
@@ -223,7 +224,7 @@ app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
   if (cronAutorizado(req.headers.authorization)) {
     // EPIC-029 S-2: rascunhos de nota fiscal também de hora em hora, nos crons que já existem (sem cron novo). Só com o
     // gerador ligado; idempotente; nunca lança nem muda a resposta (nem o erro) da Dolores.
-    await gerarRascunhosNoCron(getDb);
+    await gerarRascunhosNoCron(getDb, Math.min(15_000, 45_000 - (Date.now() - inicio)));
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
   }
   return res.status(saida.status).json(saida.body);

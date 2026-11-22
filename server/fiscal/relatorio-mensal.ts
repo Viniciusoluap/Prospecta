@@ -174,7 +174,13 @@ const ROTULO_CATEGORIA: Record<Categoria, string> = {
 
 /** CSV (separador ";", vírgula decimal — abre direto no Excel em português). Sem CPF/CNPJ. */
 export function relatorioEmCsv(r: Relatorio): string {
-  const campo = (v: string) => `"${v.replace(/"/g, '""').replace(/[\r\n]+/g, " ")}"`;
+  // QA S-2 (M2): célula que começa com = + - @ (ou tab/CR) é fórmula no Excel/LibreOffice mesmo entre aspas — ganha "'" na
+  // frente. A descrição pode vir de extrato bancário/importação (texto de terceiro). Valores numéricos são montados aqui.
+  const campo = (v: string) => {
+    const limpo = v.replace(/[\r\n]+/g, " ");
+    const seguro = /^[=+\-@\t\r]/.test(v) && !/^-\d+(,\d+)?$/.test(v) ? `'${limpo}` : limpo;
+    return `"${seguro.replace(/"/g, '""')}"`;
+  };
   const valor = (c: number) => (c / 100).toFixed(2).replace(".", ",");
   const linhas = [
     ["Competência", "Fonte", "Registro", "Descrição", "Valor (R$)", "Situação", "Motivo", "Rascunho", "Observação"].map(campo).join(";"),

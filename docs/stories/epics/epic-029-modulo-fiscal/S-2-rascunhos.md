@@ -112,7 +112,7 @@ novas só por migração numerada, e o teste de migração confere que as duas c
 - [AUTO-DECISION] Empresa (emissor) do rascunho → a do tipo de serviço; se não houver e existir **um só** emissor, ele; com dois
   ou mais, fica "a escolher" (o dono escolhe em Editar). Motivo: o lançamento do BPO não indica a empresa.
 - [AUTO-DECISION] "Reabrir" (SEM_NOTA/ADIADA → A_DECIDIR) existe para corrigir uma decisão; fica no histórico.
-- [AUTO-DECISION] Multi-CNPJ: `tax.profiles.create` passa a desativar só os perfis do **mesmo CNPJ** (antes desativava todos,
+- [AUTO-DECISION] Multi-CNPJ (ajustado após o QA, M4): `tax.profiles.create` desativa os perfis do **mesmo CNPJ** e, quando o novo tem CNPJ, também os vigentes sem CNPJ (antes desativava todos,
   o que impedia dois CNPJs vigentes). `tax.overview` ganhou `cnpj` opcional (filtro "Empresa"); sem filtro, igual a antes.
 - [AUTO-DECISION] "Receita realizada" com filtro de empresa → continua de todas as empresas (o lançamento não indica a empresa) e
   a tela diz isso; no relatório, o que é de outra empresa aparece separado ("outra empresa"), e a soma continua fechando.
@@ -168,5 +168,30 @@ novas só por migração numerada, e o teste de migração confere que as duas c
 - Código IBGE do município de incidência (depende de coluna na obra/tomador).
 - Paridade Santa Fé: já registrada no ROADMAP (porte adiado pelo dono).
 
+## QA Results
+
+**Portão @qa (Quinn), 22/11/2026, commit `a6434e4` (`server/fiscal/rascunhos-qa.test.ts`): CONCERNS → corrigido pelo @dev.**
+Os 5 `it.fails` viraram `it` e passam. As correções têm testes próprios no bloco "correções do portão de QA" de `server/fiscal/rascunhos.test.ts`.
+
+| # | Achado | Correção |
+|---|---|---|
+| M1 | `LIMIT 500` aplicado antes de descartar "nunca gerar": a fila travava | `filtroNuncaGerar` exclui "nunca gerar" DENTRO da consulta (mesma precedência: subtipo vence "origem:*"; subtipo como parâmetro) e cada origem pagina por `id > último visto` (`gerador.ts`) |
+| M2 | Injeção de fórmula no CSV | célula que começa com `= + - @`, tab ou CR ganha `'` na frente (número negativo continua número) (`relatorio-mensal.ts`) |
+| M3 | Com filtro "Empresa", "Tributos estimados" usava a receita de todas; "Obrigações vencidas" sem filtro | com filtro: `estimatedTax = null` e a tela mostra "Estimativa indisponível por empresa (a receita do BPO não indica a empresa)"; obrigações e vencidas filtradas pelos `profile_id` daquele CNPJ (`tax-router.ts`, `TaxAccountingPanel.tsx`) |
+| M4 | Perfil sem CNPJ continuava vigente junto do novo; sem como desativar | criar com CNPJ desativa também os ativos sem CNPJ; rota `tax.profiles.desativar` (só admin por papel; não apaga nada) e `tax.profiles.historico`; tabela nova `tax_profiles_historico` na 0154, imutável pelo mesmo gatilho; botão "Desativar perfil" na aba |
+| M5 | Varredura no cron sem prazo | `gerarRascunhosNoCron(getDb, limiteMs)`: com < 5 s, pula; senão para no prazo entre consultas (`parcial: true`; a próxima passada continua). Nos crons: `min(15 s, 45 s − decorrido)`, deixando ~10 s para o modelo padrão |
+| B6 | UF e data só com regex; erro do banco chegava com o SQL | UF da lista das 27 e data que existe no calendário (zod → BAD_REQUEST); erro inesperado vira "Não foi possível concluir agora…" sem SQL (log só com o tipo do erro) |
+| B7 | (baixo) endereçado à S-4 | **Registrado para a S-4**, sem mudança nesta etapa |
+| B8 | CPF do tomador inteiro para o colaborador | CPF mascarado (`***.456.789-**`) para quem não é admin, na lista, no detalhe e na prévia em PDF; CNPJ (empresa) inteiro |
+
+Testes depois da correção:
+- `npx vitest run server/fiscal`: 43 de 43 (31 do dev + 12 do QA).
+- Vizinhos `bpo-extrato`, `consulta-cadastral`, `imports-esm`, `auth-session`: 59 de 59.
+- `npx tsc --noEmit` e `npx vite build`: ok.
+
+**Atenção na publicação:** `tax.profiles.create`, `desativar` e `historico` agora usam `tax_profiles_historico`, que vem da 0154. Aplicar a migração ANTES de publicar o código.
+
 ## Change Log
 - 22/11/2026 — @dev (Dex): Draft → InProgress → InReview. Implementação completa da S-2 no ramo `epic029-s2`; migração 0154 NÃO aplicada.
+- 22/11/2026 — @qa (Quinn): portão CONCERNS (M1–M5, B6–B8), commit `a6434e4`.
+- 22/11/2026 — @dev (Dex): correções M1–M5, B6 e B8; B7 registrado para a S-4. Continua InReview, aguardando a reconferência do @qa.

@@ -19,8 +19,21 @@ import {
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
 
-/** adminProcedure confere o MÓDULO (colaborador com BPO vê); decidir é do PAPEL admin. */
-const adminPorPapel = adminProcedure.use(({ ctx, next }) => {
+/**
+ * QA S-2 (B6): erro inesperado (ex.: CHECK/gatilho do banco) nunca chega ao cliente com o SQL nem com o texto do banco —
+ * vira uma frase genérica; o log leva só o tipo do erro (nada de dado pessoal).
+ */
+const fiscalProcedure = adminProcedure.use(async ({ next, path }) => {
+  const r = await next();
+  if (!r.ok && r.error.code === "INTERNAL_SERVER_ERROR") {
+    console.error("[fiscal]", path, r.error.cause instanceof Error ? r.error.cause.name : "falha");
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir agora. Tente de novo em instantes." });
+  }
+  return r;
+});
+
+/** fiscalProcedure confere o MÓDULO (colaborador com BPO vê); decidir é do PAPEL admin. */
+const adminPorPapel = fiscalProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador decide sobre as notas fiscais." });
   }
@@ -28,13 +41,29 @@ const adminPorPapel = adminProcedure.use(({ ctx, next }) => {
 });
 
 const id = z.number().int().positive();
-const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.");
-const uf = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "UF inválida.");
+// QA S-2 (B6): data que existe no calendário (2026-02-31 é recusada) e UF da lista das 27.
+const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.").refine(d => {
+  const t = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+}, "Data inválida.");
+export const UFS = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ",
+  "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"] as const;
+const uf = z.string().trim().toUpperCase().refine(v => (UFS as readonly string[]).includes(v), "UF inválida.");
+
+/** QA S-2 (B8): CPF do tomador só aparece inteiro para o admin; colaborador vê mascarado. CNPJ (empresa) fica inteiro. */
+export function mascararCpf(doc: string | null): string | null {
+  const d = (doc ?? "").replace(/\D/g, "");
+  if (doc == null || d.length !== 11 || /[A-Za-z]/.test(doc)) return doc;
+  return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+}
+function paraQuemVe<T extends { tomador: { documento: string | null } }>(nota: T, papel: string): T {
+  return papel === "admin" ? nota : { ...nota, tomador: { ...nota.tomador, documento: mascararCpf(nota.tomador.documento) } };
+}
 const textoOpcional = (max: number) => z.string().trim().max(max).nullable().optional();
 const ORIGEM_DO_MAPA = new RegExp(`^(${ORIGENS_NOTA.join("|")}):([a-z0-9_]{1,40}|\\*)$`);
 
 export const fiscalRouter = router({
-  resumo: adminProcedure.input(z.object({ emissorId: id.nullable().optional() }).optional()).query(async ({ input, ctx }) => {
+  resumo: fiscalProcedure.input(z.object({ emissorId: id.nullable().optional() }).optional()).query(async ({ input, ctx }) => {
     const db = getDb();
     const config = await carregarConfigFiscal(db);
     return {
@@ -59,7 +88,7 @@ export const fiscalRouter = router({
 
   emissores: router({
     /** Um item por CNPJ de perfil tributário, com o complemento fiscal (se já cadastrado). Razão social e regime: do perfil. */
-    listar: adminProcedure.query(async () => {
+    listar: fiscalProcedure.query(async () => {
       await ensureTaxSchema();
       const db = getDb();
       const perfis = ((await db.execute(sql`
@@ -102,7 +131,7 @@ export const fiscalRouter = router({
   }),
 
   tipos: router({
-    listar: adminProcedure.query(() => getDb().select().from(fiscalTiposServico).orderBy(fiscalTiposServico.id)),
+    listar: fiscalProcedure.query(() => getDb().select().from(fiscalTiposServico).orderBy(fiscalTiposServico.id)),
     salvar: adminPorPapel
       .input(z.object({
         id: id.optional(),
@@ -137,7 +166,7 @@ export const fiscalRouter = router({
   }),
 
   notas: router({
-    listar: adminProcedure
+    listar: fiscalProcedure
       .input(z.object({
         emissorId: id.nullable().optional(),
         status: z.array(z.enum(STATUS_NOTA)).max(7).optional(),
@@ -148,12 +177,12 @@ export const fiscalRouter = router({
         de: data.optional(),
         ate: data.optional(),
       }).optional())
-      .query(({ input }) => listarNotas(getDb(), input ?? {})),
-    ver: adminProcedure.input(z.object({ id })).query(({ input }) => carregarNota(getDb(), input.id)),
-    historico: adminProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
+      .query(async ({ input, ctx }) => (await listarNotas(getDb(), input ?? {})).map(n => paraQuemVe(n, ctx.user.role))),
+    ver: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role)),
+    historico: fiscalProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */
-    previa: adminProcedure.input(z.object({ id })).query(async ({ input }) => {
-      const nota = await carregarNota(getDb(), input.id);
+    previa: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
+      const nota = paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role);
       return { nomeArquivo: `previa-nota-${nota.id}.pdf`, base64: Buffer.from(gerarPreviaPdf(nota)).toString("base64") };
     }),
     /** Botão "Atualizar": roda a varredura agora (mesma função do cron, idempotente). */
@@ -174,7 +203,7 @@ export const fiscalRouter = router({
         valorCentavos: z.number().int().positive().max(100_000_000_000).nullable().optional(),
         descricao: textoOpcional(2000),
         municipioNome: textoOpcional(100),
-        municipioUf: z.string().trim().max(2).nullable().optional(),
+        municipioUf: uf.nullable().optional(),
         emissorId: id.nullable().optional(),
         tipoServicoId: id.nullable().optional(),
       }))
@@ -184,10 +213,10 @@ export const fiscalRouter = router({
   }),
 
   relatorio: router({
-    mensal: adminProcedure
+    mensal: fiscalProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), emissorId: id.nullable().optional() }))
       .query(({ input }) => relatorioMensal(getDb(), input.competencia, input.emissorId ?? null)),
-    csv: adminProcedure
+    csv: fiscalProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), emissorId: id.nullable().optional() }))
       .query(async ({ input }) => ({
         nomeArquivo: `notas-x-receita-${input.competencia}.csv`,
@@ -195,5 +224,5 @@ export const fiscalRouter = router({
       })),
   }),
 
-  emissoresComPerfil: adminProcedure.query(() => emissoresComPerfil(getDb())),
+  emissoresComPerfil: fiscalProcedure.query(() => emissoresComPerfil(getDb())),
 });

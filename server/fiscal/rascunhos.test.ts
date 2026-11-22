@@ -137,11 +137,11 @@ describe("gerador — varredura idempotente", () => {
 
   it("no cron só roda com o gerador LIGADO; o botão roda sempre", async () => {
     await lancamento();
-    expect(await gerarRascunhosNoCron(getDb)).toEqual({ desligado: true });
+    expect(await gerarRascunhosNoCron(getDb, 30_000)).toEqual({ desligado: true });
     expect(await notas()).toHaveLength(0);
     await pg.exec("UPDATE fiscal_config SET ligado = true");
-    expect(await gerarRascunhosNoCron(getDb)).toEqual({ criados: 1 });
-    expect(await gerarRascunhosNoCron(getDb)).toEqual({ criados: 0 });
+    expect(await gerarRascunhosNoCron(getDb, 30_000)).toEqual({ criados: 1, parcial: false });
+    expect(await gerarRascunhosNoCron(getDb, 30_000)).toEqual({ criados: 0, parcial: false });
   });
 
   it("recebimento de regularização ligado a lançamento do BPO gera UMA nota (origem = regularização) — R8", async () => {
@@ -198,7 +198,6 @@ describe("gerador — varredura idempotente", () => {
     await lancamento();
     const r = await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
     expect(total(r)).toBe(0);
-    expect(r.ignoradosNuncaGerar).toBe(1);
     expect((await q<{ regra: string }>("SELECT DISTINCT regra FROM fiscal_tipos_servico WHERE regra <> 'nunca_gerar'")).map(x => x.regra)).toEqual(["sempre_perguntar"]);
     await expect(pg.query("UPDATE fiscal_tipos_servico SET regra = 'automatico'")).rejects.toThrow();
     await expect(admin().fiscal.tipos.salvar({ nome: "X", regra: "automatico" as never, origens: [] })).rejects.toThrow();
@@ -451,5 +450,100 @@ describe("multi-CNPJ (emissor por CNPJ, lido do perfil tributário)", () => {
     const rel = await a.fiscal.relatorio.mensal({ competencia: "2026-11", emissorId: p!.id });
     expect([rel.aDecidirCentavos, rel.outraEmpresaCentavos, rel.receitaRealizadaCentavos]).toEqual([10_000, 20_000, 30_000]);
     expect(rel.fecha).toBe(true);
+  });
+});
+
+describe("correções do portão de QA (M1–M5, B6, B8)", () => {
+  it("M1: 'nunca gerar' sai na consulta respeitando a precedência (subtipo próprio vence a origem inteira)", async () => {
+    await pg.exec(`UPDATE fiscal_tipos_servico SET regra = 'nunca_gerar' WHERE nome = 'Regularização e despachante'`);
+    await pg.exec(`INSERT INTO fiscal_tipos_servico (nome, origens) VALUES ('Despachante', '["regularizacao_recebimento:despachante"]'::jsonb)`);
+    await regularizacao("itbi", 100);
+    const desp = await regularizacao("despachante", 300);
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    expect((await notas()).map(n => n.origem_id)).toEqual([desp]);
+  });
+
+  it("M5: no cron, com menos de 5 s sobrando, nem começa; com o prazo vencido no meio, para e a próxima passada continua", async () => {
+    await pg.exec("UPDATE fiscal_config SET ligado = true");
+    await lancamento();
+    await lancamento({ valor: 20 });
+    expect(await gerarRascunhosNoCron(getDb, 4_999)).toEqual({ pulado: true });
+    expect(await gerarRascunhosNoCron(getDb, -10)).toEqual({ pulado: true });
+    expect(await notas()).toHaveLength(0);
+    const r = await gerarRascunhos(getDb(), { origem: "cron", agora: AGORA, prazoEm: Date.now() - 1 });
+    expect(r).toMatchObject({ executou: true, parcial: true });
+    expect(await notas()).toHaveLength(0);
+    expect(await gerarRascunhosNoCron(getDb, 30_000)).toEqual({ criados: 2, parcial: false });
+  });
+
+  it("M4: perfil novo com CNPJ desativa o antigo sem CNPJ; 'Desativar perfil' só do admin, com histórico imutável", async () => {
+    const a = admin();
+    const antigo = await a.tax.profiles.create({ companyName: "Prospecta", regime: "simples_nacional", estimatedRate: 6, effectiveFrom: new Date("2026-01-01") });
+    const novo = await a.tax.profiles.create({ companyName: "Prospecta", cnpj: "11222333000181", regime: "lucro_presumido", estimatedRate: 11, effectiveFrom: new Date("2026-06-01") });
+    expect((await a.tax.profiles.list()).filter(p => p.isActive).map(p => p.id)).toEqual([novo!.id]);
+    await expect(caller("colaborador", ["bpo"]).tax.profiles.desativar({ id: novo!.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await a.tax.profiles.desativar({ id: novo!.id }))!.isActive).toBe(false);
+    expect((await a.tax.profiles.list())).toHaveLength(2); // nada apagado
+    expect((await a.tax.profiles.historico({ id: antigo!.id })).map(h => h.acao)).toEqual(["criado", "desativado_por_nova_versao"]);
+    expect((await a.tax.profiles.historico({ id: novo!.id })).map(h => [h.acao, h.usuarioNome])).toEqual([["criado", "Dono"], ["desativado", "Dono"]]);
+    await expect(pg.query("UPDATE tax_profiles_historico SET acao = 'criado'")).rejects.toThrow(/FISCAL_IMUTAVEL/);
+    await expect(pg.query("DELETE FROM tax_profiles_historico")).rejects.toThrow(/FISCAL_IMUTAVEL/);
+  });
+
+  it("M3: com filtro 'Empresa', obrigações vencidas só da empresa e sem estimativa sobre a receita de todas", async () => {
+    const a = admin();
+    const p1 = await a.tax.profiles.create({ companyName: "Prospecta", cnpj: "11222333000181", regime: "simples_nacional", estimatedRate: 6, effectiveFrom: new Date("2026-01-01") });
+    const p2 = await a.tax.profiles.create({ companyName: "Efficaz", cnpj: "45723174000110", regime: "lucro_presumido", estimatedRate: 11, effectiveFrom: new Date("2026-02-01") });
+    await a.tax.obligations.create({ profileId: p1!.id, name: "DAS", competency: "2026-10", dueDate: new Date("2026-11-01"), estimatedAmount: 10 });
+    await a.tax.obligations.create({ profileId: p2!.id, name: "ISS", competency: "2026-10", dueDate: new Date("2026-11-01"), estimatedAmount: 10 });
+    expect((await a.tax.overview()).overdue).toBe(2);
+    const so = await a.tax.overview({ cnpj: "45723174000110" });
+    expect([so.overdue, so.obligations.map(o => o.name)]).toEqual([1, ["ISS"]]);
+  });
+
+  it("M2: CSV neutraliza fórmula (= + - @ tab) e mantém número negativo como número", () => {
+    const r = montarRelatorio({
+      competencia: "2026-11", de: new Date("2026-11-01T03:00:00Z"), ate: new Date("2026-12-01T02:59:59Z"),
+      movimentos: [],
+      lancamentosBpo: ["=1+1", "+cmd", "-2+3", "@SUM(A1)", "\tx"].map((d, i) => ({ id: i + 1, tipo: "receita", valor: "1.00", descricao: d })),
+      notas: [],
+    });
+    const csv = relatorioEmCsv(r);
+    for (const perigo of ['"=1+1"', '"+cmd"', '"-2+3"', '"@SUM(A1)"', '"\tx"']) expect(csv).not.toContain(perigo);
+    expect(csv).toContain(`"'=1+1"`);
+    expect(csv).toContain('"5,00"');
+  });
+
+  it("B6: UF fora das 27 e data inexistente são BAD_REQUEST; erro do banco chega sem SQL", async () => {
+    await lancamento();
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    const [n] = await notas();
+    await expect(admin().fiscal.notas.editar({ id: n!.id, versao: n!.versao, municipioNome: "X", municipioUf: "XX" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(admin().fiscal.config.salvar({ ligado: false, inicioEm: "2026-02-30" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // força um erro do banco (CHECK) por baixo da rota
+    await pg.exec("ALTER TABLE fiscal_notas ADD CONSTRAINT teste_sem_descricao CHECK (descricao_ajustada IS NULL)");
+    const espiao = vi.spyOn(console, "error").mockImplementation(() => {});
+    const erro = await admin().fiscal.notas.editar({ id: n!.id, versao: n!.versao, descricao: "texto" }).catch(e => e);
+    espiao.mockRestore();
+    expect(erro).toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir agora. Tente de novo em instantes." });
+    expect(String(erro.message)).not.toMatch(/fiscal_notas|CHECK|constraint|update/i);
+  });
+
+  it("B8: CPF do tomador só inteiro para o admin; colaborador com BPO vê mascarado (lista, detalhe e prévia)", async () => {
+    const ld = await lead("Maria Souza");
+    const ob = await obra("Imperatriz", "MA", ld);
+    await q(`INSERT INTO obra_movimentos (project_id, natureza, descricao, valor, data, origem) VALUES ($1, 'entrada', 'Entrada', 1000, '2026-11-05', 'manual')`, [ob]);
+    await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
+    const [n] = await notas();
+    expect((await admin().fiscal.notas.ver({ id: n!.id })).tomador.documento).toBe("12345678909");
+    const colab = caller("colaborador", ["bpo"]);
+    expect((await colab.fiscal.notas.ver({ id: n!.id })).tomador.documento).toBe("***.456.789-**");
+    expect((await colab.fiscal.notas.listar())[0]!.tomador.documento).toBe("***.456.789-**");
+    const descritor = Object.getOwnPropertyDescriptor(Array.prototype, "random");
+    if (descritor?.enumerable) Object.defineProperty(Array.prototype, "random", { ...descritor, enumerable: false });
+    const { extractText } = await import("unpdf");
+    const { base64 } = await colab.fiscal.notas.previa({ id: n!.id });
+    const { text } = await extractText(new Uint8Array(Buffer.from(base64, "base64")), { mergePages: true });
+    expect(String(text)).not.toMatch(/123\.456\.789-09|12345678909/);
   });
 });
