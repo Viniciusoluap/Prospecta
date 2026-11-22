@@ -142,6 +142,23 @@ Teste auxiliar: `server/dolores/testes-banco.ts` passa a criar `financial_transa
   Dolores, que usa a mesma função na S-3). Testes da S-3 passam a aplicar a 0164 depois da 0165 (ordem de produção) e o `tax_profiles`
   deles ganha `effective_to` (coluna do schema real, lida pelo regime vigente). Testes da S-6 aplicam a 0162 (coluna da S-4).
 
+## Correções do 2º portão de QA (FAIL de 22/11/2026 → corrigido)
+
+Teste do QA: `server/fiscal/s6-qa2.test.ts` (os 7 `it.fails` viraram `it`; casos a mais das correções no fim do arquivo).
+
+| Achado | Gravidade | Correção |
+|---|---|---|
+| N1 — saída sem classificação/"a classificar" ainda casava e escondia receita | importante | Só a saída MARCADA como Transferência interna (na movimentação ou no lançamento) tira a entrada da soma. Sem classificação, a entrada CONTA e aparece como "possível transferência" (`possiveisTransferencias`, tela e leitura da Dolores) para o dono conferir. |
+| N1b — saída que deu baixa em despesas pela divisão de pagamentos | importante | Classificada como despesa (bpo_recebimentos → lançamento de despesa): nunca casa nem é apontada. |
+| N2 — crédito dividido em várias cobranças (bpo_recebimentos) | médio | Cada baixa ligada ao banco entra pela conta do crédito, na data dela; o resto da cobrança paga (baixa manual) fica sem conta; o crédito só fica "a classificar" na parte não alocada. Nada conta duas vezes. |
+| N3 — regime "a confirmar" passava na DPS | médio | `faltasDps` (server/fiscal/dps.ts) recusa regime vazio, "a confirmar" ou não reconhecido. |
+| N4 — desativar à mão a versão nova deixava a empresa sem regime | baixo | `versoesQueValem` usa o histórico (`tax_profiles_historico`): "desativado" (à mão) nunca vale; inativa com versão posterior vale até a posterior começar, mesmo se a posterior foi desativada à mão depois. Sem histórico, inativa sem posterior = à mão. |
+| N5 — apelido com número de conta ia inteiro à Dolores | baixo | `nomeSeguroDaConta` troca sequências de 5+ dígitos (com pontuação) por •••4 últimos. |
+| Precedência matriz × filial | obs. | `perfilDaEmpresaNaData` (regimes.ts) é a única regra: matriz primeiro, senão qualquer versão da mesma raiz — usada no painel e no emissor das notas (notas.ts). |
+
+Tabelas opcionais (`tax_profiles_historico`, `bpo_recebimentos`) são conferidas com `to_regclass` antes de ler (sem erro na transação somente
+leitura da Dolores). Testes antigos ajustados à regra N1: as saídas de transferência dos cenários passam a ser MARCADAS.
+
 ## File List
 
 - `drizzle/0164_contas_empresa_limite_receita.sql` (novo), `drizzle/schema.ts`
@@ -173,3 +190,5 @@ Teste auxiliar: `server/dolores/testes-banco.ts` passa a criar `financial_transa
 | 22/11/2026 | @dev (Dex) | Implementação concluída, 28 testes novos passando; InProgress → InReview (aguarda @qa). |
 | 22/11/2026 | @qa (Quinn) | Portão de QA: FAIL (A1 e A9 importantes; A2–A8 médios; A10 e fuso baixos). |
 | 22/11/2026 | @dev (Dex) | Correções do portão de QA (todas as 10 + Financeiro + fuso); `it.fails` → `it`; volta a InReview (aguarda novo portão). |
+| 22/11/2026 | @qa (Quinn) | 2º portão de QA: FAIL (N1/N1b importantes; N2, N3 médios; N4, N5 baixos; precedência matriz × filial). |
+| 22/11/2026 | @dev (Dex) | Correções do 2º portão; `it.fails` → `it`; volta a InReview. |
