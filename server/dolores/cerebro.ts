@@ -83,6 +83,15 @@ export const RESERVA_MINIMA_ENTRADA = 15_000;
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */
 const VALIDADE_RESERVA_MS = 90_000;
+/**
+ * EPIC-027 C5 (tarefa demorada): na conversa do dono, um pedido SÓ DE LEITURA que, depois de uma volta com consultas, ainda pede
+ * mais consultas e já passou de VOLTAS_PARA_TAREFA voltas OU tem menos que PRAZO_PARA_SEGUIR_MS de prazo, não vai caber na resposta:
+ * para com "virou_tarefa" (por CÓDIGO — contagem de voltas e relógio, nunca pela opinião do modelo) e whatsapp.ts grava a tarefa.
+ */
+export const VOLTAS_PARA_TAREFA = 3;
+export const PRAZO_PARA_SEGUIR_MS = 18_000;
+/** Voltas da retomada em segundo plano (a função inteira só para ela; só leitura). */
+export const MAX_VOLTAS_TAREFA = 10;
 
 type BlocoTexto = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
 type BlocoFerramenta = { type: "tool_use"; id: string; name: string; input: unknown };
@@ -120,7 +129,9 @@ let clienteTeste: ClienteModelo | null = null;
 /** Só para testes: troca o cliente do modelo (sem argumento, volta ao SDK da Anthropic). */
 export function definirClienteModelo(c?: ClienteModelo) { clienteTeste = c ?? null; }
 
-export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "limite_da_conversa" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa";
+export type MotivoParada = "voltas" | "teto_tokens" | "tempo" | "limite_mensal" | "limite_da_conversa" | "outro_pedido" | "max_tokens" | "erro_modelo" | "recusa"
+  /** EPIC-027 C5 (tarefa demorada): o pedido não cabe numa resposta; whatsapp.ts o grava para a retomada em segundo plano. */
+  | "virou_tarefa";
 const ROTULO_PARADA: Record<MotivoParada, string> = {
   voltas: "limite de consultas por pedido",
   teto_tokens: "limite de tamanho por pedido",
@@ -132,6 +143,7 @@ const ROTULO_PARADA: Record<MotivoParada, string> = {
   max_tokens: "a resposta ficou longa demais",
   erro_modelo: "a IA não respondeu",
   recusa: "a IA recusou o pedido",
+  virou_tarefa: "o pedido precisa de mais consultas do que cabem numa resposta",
 };
 
 export type ResultadoComando = {
@@ -169,6 +181,18 @@ export type PedidoComando = {
   memoriaLonga?: string | null;
   /** A mensagem do dono veio com anexo (a legenda não vale como pedido de memória). */
   comMidia?: boolean;
+  /**
+   * EPIC-027 C5 (tarefa demorada): SÓ a conversa direta do dono (whatsapp.ts#tratarComando) passa true. Pedido só de leitura que não
+   * vai caber (VOLTAS_PARA_TAREFA / PRAZO_PARA_SEGUIR_MS) para com "virou_tarefa", sem a chamada de fechamento.
+   */
+  podeVirarTarefa?: boolean;
+  /**
+   * EPIC-027 C5 (tarefa demorada): a retomada em segundo plano (server/dolores/tarefa-demorada.ts). Só LEITURA, qualquer que seja o
+   * texto: nenhuma ferramenta de ação é oferecida, a porta recusa ação (semAcoes), nada vira proposta e nada de memória é gravado.
+   */
+  somenteLeitura?: boolean;
+  /** Voltas deste pedido (padrão MAX_VOLTAS; a retomada usa MAX_VOLTAS_TAREFA). */
+  maxVoltas?: number;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -214,7 +238,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // conversa) — o modelo pode PROPOR; nada executa sem a resposta dele à proposta, reconhecida por código.
   // EPIC-027 C5 (memória de longo prazo): "lembra que…", "guarda isso", "esquece que…" no trecho do DONO também é pedido de ação dele
   const querMemoria = intencaoDeMemoria(trechoDoDono(p.comando));
-  const comAcoes = intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo";
+  const comAcoes = !p.somenteLeitura && (intencaoDeAcao(p.comando) || querMemoria || lerConfirmacao(p.comando)?.tipo === "sim" || lerConfirmacao(p.comando)?.tipo === "confirmo");
+  // EPIC-027 C5 (tarefa demorada): só pedido de leitura vira tarefa (pedido com ação segue o caminho de sempre, com a proposta)
+  const podeVirarTarefa = p.podeVirarTarefa === true && !comAcoes && !p.somenteLeitura;
+  const maxVoltas = Math.max(1, Math.min(MAX_VOLTAS_TAREFA, p.maxVoltas ?? MAX_VOLTAS));
   const podeConfirmar = comAcoes && !pareceColagem(p.comando);
   const ferramentas = ferramentasParaOModelo(comAcoes ? ferramentasDoWhatsapp() : ferramentasLiberadas());
   // Barreira principal — CONTAMINAÇÃO, determinística: assim que o resultado de uma função que traz texto de dados entra
@@ -229,7 +256,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // QA C5-E1 (achado 2): as referências também trazem nome de terceiro (cliente, grupo) ao modelo — contaminam do mesmo jeito.
   if (!contaminado && (historico.itens.some(i => i.papel !== "dono" || i.origem !== "mensagem") || historico.referencias.length > 0)) { contaminado = true; motivoContaminacao = "leitura"; }
   const refsPorConsulta: ReferenciaConversa[][] = [];
-  const tetoDeSaida = pedeDetalhe(p.comando) ? MAX_TOKENS_SAIDA : MAX_TOKENS_SAIDA_CONVERSA;
+  const tetoDeSaida = pedeDetalhe(p.comando) || p.somenteLeitura ? MAX_TOKENS_SAIDA : MAX_TOKENS_SAIDA_CONVERSA;
   const codigosNaFila = new Set<string>();
   // A mensagem do dono é a ÚNICA entrada de texto do usuário; tudo o que vem do sistema entra como tool_result.
   // QA r7 A8: antes de ir à Anthropic, o comando passa só pelo filtro de SEGREDOS e dados bancários (senha, token, código,
@@ -253,7 +280,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   }
   // Só a mensagem do DONO pedindo memória (por código), direta, sem colagem e sem anexo, abre as ações de memória (o texto dela serve
   // para conferir que o fato saiu das palavras dele).
-  const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia ? { texto: comando } : null;
+  const pedidoDeMemoria = querMemoria && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura ? { texto: comando } : null;
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   let voltas = 0;
@@ -310,8 +337,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   };
 
   laco: while (true) {
-    if (voltas >= MAX_VOLTAS) { parou = "voltas"; break; }
-    if (restante() < MINIMO_PARA_CHAMAR_MS) { parou = "tempo"; break; }
+    if (voltas >= maxVoltas) { parou = podeVirarTarefa && consultas.length ? "virou_tarefa" : "voltas"; break; }
+    if (restante() < MINIMO_PARA_CHAMAR_MS) { parou = podeVirarTarefa && consultas.length ? "virou_tarefa" : "tempo"; break; }
     if (tokens.entrada >= TETO_ENTRADA_POR_PEDIDO) { parou = "teto_tokens"; break; }
     if (!(await reservar())) break;
     const r = await umaChamada(false);
@@ -366,6 +393,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
       resultados.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(resp.body), ...(resp.body.ok === true ? {} : { is_error: true }) });
     }
     mensagens.push({ role: "user", content: resultados });
+    // EPIC-027 C5 (tarefa demorada): o modelo ainda quer consultar e não vai caber (contagem de voltas ou prazo, por código)
+    if (podeVirarTarefa && (voltas >= VOLTAS_PARA_TAREFA || restante() < PRAZO_PARA_SEGUIR_MS)) { parou = "virou_tarefa"; break; }
     continue laco;
   }
 
