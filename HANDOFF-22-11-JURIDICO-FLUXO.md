@@ -32,5 +32,11 @@ Preview da correção 5a9b25e3a2f27350668f66760f1eb2de82dc1a35: dpl_HMSyuHDYVxnv
 
 Também conferida a compatibilidade dos PDFs já gerados com nome antigo: Gerar PDF os reutiliza sem duplicar; download pelo portal padroniza o nome com o cliente.
 
-## Próximo passo
-Publicar o checkpoint de correção do P1, resolver o thread com teste aprovado e aguardar seu build. A revisão já terminou; reler todos os comentários antes de integrar, verificar avanço de main/Fabel e confirmar produção READY/HTTP.
+## Produção confirmada
+PR #297 integrado por squash em 7626b6d849e6bbbd214cb8e1679d1cda6ecbee01. Head da implementação 1cc3cf60cc3d9a8b5c7f2fb9058aa4fb06980450, preview dpl_BRFJuZsdaGUMA7zNqHUtRGwQTXve READY. Revisão Completed, único P1 corrigido e thread resolvido; comentários relidos antes do merge. Main não havia avançado: base e trabalho do Fabel preservados.
+Deployment de produção dpl_3o8oouC4WaLFbxKd5xsven4ScEj2 READY, com aliases oficiais www.prospectaconstrucoes.com/prospectaconstrucoes.com. HTTP 200 em /admin/juridico, /portal/documentos e no worker do PDF (/assets/pdf.worker.min-CIqJB0yW.mjs), que contém WorkerMessageHandler. Testes da frente: 27 aprovados; checagem completa de tipos/build na Vercel aprovada. Sem nova migração necessária: nenhuma tabela ou coluna criada/alterada nesta frente, estados usam varchar já existente.
+Este registro final é salvo apenas na branch de trabalho já integrada, para evitar publicação extra apenas de documentação.
+
+## Próximo passo exato
+Dono: atualizar /admin/juridico. Para certificados antigos, informar a senha uma vez na próxima assinatura; ela ficará lembrada neste aparelho. Selecionar página e tocar/arrastar o retângulo no local desejado, depois Assinar digitalmente. Enviar ao cliente pelo botão de e-mail e portal, ou disponibilizar só no portal. Arquivo devolvido por fora: anexar como Recebido assinado (conferir), conferir todas as partes e usar Confirmar assinatura de todos. No portal, identificação/assinaturas plenamente conferíveis concluem automaticamente; demais casos aguardam conferência. Em novos contratos, informar nomes/CPFs das testemunhas quando quiser conferir automaticamente. Primeiro uso com certificado real segue operacional do dono; nenhum certificado ou e-mail real foi usado durante os testes.
+Pendência de paridade: portar esta frente ao Grupo Santa Fé, junto do cofre A1/assinatura local, na sessão responsável.
