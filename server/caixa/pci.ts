@@ -9,6 +9,9 @@
  */
 import { PastaBiff8, type ValorCelula } from "./biff8.js";
 import { PastaXlsb } from "./xlsb.js";
+import { read as lerExcel } from "xlsx";
+import { strFromU8, unzipSync } from "fflate";
+import { MENSAGEM_FORMATO_PCI, type FormatoPci } from "../../shared/pci-upload.js";
 
 export const ABA_PROPOSTA = "Proposta_Constr_Individual";
 export const ABA_PLS = "PLS";
@@ -72,7 +75,7 @@ export interface IdentificacaoPci {
 }
 
 export interface DadosPci {
-  formato: "xls" | "xlsb";
+  formato: FormatoPci;
   /** Incidências (%) dos 20 serviços, com a precisão completa da planilha. */
   incidencias: number[];
   identificacao: IdentificacaoPci;
@@ -102,7 +105,7 @@ interface Planilha {
   abas: string[];
 }
 
-function abrir(arquivo: Uint8Array): { planilha: Planilha; formato: "xls" | "xlsb" } {
+function abrir(arquivo: Uint8Array): { planilha: Planilha; formato: FormatoPci } {
   const zip = arquivo[0] === 0x50 && arquivo[1] === 0x4b;
   const ole = arquivo[0] === 0xd0 && arquivo[1] === 0xcf;
   if (ole) {
@@ -110,10 +113,27 @@ function abrir(arquivo: Uint8Array): { planilha: Planilha; formato: "xls" | "xls
     return { planilha: { ler: (a, e) => p.ler(a, e), abas: p.abas.map((x) => x.nome) }, formato: "xls" };
   }
   if (zip) {
-    const p = new PastaXlsb(arquivo);
-    return { planilha: p, formato: "xlsb" };
+    const arquivos = unzipSync(arquivo);
+    if (arquivos["xl/workbook.bin"]) {
+      const p = new PastaXlsb(arquivo);
+      return { planilha: p, formato: "xlsb" };
+    }
+    if (arquivos["xl/workbook.xml"]) {
+      // Só valores/caches de fórmulas. Macros nunca são executadas nem regravadas.
+      const pasta = lerExcel(arquivo, { type: "array", cellDates: false, cellFormula: false, cellHTML: false, bookVBA: false });
+      const tipos = strFromU8(arquivos["[Content_Types].xml"] ?? new Uint8Array());
+      const formato = arquivos["xl/vbaProject.bin"] || /ContentType\s*=\s*["']application\/vnd\.ms-excel\.sheet\.macroEnabled\.main\+xml["']/i.test(tipos) ? "xlsm" : "xlsx";
+      return { formato, planilha: {
+        abas: pasta.SheetNames,
+        ler: (aba, endereco) => {
+          const celula = pasta.Sheets[aba]?.[endereco];
+          if (!celula || celula.t === "e") return null;
+          return typeof celula.v === "number" || typeof celula.v === "string" || typeof celula.v === "boolean" ? celula.v : null;
+        },
+      } };
+    }
   }
-  throw new Error("Envie a PCI em .xls ou .xlsb (planilha da CAIXA).");
+  throw new Error(MENSAGEM_FORMATO_PCI);
 }
 
 /** Número de série do Excel (dias desde 1899-12-30) → ISO. */

@@ -1,4 +1,4 @@
-import { LIMITE_PCI_BYTES, PARTE_PCI_BYTES, validarPartePci, validarMontagemPci } from "../../shared/pci-upload.js";
+import { LIMITE_PCI_BYTES, MIME_PCI, PARTE_PCI_BYTES, validarPartePci, validarMontagemPci } from "../../shared/pci-upload.js";
 import { Router, Request, Response } from "express";
 import { and, asc, eq, lt, or } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -130,7 +130,7 @@ router.post("/obras/:projectId/pci", async (req: Request, res: Response) => {
     // uma cópia por versão. Sem Drive, a versão continua guardada no banco.
     let drive: "ok" | "indisponivel" | "erro" | null = null;
     if (versaoNova) {
-      const mime = dados.formato === "xlsb" ? "application/vnd.ms-excel.sheet.binary.macroEnabled.12" : "application/vnd.ms-excel";
+      const mime = MIME_PCI[dados.formato];
       const r = await tryDriveUpload(() => uploadArquivoMedicaoObra({ id: projectId, titulo: acesso.obra.titulo ?? "Obra" }, { rotulo: "PCI original", nomeOriginal: nomeArquivo, mime, data: Buffer.from(bytes) }));
       drive = r.driveFileId ? "ok" : r.note ? "erro" : "indisponivel";
       // Pedido de 29/10: guarda a referência da cópia (sem ela, o "Organizar Drive" envia depois).
@@ -162,7 +162,7 @@ router.get("/obras/:projectId/pci", async (req: Request, res: Response) => {
       res.setHeader("X-PCI-Versao", versao);
       return enviarArquivo(res, pci.bytes.slice(parte * PARTE_PCI_BYTES, (parte + 1) * PARTE_PCI_BYTES), pci.nome, "application/octet-stream");
     }
-    enviarArquivo(res, pci.bytes, pci.nome, pci.dados.formato === "xlsb" ? "application/vnd.ms-excel.sheet.binary.macroEnabled.12" : "application/vnd.ms-excel");
+    enviarArquivo(res, pci.bytes, pci.nome, MIME_PCI[pci.dados.formato]);
   } catch (error) {
     console.error("[medicao-caixa] download da PCI:", error);
     return res.status(500).json({ error: "Erro ao baixar a PCI." });
