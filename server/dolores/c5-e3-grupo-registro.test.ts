@@ -8,7 +8,8 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 vi.mock("../whatsapp-router.js", async orig => ({ ...(await orig<typeof import("../whatsapp-router.js")>()), configEvolution: vi.fn(async () => null) }));
 vi.mock("../_core/anthropic-painel.js", async orig => ({ ...(await orig<typeof import("../_core/anthropic-painel.js")>()), configuracaoAnthropicPainel: vi.fn() }));
 
-import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { readFileSync } from "node:fs";
+import { lerConfirmacao, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { diaDeImperatriz } from "../../shared/dolores/grupos.js";
 import { FRASE_ANOTADO, FRASE_SO_NO_PRIVADO, idDaMensagemCitada, lerPedidoDoDono, remetenteDoGrupo } from "../../shared/dolores/grupo-pedido-dono.js";
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
@@ -18,7 +19,7 @@ import { configEvolution } from "../whatsapp-router.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { definirClienteModelo } from "./cerebro.js";
 import { definirDependenciasClassificacao } from "./classificacao.js";
-import { esquecerProvasDoLid } from "./grupo-pedido-dono.js";
+import { ACOES_DO_GRUPO, esquecerProvasDoLid } from "./grupo-pedido-dono.js";
 import { definirDependenciasMarcacao, type RespostaGrupo } from "./marcacao.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
@@ -306,5 +307,43 @@ describe("ninguém mais do grupo registra nada", () => {
     expect((await anotacoes()).map(a => a.lead_id)).toEqual([1]);
     expect(enviar.mock.calls.every(c => (c[0] as { numero: string }).numero === DONO)).toBe(true);
     expect(await q("SELECT * FROM dolores_aprovacoes WHERE funcao <> 'registrar_acompanhamento'")).toEqual([]);
+  });
+});
+
+// Integração das três frentes da C5 (E3 registro a partir do grupo × MLP memória de longo prazo × E5 gasto por função).
+describe("integração C5 — E3 × memória de longo prazo × gasto por função", () => {
+  it("por código: a lista do grupo não tem ação de memória, toda ação dela é \"registro\" e o caminho da E3 não lê a memória longa", () => {
+    for (const f of ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"]) expect(ACOES_DO_GRUPO as readonly string[]).not.toContain(f);
+    for (const f of ACOES_DO_GRUPO) expect(nivelDoItem(f, {}), f).toBe("registro");
+    for (const f of ["./grupo-pedido-dono.ts", "../../shared/dolores/grupo-pedido-dono.ts"]) {
+      expect(readFileSync(new URL(f, import.meta.url), "utf8"), f).not.toMatch(/memoria-longa|dolores_memoria_longa|doloresMemoriaLonga|blocoParaConversaDoDono/);
+    }
+  });
+
+  it("\"anota: lembra que…\" do dono no grupo vira anotação no cliente (nunca memória); a memória ativa não aparece em nada; sem IA e sem gasto", async () => {
+    await banco.pg.exec("INSERT INTO dolores_memoria_longa (texto, categoria, origem) VALUES ('Margem alvo secreta de dezoito por cento', 'fato_negocio', 'tela')");
+    await noGrupoPede({ texto: "anota: lembra que a cliente prefere visita de manhã" });
+    expect((await fila()).map(i => i.funcao)).toEqual(["registrar_acompanhamento"]);
+    await donoNoPrivado("pode");
+    expect(await anotacoes()).toEqual([{ lead_id: 1, description: "lembra que a cliente prefere visita de manhã" }]);
+    expect(await q("SELECT texto FROM dolores_memoria_longa")).toEqual([{ texto: "Margem alvo secreta de dezoito por cento" }]);
+    const tudo = JSON.stringify([...noGrupo(), ...enviar.mock.calls]);
+    expect(tudo).not.toMatch(/Margem alvo secreta/);
+    // a E3 não chama a IA (o cliente do modelo do dono lança se for chamado) e não gasta parte nenhuma
+    expect(await q("SELECT * FROM dolores_consumo")).toEqual([]);
+  });
+
+  it("pedido do dono no grupo que o código não reconhece segue a marcação comum: conta em \"grupos\" e não leva a memória ao modelo", async () => {
+    await banco.pg.exec("INSERT INTO dolores_memoria_longa (texto, categoria, origem) VALUES ('Margem alvo secreta de dezoito por cento', 'fato_negocio', 'tela')");
+    const pedidos: unknown[] = [];
+    definirDependenciasMarcacao({ agora: () => agora, ms: () => Date.now(), enviar: enviarAoGrupo as never, contador: async () => 1_000,
+      cliente: async (p: unknown) => { pedidos.push(p); return texto("O atendimento segue em andamento."); } });
+    await noGrupoPede({ texto: "lembra que eu prefiro o resumo às segundas" });
+    expect(pedidos.length).toBeGreaterThan(0);
+    expect(JSON.stringify(pedidos)).not.toMatch(/Margem alvo secreta|Mem[óo]ria de longo prazo/);
+    expect(await fila()).toEqual([]);
+    expect(await q("SELECT count(*)::int AS n FROM dolores_memoria_longa")).toEqual([{ n: 1 }]);
+    const funcoes = await q<{ funcao: string }>("SELECT DISTINCT funcao FROM dolores_consumo");
+    expect(funcoes).toEqual([{ funcao: "grupos" }]);
   });
 });

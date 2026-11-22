@@ -310,6 +310,8 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
     // a reserva da 1ª chamada soma a estimativa do bloco
     const bloco = (await blocoParaConversaDoDono())!.bloco;
     expect(reservas[1] - semMemoria).toBeGreaterThanOrEqual(tokensEstimadosDoTexto(bloco));
+    // integração C5 (E5, gasto por função): a chamada que leva a memória conta na parte da CONVERSA, nunca em outra função
+    expect(await q<{ funcao: string }>("SELECT DISTINCT funcao FROM dolores_consumo")).toEqual([{ funcao: "conversa" }]);
     // no máximo 4 pontos de cache (o teto da API): sistema + memória + até 2 do histórico
     const pontos = p.mensagens.flatMap(m => m.content).filter(c => (c as { cache_control?: unknown }).cache_control).length;
     expect(pontos).toBeLessThanOrEqual(3);

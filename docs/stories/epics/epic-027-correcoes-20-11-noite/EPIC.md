@@ -33,7 +33,7 @@ confirmação do dono. Handoff: `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
   botão "Corrigir tipo ou vínculo" em todo grupo ACEITO, inclusive "não identificado · aguardando o dono"; pergunta da
   Dolores no WhatsApp com opções numeradas.
 - [x] C2 (implementada, aguarda QA — `C2-grupos-na-central.md`; migração 0142). Central WhatsApp mostra os grupos (permissão por colaborador) e permite escrever.
-- [ ] C5 (C5-E1 implementada, aguarda QA — `C5-E1-voz-e-memoria.md`; migração 0143. Memória de longo prazo implementada, aguarda QA — `C5-MLP-memoria-longo-prazo.md`; migração 0149). Dolores "Jarvis": fala natural e curta, sem nome de ferramenta nem código; contexto da conversa ("ela", "esse grupo");
+- [ ] C5 (C5-E1 implementada, aguarda QA — `C5-E1-voz-e-memoria.md`; migração 0143. Memória de longo prazo implementada, aguarda QA — `C5-MLP-memoria-longo-prazo.md`; migração 0149. Registro a partir do grupo implementado, aguarda QA — `C5-E3-grupo-registro.md`; sem migração. Gasto por função + alerta de 80% implementado, aguarda QA — `C5-E5-gasto-por-funcao.md`; migração 0148. As três integradas em `C5-INTEGRACAO.md`). Dolores "Jarvis": fala natural e curta, sem nome de ferramenta nem código; contexto da conversa ("ela", "esse grupo");
   resolve pelo WhatsApp (vincular cliente a grupo, classificar grupo, ligar resposta no grupo, salvar nota/documento, criar
   tarefa); confirmação proporcional (consultar → direto; registrar → "pode"; sério → confirmação explícita); ação a partir de
   grupo só do dono e só registro; proatividade; gasto por função.
