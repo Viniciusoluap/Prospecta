@@ -38,13 +38,17 @@ conversa travava ou estourava o prazo (a função da Vercel tem 60 s; o aviso us
       Ação continua só pelo "pode"/"confirmo" (`shared/dolores/confirmacao.ts`, `server/dolores/pendencia.ts`).
 - [x] Pausa geral, interruptor da IA, chave, modelo, limite do mês e a parte da conversa valem igual (mesma porta
       `bloqueioAtual("dolores_whatsapp")` e a mesma reserva de `consumo.ts`; o consumo entra na parte "conversa").
-- [x] Limites: 2 tarefas abertas ao mesmo tempo, 10 por dia (Imperatriz), 2 tentativas, validade de 30 min (vence e avisa o dono).
+- [x] Limites: 2 tarefas abertas ao mesmo tempo, 10 por dia (Imperatriz), 2 tentativas e validade (vence e avisa o dono). Revisor do
+      PR #298: a validade nunca acaba antes de a tarefa ter tido chance — vale até a 2ª chamada de cron depois da criação + 1 h e, na 1ª
+      tentativa, passa a ser o maior entre isso e agora + 30 min (`validadeSemTentativa`).
 - [x] Idempotência: uma tarefa por mensagem (índice único) e cada troca de situação é UPDATE condicional; a retomada dupla
       (dois avisos ao mesmo tempo, aviso + cron) manda **uma** resposta. Função que morre no meio do envio → "incerta", sem reenvio.
 - [x] Nada de dado pessoal em log/auditoria (só ids, contagens e situação); o pedido guardado perde segredos (mesmo filtro do que
       vai à IA) e é apagado quando a tarefa termina, falha ou vence (CHECK no banco); o resultado não é guardado.
 - [x] Sem cron novo: a retomada roda no fim de **todo aviso autenticado** da instância (inclusive os de situação de envio, que
-      chegam segundos depois do "vou levantar") e, como rede de segurança, no cron da Dolores que já existe (`rondas.ts`).
+      chegam segundos depois do "vou levantar") e, como rede de segurança, em TODO cron da Dolores que já existe (`rondas.ts`: a
+      rotina 07h–14h e, desde a correção do revisor do PR #298, os avisos 15h–19h). Pedido feito com o próximo cron a mais de 2 h
+      (19h–07h): a resposta imediata diz "sai a partir das 7h" (`fraseVouLevantar`).
 
 ## Desenho
 
@@ -114,9 +118,9 @@ Situações: `aguardando → executando → enviando → concluida`; fora disso 
 ## Pendências e riscos
 - A 0153 precisa ser aplicada antes (ou junto) da publicação; sem ela o código cai no comportamento antigo (resposta com o que deu)
   e a retomada fica em silêncio.
-- A retomada depende de chegar um aviso da Evolution (ou do cron, só 07h–14h de Brasília). Na prática o aviso de situação de envio
-  do próprio "vou levantar" chega em segundos; se a Evolution não mandar `messages.update`, o resultado espera a próxima mensagem
-  qualquer da instância (grupo, cliente, dono) ou o cron.
+- A retomada depende de chegar um aviso da Evolution ou de um cron (07h–19h de Brasília, todos os da Dolores). Na prática o aviso de
+  situação de envio do próprio "vou levantar" chega em segundos; se a Evolution não mandar `messages.update`, o resultado espera a
+  próxima mensagem qualquer da instância (grupo, cliente, dono) ou o cron — à noite, a partir das 7h, e o dono é avisado disso na hora.
 - O aviso da Evolution que faz a retomada responde depois dela (até ~45 s), como já acontecia com um comando longo.
 - A retomada refaz as consultas: um pedido que virou tarefa gasta mais do que se coubesse (as voltas da 1ª tentativa + as da retomada).
 - Aviso de vencimento durante a pausa geral é recusado pela pausa (fica só na auditoria).
@@ -133,3 +137,5 @@ Situações: `aguardando → executando → enviando → concluida`; fora disso 
 - 22/11/2026 — @dev (Dex): implementação, migração 0153 e testes.
 - 22/11/2026 — @dev (Dex): correções do portão de QA (M1 fechamento sem tarefa, M2 falha da IA volta à fila, L1 fecho fixo,
   "gera/prepara/monta um relatório" como leitura).
+- 22/11/2026 — @dev (Dex): revisor do PR #298 — validade a partir da tentativa (teto para a nunca tentada), retomada também no cron
+  da tarde, frase da noite. Detalhes e testes em C5-INTEGRACAO-2.md.

@@ -482,13 +482,17 @@ async function avisosNoCron(agora: Date, prazoFinal: number): Promise<string> {
 /**
  * EPIC-027 C5-E4 — a chamada da TARDE do cron (15h a 19h de Brasília, CAMINHOS_CRON_AVISOS): só os avisos automáticos, com o mesmo
  * segredo do cron em tempo constante. Nada do chamador (query, corpo, caminho) muda alvo, janela ou destino. Integração 2: os alertas
- * de gasto pendentes também saem aqui (antes dos avisos), pelo MESMO caminho único (`enviarAlertasPendentes`).
+ * de gasto pendentes também saem aqui (antes dos avisos), pelo MESMO caminho único (`enviarAlertasPendentes`), e (revisor do PR #298)
+ * a retomada da tarefa demorada do dono, entre os dois.
  */
 export async function tratarCronAvisos(req: Pick<Request, "headers">): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!cronAutorizado(req.headers.authorization)) return { status: 401, body: { error: "Não autorizado" } };
   const prazoFinal = relogio.ms() + PRAZO_CRON_MS;
   const agora = relogio.agora();
   await enviarAlertasPendentes({ prazoFinal, canal: "cron", agora, relogio: relogio.ms });
+  // Revisor do PR #298: a tarde também é rede de segurança da tarefa demorada (sem cron novo) — a mesma chamada e a mesma ordem da
+  // rotina da manhã: depois dos alertas de gasto e antes dos avisos proativos. Nunca lança nem muda a resposta.
+  await retomarTarefasDemoradas({ prazoFinal, canal: "cron" }).catch(() => undefined);
   return { status: 200, body: { ok: true, avisos: await avisosNoCron(agora, prazoFinal) } };
 }
 

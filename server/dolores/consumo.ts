@@ -217,9 +217,11 @@ export async function reservarChamada(p: { mes: string; mensagemId: number; limi
     const marcacoes = await reservasDasMarcacoes(tx, agora, null);
     // Etapa 9: e as das respostas a clientes cadastrados em andamento
     const atendimentos = await reservasDosAtendimentos(tx, agora, null);
+    // C5 integração 2 (revisor do PR #298): e a do aviso proativo em voo (0160)
+    const avisos = await reservasDosAvisos(tx, agora, null);
     if (reservado) {
-      reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada + marcacoes.entrada + atendimentos.entrada;
-      reservado.saida = Number(reservado.saida ?? 0) + grupos.saida + marcacoes.saida + atendimentos.saida;
+      reservado.entrada = Number(reservado.entrada ?? 0) + grupos.entrada + marcacoes.entrada + atendimentos.entrada + avisos.entrada;
+      reservado.saida = Number(reservado.saida ?? 0) + grupos.saida + marcacoes.saida + atendimentos.saida + avisos.saida;
     }
     // QA r2 N3: só o uso REAL decide "limite atingido". Se o que bloqueia é a reserva de OUTRO pedido em andamento, o motivo
     // é próprio ("outro_pedido": tente de novo em um minuto) e o aviso único do mês não é gasto.
@@ -303,7 +305,9 @@ export const ORCAMENTO_CLASSIFICACAO_PCT_PADRAO = 20;
  */
 async function conferirTerceiro(tx: Transacao, p: { mes: string; limites: Limites; reserva: Uso; funcao: Exclude<FuncaoDoConsumo, "conversa">;
   /** reservas ativas dos OUTROS terceiros (classificação, marcação, atendimento), sem a da própria chamada */
-  outrasReservas: Uso; agora: Date }): Promise<"folga_do_dono" | "parte" | null> {
+  outrasReservas: Uso; agora: Date;
+  /** a vaga do próprio aviso (reservarAvisos), cuja reserva não conta contra ela mesma */
+  excetoAvisoId?: number | null }): Promise<"folga_do_dono" | "parte" | null> {
   const [porFuncao, { partes }] = await Promise.all([usoPorFuncaoNoMes(p.mes, tx), lerPartesDoGasto(tx)]);
   const soma = (fs: readonly FuncaoDoConsumo[]) => fs.reduce((s, f) => ({ entrada: s.entrada + porFuncao[f].entrada, saida: s.saida + porFuncao[f].saida }), { entrada: 0, saida: 0 });
   // 1. total comprometido (M1): uso real de tudo + reservas das mensagens do dono + reservas dos outros terceiros + esta
@@ -312,17 +316,19 @@ async function conferirTerceiro(tx: Transacao, p: { mes: string; limites: Limite
     entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
     saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
   }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, p.agora));
+  // C5 integração 2 (revisor do PR #298): a reserva dos avisos proativos em voo (0160) entra no total de TODO terceiro
+  const avisos = await reservasDosAvisos(tx, p.agora, p.excetoAvisoId ?? null);
   const comprometido = {
-    entrada: total.entrada + Number(doDono?.entrada ?? 0) + p.outrasReservas.entrada + p.reserva.entrada,
-    saida: total.saida + Number(doDono?.saida ?? 0) + p.outrasReservas.saida + p.reserva.saida,
+    entrada: total.entrada + Number(doDono?.entrada ?? 0) + p.outrasReservas.entrada + avisos.entrada + p.reserva.entrada,
+    saida: total.saida + Number(doDono?.saida ?? 0) + p.outrasReservas.saida + avisos.saida + p.reserva.saida,
   };
   if (comprometido.entrada > p.limites.entrada || comprometido.saida > p.limites.saida) return "folga_do_dono";
   // 2. folga do dono (os terceiros somados)
   const terceiros = soma(FUNCOES_DO_GASTO.filter(f => f !== "conversa"));
   const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
   if (terceiros.entrada + p.reserva.entrada > teto.entrada || terceiros.saida + p.reserva.saida > teto.saida) return "folga_do_dono";
-  // 3. a parte da função
-  if (!cabeNaParte(porFuncao[p.funcao], { entrada: 0, saida: 0 }, p.reserva, p.limites, partes[p.funcao])) return "parte";
+  // 3. a parte da função (na dos avisos, o outro aviso em voo também ocupa a parte)
+  if (!cabeNaParte(porFuncao[p.funcao], p.funcao === "avisos" ? avisos : { entrada: 0, saida: 0 }, p.reserva, p.limites, partes[p.funcao])) return "parte";
   return null;
 }
 
@@ -558,10 +564,13 @@ export type BloqueioDosAvisos = "sem_limite" | "limite_mensal" | "folga_do_dono"
  * C5-E4 — confere, sob a MESMA trava (linha 1 de dolores_whatsapp_config em FOR UPDATE), se UMA chamada que só redige o aviso cabe:
  * 1) uso real do mês contra o limite inteiro; 2) (integração 2) o TOTAL comprometido, a folga do dono e a PARTE "avisos" (padrão 5%),
  * pela mesma `conferirTerceiro` dos outros terceiros.
- * Não grava reserva: só um aviso é montado por vez (a vaga do envio é única por dia e ordem, server/dolores/avisos.ts), e a chamada é
- * curta (teto de saída 400). Bloqueado → o aviso sai com o texto fixo; a conversa do dono e as outras funções não são tocadas.
+ * Integração 2 (revisor do PR #298): cabendo, GRAVA a reserva na própria vaga do aviso (`envioId`, linha de dolores_avisos_envios;
+ * colunas da 0160), no mesmo formato das outras reservas de terceiros: a conversa do dono (reservarChamada) e todo terceiro
+ * (conferirTerceiro) a enxergam nos totais enquanto vale. Quem chama solta com `liberarReservaAvisos` depois de registrar o consumo
+ * real ou na falha; se a função morrer no meio, ela vence sozinha em `validadeMs`. Sem a 0160, confere como antes, sem gravar.
+ * Bloqueado → o aviso sai com o texto fixo; a conversa do dono e as outras funções não são tocadas.
  */
-export async function reservarAvisos(p: { mes: string; limites: Limites; reserva: Uso }): Promise<BloqueioDosAvisos | null> {
+export async function reservarAvisos(p: { mes: string; limites: Limites; reserva: Uso; envioId: number; validadeMs: number }): Promise<BloqueioDosAvisos | null> {
   const r = await getDb().transaction(async (tx): Promise<BloqueioDosAvisos | "parte" | null> => {
     await tx.execute(sql`SELECT ${doloresWhatsappConfig.id} FROM ${doloresWhatsappConfig} WHERE ${doloresWhatsappConfig.id} = 1 FOR UPDATE`);
     const [usado] = await tx.select({
@@ -575,7 +584,42 @@ export async function reservarAvisos(p: { mes: string; limites: Limites; reserva
     // dono e a parte "avisos" (5%).
     const agora = new Date();
     const outras = somaDeReservas(await reservasDasClassificacoes(tx, agora, null), await reservasDasMarcacoes(tx, agora, null), await reservasDosAtendimentos(tx, agora, null));
-    return conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "avisos", outrasReservas: outras, agora });
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "avisos", outrasReservas: outras, agora, excetoAvisoId: p.envioId });
+    if (terceiro) return terceiro;
+    if (await temReservaDosAvisos(tx)) {
+      await tx.execute(sql`UPDATE "dolores_avisos_envios" SET "reserva_entrada" = ${Math.max(0, Math.round(p.reserva.entrada))}::integer,
+        "reserva_saida" = ${Math.max(0, Math.round(p.reserva.saida))}::integer, "reserva_ate" = ${new Date(agora.getTime() + p.validadeMs).toISOString()}::timestamptz
+        WHERE "id" = ${p.envioId}::integer`);
+    }
+    return null;
   });
   return depoisDaReserva(p.mes, "avisos", r, "orcamento_avisos");
+}
+
+/** Solta a reserva do aviso (depois de registrar o consumo real, ou na falha). Falha só vai para o log: a reserva vence sozinha. */
+export async function liberarReservaAvisos(envioId: number) {
+  try {
+    const db = getDb();
+    if (!(await temReservaDosAvisos(db))) return;
+    await db.execute(sql`UPDATE "dolores_avisos_envios" SET "reserva_entrada" = 0, "reserva_saida" = 0, "reserva_ate" = NULL WHERE "id" = ${envioId}::integer`);
+  } catch (e) {
+    console.error("[dolores/consumo] falha ao liberar a reserva do aviso", e instanceof Error ? e.name : "erro");
+  }
+}
+
+/** A 0160 (reserva do aviso na vaga) foi aplicada? Conferido a cada vez (barato), como as tabelas dos outros terceiros. */
+async function temReservaDosAvisos(x: Executor): Promise<boolean> {
+  const r = await x.execute(sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'dolores_avisos_envios' AND column_name = 'reserva_ate') AS existe`);
+  return linhas(r)[0]?.existe === true;
+}
+
+/** Reservas ainda válidas dos avisos proativos em voo (dolores_avisos_envios, 0160), menos a da própria vaga. Sem a 0160, zero. */
+async function reservasDosAvisos(tx: Transacao, agora: Date, excetoId: number | null): Promise<Uso> {
+  if (!(await temReservaDosAvisos(tx))) return { entrada: 0, saida: 0 };
+  const ate = agora.toISOString();
+  const r = await tx.execute(excetoId === null
+    ? sql`SELECT coalesce(sum("reserva_entrada"), 0)::bigint AS entrada, coalesce(sum("reserva_saida"), 0)::bigint AS saida FROM "dolores_avisos_envios" WHERE "reserva_ate" > ${ate}::timestamptz`
+    : sql`SELECT coalesce(sum("reserva_entrada"), 0)::bigint AS entrada, coalesce(sum("reserva_saida"), 0)::bigint AS saida FROM "dolores_avisos_envios" WHERE "reserva_ate" > ${ate}::timestamptz AND "id" <> ${excetoId}::integer`);
+  const l = linhas(r)[0];
+  return { entrada: Number(l?.entrada ?? 0), saida: Number(l?.saida ?? 0) };
 }

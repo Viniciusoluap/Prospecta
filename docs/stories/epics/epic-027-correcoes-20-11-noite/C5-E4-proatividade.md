@@ -55,9 +55,9 @@ das 07h às 20h; no máximo 6 por dia; avisos parecidos agrupados; ele silencia 
 - [AUTO-DECISION] IA no texto com interruptor próprio, DESLIGADO por padrão (além dos avisos). Motivo: "não ligar nenhuma função nova por
   padrão"; o texto fixo já cumpre o pedido. Linha nova em Integrações › Anthropic: "Dolores — texto dos avisos automáticos"
   (`dolores_avisos`); escolher modelo não liga nada.
-- [AUTO-DECISION] `reservarAvisos` não grava reserva (só confere uso real + esta chamada contra o total e a parte, sob a mesma trava):
-  a vaga do envio já garante um aviso por vez e a chamada é curta (≤ 3 mil de entrada, 400 de saída). Pior caso: o total passa do
-  limite em uma chamada de aviso — o mesmo que a conversa já admite.
+- ~~[AUTO-DECISION] `reservarAvisos` não grava reserva~~ — **substituída em 22/11/2026** (revisor do PR #298): a reserva do aviso é
+  gravada na própria vaga (`dolores_avisos_envios`, colunas da 0160), entra nos totais das outras conferências, é solta depois do
+  consumo real ou na falha e vence sozinha. Ver C5-INTEGRACAO-2.md, "Correções do revisor do PR #298".
 - [AUTO-DECISION] Silenciado: o tipo nem é lido. Ao religar, os achados atuais desse tipo saem no próximo aviso (ela "conta o que tem").
 - [AUTO-DECISION] O alerta de gasto da E5 continua saindo pelo caminho dele (uma vez por mês por limite, fora do teto de 6 e da janela),
   sem duplicar: o tipo "gasto" no catálogo serve para o dono silenciar o de 80%.

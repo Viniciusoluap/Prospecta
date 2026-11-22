@@ -31,7 +31,7 @@ import { tarefaAtrasada } from "../../shared/tarefas-filtro.js";
 import { LEAD_FINALIZED_STAGE } from "../../shared/lead-pipeline.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
-import { registrarConsumo, reservarAvisos } from "./consumo.js";
+import { liberarReservaAvisos, registrarConsumo, reservarAvisos } from "./consumo.js";
 import { podeEnviarAvisoAgora } from "./pendencia.js";
 import { FILTRO_DO_REGISTRO } from "./dados-pessoais.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -249,27 +249,37 @@ export const RESERVA_ENTRADA_AVISO = 3_000;
 /** Para tentar a IA é preciso este prazo (chamada + envio). */
 const MINIMO_PARA_IA_MS = 15_000;
 const PRAZO_IA_MS = 12_000;
+/** A reserva do aviso vence sozinha depois disto (a chamada tem teto de PRAZO_IA_MS; folga para registrar o consumo). */
+export const VALIDADE_RESERVA_AVISO_MS = PRAZO_IA_MS + 18_000;
 
 /**
  * Tenta o texto pela IA. Qualquer bloqueio (IA da Dolores desligada, sem chave/modelo, limite, parte "avisos" esgotada), falha,
  * texto fora da conferência ou falta de prazo → null (o aviso sai com o texto fixo). Nunca lança.
  */
-async function textoPelaIA(grupos: readonly GrupoDoAviso[], agora: Date, prazoFinal: number, relogio: () => number): Promise<{ texto: string } | { texto: null; motivo: string }> {
+async function textoPelaIA(grupos: readonly GrupoDoAviso[], agora: Date, prazoFinal: number, relogio: () => number, envioId: number): Promise<{ texto: string } | { texto: null; motivo: string }> {
   if (prazoFinal - relogio() < MINIMO_PARA_IA_MS) return { texto: null, motivo: "sem_tempo" };
   try {
     const cred = credencialTeste ? await credencialTeste() : await (await import("./whatsapp.js")).credencialDosAvisos();
     if (cred.motivo !== null) return { texto: null, motivo: String(cred.motivo) };
-    const bloqueio = await reservarAvisos({ mes: cred.mes, limites: cred.limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: MAX_TOKENS_AVISO } });
+    // integração 2 (revisor do PR #298): a reserva fica gravada na vaga deste aviso enquanto a chamada está em voo — as outras
+    // conferências (conversa do dono, classificação, grupo, cliente) a enxergam; solta depois do consumo real ou na falha (finally)
+    // e vence sozinha se a função morrer no meio
+    const bloqueio = await reservarAvisos({ mes: cred.mes, limites: cred.limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: MAX_TOKENS_AVISO },
+      envioId, validadeMs: VALIDADE_RESERVA_AVISO_MS });
     if (bloqueio) return { texto: null, motivo: bloqueio };
     let r: RespostaAviso;
     try {
-      r = await (clienteTeste ?? clientePadrao)({ apiKey: cred.apiKey, modelo: cred.modelo, sistema: SISTEMA_AVISOS, dados: dadosParaIA(grupos, agora),
-        maxTokens: MAX_TOKENS_AVISO, timeoutMs: Math.min(PRAZO_IA_MS, Math.max(1_000, prazoFinal - relogio() - 5_000)) });
-    } catch (e) {
-      console.error("[dolores/avisos] a IA não respondeu; vai o texto fixo", (e as { status?: number })?.status ?? (e instanceof Error ? e.name : "erro"));
-      return { texto: null, motivo: "erro_modelo" };
+      try {
+        r = await (clienteTeste ?? clientePadrao)({ apiKey: cred.apiKey, modelo: cred.modelo, sistema: SISTEMA_AVISOS, dados: dadosParaIA(grupos, agora),
+          maxTokens: MAX_TOKENS_AVISO, timeoutMs: Math.min(PRAZO_IA_MS, Math.max(1_000, prazoFinal - relogio() - 5_000)) });
+      } catch (e) {
+        console.error("[dolores/avisos] a IA não respondeu; vai o texto fixo", (e as { status?: number })?.status ?? (e instanceof Error ? e.name : "erro"));
+        return { texto: null, motivo: "erro_modelo" };
+      }
+      await registrarConsumo({ mes: cred.mes, mensagemId: null, modelo: cred.modelo, volta: 1, uso: r.uso, parada: r.parada, funcao: "avisos" });
+    } finally {
+      await liberarReservaAvisos(envioId);
     }
-    await registrarConsumo({ mes: cred.mes, mensagemId: null, modelo: cred.modelo, volta: 1, uso: r.uso, parada: r.parada, funcao: "avisos" });
     const valido = textoDaIAValido(r.parada === "max_tokens" ? null : r.texto);
     if (!valido) return { texto: null, motivo: "texto_recusado" };
     return { texto: vozDaDolores(valido).texto };
@@ -358,7 +368,7 @@ export async function executarAvisos(p: { agora: Date; prazoFinal?: number; relo
     // 7) o texto: a IA só escreve (se ligada e com orçamento); senão, o fixo
     const grupos = agruparPorTipo(pendentes);
     const fixo = montarAvisoFixo(grupos, agora);
-    const ia = cfg.iaNoTexto ? await textoPelaIA(grupos, agora, prazoFinal, relogio) : { texto: null, motivo: "ia_desligada" };
+    const ia = cfg.iaNoTexto ? await textoPelaIA(grupos, agora, prazoFinal, relogio, vaga.id) : { texto: null, motivo: "ia_desligada" };
     const texto = ia.texto ?? fixo;
     const tipos = Object.fromEntries(grupos.map(g => [g.tipo, g.total]));
     const refs: ReferenciaConversa[] = grupos.flatMap(g => g.itens.slice(0, 5)).filter(a => a.dados.ref && a.dados.nome)

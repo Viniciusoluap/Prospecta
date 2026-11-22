@@ -16,8 +16,8 @@ import { MAX_VOLTAS_TAREFA, VOLTAS_PARA_TAREFA, definirClienteModelo, type Pedid
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
-import { definirRelogioCron, tratarCronDolores } from "./rondas.js";
-import { FRASE_SEM_TAREFA, FRASE_VOU_LEVANTAR, MAX_TAREFAS_ABERTAS, MAX_TAREFAS_POR_DIA, VALIDADE_TAREFA_MS } from "./tarefa-demorada.js";
+import { definirRelogioCron, tratarCronAvisos, tratarCronDolores } from "./rondas.js";
+import { FRASE_SEM_TAREFA, FRASE_VOU_LEVANTAR, HORAS_DA_RETOMADA, MAX_TAREFAS_ABERTAS, MAX_TAREFAS_POR_DIA, VALIDADE_TAREFA_MS, fraseVouLevantarForaDeHora, proximosCrons, validadeSemTentativa } from "./tarefa-demorada.js";
 import { AGORA, CENARIO, MIGRACAO_0153, criarBanco } from "./testes-banco.js";
 import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 
@@ -291,7 +291,9 @@ describe("conversa livre durante a tarefa", () => {
 describe("validade, tentativas, pausa e teto de gasto", () => {
   it("passou da validade: vence, o pedido é apagado e o dono é avisado UMA vez", async () => {
     await criarTarefa();
-    agora = new Date(agora.getTime() + VALIDADE_TAREFA_MS + 60_000);
+    // nunca tentada: vale até a 2ª chamada de cron depois da criação (09:00 → crons 10h e 11h) + 1 h de folga = 12:00 de Imperatriz
+    expect(validadeSemTentativa(agora).toISOString()).toBe("2026-11-16T15:00:00.000Z");
+    agora = new Date(validadeSemTentativa(agora).getTime() + 60_000);
     await situacaoDeEnvio();
     await situacaoDeEnvio();
     expect((await tarefas())[0]).toMatchObject({ situacao: "expirada", comando: null });
@@ -408,5 +410,103 @@ describe("portão de QA — \"gera/prepara/monta um relatório\" é leitura; aç
     roteiroRetomada("Pronto, já criei as tarefas e cobrei os clientes.");
     await situacaoDeEnvio();
     expect(respostasAoDono().at(-1)!.trimEnd().endsWith("Nada foi alterado no sistema.")).toBe(true);
+  });
+});
+
+// ── Revisor do PR #298: a rede de segurança do cron garante a retomada (relógio simulado, sem aviso nenhum da Evolution) ─────────
+describe("rede de segurança do cron — a tarefa nunca vence sem ter sido tentada", () => {
+  const SEGREDO = "segredo-do-cron-de-teste";
+  const cron = async (quando: string, qual: "manha" | "tarde") => {
+    agora = new Date(quando);
+    process.env.CRON_SECRET = SEGREDO;
+    definirRelogioCron({ agora: () => agora, ms: () => relogioMs });
+    try {
+      const req = { headers: { authorization: `Bearer ${SEGREDO}` } } as never;
+      return qual === "manha" ? await tratarCronDolores(req) : await tratarCronAvisos(req);
+    } finally { delete process.env.CRON_SECRET; }
+  };
+
+  it("as horas da retomada são as dos crons que já existem (07h–19h), sem cron novo", () => {
+    expect(HORAS_DA_RETOMADA).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")) as { crons: Array<{ path: string }> };
+    expect(vercel.crons).toHaveLength(15);
+    // 18:30 → 19h e, depois da noite, 07h do dia seguinte
+    expect(proximosCrons(new Date("2026-11-16T21:30:00Z"), 2).map(d => d.toISOString())).toEqual(["2026-11-16T22:00:00.000Z", "2026-11-17T10:00:00.000Z"]);
+  });
+
+  it("07:05 sem aviso nenhum: não vence na manutenção do cron das 08:00 — é resolvida nele", async () => {
+    agora = new Date("2026-11-16T10:05:00Z"); // 07:05 de Imperatriz
+    await criarTarefa();
+    expect(respostasAoDono()).toEqual([FRASE_VOU_LEVANTAR]);
+    const [t] = await q<{ expira_em: Date; situacao: string }>("SELECT expira_em, situacao FROM dolores_tarefas_demoradas");
+    expect(t.situacao).toBe("aguardando");
+    expect(new Date(t.expira_em).toISOString()).toBe("2026-11-16T13:00:00.000Z"); // 2ª chamada (09h) + 1 h = 10:00 de Imperatriz
+    roteiroRetomada();
+    await cron("2026-11-16T11:00:30Z", "manha"); // o cron das 08:00
+    expect((await tarefas())[0]).toMatchObject({ situacao: "concluida", tentativas: 1 });
+    expect(respostasAoDono()).toHaveLength(2);
+    expect(respostasAoDono()[1]).toMatch(/^Dolores: aqui está o levantamento que você pediu às 07:05\./);
+    expect(respostasAoDono().join("\n")).not.toContain("não consegui terminar a tempo");
+  });
+
+  it("mesmo com o cron das 08:00 sem tentar (pausa geral), o das 09:00 ainda retoma (a validade cobre duas chamadas)", async () => {
+    agora = new Date("2026-11-16T10:05:00Z");
+    await criarTarefa();
+    roteiroRetomada();
+    await banco.pg.exec("UPDATE dolores_config SET pausada = true, motivo_pausa = 'teste' WHERE id = 1");
+    await cron("2026-11-16T11:40:00Z", "manha"); // 08:40: pausada, não tenta
+    expect((await tarefas())[0]).toMatchObject({ situacao: "aguardando", tentativas: 0 });
+    await banco.pg.exec("UPDATE dolores_config SET pausada = false WHERE id = 1");
+    await cron("2026-11-16T12:55:00Z", "manha"); // o das 09:00 saindo no fim da hora (Vercel)
+    expect((await tarefas())[0]).toMatchObject({ situacao: "concluida", tentativas: 1 });
+  });
+
+  it("15h: o cron da tarde (só avisos) também retoma — antes não retomava", async () => {
+    agora = new Date("2026-11-16T18:10:00Z"); // 15:10
+    await criarTarefa();
+    expect(respostasAoDono()).toEqual([FRASE_VOU_LEVANTAR]);
+    roteiroRetomada();
+    const r = await cron("2026-11-16T19:00:20Z", "tarde"); // o cron das 16:00
+    expect(r.status).toBe(200);
+    expect((await tarefas())[0]).toMatchObject({ situacao: "concluida", tentativas: 1 });
+    expect(respostasAoDono()[1]).toMatch(/^Dolores: aqui está o levantamento que você pediu às 15:10\./);
+  });
+
+  it("noite (20:30): a tarefa é criada, a resposta diz que sai a partir das 7h, vale até a manhã e o cron das 07:00 resolve", async () => {
+    agora = new Date("2026-11-16T23:30:00Z"); // 20:30
+    await criarTarefa();
+    expect(respostasAoDono()).toEqual([fraseVouLevantarForaDeHora(7)]);
+    expect(respostasAoDono()[0]).toContain("a partir das 7h");
+    expect(respostasAoDono()[0]).not.toContain("em seguida.");
+    const [t] = await q<{ expira_em: Date }>("SELECT expira_em FROM dolores_tarefas_demoradas");
+    expect(new Date(t.expira_em).toISOString()).toBe("2026-11-17T12:00:00.000Z"); // 2ª chamada da manhã (08h) + 1 h
+    roteiroRetomada();
+    await cron("2026-11-17T10:00:10Z", "manha"); // 07:00 do dia seguinte
+    expect((await tarefas())[0]).toMatchObject({ situacao: "concluida", tentativas: 1 });
+    expect(respostasAoDono()[1]).toMatch(/^Dolores: aqui está o levantamento que você pediu às 20:30\./);
+  });
+
+  it("18:30: o próximo cron (19h) está perto — \"em seguida\"; se ele não tentar, a validade chega até a manhã", async () => {
+    agora = new Date("2026-11-16T21:30:00Z");
+    await criarTarefa();
+    expect(respostasAoDono()).toEqual([FRASE_VOU_LEVANTAR]);
+    const [t] = await q<{ expira_em: Date }>("SELECT expira_em FROM dolores_tarefas_demoradas");
+    expect(new Date(t.expira_em).toISOString()).toBe("2026-11-17T11:00:00.000Z"); // 07h + 1 h
+  });
+
+  it("na 1ª tentativa a validade passa a contar dela (nunca encurta): parada no meio, a 2ª tentativa ainda cabe", async () => {
+    agora = new Date("2026-11-16T10:05:00Z");
+    await criarTarefa();
+    // a 1ª tentativa falha às 09:50 (a IA não responde) e volta à fila: a validade de 10:00 vira 10:20
+    roteiro.push(() => { throw new Error("a IA não respondeu"); });
+    await cron("2026-11-16T12:50:00Z", "manha");
+    const [t1] = await q<{ expira_em: Date; tentativas: number; situacao: string }>("SELECT expira_em, tentativas, situacao FROM dolores_tarefas_demoradas");
+    expect(t1.tentativas).toBe(1);
+    expect(new Date(t1.expira_em).getTime()).toBe(new Date("2026-11-16T12:50:00Z").getTime() + VALIDADE_TAREFA_MS);
+    expect(t1.situacao).toBe("aguardando");
+    // 10:10 — já passou da validade sem tentativa (10:00), mas a da tentativa (10:20) ainda vale
+    roteiroRetomada();
+    await cron("2026-11-16T13:10:00Z", "manha");
+    expect((await tarefas())[0]).toMatchObject({ situacao: "concluida", tentativas: 2 });
   });
 });

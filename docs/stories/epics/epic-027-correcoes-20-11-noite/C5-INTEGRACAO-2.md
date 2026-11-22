@@ -42,8 +42,7 @@ acima de `MAX_PERGUNTA`) → `origin/main`. Nenhuma migração aplicada em banco
   pendentes, ANTES dos avisos (os dois crons: alertas → avisos). O aviso proativo não tem tipo "gasto" na coleta (não duplica).
 - **Gasto dos avisos**: `reservarAvisos` agora passa pela mesma `conferirTerceiro` do portão (M1): total comprometido (uso real + reservas
   das mensagens do dono + reservas de classificação/marcação/atendimento + esta) ≤ limite; depois folga do dono e a parte "avisos" (5%).
-  Limite conhecido (decisão da C5-E4, mantida): o aviso não grava reserva — uma chamada de aviso (≤ 3.000 + 400) em voo não é vista
-  por outro terceiro simultâneo.
+  ~~Limite conhecido: o aviso não grava reserva~~ — corrigido em 22/11/2026 (ver "Correções do revisor do PR #298", abaixo).
 - A IA dos avisos continua sem ferramentas e sem histórico: a memória de longo prazo não entra (teste).
 
 ## Piso × prefixo medido e custo extra
@@ -132,4 +131,47 @@ Nada corrigido (sem causa no código); fica registrado.
 
 ## Pendências
 - Portão de QA de segurança (@qa) do pacote integrado antes da `main` (regra da Dolores de 16/11).
-- Na publicação: aplicar 0148, 0149, 0150, 0151 e 0153 no Neon (aditivas); conferir os 15 crons no painel da Vercel e `PUBLIC_SITE_URL`.
+- Na publicação: aplicar 0148, 0149, 0150, 0151, 0153 e **0160** no Neon (aditivas); conferir os 15 crons no painel da Vercel e `PUBLIC_SITE_URL`.
+
+## Correções do revisor do PR #298 (22/11/2026, @dev Dex)
+
+### 1. Tarefa demorada sem aviso da Evolution — nunca vence sem ter sido tentada (`server/dolores/tarefa-demorada.ts`)
+Problema: validade fixa de 30 min, o cron da manhã de hora em hora e a manutenção de vencimento antes de pegar trabalho — tarefa das
+07:05 já estava vencida no cron das 08:00; depois das 14h os crons da tarde não retomavam.
+- (a) **Todo cron autenticado da Dolores retoma**: a rotina 07h–14h (já fazia) e agora também `tratarCronAvisos` (15h–19h), na mesma
+  ordem: alertas de gasto → retomada → avisos proativos. Nenhum cron novo (`vercel.json` continua com 15).
+- (b) **Validade conta a partir da tentativa, com teto para a nunca tentada**: ao criar, `expira_em` = a 2ª chamada de cron depois da
+  criação + 1 h (`validadeSemTentativa`; as horas vêm de `CRON_DOLORES_AGENDAS` + `CRON_AVISOS_AGENDAS`, `HORAS_DA_RETOMADA` = 07h–19h;
+  a folga de 1 h cobre o cron da Vercel saindo em qualquer minuto da hora). Na 1ª reivindicação, `expira_em` = o maior entre o de antes e
+  agora + 30 min (nunca encurta). Exemplos: 07:05 → até 10:00; 15:10 → até 18:00; 18:30 → até 08:00 do dia seguinte; 20:30 → até 09:00.
+- (c) **Noite**: [AUTO-DECISION] a tarefa É criada (o dono costuma continuar a conversa, e cada aviso da Evolution retoma) e a resposta
+  imediata diz quando chega: com o próximo cron a mais de 2 h, "Vou levantar isso e te mando assim que eu conseguir: se você me escrever
+  de novo, termino em seguida; senão, sai a partir das 7h." (`fraseVouLevantar`, por código, pelo relógio). Durante o dia, "te mando em
+  seguida", como antes. (Alternativa descartada: não criar e cair em FRASE_SEM_TAREFA — o dono perderia o levantamento à noite.)
+- A reivindicação agora exige a MESMA contagem de tentativas lida (`eq(tentativas)`), além de "aguardando": continua idempotente.
+
+### 2. Reserva do aviso proativo gravada (`server/dolores/consumo.ts`, `server/dolores/avisos.ts`, migração 0160)
+Problema: `reservarAvisos` só conferia; a chamada em voo não era vista por outra conferência concorrente até o consumo real.
+- `drizzle/0160_dolores_avisos_reserva.sql` (nova, **só aditiva e idempotente**: 3 × `ADD COLUMN IF NOT EXISTS` em `dolores_avisos_envios`
+  — `reserva_entrada`, `reserva_saida`, `reserva_ate`). Número 0160 porque a faixa 0154–0159 pode estar em uso pela frente fiscal. Por que
+  migração: nenhuma tabela de reservas existente serve ao aviso sem misturar conceitos (as de mensagens do dono, grupos, marcações e
+  atendimentos são da própria chamada de cada um); a vaga do aviso já existe antes da chamada da IA, então a reserva fica nela, no mesmo
+  formato das outras.
+- `reservarAvisos({ …, envioId, validadeMs })`: cabendo, grava a reserva na vaga (sob a mesma trava). `conferirTerceiro` soma as reservas
+  de avisos em voo no total comprometido de TODO terceiro (e na parte "avisos"); `reservarChamada` (conversa do dono) também as soma.
+  A regra "uma chamada de terceiros por vez" dos grupos/clientes não muda (o aviso só entra nos totais).
+- `avisos.ts#textoPelaIA`: `try/finally` — registra o consumo real e só então solta (`liberarReservaAvisos`); na falha da IA, solta
+  também. Vence sozinha em `VALIDADE_RESERVA_AVISO_MS` (30 s) se a função morrer. Sem a 0160, confere a coluna e segue como antes.
+- Banco de teste: 0160 aplicada 2× depois da 0153 (`testes-banco.ts`).
+
+### Testes
+(a) Automáticos — `npx tsc --noEmit` limpo. Novos: `c5-tarefa-demorada.test.ts` (+7: horas dos crons e 15 crons; 07:05 sem aviso →
+resolvida no cron das 08:00; cron das 08:00 sem tentar (pausa) → o das 09:00 resolve; 15:10 → retomada pelo cron da tarde das 16:00;
+20:30 → frase "a partir das 7h", validade até 09:00 e o cron das 07:00 resolve; 18:30 → "em seguida" e validade até a manhã; a 1ª
+tentativa estende a validade e a 2ª ainda cabe) e o teste de validade ajustado; `c5-integracao2-qa.test.ts` (+5: 0160 só aditiva;
+aviso em voo com a reserva gravada e a conversa concorrente barrada por ela, soltura depois do consumo real; soltura na falha da IA;
+outro aviso concorrente vê a reserva, liberada cabe, vencida não conta; total comprometido de terceiros; sem a 0160 nada quebra).
+Rodados (vitest `--maxWorkers=2 --minWorkers=1`): `c5-tarefa-demorada` 31/31 e `c5-integracao2-qa` 25/25; vizinhos `c5-tarefa-demorada-qa`,
+`c5-e4-proatividade`, `c5-integracao2`, `c5-integracao-qa`, `c5-e5-gasto-por-funcao`, `whatsapp`, `operacao-qa-seguranca`,
+`c4-horario-relatorio`: 8 arquivos, 173/173. Suíte inteira não rodada.
+(b) Manuais: nenhum. (c) Produção: aplicar a 0160 no Neon antes/junto da publicação; conferir um pedido longo à noite (frase das 7h).

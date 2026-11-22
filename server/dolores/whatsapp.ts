@@ -62,7 +62,7 @@ import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.j
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
-import { FRASE_SEM_TAREFA, FRASE_VOU_LEVANTAR, criarTarefaDemorada, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
+import { FRASE_SEM_TAREFA, criarTarefaDemorada, fraseVouLevantar, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
 const ehDeGrupo = (item: unknown) => String((item as { key?: { remoteJid?: unknown } } | null)?.key?.remoteJid ?? "").endsWith("@g.us");
@@ -622,7 +622,8 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     if (r.parou === "limite_mensal" && (await marcarAvisoDoMes(mes).catch(() => false))) texto += `\n\n${fraseDeBloqueio("limite_mensal")}`;
     // EPIC-027 C5 (tarefa demorada): o pedido de leitura não cabe → grava a tarefa e responde na hora; sem conseguir gravar, vai o
     // que deu para levantar, com o porquê
-    if (r.parou === "virou_tarefa" && virouTarefa) texto = FRASE_VOU_LEVANTAR;
+    // (revisor do PR #298: à noite, sem cron até a manhã, a frase diz quando chega — fraseVouLevantar, por código)
+    if (r.parou === "virou_tarefa" && virouTarefa) texto = fraseVouLevantar(deps.agora());
     else if (semTarefa) texto = `${texto}\n\n(${FRASE_SEM_TAREFA[semTarefa]})`;
     // EPIC-027 C5 (E2): pedido do dono com intenção de ação e sem texto colado → o que ficou esperando vira UMA proposta com a
     // pergunta do sistema ("pode"/"confirmo", sem código). Senão (ou se a proposta não puder ser gravada), o quadro de antes.

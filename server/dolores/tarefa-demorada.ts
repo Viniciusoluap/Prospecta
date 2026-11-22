@@ -31,9 +31,38 @@ import { ehTabelaInexistente } from "./erro-de-banco.js";
 import { erroParaLog } from "./erro-seguro.js";
 import type { CredencialGrupo } from "./marcacao.js";
 import { podeEnviarAvisoAgora } from "./pendencia.js";
+import { CRON_AVISOS_AGENDAS, CRON_DOLORES_AGENDAS } from "../../shared/dolores/operacao.js";
 
-/** A tarefa vence (e o dono é avisado) se não for concluída em 30 min. */
+/**
+ * Validade (revisor do PR #298): a tarefa NUNCA vence sem ter tido chance de ser tentada. Ao ser criada, vale até a SEGUNDA chamada
+ * de cron da Dolores depois dela + MARGEM_DO_CRON_MS (`validadeSemTentativa`): o aviso da Evolution costuma retomar em segundos, e
+ * sem aviso nenhum ainda passam duas chamadas de cron (o da Vercel pode atrasar dentro da hora). Na 1ª tentativa, a validade passa a
+ * ser o maior entre a de antes e "agora + VALIDADE_TAREFA_MS" (a 2ª tentativa, se a 1ª parar no meio, ainda cabe).
+ */
 export const VALIDADE_TAREFA_MS = 30 * 60_000;
+/** Folga depois da 2ª chamada de cron (a da Vercel pode sair em qualquer minuto da hora marcada). */
+export const MARGEM_DO_CRON_MS = 60 * 60_000;
+/** Próximo cron a mais que isto → o dono é avisado na hora de que o resultado pode ficar para a manhã (FRASE_VOU_LEVANTAR_FORA_DE_HORA). */
+export const ESPERA_LONGA_MS = 2 * 60 * 60_000;
+/**
+ * Horas de Brasília/Imperatriz em que algum cron AUTENTICADO da Dolores chama a retomada (vercel.json, sem cron novo): a rotina das
+ * 07h às 14h (CRON_DOLORES_AGENDAS) e os avisos das 15h às 19h (CRON_AVISOS_AGENDAS). Das 19h às 07h não há cron.
+ */
+export const HORAS_DA_RETOMADA: readonly number[] = Array.from(new Set([...CRON_DOLORES_AGENDAS, ...CRON_AVISOS_AGENDAS].map(a => a.horaBrasilia))).sort((a, b) => a - b);
+const HORA_MS = 60 * 60_000;
+/** As próximas `n` chamadas de cron (hora cheia) estritamente depois de `d`. UTC−3 fixo: hora cheia em UTC = hora cheia em Imperatriz. */
+export function proximosCrons(d: Date, n: number): Date[] {
+  const out: Date[] = [];
+  for (let h = Math.floor(d.getTime() / HORA_MS) * HORA_MS + HORA_MS, i = 0; out.length < n && i < 72; h += HORA_MS, i++) {
+    if (HORAS_DA_RETOMADA.includes(new Date(h - 3 * HORA_MS).getUTCHours())) out.push(new Date(h));
+  }
+  return out;
+}
+/** Validade da tarefa ainda não tentada: a 2ª chamada de cron depois da criação + MARGEM_DO_CRON_MS (nunca menos que 30 min). */
+export function validadeSemTentativa(criadaEm: Date): Date {
+  const segundo = proximosCrons(criadaEm, 2)[1];
+  return new Date(Math.max(criadaEm.getTime() + VALIDADE_TAREFA_MS, segundo ? segundo.getTime() + MARGEM_DO_CRON_MS : 0));
+}
 /** Tarefas abertas (aguardando, executando, enviando) ao mesmo tempo. */
 export const MAX_TAREFAS_ABERTAS = 2;
 /** Tarefas criadas por dia (Imperatriz). */
@@ -48,6 +77,19 @@ export const MINIMO_PARA_RETOMAR_MS = 35_000;
 /** QA L1: fecho fixo de TODO resultado em segundo plano (a retomada é só leitura), por código — o modelo não o tira. */
 export const FECHO_DA_TAREFA = NADA_ALTERADO;
 export const FRASE_VOU_LEVANTAR = "Vou levantar isso e te mando em seguida. Pode continuar falando comigo enquanto isso.";
+/**
+ * Revisor do PR #298 (c): pedido feito quando o próximo cron está longe (das 19h às 07h, sem cron). Escolha: a tarefa É criada (o
+ * dono costuma continuar a conversa, e cada aviso da Evolution retoma) e a resposta imediata diz QUANDO chega — sem promessa falsa
+ * de "em seguida". A validade cobre até a 2ª chamada da manhã (validadeSemTentativa).
+ */
+export const fraseVouLevantarForaDeHora = (hora: number) =>
+  `Vou levantar isso e te mando assim que eu conseguir: se você me escrever de novo, termino em seguida; senão, sai a partir das ${hora}h. Pode continuar falando comigo enquanto isso.`;
+/** A resposta imediata ao pedido que virou tarefa, conforme a distância do próximo cron (por código, pelo relógio). */
+export function fraseVouLevantar(agora: Date): string {
+  const [proximo] = proximosCrons(agora, 1);
+  if (!proximo || proximo.getTime() - agora.getTime() <= ESPERA_LONGA_MS) return FRASE_VOU_LEVANTAR;
+  return fraseVouLevantarForaDeHora(new Date(proximo.getTime() - 3 * HORA_MS).getUTCHours());
+}
 const ABERTAS = ["aguardando", "executando", "enviando"] as const;
 
 const t = doloresTarefasDemoradas;
@@ -87,7 +129,7 @@ export async function criarTarefaDemorada(p: { mensagemId: number; comando: stri
       if (Number(abertas?.n ?? 0) >= MAX_TAREFAS_ABERTAS) return { ok: false as const, motivo: "abertas" as const };
       const [hoje] = await tx.select({ n: count() }).from(t).where(eq(t.dia, dia));
       if (Number(hoje?.n ?? 0) >= MAX_TAREFAS_POR_DIA) return { ok: false as const, motivo: "dia" as const };
-      const [linha] = await tx.insert(t).values({ mensagemId: p.mensagemId, comando, dia, criadoEm: p.agora, expiraEm: new Date(p.agora.getTime() + VALIDADE_TAREFA_MS) })
+      const [linha] = await tx.insert(t).values({ mensagemId: p.mensagemId, comando, dia, criadoEm: p.agora, expiraEm: validadeSemTentativa(p.agora) })
         .onConflictDoNothing().returning({ id: t.id });
       return linha ? { ok: true as const, id: linha.id } : { ok: false as const, motivo: "repetida" as const };
     });
@@ -196,7 +238,7 @@ async function devolver(d: DependenciasRetomada, tarefa: DoloresTarefaDemorada, 
 export async function retomarTarefaDemorada(d: DependenciasRetomada): Promise<ResultadoRetomada> {
   try {
     await manutencao(d);
-    const [proxima] = await getDb().select({ id: t.id }).from(t)
+    const [proxima] = await getDb().select({ id: t.id, expiraEm: t.expiraEm, tentativas: t.tentativas }).from(t)
       .where(and(eq(t.situacao, "aguardando"), lt(t.tentativas, MAX_TENTATIVAS_TAREFA))).orderBy(asc(t.id)).limit(1);
     if (!proxima) return "nada";
     if (d.prazoFinal - d.ms() < MINIMO_PARA_RETOMAR_MS) return "sem-tempo";
@@ -210,8 +252,10 @@ export async function retomarTarefaDemorada(d: DependenciasRetomada): Promise<Re
     }
     const agora = d.agora();
     // reivindica a mais antiga: só quem trocar "aguardando" → "executando" segue (dois avisos ao mesmo tempo: um só executa)
-    const [tarefa] = await getDb().update(t).set({ situacao: "executando", tentativas: sql`${t.tentativas} + 1`, iniciadaEm: agora, motivo: null })
-      .where(and(eq(t.id, proxima.id), eq(t.situacao, "aguardando"), lt(t.tentativas, MAX_TENTATIVAS_TAREFA))).returning();
+    // revisor do PR #298: a validade passa a contar da tentativa (nunca encurta: o maior entre a de antes e agora + 30 min)
+    const expiraEm = new Date(Math.max(new Date(proxima.expiraEm).getTime(), agora.getTime() + VALIDADE_TAREFA_MS));
+    const [tarefa] = await getDb().update(t).set({ situacao: "executando", tentativas: sql`${t.tentativas} + 1`, iniciadaEm: agora, motivo: null, expiraEm })
+      .where(and(eq(t.id, proxima.id), eq(t.situacao, "aguardando"), eq(t.tentativas, proxima.tentativas))).returning();
     if (!tarefa) return "concorrente";
     if (!tarefa.mensagemId || !tarefa.comando) return devolver(d, tarefa, "sem o pedido guardado", { falhar: true });
     await auditar("ok", "tarefa demorada retomada", tarefa.id, { tentativa: tarefa.tentativas }, d.canal);

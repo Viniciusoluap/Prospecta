@@ -125,8 +125,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean } = {}) {
   const tarefas = MIGRACAO_0153();
   await pg.exec(tarefas);
   await pg.exec(tarefas);
+  // EPIC-027 C5 (integração 2, revisor do PR #298): reserva do aviso proativo, migração 0160, também duas vezes.
+  const reservaDosAvisos = MIGRACAO_0160();
+  await pg.exec(reservaDosAvisos);
+  await pg.exec(reservaDosAvisos);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0160 = () => readFileSync(new URL("../../drizzle/0160_dolores_avisos_reserva.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0153 = () => readFileSync(new URL("../../drizzle/0153_dolores_tarefas_demoradas.sql", import.meta.url), "utf8");
 

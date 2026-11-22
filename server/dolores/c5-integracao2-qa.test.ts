@@ -21,7 +21,8 @@ import { tratarLinksDaResposta } from "../../shared/dolores/links.js";
 import { CAMINHOS_CRON_AVISOS, MAX_NOME_TERCEIRO, limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { ALFABETO_CODIGO, CODIGO_RE, TAMANHO_CODIGO } from "../../shared/maquete-3d/lote-publico.js";
 import { novoCodigo } from "../maquete-3d/lotes.js";
-import { definirDependenciasAvisos, executarAvisos, RESERVA_ENTRADA_AVISO } from "./avisos.js";
+import { definirDependenciasAvisos, executarAvisos, RESERVA_ENTRADA_AVISO, VALIDADE_RESERVA_AVISO_MS } from "./avisos.js";
+import { liberarReservaAvisos, reservarAvisos, reservarChamada } from "./consumo.js";
 import { LEITURAS_DO_DONO } from "./funcoes.js";
 import { tokensEstimadosDoTexto } from "./memoria.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
@@ -260,6 +261,101 @@ describe("QA int2 — com banco", () => {
     await executarAvisos({ agora: new Date("2026-11-16T13:30:00Z") });
     for (const m of enviar.mock.calls.slice(1)) expect((m[0] as { texto: string }).texto).not.toMatch(/Cobrança|grupo esperando/);
     expect(enviar.mock.calls.map(c => (c[0] as { numero: string }).numero).every(n => n === DONO)).toBe(true);
+  });
+
+  // Revisor do PR #298 (2): a reserva do aviso proativo é GRAVADA (na vaga, 0160) e as outras conferências a enxergam
+  describe("reserva do aviso proativo em voo", () => {
+    const reservaDasVagas = () => q<{ id: number; reserva_entrada: number; reserva_saida: number; reserva_ate: Date | null }>(
+      "SELECT id, reserva_entrada, reserva_saida, reserva_ate FROM dolores_avisos_envios ORDER BY id");
+    const mensagemDoDono = async () => (await q<{ id: number }>(`INSERT INTO dolores_mensagens (instancia, external_id, remetente, do_dono, situacao)
+      VALUES ('prospecta-dolores', 'res-${Math.random()}', '(sem número)', true, 'recebida') RETURNING id`))[0].id;
+    const vaga = async (reservaAte: string | null, entrada = RESERVA_ENTRADA_AVISO) => (await q<{ id: number }>(`INSERT INTO dolores_avisos_envios (dia, ordem, reserva_entrada, reserva_saida, reserva_ate)
+      VALUES ('2026-11-16', ${++ordemDaVaga}, ${entrada}, 400, ${reservaAte ? `'${reservaAte}'` : "NULL"}) RETURNING id`))[0].id;
+    let ordemDaVaga = 0;
+    beforeEach(() => { ordemDaVaga = 0; });
+    // limite apertado: a conversa cabe sozinha (a própria reserva não a barra), mas não com o aviso (3.000) em voo ocupando tudo
+    const APERTADO = { entrada: RESERVA_ENTRADA_AVISO, saida: 100000 };
+
+    it("migração 0160: só ADD COLUMN IF NOT EXISTS em dolores_avisos_envios, idempotente", () => {
+      const cs = ler("../../drizzle/0160_dolores_avisos_reserva.sql").split("\n").filter(l => !/^\s*--/.test(l)).join("\n")
+        .split(";").map(c => c.replace(/\s+/g, " ").trim()).filter(Boolean);
+      expect(cs).toHaveLength(3);
+      for (const c of cs) expect(c).toMatch(/^ALTER TABLE "dolores_avisos_envios" ADD COLUMN IF NOT EXISTS "reserva_(entrada|saida|ate)" /);
+    });
+
+    it("durante a chamada da IA a reserva está gravada e a conversa do dono concorrente a vê; depois do consumo real é solta", async () => {
+      await banco.pg.exec("UPDATE dolores_avisos_config SET ligado = true, ia_no_texto = true WHERE id = 1");
+      await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, situacao_confirmacao, tipo, origem, criado_em) VALUES
+        ('prospecta-dolores', '120363000000000011@g.us', 'Grupo Novo', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-14 12:00')`);
+      const mensagemId = await mensagemDoDono();
+      let noMeio: { vagas: Awaited<ReturnType<typeof reservaDasVagas>>; conversa: unknown; semAviso?: unknown } | null = null;
+      definirDependenciasAvisos({ cliente: (async () => {
+        const vagas = await reservaDasVagas();
+        noMeio = { vagas, conversa: await reservarChamada({ mes: "2026-11", mensagemId, limites: APERTADO, reserva: { entrada: 1000, saida: 100 }, validadeMs: 60_000 }) };
+        return { texto: "Dolores — avisos de hoje: 1 grupo esperando você.", parada: "end_turn", uso: { entrada: 900, saida: 80, cacheEscrita: 0, cacheLeitura: 0 } };
+      }) as never });
+      await executarAvisos({ agora: SEG_9H });
+      expect(noMeio).not.toBeNull();
+      const m = noMeio!;
+      expect(m.vagas).toHaveLength(1);
+      expect(m.vagas[0]).toMatchObject({ reserva_entrada: RESERVA_ENTRADA_AVISO, reserva_saida: expect.any(Number) });
+      expect(m.vagas[0].reserva_saida).toBeGreaterThan(0);
+      expect(new Date(m.vagas[0].reserva_ate!).getTime()).toBeGreaterThan(Date.now());
+      expect(new Date(m.vagas[0].reserva_ate!).getTime()).toBeLessThanOrEqual(Date.now() + VALIDADE_RESERVA_AVISO_MS);
+      expect(m.conversa).toBe("outro_pedido"); // a conversa concorrente enxergou a reserva do aviso
+      // depois: consumo real registrado e reserva solta — a mesma conversa agora cabe
+      const [vagaDepois] = await reservaDasVagas();
+      expect(vagaDepois).toMatchObject({ reserva_entrada: 0, reserva_saida: 0, reserva_ate: null });
+      expect(await q("SELECT tokens_entrada, funcao FROM dolores_consumo WHERE funcao = 'avisos'")).toEqual([{ tokens_entrada: 900, funcao: "avisos" }]);
+      expect(await reservarChamada({ mes: "2026-11", mensagemId, limites: { entrada: 900 + RESERVA_ENTRADA_AVISO + 500, saida: 100000 }, reserva: { entrada: 1000, saida: 100 }, validadeMs: 60_000 })).toBeNull();
+    });
+
+    it("a IA falha: a reserva é solta do mesmo jeito (vai o texto fixo)", async () => {
+      await banco.pg.exec("UPDATE dolores_avisos_config SET ligado = true, ia_no_texto = true WHERE id = 1");
+      await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, situacao_confirmacao, tipo, origem, criado_em) VALUES
+        ('prospecta-dolores', '120363000000000012@g.us', 'Grupo Novo', 'aguardando_dono', 'indefinido', 'automatico', '2026-11-14 12:00')`);
+      definirDependenciasAvisos({ cliente: (async () => { throw Object.assign(new Error("fora do ar"), { status: 529 }); }) as never });
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      expect((await executarAvisos({ agora: SEG_9H })).r).toBe("enviado");
+      expect((await reservaDasVagas())[0]).toMatchObject({ reserva_entrada: 0, reserva_saida: 0, reserva_ate: null });
+    });
+
+    it("outro aviso concorrente vê a reserva (na parte dos avisos e no total); liberada, cabe; vencida, não conta mais", async () => {
+      const limites = { entrada: 80_000, saida: 100_000 }; // parte dos avisos (5%) = 4.000: um aviso cabe, dois não
+      const a = await vaga(null, 0);
+      const b = await vaga(null, 0);
+      expect(await reservarAvisos({ mes: "2026-11", limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: a, validadeMs: 30_000 })).toBeNull();
+      expect(await reservarAvisos({ mes: "2026-11", limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: b, validadeMs: 30_000 })).toBe("orcamento_avisos");
+      // a própria reserva não conta contra ela mesma (nova conferência da mesma vaga cabe)
+      expect(await reservarAvisos({ mes: "2026-11", limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: a, validadeMs: 30_000 })).toBeNull();
+      await liberarReservaAvisos(a);
+      expect(await reservarAvisos({ mes: "2026-11", limites, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: b, validadeMs: 30_000 })).toBeNull();
+      // a função que morreu no meio: a reserva vence sozinha
+      await banco.pg.exec(`UPDATE dolores_avisos_envios SET reserva_ate = now() - interval '1 second' WHERE id = ${b}`);
+      const mensagemId = await mensagemDoDono();
+      expect(await reservarChamada({ mes: "2026-11", mensagemId, limites: APERTADO, reserva: { entrada: 1000, saida: 100 }, validadeMs: 60_000 })).toBeNull();
+    });
+
+    it("reserva válida de aviso entra no total comprometido de todo terceiro (conferirTerceiro) e na conversa do dono", async () => {
+      await vaga(new Date(Date.now() + 60_000).toISOString(), 70_000);
+      const c = await vaga(null, 0);
+      // total: 70.000 (aviso em voo) + 3.000 > 72.000 → o terceiro para
+      expect(await reservarAvisos({ mes: "2026-11", limites: { entrada: 72_000, saida: 100_000 }, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: c, validadeMs: 30_000 })).not.toBeNull();
+      const fonte = ler("./consumo.ts");
+      const corpo = fonte.slice(fonte.indexOf("async function conferirTerceiro("), fonte.indexOf("const somaDeReservas"));
+      expect(corpo).toContain("reservasDosAvisos(tx, p.agora");
+      const chamada = fonte.slice(fonte.indexOf("export async function reservarChamada("), fonte.indexOf("export async function liberarReserva("));
+      expect(chamada).toContain("reservasDosAvisos(tx, agora, null)");
+    });
+
+    it("sem a 0160 (código publicado antes da migração): confere como antes, sem gravar e sem erro", async () => {
+      await banco.pg.exec('ALTER TABLE "dolores_avisos_envios" DROP COLUMN "reserva_entrada", DROP COLUMN "reserva_saida", DROP COLUMN "reserva_ate"');
+      const [{ id }] = await q<{ id: number }>("INSERT INTO dolores_avisos_envios (dia, ordem) VALUES ('2026-11-16', 1) RETURNING id");
+      expect(await reservarAvisos({ mes: "2026-11", limites: { entrada: 80_000, saida: 100_000 }, reserva: { entrada: RESERVA_ENTRADA_AVISO, saida: 400 }, envioId: id, validadeMs: 30_000 })).toBeNull();
+      await liberarReservaAvisos(id);
+      const mensagemId = await mensagemDoDono();
+      expect(await reservarChamada({ mes: "2026-11", mensagemId, limites: APERTADO, reserva: { entrada: 1000, saida: 100 }, validadeMs: 60_000 })).toBeNull();
+    });
   });
 
   it("pausa geral: nada sai e nada é cobrado", async () => {
