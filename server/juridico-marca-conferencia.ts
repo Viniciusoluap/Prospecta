@@ -87,12 +87,13 @@ function recursosSoComFontePadrao(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial
 }
 
 /** Os fluxos acrescentados desenham só a marca: um retângulo de borda e texto do vocabulário da marca dentro dele. */
-export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagina: { x: number; y: number; width: number; height: number }): boolean {
+export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagina: { x: number; y: number; width: number; height: number }, fontesPermitidas?: Set<string>): boolean {
   const vocabulario = new Set(`${VOCABULARIO_FIXO} ${titular.replace(/[^ -ÿ]/g, "")}`.split(/\s+/).filter(Boolean));
   const palavraOk = (p: string) => vocabulario.has(p) || /^[\d/:,.\-]+$/.test(p);
   const pontos: [number, number][] = [], textos: { x: number; y: number; tamanho: number; texto: string }[] = [];
   let larguraLinha = 1, nivel = 0, emTexto = false, fonte = 12, entrelinha = 0, tx = 0, ty = 0, linhaX = 0, linhaY = 0, contornos = 0;
   const espessuras: number[] = [], estadoGrafico: number[] = [];
+  let textoDesenhado = false;
   for (const fluxo of acrescentados) {
     const pilha: Token[] = [];
     for (const tk of lerConteudo(fluxo)) {
@@ -110,18 +111,18 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
         case "m": case "l": if (emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]]); break;
         case "re": if (emTexto || nums.length !== 4 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]], [nums[0] + nums[2], nums[1] + nums[3]]); break;
         case "S": contornos++; espessuras.push(larguraLinha); break;
-        case "BT": if (emTexto) return false; emTexto = true; tx = ty = linhaX = linhaY = 0; break;
+        case "BT": if (emTexto) return false; emTexto = true; textoDesenhado = false; tx = ty = linhaX = linhaY = 0; break;
         case "ET": if (!emTexto) return false; emTexto = false; break;
-        case "Tf": if (args.length !== 2 || args[0].t !== "nome" || !(nums[1] > 0)) return false; fonte = nums[1]; break;
+        case "Tf": if (args.length !== 2 || args[0].t !== "nome" || fontesPermitidas && !fontesPermitidas.has(args[0].v) || !(nums[1] > 0)) return false; fonte = nums[1]; break;
         case "TL": entrelinha = nums[0]; break;
         case "Tm": if (nums.length !== 6 || nums[0] !== 1 || nums[1] !== 0 || nums[2] !== 0 || nums[3] !== 1) return false; tx = linhaX = nums[4]; ty = linhaY = nums[5]; break;
         case "Td": if (nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; tx = linhaX = linhaX + nums[0]; ty = linhaY = linhaY + nums[1]; break;
-        case "Tj": case "TJ": {
-          if (!emTexto) return false;
-          const partes = op === "Tj" ? args : args[0]?.t === "arr" ? args[0].v : [];
-          if (op === "TJ" && args[0]?.t !== "arr") return false;
-          const texto = partes.filter((p): p is { t: "str"; v: string } => p.t === "str").map(p => p.v).join("");
-          if (partes.some(p => p.t !== "str" && p.t !== "num")) return false;
+        // O assinador emite uma linha Tj por BT/ET. Outros avanços ou ajustes não pertencem à marca suportada.
+        case "TJ": return false;
+        case "Tj": {
+          if (!emTexto || textoDesenhado || args.length !== 1 || args[0].t !== "str") return false;
+          textoDesenhado = true;
+          const texto = args[0].v;
           if (!texto.trim().split(/\s+/).every(palavraOk)) return false;
           textos.push({ x: tx, y: ty, tamanho: fonte, texto });
           break;
@@ -155,7 +156,16 @@ export function paginaComMarca(a: PDF, pa: Pagina, b: PDF, pb: Pagina, titular: 
     if (depois[0].trim() !== "q" || depois[antes.length + 1].trim() !== "Q") return false;
     for (let i = 0; i < antes.length; i++) if (depois[i + 1] !== antes[i]) return false;
     if (!recursosSoComFontePadrao(a, pa, b, pb, serial)) return false;
+    const recursos = dict(b, pb.dict.get("Resources"));
+    const fontes = recursos && dict(b, recursos.get("Font"));
+    const permitidas = new Set<string>();
+    if (fontes) for (const [nome, valor] of Array.from(fontes)) {
+      const fonte = dict(b, valor), encoding = fonte?.get("Encoding");
+      if (fonte?.getName("Subtype")?.value === "Type1" && fonte.getName("BaseFont")?.value === "Helvetica"
+        && !fonte.has("FontDescriptor") && !fonte.has("Widths") && !fonte.has("ToUnicode")
+        && (!encoding || ["WinAnsiEncoding", "StandardEncoding"].includes(fonte.getName("Encoding")?.value || ""))) permitidas.add(chave(nome));
+    }
     const mb = pb.getMediaBox();
-    return desenhoSoDaMarca(depois.slice(antes.length + 2), titular, { x: mb.x, y: mb.y, width: mb.width, height: mb.height });
+    return desenhoSoDaMarca(depois.slice(antes.length + 2), titular, { x: mb.x, y: mb.y, width: mb.width, height: mb.height }, permitidas);
   } catch { return false; }
 }

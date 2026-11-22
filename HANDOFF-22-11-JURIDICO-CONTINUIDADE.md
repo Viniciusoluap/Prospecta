@@ -109,3 +109,9 @@ correções do QA e da marca está no último commit de cada branch. (b) manuais
 ### Revisão automática do PR #308
 
 Achado P1 (thread PRRT_kwDOR_rShc66mxhV): a largura final do traço podia esconder uma largura anterior espessa. Corrigido com captura da largura em cada S, pilha q/Q, uma borda fina e cores escuras. Quatro vetores (branco espesso, espesso seguido de reset, estado q/Q e branco fino) agora são recusados. Testes P1 e A1 da marca legítima aprovados (2/2). Correção do e-CNPJ tem 28/28 PKI aprovados. Ajuste de compatibilidade TypeScript para Array.from(Set), sem alterar tsconfig. Checagens finais continuam em execução.
+
+### Segunda rodada de segurança e isolamento dos testes
+
+- Novo P1 da revisão (PRRT_kwDOR_rShc66m0pf): ajustes TJ/avanço Tj podiam pintar fora da caixa medida. Agora TJ é recusado e cada BT/ET aceita uma única linha Tj. As fontes usadas pela marca precisam ser Helvetica Type1 com encoding padrão e sem remapeamentos/métricas personalizadas. Testes dos vetores de deslocamento e da marca legítima aprovados (3/3).
+- A revisão automática de execução BLOQUEOU a suíte geral ao detectar tentativa de conexão real à Anthropic, sem payload identificado. Não foi contornada. Alternativa segura: preloader local /tmp/juridico-sem-rede.cjs bloqueia HTTP(S)/fetch e conexão TCP externos e permite somente loopback para testes locais. Prova de bloqueio HTTPS/fetch ao domínio externo executada, sem enviar requisição. Suíte restante reiniciada com essa proteção; arquivos já aprovados preservados (41). Não persistir esse harness temporário como configuração do produto.
+- Pendência de tempo em incorporacao-logotipo.test.ts (5 s) deve ser repetida isoladamente com rede bloqueada. Toda falha nova ainda precisa ser analisada. A suíte focada final do Jurídico anterior à segunda rodada passou 100/100. Não marcar suíte geral como aprovada antes da conclusão.
