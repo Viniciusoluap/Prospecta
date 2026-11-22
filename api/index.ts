@@ -47,6 +47,7 @@ import { cronAutorizado, tratarCronAvisos, tratarCronDolores } from "../server/d
 import { garantirModeloPadraoNoCron } from "../server/ycloud/modelos.js";
 import { CAMINHOS_CRON_AVISOS, CAMINHOS_CRON_DOLORES } from "../shared/dolores/operacao.js";
 import { erroParaLog } from "../server/dolores/erro-seguro.js";
+import { revalidarPendentes } from "../server/juridico-revalidacao.js";
 // EPIC-029 S-2: varredura de rascunhos de nota fiscal dentro dos crons que já existem.
 import { gerarRascunhosNoCron } from "../server/fiscal/gerador.js";
 
@@ -198,7 +199,10 @@ app.get("/api/cron/lead-card-due", async (req, res) => {
     // QA S-2 (M5): com prazo — no máximo 15 s e sempre deixando ~10 s para o modelo padrão abaixo; com menos de 5 s, pula.
     const fiscal = await gerarRascunhosNoCron(getDb, Math.min(15_000, 45_000 - (Date.now() - inicio)));
     await garantirModeloPadraoNoCron(Math.min(10_000, 55_000 - (Date.now() - inicio)));
-    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal });
+    // Jurídico (22/11): retentativa das conferências de assinatura pendentes por falha de rede, com o tempo que sobra
+    // (no máximo 10 s). Nunca lança nem muda a resposta deste cron; timeout nunca vira válido.
+    const juridico = await revalidarPendentes(Math.min(10_000, 57_000 - (Date.now() - inicio)));
+    return res.json({ ok: true, ...avisos, bancos, drive, centralVendas, fiscal, juridico });
   }
   catch (error) { console.error("[cron/lead-card-due]", error); return res.status(500).json({ error: "Falha ao processar avisos" }); }
 });

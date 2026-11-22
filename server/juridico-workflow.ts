@@ -5,32 +5,72 @@ import { nomeContrato } from "../shared/contratos/documentos.js";
 import { getDb } from "./db.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 import { readPrivateDocument } from "./drive-documents.js";
-import { conferirAssinaturas } from "./juridico-verificar-assinaturas.js";
+import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
+import { proximaTentativa, relatorioRetorno, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
+import type { Certificate } from "pkijs";
 import { PDF, PdfDict, PdfRef } from "@libpdf/core";
+import { paginaComMarca } from "./juridico-marca-conferencia.js";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
 }
-export async function salvarRetornoContrato(contract:typeof portalContracts.$inferSelect,bytes:Buffer,viaPortal:boolean) {
+/**
+ * Retorno assinado pelo cliente (portal) ou anexado pelo admin. A conferência automática (integridade, cadeia ICP-Brasil,
+ * LCR, identidades e conservação da revisão da empresa) é gravada junto com o documento, o arquivo e o status, no mesmo
+ * lote. Só o portal conclui sozinho, e só com `todos` (identidades conferidas + revisão da empresa conservada).
+ */
+/**
+ * Revisão da empresa que vale como base do retorno (achado A2): a ÚLTIMA assinatura_digital do contrato, e só se a
+ * conferência gravada dela for "valida" com vínculo à origem conferido. Sem isso, não há conclusão automática.
+ */
+export async function baseDaEmpresa(contractId:number):Promise<{id:number;bytes:Buffer}|null> {
   const db=getDb();
-  let conf=await conferirAssinaturas(bytes,contract);
-  if(viaPortal&&conf.todos) {
-    const [base]=await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.contractId,contract.id),eq(portalContractDocuments.type,"assinatura_digital"))).orderBy(desc(portalContractDocuments.createdAt)).limit(1);
-    const original=base?await conteudoContrato(base):null;
-    // Retorno automático deve conservar a revisão assinada pela empresa e o conteúdo das páginas.
-    if(!original||!bytes.subarray(0,original.length).equals(original)||!(await mesmoConteudo(original,bytes)))conf={...conf,todos:false,motivo:"O documento retornado precisa de conferência do responsável."};
-  }
-  const tipo=viaPortal&&conf.todos?"assinado":"recebido_assinado";
+  const [base]=await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.contractId,contractId),eq(portalContractDocuments.type,"assinatura_digital"))).orderBy(desc(portalContractDocuments.createdAt),desc(portalContractDocuments.id)).limit(1);
+  if(!base||!(await tabelaValidacoes()))return null;
+  const res=await db.execute(sql`SELECT estado, relatorio->>'vinculoOrigem' AS vinculo FROM portal_contract_document_validacoes WHERE document_id=${base.id}`);
+  const linha=(res as unknown as {rows:{estado:string;vinculo:string|null}[]}).rows[0];
+  if(linha?.estado!=="valida"||linha.vinculo!=="conferido")return null;
+  const bytes=await conteudoContrato(base);
+  return bytes?{id:base.id,bytes}:null;
+}
+// Limite de envios pelo portal por cliente (cada envio pode consultar certificadoras): 6 por hora, por processo.
+const enviosPortal=new Map<number,number[]>();
+export function _limparEnviosPortal(){enviosPortal.clear();}
+function conferirLimitePortal(leadId:number){
+  const agora=Date.now(),recentes=(enviosPortal.get(leadId)||[]).filter(t=>agora-t<3600_000);
+  if(recentes.length>=6)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Muitos envios seguidos. Aguarde um pouco ou fale com a equipe."});
+  recentes.push(agora);enviosPortal.set(leadId,recentes);
+}
+export async function salvarRetornoContrato(contract:typeof portalContracts.$inferSelect,bytes:Buffer,viaPortal:boolean,opcoes:OpcoesConferencia&{roots?:Certificate[]}={}) {
+  const db=getDb();
+  if(viaPortal&&contract.leadId)conferirLimitePortal(contract.leadId);
+  const base=await baseDaEmpresa(contract.id);
+  const conf=await relatorioRetorno(viaPortal?"retorno_portal":"retorno_admin",contract,bytes,base,mesmoConteudo,opcoes.roots,opcoes);
+  const podeConcluir=viaPortal&&conf.todos&&base;
   const reserved=await db.execute(sql`SELECT nextval(pg_get_serial_sequence('portal_contract_documents','id'))::int AS id`);
   const id=Number((reserved as unknown as {rows:{id:number}[]}).rows[0].id);
+  const gravar=await tabelaValidacoes();
   await db.batch([
-    db.insert(portalContractDocuments).values({id,contractId:contract.id,type:tipo,name:nomeContrato(contract.partyB,tipo)}),
+    db.execute(sql`SELECT id FROM portal_contracts WHERE id=${contract.id} FOR UPDATE`),
+    db.insert(portalContractDocuments).values({id,contractId:contract.id,type:"recebido_assinado",name:nomeContrato(contract.partyB,"recebido_assinado")}),
     db.execute(sql`INSERT INTO portal_contract_file_data(document_id,mime,size_bytes,data) VALUES(${id},'application/pdf',${bytes.length},decode(${bytes.toString("base64")},'base64'))`),
-    db.update(portalContracts).set({signatureStatus:tipo==="assinado"?"assinado":"em_conferencia",updatedAt:new Date()}).where(eq(portalContracts.id,contract.id)),
-  ]);
-  return {id,todos:tipo==="assinado",conferencia:conf};
+    ...(gravar?[db.execute(sqlInserirValidacao(id,conf))]:[]),
+    ...(podeConcluir?[db.execute(sql`UPDATE portal_contract_documents SET type='assinado', name=${nomeContrato(contract.partyB,"assinado")}
+      WHERE id=${id}
+        AND EXISTS (SELECT 1 FROM portal_contracts WHERE id=${contract.id} AND signature_status=${contract.signatureStatus} AND signature_status<>'assinado')
+        AND ${base.id}=(SELECT id FROM portal_contract_documents WHERE contract_id=${contract.id} AND type='assinatura_digital' ORDER BY created_at DESC,id DESC LIMIT 1)
+        AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id=${base.id} AND estado='valida' AND relatorio->>'vinculoOrigem'='conferido')`)]:[]),
+    db.execute(sql`UPDATE portal_contracts SET signature_status=CASE WHEN EXISTS (SELECT 1 FROM portal_contract_documents WHERE id=${id} AND type='assinado') THEN 'assinado' ELSE 'em_conferencia' END, updated_at=now()
+      WHERE id=${contract.id} AND signature_status=${contract.signatureStatus} AND signature_status<>'assinado'`),
+  ] as unknown as Parameters<typeof db.batch>[0]);
+  const [salvo]=await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id,id)).limit(1);
+  return {id,todos:salvo?.type==="assinado",conferencia:conf,validacao:resumir(id,conf,0,gravar?proximaTentativa(conf,0,new Date()):null)};
 }
-export async function mesmoConteudo(antes:Buffer,depois:Buffer) {
+/**
+ * O PDF `depois` conserva o conteúdo de `antes`. Com `marca` (assinatura da empresa sobre o documento de origem), UMA
+ * página pode ter recebido só a marca visível da assinatura daquele titular (server/juridico-marca-conferencia.ts).
+ */
+export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:string}) {
   try {
     const a=await PDF.load(new Uint8Array(antes)),b=await PDF.load(new Uint8Array(depois));
     const ap=a.getPages(),bp=b.getPages();if(ap.length!==bp.length)return false;
@@ -56,9 +96,17 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer) {
       }
       if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")))return false;
     }
-    if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k)))!==JSON.stringify(serial(b,b.getCatalog().get(k)))))return false;
+    // Páginas citadas pelo catálogo (ex.: OpenAction do jsPDF) são comparadas à parte, abaixo.
+    if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k),new Set(),true))!==JSON.stringify(serial(b,b.getCatalog().get(k),new Set(),true))))return false;
     if(ap.some((p,i)=>!p.dict.get("Resources")||!bp[i].dict.get("Resources")))return false;
-    return ap.every((p,i)=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation,serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([bp[i].getMediaBox(),bp[i].getCropBox(),bp[i].rotation,serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
+    const caixa=(p:typeof ap[number])=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation]);
+    const iguais=ap.map((p,i)=>JSON.stringify([caixa(p),serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([caixa(bp[i]),serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
+    if(iguais.every(Boolean))return true;
+    const diferentes=iguais.map((ok,i)=>ok?-1:i).filter(i=>i>=0);
+    if(!marca||diferentes.length!==1)return false;
+    const i=diferentes[0];
+    if(caixa(ap[i])!==caixa(bp[i]))return false;
+    return paginaComMarca(a,ap[i],b,bp[i],marca.titular,(pdf,v)=>JSON.stringify(serial(pdf,v)));
   }catch{return false;}
 }
 export async function confirmarTodasAssinaturas(id:number,role:string) {

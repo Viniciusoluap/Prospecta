@@ -335,6 +335,19 @@ A Incorporação (logotipo do empreendimento) existe nos dois sistemas: portar a
   permissão — vale também para SVG enviado), pré-visualização e aprovação antes de trocar; caminho Forge removido. Sem migração.
   Story: `epic-027-correcoes-20-11-noite/C8-logotipo-por-ia.md`.
 
+## Pendência de paridade → Grupo Santa Fé (Jurídico — validação automática das assinaturas, registrada em 22/11/2026)
+
+O fluxo de contratos existe nos dois sistemas; o cofre/assinatura A1 no navegador ainda não existe no Santa Fé
+(ver `HANDOFF-22-11-JURIDICO-FLUXO.md`). Portar junto do fluxo A1, na stack de lá:
+- [ ] Conferência no servidor de cada PDF assinado: integridade CMS/ByteRange, cobertura total, cadeia até as raízes oficiais
+  ICP-Brasil (PKIjs) com regras extras (extensão crítica, pathLen, keyUsage/EKU, política A1–A4, CPF/CNPJ do SAN) e LCR atual
+  (assinada pelo emissor com cRLSign, vigente, sem delta/escopo incompatível), com download AIA/LCR protegido contra SSRF.
+- [ ] Estados válida/pendente/inválida (falha de rede = pendente; timeout nunca verde), relatório por documento com SHA-256 e
+  origem gravado no mesmo lote (migração Prospecta `0161_juridico_validacao_assinaturas.sql`), retentativa limitada (6×/7 dias).
+- [ ] Assinatura da empresa: titular = Parte A e vínculo com o documento de origem (só a marca visível pode entrar); retorno pelo
+  portal só conclui sozinho com a base da empresa válida, identidades conferidas e revisão conservada.
+- [ ] Montagem da cadeia antes de assinar (só o certificado público vai ao servidor) e importação só na aba de certificados.
+
 ## Pendência de paridade → Grupo Santa Fé (EPIC-029 Módulo Fiscal — registrada em 22/11/2026; porte ADIADO por decisão do dono)
 
 Decisão do dono (22/11/2026, ao autorizar o EPIC-029): "paridade com Grupo Santa Fé fica para depois". Não é exceção

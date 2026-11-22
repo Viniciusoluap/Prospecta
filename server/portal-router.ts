@@ -517,7 +517,7 @@ export const portalRouter = router({
       }
       if(contract.signatureStatus==="assinado")throw new TRPCError({code:"BAD_REQUEST",message:"Este contrato já foi concluído."});
       const result=await salvarRetornoContrato(contract,buffer,true);
-      return {url:null,todos:result.todos,message:result.todos?"Contrato assinado por todos, conferido automaticamente.":result.conferencia.motivo};
+      return {url:null,todos:result.todos,message:result.todos?"Contrato assinado por todos, conferido automaticamente pelo sistema.":`Recebemos o contrato. A equipe vai conferir as assinaturas. ${result.conferencia.estado==="pendente"&&result.conferencia.transitoria?"A conferência automática ficou pendente e será repetida.":result.conferencia.motivo}`};
     }),
 
   contractDocumentContent: protectedProcedure
