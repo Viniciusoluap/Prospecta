@@ -1,3 +1,5 @@
 # Recuperação do login em produção
 
 A API retornou FUNCTION_INVOCATION_FAILED inclusive em /api/health. O carregamento ESM do JSON das raízes do Jurídico reproduziu ERR_IMPORT_ATTRIBUTE_MISSING no Node 24. O atributo explícito permitiu carregar as dez raízes. Incluído teste de regressão dos imports do servidor. Mudança específica ao empacotamento da Prospecta, sem mudança de regra de negócio ou banco. Próximo passo: verificar revisão, preview, saúde da API e autenticação em produção.
+
+Conclusão: log do POST de login às 13h35 confirmou ERR_IMPORT_ATTRIBUTE_MISSING. Preview compilado, função inicializada (banco não configurado no preview). Revisão concluída sem apontamentos. PR #301 integrado em 6a09e01a69e42c9f9a240d63b854fe1ca2e128d8. Deploy dpl_EaWCfciVeCnT1jgaNgRzyHUm9E74 READY. Em produção /api/health 200 com banco conectado, /api/trpc/auth.me 200 sem sessão e formulário visível após recarga. Login positivo de conta pessoal não exercitado. Sem migração. Próximo passo: usuário pode acessar com a senha habitual.
