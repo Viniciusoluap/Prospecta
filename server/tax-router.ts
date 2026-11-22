@@ -264,6 +264,11 @@ export const taxRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // QA S-6 (A5): o regime decide o limite de receita e o aviso da Dolores — trocar de regime (versão nova) é só do administrador
+        // por papel, como o desativar (colaborador com o módulo BPO vê, mas não troca).
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador cadastra ou troca o perfil tributário (regime) da empresa." });
+        }
         await ensureTaxSchema();
         const database = getDb();
         // EPIC-029 S-2 (multi-CNPJ): a versão nova desativa só os perfis da MESMA empresa (mesmo CNPJ; sem CNPJ, os sem

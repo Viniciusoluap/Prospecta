@@ -110,6 +110,27 @@ www.gov.br testadas não traziam os valores — **[o contador deve confirmar]**.
 - A S-4 deve usar `optanteSimples` na DPS e recusar emissão com regime "a confirmar".
 - Paridade com o Grupo Santa Fé: pendência no ROADMAP (o dono decide depois, como no resto do EPIC-029); o aviso da Dolores é exceção.
 
+## Correções do portão de QA (FAIL de 22/11/2026 → corrigido)
+
+Teste do QA: `server/fiscal/s6-qa.test.ts` (os 10 `it.fails` viraram `it` e passam; testes novos das correções no mesmo arquivo).
+
+| Achado | Gravidade | Correção |
+|---|---|---|
+| A9 — leitura e avisos da Dolores levavam o número inteiro da conta | importante | `nomeSeguroDaConta` (regimes.ts): apelido, ou banco + os 4 últimos dígitos mascarados (`Cora •••3456`); nunca descrição livre nem número inteiro. Usado na apuração (tela, leitura `consultar_limites_receita`, aviso de integração). Teste confere o texto que a leitura devolve. |
+| A1 — entrada saía da soma por coincidência com qualquer saída de mesmo valor | importante | `DebitoParaSoma.classificacao`: saída com lançamento de **despesa** no BPO nunca casa; casa só a marcada como Transferência interna ou sem lançamento (mesmo valor, mesma empresa, outra conta, ≤ 2 dias). teto.ts lê a classificação de cada saída. |
+| A2 — "devolvido" na mensagem do pagador tirava receita | médio | `ehEstorno` só no texto do **lançamento** e só quando ele COMEÇA pela palavra (como o banco/sistema escreve); a descrição da movimentação (mensagem do pagador) não decide mais. Na dúvida, conta. |
+| A3 — perfil desativado à mão continuava vigente | médio | `versoesQueValem`: vale a ativa e a inativa SUBSTITUÍDA por versão posterior (troca de regime normal); inativa sem substituta (desativada à mão) não vale. |
+| A4 — passar de R$ 5,76 mi (teto + 20%) sem aviso próprio | médio | Limite próprio `excesso_simples` (LC 123, art. 3º, § 9º-A), acompanhado no Simples com a faixa só de 100% (`limitesAcompanhados`; `faixaDoLimite` aceita as faixas do limite). A barra do teto e `limitesDoRegime` não mudam. |
+| A5 — colaborador com BPO trocava o regime | médio | `tax.profiles.create` exige papel admin (como o desativar). |
+| A6 — crédito "a classificar"/sem lançamento sumia | médio | Vira pendência com valor por empresa (`aClassificar`), total geral com os 20 maiores (`Apuracao.aClassificar`), receita "possível" e `faixaPossivel`; o aviso da Dolores usa a maior faixa (lado seguro) e diz "contando R$ X ainda a classificar". Marcado como Transferência interna fica fora. |
+| A7 — conta da Prospecta sem emissor caía no emissor de outra raiz | médio | Com a empresa da conta conhecida, tipo de serviço/emissor único só valem se forem da MESMA raiz; senão fica sem emissor e a tela mostra `motivoSemEmissor`. |
+| A8 — regime do emissor era o do perfil mais recente | médio | `emissoresComPerfil(db, data)` e `detalhar` usam o perfil vigente na data (1º dia da competência da nota), a mesma regra do painel. Sem versão vigente → regime null (não emitir). |
+| Receita do Financeiro (`financial_transactions`) fora da conta | — | Pendência com valor (`Apuracao.financeiro`; tela e leitura da Dolores): entra na "Receita realizada" mas não tem conta, então não é somada em empresa por chute. |
+| A10 — apelido só com TAB/quebra de linha passava no banco | baixo | CHECK da 0164: `"apelido" ~ '[^[:space:]]'` (0164 ainda não aplicada; continua aditiva e idempotente). Comentário: se a 0165 (S-3) for reaplicada depois, reaplicar a 0164. |
+| Fuso no corte do ano | baixo | `inicioDoAnoEmBrasilia`: o ano começa à 00h de Brasília (03:00 UTC) em todas as consultas de teto.ts. |
+
+Teste auxiliar: `server/dolores/testes-banco.ts` passa a criar `financial_transactions` (a apuração lê a tabela).
+
 ## File List
 
 - `drizzle/0164_contas_empresa_limite_receita.sql` (novo), `drizzle/schema.ts`
@@ -120,6 +141,7 @@ www.gov.br testadas não traziam os valores — **[o contador deve confirmar]**.
   `server/dolores/leitura/limites-receita.ts` (novo)
 - `client/src/components/fiscal/LimitesReceita.tsx` (novo), `client/src/pages/admin/BancosPanel.tsx`,
   `client/src/pages/admin/TaxAccountingPanel.tsx`
+- Correções do QA: `client/src/components/fiscal/NotasADecidir.tsx`, `server/dolores/testes-banco.ts`, `server/fiscal/s6-qa.test.ts` (do QA)
 - Testes: `server/fiscal/s6-regimes.test.ts`, `server/fiscal/s6-contas-limites.test.ts`, `server/dolores/s6-limite-receita.test.ts` (novos);
   `server/dolores/c5-e4-proatividade.test.ts`, `server/dolores/c5-integracao2.test.ts`, `server/dolores/leitura-somente.test.ts`
 
@@ -138,3 +160,5 @@ www.gov.br testadas não traziam os valores — **[o contador deve confirmar]**.
 |------|--------|---------|
 | 22/11/2026 | @dev (Dex) | Story criada a partir do pedido do dono (e das duas ampliações do mesmo dia); Ready → InProgress. |
 | 22/11/2026 | @dev (Dex) | Implementação concluída, 28 testes novos passando; InProgress → InReview (aguarda @qa). |
+| 22/11/2026 | @qa (Quinn) | Portão de QA: FAIL (A1 e A9 importantes; A2–A8 médios; A10 e fuso baixos). |
+| 22/11/2026 | @dev (Dex) | Correções do portão de QA (todas as 10 + Financeiro + fuso); `it.fails` → `it`; volta a InReview (aguarda novo portão). |

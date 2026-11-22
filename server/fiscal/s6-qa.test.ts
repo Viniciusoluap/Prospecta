@@ -27,7 +27,8 @@ import { taxRouter } from "../tax-router.js";
 import { fiscalRouter } from "./router.js";
 import { gerarRascunhos } from "./gerador.js";
 import { emissoresComPerfil } from "./notas.js";
-import { apurarLimites } from "./teto.js";
+import { apurarLimites, inicioDoAnoEmBrasilia } from "./teto.js";
+import { consultarLimitesReceita } from "../dolores/leitura/limites-receita.js";
 import {
   LIMITES, apurarReceitas, ehEstorno, faixaDoLimite, limitesDoRegime, optanteDoSimples, type ContaParaSoma, type DebitoParaSoma,
   type PerfilParaRegime, type ReceitaParaSoma,
@@ -69,7 +70,8 @@ const rec = (contaId: number | null, reais: number, dia: string, extra: Partial<
   ({ lancamentoId: ++lid, contaId, tipo: "receita", valorCentavos: Math.round(reais * 100), descricao: "Recebimento de cliente", categoria: "Recebimento de cliente",
     pagoEm: new Date(`${dia}T12:00:00Z`), txDescricao: "PIX RECEBIDO", ...extra });
 let did = 0;
-const deb = (contaId: number, reais: number, dia: string): DebitoParaSoma => ({ txId: ++did, contaId, valorCentavos: Math.round(reais * 100), data: new Date(`${dia}T12:00:00Z`) });
+const deb = (contaId: number, reais: number, dia: string, classificacao: DebitoParaSoma["classificacao"] = null): DebitoParaSoma =>
+  ({ txId: ++did, contaId, valorCentavos: Math.round(reais * 100), data: new Date(`${dia}T12:00:00Z`), classificacao });
 const apurar = (p: { perfis?: PerfilParaRegime[]; contas?: ContaParaSoma[]; receitas?: ReceitaParaSoma[]; debitos?: DebitoParaSoma[]; agora?: Date }) =>
   apurarReceitas({ agora: p.agora ?? AGORA, perfis: p.perfis ?? [perfil(1, PROSPECTA, "simples_nacional", "2021-05-07")],
     contas: p.contas ?? [contaP(1, PROSPECTA), contaP(2, PROSPECTA)], receitas: p.receitas ?? [], debitos: p.debitos ?? [] });
@@ -114,24 +116,27 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
   // mesma empresa em até 2 dias — inclusive pagamento a fornecedor/empreiteiro. Valores redondos (parcela de R$ 10.000 recebida e
   // medição de R$ 10.000 paga) são comuns na operação; a receita é SUBCONTADA e o aviso do teto pode não sair. shared/fiscal/regimes.ts:263-265
   // (a saída não precisa ser transferência: DebitoParaSoma não traz classificação nem contraparte; server/fiscal/teto.ts:56-60 pega todo débito).
-  it.fails("A1: recebimento de cliente NÃO pode sair da soma só porque outra conta da empresa pagou um fornecedor no mesmo valor", () => {
-    const a = apurar({ receitas: [rec(1, 10_000, "2026-11-10", { txDescricao: "PIX RECEBIDO MARIA SOUZA" })], debitos: [deb(2, 10_000, "2026-11-11")] });
+  it("A1: recebimento de cliente NÃO pode sair da soma só porque outra conta da empresa pagou um fornecedor no mesmo valor", () => {
+    // corrigido: a saída de outra conta tem lançamento de DESPESA no BPO (pagamento) → não casa; a entrada conta
+    const a = apurar({ receitas: [rec(1, 10_000, "2026-11-10", { txDescricao: "PIX RECEBIDO MARIA SOUZA" })], debitos: [deb(2, 10_000, "2026-11-11", "despesa")] });
     expect(prospecta(a).receitaCentavos).toBe(10_000_00);
+    // marcada como transferência (ou sem lançamento) continua casando
+    expect(prospecta(apurar({ receitas: [rec(1, 10_000, "2026-11-10")], debitos: [deb(2, 10_000, "2026-11-11", "transferencia")] })).receitaCentavos).toBe(0);
   });
 
-  it("escala do A1: 40 parcelas de R$ 100 mil 'casadas' com pagamentos de R$ 100 mil escondem 4 mi e o teto do Simples some", () => {
+  it("escala do A1 (corrigido): 40 pagamentos de obra de R$ 100 mil (despesa lançada) NÃO escondem as parcelas recebidas; o teto aparece", () => {
     const receitas: ReceitaParaSoma[] = [];
     const debitos: DebitoParaSoma[] = [];
     for (let i = 0; i < 48; i++) {
       const dia = `2026-${String(1 + Math.floor(i / 5)).padStart(2, "0")}-${String(1 + (i % 5) * 5).padStart(2, "0")}`;
       receitas.push(rec(1, 100_000, dia));
-      if (i < 40) debitos.push(deb(2, 100_000, dia)); // pagamentos de obra (empreiteiro) no mesmo valor, outra conta
+      if (i < 40) debitos.push(deb(2, 100_000, dia, "despesa")); // pagamentos de obra (empreiteiro) no mesmo valor, outra conta
     }
     const p = prospecta(apurar({ receitas, debitos }));
-    // receita real 4,8 mi (100% do teto); a apuração mostra 0,8 mi e nenhuma faixa do teto
-    expect(p.foraDaSoma.transferenciasCentavos).toBe(4_000_000_00);
-    expect(p.receitaCentavos).toBe(800_000_00);
-    expect(p.limites.find(l => l.chave === "teto_simples")!.faixa).toBe(0);
+    // receita real 4,8 mi (100% do teto): nada sai da soma
+    expect(p.foraDaSoma.transferenciasCentavos).toBe(0);
+    expect(p.receitaCentavos).toBe(4_800_000_00);
+    expect(p.limites.find(l => l.chave === "teto_simples")!.faixa).toBe(100);
   });
 
   it("estorno: palavras do próprio banco tiram da soma (crédito que voltou)", () => {
@@ -144,7 +149,7 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
   // ACHADO A2 (médio): ehEstorno lê também a descrição da MOVIMENTAÇÃO do extrato (txDescricao), que inclui a mensagem escrita pelo PAGADOR
   // no PIX/TED. Texto livre de terceiro com "devolvido"/"devolução"/"reembolso de pix" tira um recebimento normal da receita.
   // shared/fiscal/regimes.ts:180-183 e :259-261 (sem conferir tipo do lançamento, categoria nem valor de uma saída anterior).
-  it.fails("A2: recebimento normal com a palavra 'devolvido' na mensagem do pagador continua na receita", () => {
+  it("A2: recebimento normal com a palavra 'devolvido' na mensagem do pagador continua na receita", () => {
     const a = apurar({ receitas: [rec(1, 50_000, "2026-11-10", { descricao: "Parcela 3 — contrato de obra", txDescricao: "PIX RECEBIDO JOAO - parcela 3 (cheque devolvido substituido)" })] });
     expect(prospecta(a).receitaCentavos).toBe(50_000_00);
   });
@@ -179,16 +184,55 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
   // ACHADO A3 (médio): perfilVigenteNaData ignora isActive (só desempate). Um perfil DESATIVADO pelo admin (tax.profiles.desativar — ex.:
   // cadastrado errado como Presumido em 01/03) continua vigente e vence a versão correta e ativa com início anterior (Simples desde 01/01):
   // o painel e o aviso usam o limite de R$ 78 mi em vez dos R$ 4,8 mi. shared/fiscal/regimes.ts:131-136.
-  it.fails("A3: perfil desativado (erro corrigido) não pode continuar valendo sobre a versão ativa", () => {
+  it("A3: perfil desativado (erro corrigido) não pode continuar valendo sobre a versão ativa", () => {
     const perfis = [perfil(1, PROSPECTA, "lucro_presumido", "2026-03-01", false), perfil(2, PROSPECTA, "simples_nacional", "2026-01-01", true)];
     expect(prospecta(apurar({ perfis })).regime).toBe("simples_nacional");
   });
 
   // ACHADO A4 (médio): o excesso de 20% do teto (R$ 5,76 mi — exclusão com efeito no mês seguinte, LC 123 art. 3º §9º-A) não é faixa própria:
   // passou de 100% do teto, nenhum aviso novo sai (FAIXAS_LIMITE termina em 100). O texto só menciona. shared/fiscal/regimes.ts:83-91 e :97.
-  it.fails("A4: passar de R$ 5,76 mi (teto + 20%) gera um aviso próprio, além do de 100% do teto", () => {
+  it("A4: passar de R$ 5,76 mi (teto + 20%) gera um aviso próprio, além do de 100% do teto", () => {
     const p = prospecta(apurar({ receitas: [rec(1, 5_800_000, "2026-06-10")] }));
     expect(p.limites.some(l => l.valorCentavos === 5_760_000_00 && l.faixa >= 100)).toBe(true);
+  });
+});
+
+describe("QA S-6 — correções (regras puras)", () => {
+  it("A3: troca de regime normal continua valendo (a versão anterior desativada pela nova vale até a nova começar)", () => {
+    const perfis = [perfil(1, PROSPECTA, "simples_nacional", "2021-05-07", false), perfil(2, PROSPECTA, "lucro_presumido", "2026-07-01", true)];
+    expect(prospecta(apurar({ perfis, agora: new Date("2026-05-10T15:00:00Z") })).regime).toBe("simples_nacional");
+    expect(prospecta(apurar({ perfis })).regime).toBe("lucro_presumido");
+    // só a versão desativada à mão, sem substituta: regime a confirmar (nunca o desativado)
+    expect(prospecta(apurar({ perfis: [perfil(1, PROSPECTA, "lucro_presumido", "2026-03-01", false)] })).regime).toBe("a_confirmar");
+  });
+
+  it("A4: R$ 5,76 mi tem faixa só de 100% (não avisa a 70% dele); abaixo dele, nada", () => {
+    const abaixo = prospecta(apurar({ receitas: [rec(1, 5_000_000, "2026-06-10")] })).limites.find(l => l.chave === "excesso_simples")!;
+    expect(abaixo).toMatchObject({ faixa: 0, valorCentavos: 5_760_000_00 });
+    expect(limitesDoRegime("simples_nacional").limites.map(l => l.chave)).not.toContain("excesso_simples");
+    expect(limitesDoRegime("lucro_presumido").limites.map(l => l.chave)).toEqual(["presumido"]);
+  });
+
+  it("A6: créditos a classificar não somem — pendência por empresa, total geral listado e faixa 'possível' (lado seguro)", () => {
+    const a = apurarReceitas({ agora: AGORA, perfis: [perfil(1, PROSPECTA, "simples_nacional", "2021-05-07")], contas: [contaP(1, PROSPECTA), contaP(2, null)],
+      receitas: [rec(1, 3_000_000, "2026-03-10")], debitos: [],
+      pendentes: [{ txId: 7, contaId: 1, valorCentavos: 1_000_000_00, data: new Date("2026-10-10T12:00:00Z") },
+        { txId: 8, contaId: 2, valorCentavos: 50_00, data: new Date("2026-10-10T12:00:00Z") },
+        { txId: 9, contaId: 1, valorCentavos: 99_00, data: new Date("2025-10-10T12:00:00Z") }] }); // outro ano: fora
+    const p = prospecta(a);
+    expect(p.receitaCentavos).toBe(3_000_000_00);
+    expect(p.aClassificar).toEqual({ centavos: 1_000_000_00, movimentos: 1 });
+    expect(p.receitaPossivelCentavos).toBe(4_000_000_00);
+    const teto = p.limites.find(l => l.chave === "teto_simples")!;
+    expect([teto.faixa, teto.faixaPossivel]).toEqual([0, 70]);
+    expect(a.semEmpresa.aClassificarCentavos).toBe(50_00);
+    expect(a.aClassificar).toMatchObject({ centavos: 1_000_050_00, movimentos: 2 });
+    expect(a.aClassificar.maiores[0]).toEqual({ txId: 7, contaId: 1, raiz: "41865900", valorCentavos: 1_000_000_00, data: "2026-10-10" });
+  });
+
+  it("A9: nome seguro da conta — apelido, ou banco + 4 últimos dígitos mascarados; nunca descrição nem número inteiro", () => {
+    const a = apurar({ contas: [{ id: 1, banco: "Cora", apelido: null, descricao: "PJ conta 12345-6", conta: "12345-6", empresaCnpj: PROSPECTA, ativo: true }] });
+    expect(prospecta(a).contas[0]!.nome).toBe("Cora •••3456");
   });
 });
 
@@ -288,7 +332,7 @@ describe("QA S-6 — com banco", () => {
 
     // ACHADO A10 (baixo): o CHECK do apelido usa btrim() (só espaço): apelido só com TAB/quebra de linha passa no banco. Pela API o zod
     // .trim() já limpa, então só vale para gravação direta. drizzle/0164_contas_empresa_limite_receita.sql:33.
-    it.fails("A10: apelido só com TAB/quebra de linha é recusado pelo banco", async () => {
+    it("A10: apelido só com TAB/quebra de linha é recusado pelo banco", async () => {
       await migrar();
       await expect(pg.query("INSERT INTO bank_accounts (banco, conta, apelido) VALUES ('X', '3', E'\\t\\n')")).rejects.toThrow();
     });
@@ -345,7 +389,7 @@ describe("QA S-6 — com banco", () => {
     // (server/dolores/leitura/limites-receita.ts:28 `contas: e.contas.map(c => c.nome)` e :36 `contasSemEmpresa`). Regra do dono (16/11):
     // dados bancários continuam SEMPRE mascarados para a Dolores. O comentário da própria leitura promete "nunca agência, número".
     // Hoje toda conta já existente nasce sem apelido (0164), então o vazamento é o caso PADRÃO.
-    it.fails("A9: o nome de conta que vai para a Dolores nunca leva o número da conta", async () => {
+    it("A9: o nome de conta que vai para a Dolores nunca leva o número da conta", async () => {
       await contaManual("Cora", "12345-6", { empresaCnpj: PROSPECTA });
       await contaManual("Inter", "998877-1"); // sem empresa: vai em pendencias.contasSemEmpresa
       const r = await apurarLimites(getDb() as never, AGORA);
@@ -353,13 +397,17 @@ describe("QA S-6 — com banco", () => {
       // o mesmo filtro que a ponte aplica a TODA leitura antes de ir à IA (ponte.ts:311, filtroDaSaida("whatsapp"))
       const paraDolores = sanitizarResposta({ contas: nomes }, { mascararDadosPessoais: false });
       expect(JSON.stringify(paraDolores)).not.toMatch(/12345|998877/);
+      // e o que a leitura consultar_limites_receita devolve de fato (texto que vai à IA e ao WhatsApp)
+      const leitura = JSON.stringify((await consultarLimitesReceita({}, { agora: AGORA })).dados);
+      expect(leitura).not.toMatch(/12345|998877|0001-9/);
+      expect(leitura).toMatch(/Cora •••3456/);
     });
 
     // ACHADO A5 (médio; permissão anterior à S-6, AMPLIADA por ela): colaborador com BPO cria versão nova do perfil tributário
     // (tax.profiles.create é adminProcedure com tax → "bpo", sem conferir o papel), e agora o regime decide o limite e o aviso: trocar a
     // Prospecta para "lucro_real" ou "a_confirmar" apaga o teto do Simples do painel e silencia o aviso. server/tax-router.ts:255-266
     // (o desativar, ao lado, já exige admin por papel: :308).
-    it.fails("A5: colaborador com BPO não pode trocar o regime da empresa (isso esconde o limite de receita)", async () => {
+    it("A5: colaborador com BPO não pode trocar o regime da empresa (isso esconde o limite de receita)", async () => {
       await expect(caller("colaborador", ["bpo"]).tax.profiles.create({ companyName: "Prospecta", cnpj: PROSPECTA, regime: "lucro_real", estimatedRate: 0,
         effectiveFrom: new Date("2026-11-01T12:00:00Z") })).rejects.toThrow();
     });
@@ -382,7 +430,7 @@ describe("QA S-6 — com banco", () => {
     // ACHADO A6 (médio): entrada importada do extrato e ainda "a classificar" (ou crédito sem lançamento) numa conta da empresa não entra na
     // soma e não aparece em pendência nenhuma: a receita some do painel e do aviso até alguém classificar. server/fiscal/teto.ts:46-49
     // (l.a_classificar = false). Lado seguro: somar (ou ao menos mostrar como pendência com o valor).
-    it.fails("A6: crédito 'a classificar' na conta da empresa aparece na soma ou como pendência com valor", async () => {
+    it("A6: crédito 'a classificar' na conta da empresa aparece na soma ou como pendência com valor", async () => {
       const c = await conta(PROSPECTA);
       await credito(c, 3_000_000, "2026-10-10T12:00:00Z", { aClassificar: true });
       await credito(c, 1_000_000, "2026-10-11T12:00:00Z", null);
@@ -397,6 +445,50 @@ describe("QA S-6 — com banco", () => {
       const r = await apurarLimites(getDb() as never, new Date("2026-12-31T20:00:00Z"));
       expect(r.ano).toBe(2026);
       expect(r.empresas.find(e => e.raiz === "41865900")!.receitaCentavos).toBe(1_000_00);
+    });
+
+    it("fuso no corte do ano: 22h de 31/12 em Brasília (01h UTC do dia 1º) é do ano que termina; 23h de 31/12/2025 não é de 2026", async () => {
+      expect(inicioDoAnoEmBrasilia(2026)).toBe("2026-01-01 03:00:00.000");
+      const c = await conta(PROSPECTA);
+      await credito(c, 1_000, "2027-01-01T01:00:00Z"); // 31/12/2026 22h em Brasília → 2026
+      await credito(c, 2_000, "2026-01-01T02:00:00Z"); // 31/12/2025 23h em Brasília → fora de 2026
+      await credito(c, 3_000, "2026-01-01T03:00:00Z"); // 01/01/2026 00h em Brasília → 2026
+      const r = await apurarLimites(getDb() as never, new Date("2026-12-31T20:00:00Z"));
+      expect(r.empresas.find(e => e.raiz === "41865900")!.receitaCentavos).toBe(4_000_00);
+    });
+
+    it("A1 com o banco: saída com lançamento de despesa não casa; saída marcada como Transferência interna casa", async () => {
+      const c1 = await conta(PROSPECTA);
+      const c2 = await conta(PROSPECTA);
+      await credito(c1, 10_000, "2026-10-10T12:00:00Z");
+      await credito(c1, 20_000, "2026-10-12T12:00:00Z");
+      const [d1] = await q<{ id: number }>(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id) VALUES ($1, '2026-10-11T12:00:00Z', 'PIX ENVIADO EMPREITEIRO', 10000, 'debito', 'qa-d1') RETURNING id`, [c2]);
+      await q(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES ('despesa', 'Mão de obra', 10000, '2026-10-11', true, '2026-10-11', '2026-10', $1)`, [d1!.id]);
+      await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED ENTRE CONTAS', 20000, 'debito', 'qa-d2', 'Transferência interna')`, [c2]);
+      const pro = (await apurarLimites(getDb() as never, AGORA)).empresas.find(e => e.raiz === "41865900")!;
+      expect(pro.receitaCentavos).toBe(10_000_00);
+      expect(pro.foraDaSoma).toMatchObject({ transferencias: 1, transferenciasCentavos: 20_000_00 });
+    });
+
+    it("A6 com o banco: a classificar e sem lançamento entram na pendência da empresa; marcada como Transferência interna não", async () => {
+      const c = await conta(PROSPECTA);
+      await credito(c, 3_000_000, "2026-10-10T12:00:00Z", { aClassificar: true });
+      await credito(c, 1_000_000, "2026-10-11T12:00:00Z", null);
+      await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED', 500, 'credito', 'qa-tr', 'Transferência interna')`, [c]);
+      const pro = (await apurarLimites(getDb() as never, AGORA)).empresas.find(e => e.raiz === "41865900")!;
+      expect(pro.aClassificar).toEqual({ centavos: 4_000_000_00, movimentos: 2 });
+      expect(pro.limites.find(l => l.chave === "teto_simples")!.faixaPossivel).toBe(70);
+    });
+
+    it("Receita realizada do Financeiro (financial_transactions) aparece como pendência com valor (sem conta, sem empresa)", async () => {
+      await q(`INSERT INTO financial_transactions (type, amount, description, status, paid_at) VALUES
+        ('income', 1500, 'Entrada', 'paid', '2026-05-10T12:00:00Z'), ('commission', 500, 'Comissão', 'paid', '2026-06-10T12:00:00Z'),
+        ('expense', 900, 'Saída', 'paid', '2026-06-10T12:00:00Z'), ('income', 700, 'Pendente', 'pending', '2026-06-10T12:00:00Z'),
+        ('income', 800, 'Ano passado', 'paid', '2025-06-10T12:00:00Z')`);
+      const r = await apurarLimites(getDb() as never, AGORA);
+      expect(r.financeiro).toEqual({ receitaCentavos: 2_000_00, lancamentos: 2 });
+      const d = (await consultarLimitesReceita({}, { agora: AGORA })).dados as { pendencias: Record<string, unknown> };
+      expect(d.pendencias).toMatchObject({ receitaDoFinanceiroSemEmpresa: "R$\u00a02.000,00", lancamentosDoFinanceiro: 2 });
     });
   });
 
@@ -426,18 +518,21 @@ describe("QA S-6 — com banco", () => {
     // ACHADO A7 (médio): conta da Prospecta SEM complemento fiscal da Prospecta → cai no emissor do tipo de serviço ou no emissor ÚNICO, que
     // pode ser de OUTRA raiz (VFX). O dinheiro entrou na conta da Prospecta e o rascunho nasce pela VFX. Com a empresa da conta conhecida,
     // emissor de outra raiz não deveria ser escolhido (fica "a escolher"). server/fiscal/gerador.ts:265.
-    it.fails("A7: com a empresa da conta conhecida, o rascunho nunca nasce com emissor de outra raiz de CNPJ", async () => {
+    it("A7: com a empresa da conta conhecida, o rascunho nunca nasce com emissor de outra raiz de CNPJ", async () => {
       await admin().fiscal.emissores.salvar({ cnpj: VFX, municipioNome: "Imperatriz", municipioUf: "MA" }); // único emissor
       await entradaNaConta(await contaDe(PROSPECTA), 900);
       await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
       const [n] = await q<{ emissor_id: number | null; cnpj: string | null }>("SELECT n.emissor_id, e.cnpj FROM fiscal_notas n LEFT JOIN fiscal_emissores e ON e.id = n.emissor_id");
       expect(n!.cnpj === null || n!.cnpj.slice(0, 8) === PROSPECTA.slice(0, 8)).toBe(true);
+      // sem emissor, com o motivo claro na tela
+      const nota = (await admin().fiscal.notas.listar({})).itens[0]!;
+      expect(nota.motivoSemEmissor).toMatch(/41\.865\.900\/0001-89.*não tem dados fiscais/);
     });
 
     // ACHADO A8 (médio, para a S-4): EmissorLido.regime/optanteSimples vem do perfil ATIVO mais recente (notas.ts:156-166), e não do VIGENTE
     // na data. Ao cadastrar hoje a versão de 2027 (Presumido a partir de 01/01/2027 — exatamente o estudo "qual regime adotar em 2027"),
     // a nota de novembro/2026 sairia como "não optante" enquanto o painel de limites (vigente) continua dizendo Simples. Incoerente.
-    it.fails("A8: optanteSimples do emissor segue o regime VIGENTE hoje (igual ao painel de limites)", async () => {
+    it("A8: optanteSimples do emissor segue o regime VIGENTE hoje (igual ao painel de limites)", async () => {
       await admin().fiscal.emissores.salvar({ cnpj: PROSPECTA, municipioNome: "Imperatriz", municipioUf: "MA" });
       await admin().tax.profiles.create({ companyName: "Prospecta", cnpj: PROSPECTA, regime: "lucro_presumido", estimatedRate: 11.33, effectiveFrom: new Date("2027-01-01T12:00:00Z") });
       const painel = (await admin().fiscal.limitesReceita()).empresas.find(e => e.raiz === "41865900")!;

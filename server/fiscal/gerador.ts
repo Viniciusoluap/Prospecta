@@ -243,8 +243,17 @@ export async function gerarRascunhos(
   const emissores = await db.select({ id: fiscalEmissores.id, cnpj: fiscalEmissores.cnpj }).from(fiscalEmissores).where(eq(fiscalEmissores.ativo, true));
   const emissorUnico = emissores.length === 1 ? emissores[0]!.id : null;
   // EPIC-029 S-6: a empresa da CONTA em que o dinheiro entrou escolhe o emissor (resolve o "empresa a escolher" com vários emissores).
-  // Ordem: empresa da conta (se tiver o complemento fiscal ativo) → emissor do tipo de serviço → emissor único → nenhum (a escolher).
+  // Ordem: empresa da conta (se tiver o complemento fiscal ativo) → emissor do tipo de serviço → emissor único → nenhum (a escolher);
+  // com a empresa da conta conhecida, os dois do meio só valem se forem da MESMA raiz de CNPJ.
+  // QA S-6 (A7): com a empresa da conta CONHECIDA, emissor de outra empresa (outra raiz de CNPJ) nunca é escolhido sozinho — sem emissor
+  // da mesma raiz, o rascunho nasce sem emissor ("a escolher"); a tela diz o motivo (notas.ts#motivoSemEmissor).
   const emissorPorCnpj = new Map(emissores.map(e => [e.cnpj, e.id]));
+  const raizDoEmissor = new Map(emissores.map(e => [e.id, e.cnpj.slice(0, 8)]));
+  const daMesmaRaiz = (id: number | null | undefined, contaCnpj: string) => (id != null && raizDoEmissor.get(id) === contaCnpj.slice(0, 8) ? id : null);
+  const emissorDaNota = (contaCnpj: string | null, doTipo: number | null | undefined): number | null => {
+    if (!contaCnpj) return doTipo ?? emissorUnico;
+    return emissorPorCnpj.get(contaCnpj) ?? daMesmaRaiz(doTipo, contaCnpj) ?? daMesmaRaiz(emissorUnico, contaCnpj);
+  };
 
   const novos: (typeof fiscalNotas.$inferInsert)[] = [];
   const achados = await candidatos(db, config.inicioEm, inicioDoDiaEmBrasilia(config.inicioEm), tipos, tempoAcabou);
@@ -262,7 +271,7 @@ export async function gerarRascunhos(
       obraId: c.obraId,
       leadServiceId: c.leadServiceId,
       tipoServicoId: tipo?.id ?? null,
-      emissorId: (c.contaCnpj ? emissorPorCnpj.get(c.contaCnpj) : undefined) ?? tipo?.emissorId ?? emissorUnico,
+      emissorId: emissorDaNota(c.contaCnpj, tipo?.emissorId),
       motivoSugerido: motivoSugerido(c.origemTipo, c.subtipo),
       status: "A_DECIDIR",
       alteradoVia: "sistema",

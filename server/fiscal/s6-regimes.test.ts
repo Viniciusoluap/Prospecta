@@ -110,7 +110,8 @@ describe("S-6 — soma por empresa (apurarReceitas)", () => {
     expect(pro.receitaCentavos).toBe(600_000);
     expect(pro.contas.map(c => c.id)).toEqual([1, 2, 3]);
     expect(pro.contas[0]!.nome).toBe("Cora obras");
-    expect(pro.limites.map(l => l.chave)).toEqual(["me", "sublimite", "teto_simples"]);
+    // QA S-6 (A4): o teto + 20% (R$ 5,76 mi) é acompanhado como limite próprio (só a faixa de 100%)
+    expect(pro.limites.map(l => l.chave)).toEqual(["me", "sublimite", "teto_simples", "excesso_simples"]);
     const vfx = ap.empresas.find(e => e.raiz === "58121993")!;
     expect(vfx.receitaCentavos).toBe(10_000_000);
     expect(vfx).toMatchObject({ situacao: "sem_limite", limites: [] });
@@ -144,7 +145,8 @@ describe("S-6 — soma por empresa (apurarReceitas)", () => {
       receitas: [
         receita(1, 5000, "2026-04-01"),                    // entrou na conta 1 vindo da conta 2 (mesma empresa) → fora
         receita(1, 5000, "2026-04-20"),                    // mesmo valor, mas sem saída casada → conta
-        receita(1, 800, "2026-04-02", { descricao: "PIX recebido", txDescricao: "ESTORNO PIX ENVIADO" }), // estorno → fora
+        receita(1, 800, "2026-04-02", { descricao: "ESTORNO PIX ENVIADO", txDescricao: "ESTORNO PIX ENVIADO" }), // estorno (lançamento) → fora
+        receita(1, 700, "2026-04-02", { descricao: "PIX recebido", txDescricao: "ESTORNO PIX ENVIADO" }), // QA S-6 (A2): só a movimentação diz → CONTA
         receita(1, 3000, "2026-04-03"),                    // veio da conta da VFX (outra empresa) → conta
         receita(1, 200, "2026-04-04", { tipo: "reembolso" }),
       ],
@@ -153,7 +155,7 @@ describe("S-6 — soma por empresa (apurarReceitas)", () => {
         { txId: 12, contaId: 1, valorCentavos: 500_000, data: new Date("2026-04-20T12:00:00Z") }], // saída da PRÓPRIA conta não casa
     });
     const pro = ap.empresas.find(e => e.raiz === "41865900")!;
-    expect(pro.receitaCentavos).toBe(500_000 + 300_000 + 20_000);
+    expect(pro.receitaCentavos).toBe(500_000 + 300_000 + 20_000 + 70_000);
     expect(pro.reembolsosCentavos).toBe(20_000);
     expect(pro.foraDaSoma).toEqual({ transferenciasCentavos: 500_000, transferencias: 1, estornosCentavos: 80_000, estornos: 1 });
   });

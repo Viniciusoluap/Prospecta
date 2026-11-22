@@ -47,8 +47,16 @@ export function LimitesReceita() {
               </div>
             </div>
             <p className="text-xs text-gray-300">
-              Contas: {e.contas.length ? e.contas.map(c => `${c.nome}${c.final ? ` ${c.final}` : ""}`).join(", ") : "nenhuma conta vinculada"}
+              Contas: {e.contas.length ? e.contas.map(c => c.nome).join(", ") : "nenhuma conta vinculada"}
             </p>
+            {e.aClassificar.movimentos > 0 && (
+              <p className="text-xs text-amber-200">
+                Pendência: {e.aClassificar.movimentos} entrada(s) nas contas desta empresa ainda a classificar ({dinheiro(e.aClassificar.centavos)}) — fora da
+                soma até alguém classificar. Contando com elas, a receita pode chegar a {dinheiro(e.receitaPossivelCentavos)}
+                {e.limites.length ? ` (${e.limites.map(l => `${pct(l.percentualPossivel)} do ${l.rotulo}`).join("; ")})` : ""}. Classifique em{" "}
+                <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.
+              </p>
+            )}
             {(e.reembolsosCentavos > 0 || e.foraDaSoma.transferencias > 0 || e.foraDaSoma.estornos > 0) && (
               <p className="text-xs text-gray-400">
                 {e.reembolsosCentavos > 0 ? `inclui ${dinheiro(e.reembolsosCentavos)} de reembolsos` : ""}
@@ -76,17 +84,24 @@ export function LimitesReceita() {
             )}
           </div>
         ))}
-        {data && (data.semEmpresa.contas.length > 0 || data.semConta.lancamentos > 0) && (
+        {data && (data.semEmpresa.contas.length > 0 || data.semConta.lancamentos > 0 || data.financeiro.lancamentos > 0) && (
           <div className="rounded border border-amber-500/30 p-3 text-xs text-amber-200 space-y-1">
             {data.semEmpresa.contas.length > 0 && (
               <p>
                 Pendência: {data.semEmpresa.contas.length} conta(s) sem empresa definida ({data.semEmpresa.contas.map(c => c.nome).join(", ")}) —
-                {" "}{dinheiro(data.semEmpresa.receitaCentavos)} no ano fora da soma de qualquer empresa. Vincule em{" "}
+                {" "}{dinheiro(data.semEmpresa.receitaCentavos)} no ano fora da soma de qualquer empresa
+                {data.semEmpresa.aClassificarCentavos > 0 ? ` (e mais ${dinheiro(data.semEmpresa.aClassificarCentavos)} a classificar)` : ""}. Vincule em{" "}
                 <Link href="/admin/bpo" className="underline">BPO › Bancos</Link> (Editar conta).
               </p>
             )}
             {data.semConta.lancamentos > 0 && (
               <p>{data.semConta.lancamentos} recebimento(s) sem conta bancária ({dinheiro(data.semConta.receitaCentavos)}): não dá para dizer de que empresa são.</p>
+            )}
+            {data.financeiro.lancamentos > 0 && (
+              <p>
+                {data.financeiro.lancamentos} receita(s) do Financeiro ({dinheiro(data.financeiro.receitaCentavos)}) entram na "Receita realizada", mas não têm
+                conta bancária: não dá para dizer de que empresa são e ficam fora da soma por empresa.
+              </p>
             )}
           </div>
         )}

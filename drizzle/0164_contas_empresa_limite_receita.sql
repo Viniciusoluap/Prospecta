@@ -1,6 +1,6 @@
 -- 22/11/2026 — EPIC-029 S-6 (contas bancárias por empresa, regime por empresa e limite de receita do ano).
 -- Story: docs/stories/epics/epic-029-modulo-fiscal/S-6-contas-por-empresa-e-teto-simples.md.
--- Número 0164 (0161–0163 reservados para as frentes S-3, S-4 e S-5).
+-- Número 0164. AINDA NÃO aplicada em produção (22/11/2026).
 --
 -- O que muda:
 --   1) "bank_accounts" ganha duas colunas NOVAS e opcionais (nulas em todas as contas que já existem — nenhum dado muda):
@@ -8,9 +8,12 @@
 --      - "empresa_cnpj": o CNPJ (só os caracteres) do perfil tributário dono da conta. N contas por empresa. Sem chave estrangeira,
 --        do mesmo jeito que "fiscal_emissores" (0154): o servidor confere que existe perfil com esse CNPJ antes de gravar.
 --   2) A restrição CHECK da coluna "tipo" de "dolores_avisos_tipos" (nome padrão do Postgres "dolores_avisos_tipos_tipo_check") passa a
---      aceitar também 'limite_receita' (aviso de limite de receita por empresa). A lista inclui 'nota_fiscal' (da 0161, S-3) para que a
---      ordem de aplicação não importe: a lista nova é a UNIÃO; aceita todas as linhas que a antiga aceitava.
---      ATENÇÃO: se a 0161 for aplicada DEPOIS desta, ela tira 'limite_receita' da lista — nesse caso, rode esta de novo (é idempotente).
+--      aceitar também 'limite_receita' (aviso de limite de receita por empresa). A lista é a lista COMPLETA: os 8 tipos de antes +
+--      'nota_fiscal' (da 0165_dolores_aviso_fiscal.sql, S-3, já aplicada em produção) + 'limite_receita' — a UNIÃO; aceita todas as
+--      linhas que a antiga aceitava, então a ordem de aplicação não importa.
+--      ATENÇÃO: a 0165 grava a lista SEM 'limite_receita'. Se a 0165 for reaplicada DEPOIS desta, reaplique esta 0164 (é idempotente).
+--   3) QA S-6 (A10): o CHECK do apelido exige ao menos um caractere que não seja espaço em branco ([[:space:]]: espaço, TAB, quebra de
+--      linha) — apelido só com TAB/quebra de linha é recusado também na gravação direta no banco.
 --
 -- Aditiva e IDEMPOTENTE: ADD COLUMN IF NOT EXISTS, CHECK novo só se ainda não existir, índice IF NOT EXISTS e a troca do CHECK de tipo
 -- em DROP IF EXISTS + ADD na MESMA transação. Nenhuma linha existente é alterada ou apagada.
@@ -30,7 +33,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_accounts_apelido_check') THEN
     ALTER TABLE "bank_accounts" ADD CONSTRAINT "bank_accounts_apelido_check"
-      CHECK ("apelido" IS NULL OR length(btrim("apelido")) > 0);
+      CHECK ("apelido" IS NULL OR "apelido" ~ '[^[:space:]]');
   END IF;
 END $$;
 

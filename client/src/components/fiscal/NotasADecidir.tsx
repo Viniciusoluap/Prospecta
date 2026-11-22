@@ -214,6 +214,7 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                       <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{ALERTA_TOMADOR_MUDOU}</p>
                     )}
                     {n.alerta && <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{n.alerta}</p>}
+                    {n.motivoSemEmissor && <p className="mt-1 text-xs text-amber-200">{n.motivoSemEmissor}</p>}
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <Button size="sm" variant="outline" onClick={() => void previa(n)}><FileText className="mr-1 h-4 w-4" /> Prévia</Button>

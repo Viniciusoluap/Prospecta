@@ -168,7 +168,8 @@ describe("S-6 — limites de receita por empresa (aba Contabilidade)", () => {
     expect(pro.receitaCentavos).toBe(301_000_00);
     expect(pro.reembolsosCentavos).toBe(1_000_00);
     expect(pro.foraDaSoma).toMatchObject({ transferencias: 1, transferenciasCentavos: 10_000_00, estornos: 1, estornosCentavos: 500_00 });
-    expect(pro.contas.map(c => c.nome)).toEqual(["Cora obras", "Inter — Conta PJ • 2"]);
+    // QA S-6 (A9): sem apelido, banco + final mascarado (número curto demais: só o banco) — nunca o número nem a descrição
+    expect(pro.contas.map(c => c.nome)).toEqual(["Cora obras", "Inter"]);
     expect(pro.limites.find(l => l.chave === "me")).toMatchObject({ faixa: 70, informativo: true });
     const efficaz = r.empresas.find(e => e.raiz === "04578232")!;
     expect(efficaz.receitaCentavos).toBe(3_600_000_00); // matriz + filial no MESMO teto

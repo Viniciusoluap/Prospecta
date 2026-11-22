@@ -54,7 +54,7 @@ export const REGRA_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.free
   grupo_aguardando: "grupo em que ela entrou e que espera a sua decisão (entrada ou tipo) há N horas ou mais",
   integracao: "conta bancária ligada ao Asaas/Pluggy com erro na última sincronização",
   gasto: "é o alerta de 80% do gasto (uma vez por mês por limite); silenciado, o de 80% não sai — o de 100% sai sempre",
-  limite_receita: "receita registrada no ano (soma das contas de cada empresa) a 70%, 85%, 95% e 100% do limite do regime dela — Simples: ME R$ 360 mil (informativo), sublimite R$ 3,6 mi e teto R$ 4,8 mi; Presumido: R$ 78 mi; Real: sem limite — uma vez por faixa, por empresa, por ano; nasce silenciado",
+  limite_receita: "receita registrada no ano (soma das contas de cada empresa) a 70%, 85%, 95% e 100% do limite do regime dela — Simples: ME R$ 360 mil (informativo), sublimite R$ 3,6 mi, teto R$ 4,8 mi e, ao passar de R$ 5,76 mi (teto + 20%), aviso próprio; Presumido: R$ 78 mi; Real: sem limite — uma vez por faixa, por empresa, por ano; nasce silenciado",
 });
 
 /** Limites N de cada tipo (padrão sensato) e as faixas acima dele (o reaviso acontece quando o achado sobe de faixa). */
@@ -105,7 +105,9 @@ const TEXTO_MARCA: Record<MarcaAchado, string> = {
 export type RefAchado = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota"; id: number };
 export type DadosAchado = { nome: string; dias?: number | null; quantidade?: number | null; marca?: MarcaAchado | null; ref?: RefAchado | null }
   // EPIC-029 S-6 (limite_receita): qual limite, % alcançado (1 casa), quanto falta e o ano
-  & { limite?: ChaveLimite | null; percentual?: number | null; faltaCentavos?: number | null; ano?: number | null };
+  & { limite?: ChaveLimite | null; percentual?: number | null; faltaCentavos?: number | null; ano?: number | null;
+    /** QA S-6 (A6): a faixa só foi alcançada contando estes créditos ainda a classificar (lado seguro). */
+    aClassificarCentavos?: number | null };
 export type Achado = { tipo: TipoAviso; entidade: string; faixa: number; dados: DadosAchado };
 /** Um achado pendente na hora do envio: com a faixa do aviso anterior (para dizer "antes 3"). */
 export type AchadoPendente = Achado & { id: number; faixaAvisada: number | null };
@@ -189,6 +191,7 @@ function linhaDoItem(a: AchadoPendente): string {
     const l = LIMITES[d.limite];
     partes.push(`${String(d.percentual ?? 0).replace(".", ",")}% do ${l.rotulo}${d.ano ? ` em ${d.ano}` : ""}`);
     partes.push(d.faltaCentavos ? `faltam ${reaisCurtos(d.faltaCentavos)}` : l.consequencia);
+    if (d.aClassificarCentavos) partes.push(`contando ${reaisCurtos(d.aClassificarCentavos)} ainda a classificar`);
   } else if (a.tipo === "grupo_aguardando" && d.dias != null) partes.push(`há ${dias(Math.max(1, Math.floor(d.dias / 24)))}`);
   else if (a.tipo === "obra_atrasada" && d.dias != null) partes.push(`${dias(d.dias)} de atraso${a.faixaAvisada && a.faixaAvisada < a.faixa ? ` (no último aviso, ${dias(a.faixaAvisada)} ou mais)` : ""}`);
   else if (a.tipo === "documento_pendente" && d.quantidade) partes.push(`${d.quantidade} documento${d.quantidade === 1 ? "" : "s"}${d.dias != null ? `, o mais antigo há ${dias(d.dias)}` : ""}`);

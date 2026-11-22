@@ -16,7 +16,8 @@ import {
   type StatusNota,
 } from "../../shared/fiscal/status.js";
 import type { DrizzleDb } from "../db.js";
-import { optanteDoSimples } from "../../shared/fiscal/regimes.js";
+import { ehMatriz, formatarCnpj, optanteDoSimples, perfilVigenteNaData, type PerfilParaRegime } from "../../shared/fiscal/regimes.js";
+import { lerPerfis } from "./teto.js";
 
 type Linha = Record<string, unknown>;
 const linhas = (r: unknown): Linha[] => (r as { rows?: Linha[] }).rows ?? [];
@@ -56,6 +57,8 @@ export type NotaDetalhada = FiscalNota & {
   tomador: Tomador;
   obra: { id: number; titulo: string; cidade: string | null; uf: string | null } | null;
   emissor: EmissorLido | null;
+  /** QA S-6 (A7): sem emissor porque a empresa da conta não tem emissor (o gerador não escolhe o de outra empresa). */
+  motivoSemEmissor: string | null;
   tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
   municipio: { nome: string | null; uf: string | null; fonte: "ajuste" | "obra" | "tomador" | "emissor" | "nenhum" };
   /** Revisão do PR #302 (3): o cliente/card/obra ATUAL da origem difere do que o rascunho guardou ao nascer. */
@@ -149,22 +152,56 @@ async function origensPorTipo(db: DrizzleDb, notas: FiscalNota[]): Promise<Map<s
   return mapa;
 }
 
-/** Emissores com a razão social e o regime LIDOS do perfil tributário vigente do mesmo CNPJ (nunca copiados). */
-export async function emissoresComPerfil(db: DrizzleDb): Promise<EmissorLido[]> {
+/**
+ * Perfil (versão) de um emissor numa data: o do próprio CNPJ; senão o da matriz da mesma raiz; senão qualquer um da mesma raiz (o regime é
+ * da EMPRESA: a filial herda). QA S-6 (A8): vale a versão VIGENTE NA DATA (a mesma regra do painel de limites: perfilVigenteNaData), não a
+ * mais recente — cadastrar hoje o regime de 2027 não muda a nota de 2026. Sem versão vigente na data → regime null (não emitir).
+ */
+function perfilDoEmissor(perfis: readonly PerfilParaRegime[], cnpj: string, data: Date): { nome: PerfilParaRegime | null; vigente: PerfilParaRegime | null } {
+  const raiz = cnpj.slice(0, 8);
+  const grupos = [perfis.filter(p => p.cnpj === cnpj), perfis.filter(p => p.cnpj.slice(0, 8) === raiz && ehMatriz(p.cnpj)), perfis.filter(p => p.cnpj.slice(0, 8) === raiz)];
+  for (const g of grupos) {
+    if (!g.length) continue;
+    const vigente = perfilVigenteNaData(g, data);
+    const nome = vigente ?? [...g].sort((a, b) => Number(b.isActive) - Number(a.isActive) || b.effectiveFrom.getTime() - a.effectiveFrom.getTime() || b.id - a.id)[0]!;
+    return { nome, vigente };
+  }
+  return { nome: null, vigente: null };
+}
+
+type LinhaEmissor = typeof fiscalEmissores.$inferSelect;
+function emissorNaData(e: LinhaEmissor, perfis: readonly PerfilParaRegime[], data: Date): EmissorLido {
+  const p = perfilDoEmissor(perfis, e.cnpj, data);
+  const regime = p.vigente?.regime ?? null;
+  return { id: e.id, cnpj: e.cnpj, razaoSocial: p.nome?.companyName ?? null, regime, municipioNome: e.municipioNome, municipioUf: e.municipioUf, ambiente: e.ambiente,
+    optanteSimples: optanteDoSimples(regime) };
+}
+
+/** Emissores com a razão social e o regime LIDOS do perfil tributário vigente na `data` (padrão: agora) do mesmo CNPJ (nunca copiados). */
+export async function emissoresComPerfil(db: DrizzleDb, data: Date = new Date()): Promise<EmissorLido[]> {
   const emissores = await db.select().from(fiscalEmissores).orderBy(fiscalEmissores.id);
   if (!emissores.length) return [];
-  const perfis = linhas(await db.execute(sql`
-    SELECT DISTINCT ON (upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')))
-      upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')) AS cnpj, company_name, regime
-    FROM tax_profiles WHERE cnpj IS NOT NULL
-    ORDER BY upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`));
-  return emissores.map(e => {
-    // EPIC-029 S-6: filial sem perfil próprio usa o perfil da empresa (mesma raiz do CNPJ; o regime é da empresa)
-    const p = perfis.find(x => x.cnpj === e.cnpj) ?? perfis.find(x => String(x.cnpj).slice(0, 8) === e.cnpj.slice(0, 8) && String(x.cnpj).slice(8, 12) === "0001")
-      ?? perfis.find(x => String(x.cnpj).slice(0, 8) === e.cnpj.slice(0, 8));
-    return { id: e.id, cnpj: e.cnpj, razaoSocial: txt(p?.company_name), regime: txt(p?.regime), municipioNome: e.municipioNome, municipioUf: e.municipioUf, ambiente: e.ambiente,
-      optanteSimples: optanteDoSimples(txt(p?.regime)) };
-  });
+  const perfis = await lerPerfis(db);
+  return emissores.map(e => emissorNaData(e, perfis, data));
+}
+
+/** Data em que se lê o regime da nota: o 1º dia da competência (AAAA-MM); sem competência, o dia do evento. */
+function dataDaCompetencia(competencia: string | null | undefined, dataEvento: string | null | undefined): Date {
+  if (competencia && /^\d{4}-\d{2}$/.test(competencia)) return new Date(`${competencia}-01T12:00:00Z`);
+  if (dataEvento && /^\d{4}-\d{2}-\d{2}/.test(dataEvento)) return new Date(`${dataEvento.slice(0, 10)}T12:00:00Z`);
+  return new Date();
+}
+
+/**
+ * QA S-6 (A7): por que o rascunho está sem emissor quando o dinheiro entrou numa conta de empresa conhecida — o gerador não escolhe
+ * emissor de outra empresa (outra raiz de CNPJ). Texto fixo, sem número de conta.
+ */
+export function motivoSemEmissor(contaCnpj: string | null, emissoresAtivos: readonly { cnpj: string }[]): string | null {
+  if (!contaCnpj) return null;
+  const raiz = contaCnpj.slice(0, 8);
+  if (emissoresAtivos.some(e => e.cnpj.slice(0, 8) === raiz)) return null;
+  return `O dinheiro entrou numa conta da empresa de CNPJ ${formatarCnpj(contaCnpj)}, que ainda não tem dados fiscais (emissor) cadastrados. `
+    + "Emissor de outra empresa não é escolhido sozinho: cadastre os dados fiscais dessa empresa em Contabilidade › Dados fiscais ou escolha a empresa à mão.";
 }
 
 export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: Map<number, RefsEfetivas>): Promise<NotaDetalhada[]> {
@@ -182,7 +219,20 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
   const ld = leads.length ? linhas(await db.execute(sql`SELECT id, name, cpf, city, state FROM leads WHERE id IN (${ids(leads)})`)) : [];
   const ob = obras.length ? linhas(await db.execute(sql`SELECT id, title, city, state FROM construction_projects WHERE id IN (${ids(obras)})`)) : [];
   const tipos = tiposIds.length ? await db.select().from(fiscalTiposServico).where(inArray(fiscalTiposServico.id, tiposIds)) : [];
-  const emissores = await emissoresComPerfil(db);
+  // QA S-6 (A8): o regime do emissor é o vigente na competência de cada nota
+  const linhasEmissores = await db.select().from(fiscalEmissores).orderBy(fiscalEmissores.id);
+  const perfisEmissores = linhasEmissores.length ? await lerPerfis(db) : [];
+  const ativos = linhasEmissores.filter(e => e.ativo);
+  // QA S-6 (A7): empresa da conta em que o dinheiro entrou (sem a 0164, segue sem o motivo)
+  const lancs = uniq(Array.from(origens.values()).map(o => o.bpoLancamentoId));
+  const contaDoLancamento = new Map<number, string>();
+  if (lancs.length) {
+    try {
+      for (const r of linhas(await db.execute(sql`
+        SELECT l.id, ba.empresa_cnpj FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
+        WHERE l.id IN (${ids(lancs)}) AND ba.empresa_cnpj IS NOT NULL`))) contaDoLancamento.set(Number(r.id), String(r.empresa_cnpj));
+    } catch { /* coluna da 0164 ausente: sem motivo */ }
+  }
 
   return notas.map((n, i) => {
     const salva = salvas[i]!;
@@ -192,7 +242,10 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
     const lead = ld.find(l => Number(l.id) === n.leadId);
     const obraLinha = ob.find(o => Number(o.id) === n.obraId);
     const tipo = tipos.find(t => t.id === n.tipoServicoId) ?? null;
-    const emissor = emissores.find(e => e.id === n.emissorId) ?? null;
+    const linhaEmissor = linhasEmissores.find(e => e.id === n.emissorId);
+    const emissor = linhaEmissor ? emissorNaData(linhaEmissor, perfisEmissores, dataDaCompetencia(origem?.competencia, n.dataEvento)) : null;
+    const contaCnpj = origem?.bpoLancamentoId != null ? contaDoLancamento.get(origem.bpoLancamentoId) ?? null : null;
+    const semEmissorMotivo = n.emissorId == null ? motivoSemEmissor(contaCnpj, ativos) : null;
     // Tomador por referência: cliente do BPO (PJ/PF) > card do CRM > nome do próprio registro de origem.
     const tomador: Tomador = cliente
       ? { tipo: "bpo", nome: txt(cliente.razao_social), documento: txt(cliente.cnpj) ?? txt(cliente.cpf), cidade: txt(lead?.city), uf: txt(lead?.state) }
@@ -226,6 +279,7 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
       tomador,
       obra,
       emissor,
+      motivoSemEmissor: semEmissorMotivo,
       tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
       municipio,
       tomadorMudouNaOrigem,

@@ -1,7 +1,8 @@
 // EPIC-029 S-6 (22/11/2026) — consultar_limites_receita: "quanto falta para estourar o Simples na Prospecta?". SOMENTE LEITURA e só na
 // conversa direta do dono (funcoes.ts#LEITURAS_DO_DONO: fora da ponte HTTP, dos grupos e do atendimento). Mesma conta da aba Contabilidade
-// (shared/fiscal/regimes.ts#apurarReceitas). Devolve só nome da empresa, regime, apelido/banco das contas (nunca agência, número, CNPJ de
-// cliente ou dado pessoal) e valores. Nomes de empresa e apelidos são digitados pela equipe: a função CONTAMINA.
+// (shared/fiscal/regimes.ts#apurarReceitas). Devolve só nome da empresa, regime, apelido (ou banco + os 4 últimos dígitos mascarados) das
+// contas — nunca agência, número inteiro, descrição livre, CNPJ de cliente ou dado pessoal (QA S-6, A9: nomeSeguroDaConta) — e valores.
+// Nomes de empresa e apelidos são digitados pela equipe: a função CONTAMINA.
 import { z } from "zod";
 import { AVISO_APURACAO } from "../../../shared/fiscal/regimes.js";
 import { apurarLimites } from "../../fiscal/teto.js";
@@ -27,6 +28,9 @@ export async function consultarLimitesReceita(args: z.infer<typeof entradaLimite
         explicacao: e.explicacao,
         contas: e.contas.map(c => c.nome),
         receitaDoAno: reais(e.receitaCentavos), dosQuaisReembolsos: e.reembolsosCentavos ? reais(e.reembolsosCentavos) : null,
+        // QA S-6 (A6): créditos nas contas dela ainda a classificar — fora da receita registrada, mas a receita PODE chegar a "receitaPossivel"
+        aClassificar: e.aClassificar.movimentos ? { valor: reais(e.aClassificar.centavos), movimentos: e.aClassificar.movimentos, receitaPossivel: reais(e.receitaPossivelCentavos),
+          usadoPossivel: e.limites.map(l => `${l.rotulo}: ${String(l.percentualPossivel).replace(".", ",")}%`) } : null,
         foraDaSoma: { transferenciasEntreContasDaEmpresa: reais(e.foraDaSoma.transferenciasCentavos), estornos: reais(e.foraDaSoma.estornosCentavos) },
         projecaoDoAnoPeloRitmo: reais(e.projecaoCentavos), projecaoConfiavel: e.projecaoConfiavel,
         limites: e.limites.map(l => ({ limite: l.rotulo, valor: reais(l.valorCentavos), usado: `${String(l.percentual).replace(".", ",")}%`, falta: reais(l.faltaCentavos),
@@ -34,7 +38,9 @@ export async function consultarLimitesReceita(args: z.infer<typeof entradaLimite
       })),
       pendencias: {
         contasSemEmpresa: ap.semEmpresa.contas.map(c => c.nome), receitaEmContasSemEmpresa: reais(ap.semEmpresa.receitaCentavos),
+        aClassificarEmContasSemEmpresa: reais(ap.semEmpresa.aClassificarCentavos),
         receitaSemConta: reais(ap.semConta.receitaCentavos), lancamentosSemConta: ap.semConta.lancamentos,
+        receitaDoFinanceiroSemEmpresa: reais(ap.financeiro.receitaCentavos), lancamentosDoFinanceiro: ap.financeiro.lancamentos,
       },
       naoEncontrada: filtro && !empresas.length ? `Nenhuma empresa com "${args.empresa}" no nome entre as cadastradas no perfil tributário.` : null,
     },

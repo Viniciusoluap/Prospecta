@@ -23,7 +23,7 @@ import {
   agruparPorTipo, chaveDoAchado, dadosParaIA, dentroDaJanela, diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, silenciadoPelaLinha, textoDaIAValido,
   type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
 } from "../../shared/dolores/avisos.js";
-import { anoEmBrasilia, nomeDaConta } from "../../shared/fiscal/regimes.js";
+import { anoEmBrasilia, nomeSeguroDaConta } from "../../shared/fiscal/regimes.js";
 import { apurarLimites } from "../fiscal/teto.js";
 import { diasEntre } from "../../shared/dolores/formato.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
@@ -206,7 +206,7 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
   integracao: async () => {
     const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco, apelido: bankAccounts.apelido }).from(bankAccounts)
       .where(and(eq(bankAccounts.ativo, true), ne(bankAccounts.provedor, "manual"), isNotNull(bankAccounts.ultimoErro))).limit(MAX_ACHADOS_POR_TIPO + 1);
-    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(nomeDaConta(b)), marca: "erro_sincronizacao" as const } })));
+    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(nomeSeguroDaConta(b)), marca: "erro_sincronizacao" as const } })));
     return { ...c, completo: c.completo && linhas.length <= MAX_ACHADOS_POR_TIPO };
   },
   // EPIC-029 S-6 — receita REGISTRADA no ano da empresa (soma das contas dela; sem transferência entre contas dela nem estorno) a 70/85/95/100%
@@ -217,9 +217,14 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     const ap = await apurarLimites(bancoDaLeitura(), agora);
     const achados: Achado[] = [];
     for (const e of ap.empresas) for (const l of e.limites) {
-      if (l.faixa <= 0) continue;
-      achados.push({ tipo: "limite_receita", entidade: `empresa:${e.raiz}:${ap.ano}:${l.chave}`, faixa: l.faixa,
-        dados: { nome: nomeLimpo(e.nome), limite: l.chave, percentual: l.percentual, faltaCentavos: l.faltaCentavos, ano: ap.ano } });
+      // QA S-6 (A6): lado seguro — vale a maior faixa entre a receita registrada e a receita com os créditos ainda a classificar
+      const peloPossivel = l.faixaPossivel > l.faixa;
+      const faixa = peloPossivel ? l.faixaPossivel : l.faixa;
+      if (faixa <= 0) continue;
+      achados.push({ tipo: "limite_receita", entidade: `empresa:${e.raiz}:${ap.ano}:${l.chave}`, faixa,
+        dados: { nome: nomeLimpo(e.nome), limite: l.chave, percentual: peloPossivel ? l.percentualPossivel : l.percentual,
+          faltaCentavos: peloPossivel ? Math.max(0, l.valorCentavos - e.receitaPossivelCentavos) : l.faltaCentavos, ano: ap.ano,
+          aClassificarCentavos: peloPossivel ? e.aClassificar.centavos : null } });
     }
     return { achados: achados.slice(0, MAX_ACHADOS_POR_TIPO), completo: false };
   },
