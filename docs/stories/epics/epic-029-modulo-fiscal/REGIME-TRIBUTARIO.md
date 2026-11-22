@@ -220,3 +220,22 @@ patronal das obras. Isso deve ficar escrito nas premissas para ninguém achar qu
 - Reoneração da folha da construção (Lei 14.973/2024): https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2024/Lei/L14973.htm e https://sienge.com.br/blog/desoneracao-da-folha-de-pagamento-na-construcao/
 - Fator R (engenharia, Anexo III × V): https://www.contabilizei.com.br/contabilizei-responde/empresa-de-engenharia-pode-ser-optante-do-simples-nacional/
 - ISS em Imperatriz (faixa 2%–5%, fonte secundária; Código Tributário Municipal LC 005/2022): https://buscadorncm.com.br/iss/ma/imperatriz e https://transparencia.imperatriz.ma.gov.br/upload/decretos/105%20-%20DECRETO%20-%20Disp%C3%B5e%20sobre%20a%20ado%C3%A7%C3%A3o%20do%20modelo%20nacional%20da%20NFSE.pdf
+
+## Atualização 22/11/2026 ~17:45 UTC — conferência feita pela sessão líder (Receita + Drive)
+
+Consulta pública à Receita (Brasil API) e leitura de documentos do Drive (só dados da empresa; nenhum dado pessoal copiado):
+
+| Empresa | CNPJ | Situação | Simples Nacional | Atividade principal |
+|---|---|---|---|---|
+| Prospecta Construções e Avaliação Imobiliária LTDA | 41.865.900/0001-89 | Ativa, ME | **Optante desde 07/05/2021, sem exclusão** | 4299-5/99 Outras obras de engenharia civil |
+| Prospecta Construções LTDA ("VFX Capital", antiga Alto Impacto) | 58.121.993/0001-30 | Ativa, ME | Optante desde 16/11/2024 — **exclusão registrada para 30/11/2026** | 4120-4/00 Construção de edifícios |
+| Efficaz Serviços Financeiros LTDA | 04.578.232/0001-82 | Ativa, ME | **Excluída em 31/12/2024** (estava desde 01/01/2021) | 6619-3/02 Correspondentes de instituições financeiras |
+
+Achados:
+1. **Urgente (58.121.993):** a Receita mostra exclusão do Simples com data de 30/11/2026. A partir de 01/12/2026 essa empresa passa a recolher fora do Simples (Presumido ou Real) se nada for feito. Confirmar com o contador o motivo (pedido próprio, débito, atividade vedada, sócio) e se cabe regularizar; a alteração contratual de 04/11/2026 (troca de sócio, nome e objeto) pode ter relação.
+2. **Efficaz:** fora do Simples desde 2025 — hoje Presumido ou Real; confirmar qual com o contador. Tem CNPJ próprio (não usa o da Prospecta).
+3. **Drive:** não foram encontrados extratos PGDAS-D, guias DAS, DEFIS ou DRE — o anexo do Simples declarado e o faturamento continuam sem evidência. Há contratos sociais e cartões CNPJ.
+4. **Segurança:** existe um certificado digital (.p12) da Efficaz guardado como arquivo comum no Drive. Recomenda-se tirar de lá (o lugar dele é o cofre do sistema/Jurídico).
+5. O sistema (perfil tributário) está vazio para as três.
+
+Orientação (preliminar, a decidir com o contador): Prospecta 41.865.900 — continuar no Simples (Anexo IV para obras, INSS patronal à parte). 58.121.993 — tratar a exclusão antes de 30/11. Efficaz — confirmar o regime atual e simular Presumido × Real.
