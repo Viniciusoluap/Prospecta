@@ -10,9 +10,10 @@ import { CAMPOS_MODELO, MODELOS_CONTRATO, modeloNovo, montarContrato, type Campo
 import { gerarPdfModelo } from "../shared/contratos/pdf.js";
 import { opcoesModelosContrato } from "./juridico-modelos.js";
 import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
+import { gerarESalvarContratoPdf } from "./juridico-pdf.js";
 import { readPrivateDbFile } from "./private-document-files.js";
 
-const documentType = z.enum(["contrato_gerado", "assinado", "anexo"]);
+const documentType = z.enum(["contrato_gerado", "assinado", "anexo", "assinatura_digital"]);
 
 export function isValidContractPdf(buffer: Buffer): boolean {
   return buffer.length > 0 && buffer.length <= 10 * 1024 * 1024 && buffer.subarray(0, 4).toString() === "%PDF";
@@ -71,6 +72,8 @@ export const juridicoRouter = router({
     return created;
   }),
 
+  generatePdf: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input }) => gerarESalvarContratoPdf(input.id)),
+
   modelPdf: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [contrato] = await getDb().select().from(portalContracts).where(eq(portalContracts.id, input.id)).limit(1);
     if (!contrato || !modeloNovo(contrato.type) || !contrato.signatureDate || !contrato.signers || !contrato.clauses) {
@@ -127,7 +130,7 @@ export const juridicoRouter = router({
     contractId: z.number().int().positive(),
     name: z.string().trim().min(1).max(255),
     type: documentType.default("anexo"),
-    base64: z.string().min(8),
+    base64: z.string().min(8).max(4 * 1024 * 1024),
   })).mutation(async ({ input }) => {
     const db = getDb();
     const [contract] = await db.select().from(portalContracts).where(eq(portalContracts.id, input.contractId)).limit(1);
@@ -171,7 +174,7 @@ export const juridicoRouter = router({
 
   documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);
-    if (!document || document.url) throw new TRPCError({ code: "NOT_FOUND" });
+    if (!document) throw new TRPCError({ code: "NOT_FOUND" });
     // Cópia no banco (fallback) tem prioridade; o Drive pode ter só a cópia organizada (29/10).
     const data = (await readPrivateDbFile("contract", document.id)) ?? (document.driveFileId ? await readPrivateDocument(document.driveFileId) : null);
     if (!data) throw new TRPCError({ code: "NOT_FOUND" });
