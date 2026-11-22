@@ -13,6 +13,9 @@ import { Loader2, User, Save, Camera, CheckCircle, XCircle, ArrowLeft } from "lu
 import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 import { MeuConsentimento } from "@/components/consentimento/MeuConsentimento";
+import { AvisoConsultaCadastral } from "@/components/AvisoConsultaCadastral";
+import { useAutoPreenchimentoCep } from "@/hooks/useAutoPreenchimentoCadastral";
+import { enderecoEmLinha } from "@shared/consulta-cadastral";
 
 const ESTADOS_BRASIL = [
   { value: "AC", label: "Acre" },
@@ -114,6 +117,14 @@ export default function Perfil() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [cpfValidation, setCpfValidation] = useState<{ valid: boolean; message: string } | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  // EPIC-029 S-1: CEP novo com 8 números preenche endereço, cidade e estado vazios (o CEP já salvo não consulta de novo).
+  const consultaCep = useAutoPreenchimentoCep({
+    valor: formData.zipCode,
+    ignorar: user?.zipCode ?? null,
+    campos: { address: formData.address, city: formData.city, state: formData.state },
+    mapear: d => ({ address: enderecoEmLinha({ logradouro: d.logradouro, numero: null, complemento: null, bairro: d.bairro }, true), city: d.cidade, state: d.uf }),
+    aplicar: patch => setFormData(f => ({ ...f, ...patch })),
+  });
 
   // Redirecionar se não autenticado
   useEffect(() => {
@@ -465,6 +476,7 @@ export default function Perfil() {
                     maxLength={9}
                     className="bg-[#2a3a4a] border-[#3a4a5a] text-white placeholder:text-gray-400"
                   />
+                  <AvisoConsultaCadastral estado={consultaCep} textoBotao="Usar endereço do CEP" />
                 </div>
               </div>
 

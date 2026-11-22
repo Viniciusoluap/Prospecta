@@ -41,6 +41,8 @@ import BancosPanel from "./BancosPanel";
 import { CamposCategoriaLancamento, categoriaLancamentoCompleta } from "@/components/bpo/CamposCategoriaLancamento";
 import { SugerirVinculosDialog, VinculoClienteLancamento } from "@/components/bpo/VinculoClienteLancamento";
 import { BarraLote } from "@/components/bpo/LoteLancamentos";
+import { AvisoConsultaCadastral } from "@/components/AvisoConsultaCadastral";
+import { useAutoPreenchimentoCnpj } from "@/hooks/useAutoPreenchimentoCadastral";
 import { ImportarContaAzul } from "@/components/bpo/ImportarContaAzul";
 import { AClassificarPanel } from "@/components/bpo/AClassificar";
 import { CampoCentroCusto, CentrosCustoDialog } from "@/components/bpo/CentrosCusto";
@@ -127,6 +129,14 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
   const [clienteOpen, setClienteOpen] = useState(false);
   const [lancamentoOpen, setLancamentoOpen] = useState(false);
   const [clienteForm, setClienteForm] = useState(emptyClienteForm);
+  // EPIC-029 S-1: CNPJ completo e válido preenche a razão social se estiver vazia (cliente do CRM fica de fora: dados vêm do lead).
+  const consultaCnpjCliente = useAutoPreenchimentoCnpj({
+    valor: clienteForm.cnpj,
+    desligado: Boolean(clienteForm.leadId),
+    campos: { razaoSocial: clienteForm.razaoSocial },
+    mapear: d => ({ razaoSocial: d.razaoSocial }),
+    aplicar: patch => setClienteForm(f => ({ ...f, ...patch })),
+  });
   const [lancamentoForm, setLancamentoForm] = useState(emptyLancamentoForm);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
@@ -305,6 +315,7 @@ export default function AdminBpo({ initialTab }: { initialTab?: Aba } = {}) {
                         }
                         className="bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1"
                       />
+                      <AvisoConsultaCadastral estado={consultaCnpjCliente} />
                     </div>
                     <div>
                       <Label className="text-gray-300">CPF</Label>
