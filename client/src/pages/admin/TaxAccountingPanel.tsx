@@ -58,7 +58,7 @@ export default function TaxAccountingPanel() {
   const [profile, setProfile] = useState({
     companyName: "",
     cnpj: "",
-    regime: "lucro_presumido",
+    regime: "simples_nacional",
     estimatedRate: "",
     effectiveFrom: "",
     notes: "",

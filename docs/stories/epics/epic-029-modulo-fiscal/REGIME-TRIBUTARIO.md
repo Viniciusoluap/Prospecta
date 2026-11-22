@@ -242,3 +242,10 @@ Achados:
 5. O sistema (perfil tributário) está vazio para as três.
 
 Orientação (preliminar, a decidir com o contador): Prospecta 41.865.900 — continuar no Simples (Anexo IV para obras, INSS patronal à parte). 58.121.993 — tratar a exclusão antes de 30/11. Efficaz — confirmar o regime atual e simular Presumido × Real.
+
+## Decisão do dono — 22/11/2026
+
+"Certo, vamos trabalhar então tudo no Simples Nacional." Registrado no CLAUDE.md. Feito no sistema: perfil tributário da
+Prospecta Construções e Avaliação Imobiliária (41.865.900/0001-89) cadastrado como Simples Nacional desde 07/05/2021
+(alíquota estimada pendente do extrato PGDAS-D); a tela passa a sugerir Simples Nacional por padrão. VFX Capital e Efficaz:
+só entram como Simples depois da ação do contador (exclusão em 30/11/2026; nova opção em janeiro, até 29/01/2027).

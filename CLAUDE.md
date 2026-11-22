@@ -392,3 +392,18 @@ BPO financeiro, para não termos campos redundantes".
    por ele no painel, guardado cifrado), inscrição municipal, códigos de serviço/alíquotas, CNO das obras. Até lá, o botão Emitir fica
    desligado e nada sai do sistema.
 5. **Paridade com o Grupo Santa Fé**: o dono decide depois; fica registrada como pendência no ROADMAP.
+
+## Regime tributário — decisão do dono em 22/11/2026 (REGRA)
+
+Palavras do dono, depois da conferência do regime (`docs/stories/epics/epic-029-modulo-fiscal/REGIME-TRIBUTARIO.md`):
+"Certo, vamos trabalhar então tudo no Simples Nacional".
+
+1. **Todas as empresas do grupo trabalham no Simples Nacional.** O perfil tributário do sistema (BPO › Contabilidade) já
+   começa em Simples Nacional; a Prospecta Construções e Avaliação Imobiliária (41.865.900/0001-89) foi cadastrada assim
+   (optante desde 07/05/2021). Alíquota estimada: preencher com o extrato PGDAS-D (contador).
+2. Duas empresas dependem de ação do contador para estarem de fato no Simples — não cadastrar como Simples antes disso:
+   - **Prospecta Construções LTDA / "VFX Capital" (58.121.993/0001-30)**: a Receita registra exclusão em 30/11/2026;
+     tratar antes dessa data ou fazer nova opção em janeiro.
+   - **Efficaz Serviços Financeiros (04.578.232/0001-82)**: excluída em 31/12/2024; nova opção só em janeiro (até 29/01/2027),
+     sem débitos e com atividade permitida no Simples.
+3. Obras no Anexo IV (INSS patronal fora do DAS); corretagem no III; gestão de imóveis e engenharia no V (ou III pelo Fator R).
