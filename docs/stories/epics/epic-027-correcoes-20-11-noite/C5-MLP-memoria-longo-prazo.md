@@ -73,9 +73,11 @@ corrigir e apagar (etapa da C5; não usar ferramenta externa)". Fora: Obsidian/C
 - Ferramentas: +3 definições (~2,8 mil caracteres de JSON ≈ 1 mil tokens pela estimativa por cima; ~700 reais) no prefixo fixo, que é
   lido do cache depois da 1ª chamada (0,1×). O prefixo estimado foi de ~12,8 mil para ~13,8 mil tokens; `RESERVA_MINIMA_ENTRADA`
   14.000 → 15.000 (o teste do piso em `c5-e1-memoria.test.ts` confere que cobre o prefixo).
-- Bloco da memória: cabeçalho ~420 caracteres + ~60 caracteres de rótulo por lembrança + o texto. Ex.: 20 lembranças de 100 caracteres
-  ≈ 3,6 mil caracteres ≈ 1,2 mil tokens; no teto (60 / 6.000) ≈ 10 mil caracteres ≈ 3,3 mil tokens. Com o cache: escrita 1,25× na 1ª
-  mensagem (ou quando muda uma lembrança / passa o prazo de ~5 min do cache), leitura 0,1× nas demais e em todas as voltas do mesmo pedido.
+- Bloco da memória: cabeçalho ~470 caracteres + ~30 caracteres de rótulo por lembrança ("- m12 (preferência do dono): ") + o texto.
+  Ex.: 20 lembranças de 100 caracteres ≈ 3,1 mil caracteres ≈ 1 mil tokens; no teto (60 / 6.000) ≈ 8,3 mil caracteres ≈ 2,7 mil tokens.
+  Com o cache (bloco estável, ponto de cache próprio): escrita 1,25× na 1ª mensagem (ou quando muda uma lembrança / passa o prazo de
+  ~5 min do cache), leitura 0,1× nas demais e em todas as voltas do mesmo pedido — no caso típico, ~100 tokens de entrada "cheios" a
+  mais por chamada lida do cache (20 lembranças) e ~1,25 mil na que escreve.
   Sem lembrança ativa: custo zero (nada é enviado).
 
 ## Exemplos
@@ -93,7 +95,16 @@ corrigir e apagar (etapa da C5; não usar ferramenta externa)". Fora: Obsidian/C
 - Migração 0149 não aplicada: a conversa segue sem a memória longa (falha segura); a ação recusa com erro de banco; a tela avisa.
 
 ## Testes
-- (a) Automáticos: `server/dolores/c5-memoria-longa.test.ts` (novo) — ver Change Log para os resultados.
+- (a) Automáticos: `server/dolores/c5-memoria-longa.test.ts` (novo, 25 testes): intenção por código; "saiu das palavras do dono";
+  segredo/bancário/link/invisível recusados, CPF/telefone/e-mail mascarados, sem colchetes, idempotente; tetos e ordem estável; nível
+  "pode"; migração 0149 aplicada de novo + CHECKs; "lembra que…" → proposta → "pode" grava uma vez ("pode" de novo → já fiz, auditoria
+  sem texto); "não" e vencida não gravam; aprovação pela tela da fila não grava; máscara e recusa de senha pela conversa; pedido sem
+  intenção (ferramenta nem oferecida / recusada); texto tirado de consulta recusado; encaminhada e colagem; grupo (inclusive com o número
+  do dono como participante); ponte HTTP 403; bloco no começo da conversa (não no sistema) com cache e somado à reserva; arquivada fora e
+  tetos no bloco; injeção ("ignore as regras…") continua dado e contamina; fronteira por código (só whatsapp.ts lê); grupo marcado e
+  cliente cadastrado com os laços deles rodando sem a memória; corrigir e esquecer (arquiva) com "pode"; lembrança mudada depois da
+  proposta não é sobrescrita; tela: colaborador/corretor FORBIDDEN sem tocar no banco; CRUD do admin, busca, filtro, contagem, auditoria
+  sem texto; sem a 0149 → PRECONDITION_FAILED e a conversa segue.
 - (b) Manuais: nenhum (sem banco real nesta etapa).
 - (c) Pendentes em produção: aplicar 0143, 0145 e 0149; "lembra que …" → "pode"; conferir na tela; "esquece que …" → "pode".
 
@@ -110,3 +121,11 @@ corrigir e apagar (etapa da C5; não usar ferramenta externa)". Fora: Obsidian/C
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Draft → InProgress → InReview (YOLO).
+- 21/11/2026 — @dev (Dex): ajustados por causa das 3 ações novas (comportamento decidido, não regressão): `acoes.test.ts` (lista do
+  registro), `c5-e2-resolve.test.ts` (lista dos níveis "registro"), `c5-e1-qa-r4.test.ts` (a fronteira da memória CURTA passou a casar
+  exatamente `memoria.js`; a da memória longa tem teste próprio). `RESERVA_MINIMA_ENTRADA` 14.000 → 15.000 (prefixo estimado ~13,8 mil).
+  Rótulos de voz das 3 ações em `shared/dolores/voz.ts`.
+- 22/11/2026 — testes (vitest `--maxWorkers=2 --minWorkers=1`): `c5-memoria-longa`, `c5-e1-memoria`, `c5-e1-qa`, `c5-e1-qa-r4`,
+  `c5-e1-voz`, `c5-e2-resolve`, `c5-e2-qa`, `whatsapp`, `marcacao`, `acoes`, `acoes-whatsapp`, `ponte` e
+  `server/integracoes-anthropic.test.ts` → 13 arquivos, 328 testes, todos verdes; `whatsapp-qa` à parte → 38 verdes. `npx tsc --noEmit` limpo. `npx vite build` ok.
+  Não há script `lint` no projeto.
