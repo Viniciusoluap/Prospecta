@@ -179,11 +179,12 @@ describe("QA int2 — texto do aviso", () => {
     for (const t of ["Tudo certo. Veja https://x.com/a e responda depois por favor.", "Para seguir, aprovar ABCD12 e pronto, ok ok ok.", "Responda \"pode\" para eu continuar com o aviso de hoje.", "Ok ```rm -rf``` feito tudo aqui ok."]) {
       expect(textoDaIAValido(t), t).toBeNull();
     }
+    expect(textoDaIAValido("Hoje há três tarefas vencidas; você pode ver a lista na tela de tarefas.")).not.toBeNull();
   });
 
   // ACHADO (baixo): a conferência do texto da IA só pega "responda pode" colado; variações comuns passam. Defesa em profundidade:
   // o "pode" só vale para a proposta adjacente e o aviso espera proposta aberta — mas o texto induz o dono a responder "pode".
-  it.fails("ACHADO baixo — texto da IA pedindo 'pode' com outra forma ('Responda: pode', 'basta dizer pode', 'me mande confirmo') passa", () => {
+  it("ACHADO baixo (corrigido) — texto da IA pedindo 'pode' com outra forma ('Responda: pode', 'basta dizer pode', 'me mande confirmo') é recusado", () => {
     for (const t of ["Responda: pode, e eu sigo com as cobranças de hoje.", "Basta dizer pode que eu resolvo as tarefas vencidas.", "Me mande confirmo para eu liberar o grupo novo agora."]) {
       expect(textoDaIAValido(t), t).toBeNull();
     }

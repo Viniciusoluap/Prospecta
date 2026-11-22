@@ -246,6 +246,8 @@ export function textoDaIAValido(t: string | null | undefined): string | null {
   if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|br|net|org|io)\b/i.test(s)) return null;
   if (/```|<\/?[a-z]+>/i.test(s)) return null;
   if (/\b(aprovar|aprova|recusar|confirmo)\s+[A-Z0-9]{4,}\b/i.test(s)) return null;
-  if (/\bresponda\s+["“]?(pode|sim|confirmo)/i.test(s)) return null;
+  // pedido de confirmação em qualquer forma ("responda: pode", "basta dizer pode", "me mande confirmo"): aviso nunca pede "pode"
+  if (/\b(respond\w*|diga|dizer|digite|digitar|mand\w+|envi\w+|escrev\w+)\b[^.!?\n]{0,24}?["“'‘]?\b(pode|sim|confirmo)\b/i.test(s)) return null;
+  if (/\bconfirmo\b/i.test(s)) return null;
   return s;
 }
