@@ -1,5 +1,6 @@
 import { P12Signer, PDF, rgb } from "@libpdf/core";
 import { Certificate } from "pkijs";
+import { layoutDaMarca, linhasDaMarca } from "./marca-assinatura";
 
 export type CertificadoInfo = {
   id: string; titular: string; documento: string; emissor: string;
@@ -152,11 +153,9 @@ export async function assinarPdf(bytes: Uint8Array, salvo: CertificadoSalvo, sen
       const page = pdf.getPage(pagina)!;
       const limite=page.getCropBox();
       if (x < limite.x || y < limite.y || x + largura > limite.x+limite.width + 1 || y + altura > limite.y+limite.height + 1) throw new Error("A assinatura deve ficar dentro da página.");
-      const nome = info.titular.replace(/[^\u0020-\u00ff]/g, "") || "Consulte o certificado";
-      const linhas = ["ASSINADO DIGITALMENTE", ...nome.match(/.{1,48}(?:\s|$)|.{1,48}/g)!.map(x => x.trim()), `CPF/CNPJ: ${info.documento || "Ver certificado"}`, new Date().toLocaleString("pt-BR", { timeZone:"America/Fortaleza" })];
-      const size = Math.min(9, (altura - 8) / (linhas.length * 1.2), (largura - 8) / 30);
-      page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:0.6 });
-      linhas.forEach((linha, i) => page.drawText(linha, { x:x+4,y:y+altura-6-size-i*size*1.2,size,color:rgb(0.1,0.18,0.3),maxWidth:largura-8 }));
+      const marca = layoutDaMarca(largura, altura, linhasDaMarca(info.titular, info.documento, new Date()));
+      page.drawRectangle({ x,y,width:largura,height:altura,borderColor:rgb(0.15,0.25,0.4),borderWidth:marca.borda });
+      marca.linhas.forEach(linha => page.drawText(linha.texto, { x:x+linha.x,y:y+altura-linha.base,size:marca.fonte,color:rgb(0.1,0.18,0.3) }));
     }
     const result = await pdf.sign({ signer, level: "B-B", digestAlgorithm: "SHA-256", reason: "Assinatura digital de documento no Jurídico Prospecta" });
     if (result.warnings.length) throw new Error("O PDF exige tratamento adicional para preservar suas assinaturas. Use o arquivo original ou um assinador compatível.");
