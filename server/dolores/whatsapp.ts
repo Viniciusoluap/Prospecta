@@ -24,7 +24,7 @@ import { RegistroDoAviso, type DestinoDoItem } from "../whatsapp-recebimento.js"
 import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { modeloDaFuncao } from "../_core/modelo-por-funcao.js";
-import { enviarTextoEvolution } from "../_core/evolution.js";
+import { enviarDocumentoEvolution, enviarTextoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -123,9 +123,19 @@ const envioPadrao: EnvioWhatsapp = async ({ instancia, numero, texto, prazoMs })
   // QA E4 r2 N4: a chave da Evolution nunca segue redirecionamento para outro host
   return Boolean(await enviarTextoEvolution({ ...c, semRedirecionamento: true }, instancia, numero, texto, comPrazo, { linkPreview: false }));
 };
+/** EPIC-029 S-3: envio de um DOCUMENTO (a prévia em PDF do rascunho de nota) — só ao número do dono, conferido por quem chama. */
+export type EnvioDocumentoWhatsapp = (p: { instancia: string; numero: string; base64: string; nome: string; legenda: string; prazoMs: number }) => Promise<boolean>;
+const envioDocumentoPadrao: EnvioDocumentoWhatsapp = async ({ instancia, numero, base64, nome, legenda, prazoMs }) => {
+  const { configEvolution } = await import("../whatsapp-router.js");
+  const c = await configEvolution();
+  if (!c) return false;
+  const comPrazo: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(prazoMs) });
+  // base64 no pedido (nunca link público); a chave da Evolution nunca segue redirecionamento para outro host
+  return Boolean(await enviarDocumentoEvolution({ ...c, semRedirecionamento: true }, instancia, numero, { base64, mime: "application/pdf", nome, legenda }, comPrazo));
+};
 /** `agora`: data (mês, idade da mensagem); `ms`: relógio do prazo de 60 s (um só para o aviso inteiro). */
-type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number };
-const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao, ms: () => Date.now() };
+type Dependencias = { agora: () => Date; enviar: EnvioWhatsapp; ms: () => number; enviarDocumento: EnvioDocumentoWhatsapp };
+const padrao: Dependencias = { agora: () => new Date(), enviar: envioPadrao, ms: () => Date.now(), enviarDocumento: envioDocumentoPadrao };
 let deps: Dependencias = { ...padrao };
 export function definirDependenciasWhatsapp(d?: Partial<Dependencias>) { deps = d ? { ...deps, ...d } : { ...padrao }; esquecerEstranhasVistas(); }
 
@@ -637,6 +647,8 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
+    // EPIC-029 S-3: a prévia em PDF que o dono pediu (ver_nota_fiscal), depois da resposta, ao MESMO número conferido como o dele
+    if (envio.enviadas && r.previasFiscais?.length) await enviarPreviasFiscais(cfg, msg.numero, r.previasFiscais, { mensagemId: msg.id, autor, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: virouTarefa ? "virou tarefa demorada" : r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });
     return ok ? "respondida" : "erro-envio";
   } catch (e) {
@@ -645,6 +657,49 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     await responderAoDono(cfg, msg.numero, FRASE_ERRO, { mensagemId: msg.id, autor, resumo: { erro: true }, prazoFinal });
     await atualizarMensagem(msg.id, { situacao: "erro", motivo: erroCurto(e), respondidaEm: deps.agora() });
     return "erro";
+  }
+}
+
+/** EPIC-029 S-3: frase ao dono quando a prévia não pôde ir (sem tempo, rascunho sumiu, a Evolution não aceitou). */
+export const FRASE_PREVIA_NAO_FOI = "Dolores: não consegui mandar o PDF da prévia agora. Ela está em BPO Financeiro › Contabilidade › Notas a decidir (botão Prévia), ou me peça de novo.";
+/** Tempo mínimo para gerar e mandar uma prévia (PDF pequeno, base64). */
+const MINIMO_PARA_PREVIA_MS = 4_000;
+
+/**
+ * EPIC-029 S-3 — a prévia em PDF de cada rascunho de nota que o dono pediu na conversa (ids vindos da leitura ver_nota_fiscal, por código).
+ * O destino é o número do dono, conferido de novo aqui; o PDF é o mesmo da tela (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as
+ * páginas), com o CPF/CNPJ do tomador seguindo o interruptor dos dados pessoais da Dolores. Nome do arquivo e legenda sem dado pessoal; na
+ * auditoria só o id e o tamanho. Falhou ou faltou tempo: uma frase curta ao dono (nunca um link público). Nunca lança.
+ */
+async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, ids: readonly number[], ctx: { mensagemId: number; autor: number | null; prazoFinal: number }) {
+  const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, resumo: Record<string, unknown>) =>
+    registrarAcao({ funcao: "whatsapp_previa_fiscal", resultado, motivo, autorUserId: ctx.autor, canal: "whatsapp", pedidoId: `wa:${ctx.mensagemId}`, resumo }).catch(() => false);
+  if (!ehNumeroDoDono(numero, cfg.numeroDono) || !cfg.instancia) { await auditar("recusada", "destino não é o número do dono", { previas: ids.length }); return; }
+  const destino = numero.replace(/\D/g, "");
+  let falhou = false;
+  for (const id of ids) {
+    const resta = ctx.prazoFinal - deps.ms();
+    if (resta < MINIMO_PARA_PREVIA_MS) { await auditar("erro", "sem tempo para mandar a prévia", { notaFiscalId: id }); falhou = true; break; }
+    try {
+      const [{ carregarNota }, { gerarPreviaPdf }, { emTransacaoSomenteLeitura, bancoDaLeitura }, { campoPessoal }] = await Promise.all([
+        import("../fiscal/notas.js"), import("../fiscal/previa-pdf.js"), import("./somente-leitura.js"), import("./dados-pessoais.js")]);
+      const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id));
+      const doc = nota.tomador.documento;
+      const documento = doc ? (campoPessoal(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null;
+      const pdf = gerarPreviaPdf({ ...nota, tomador: { ...nota.tomador, documento } });
+      const base64 = Buffer.from(pdf).toString("base64");
+      const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64, nome: `previa-nota-${id}.pdf`,
+        legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, resta - 1_000) });
+      await auditar(ok ? "ok" : "erro", ok ? null : "a Evolution não aceitou o documento", { notaFiscalId: id, bytes: pdf.byteLength });
+      if (!ok) { falhou = true; break; }
+    } catch (e) {
+      await auditar("erro", `falha na prévia: ${erroCurto(e)}`, { notaFiscalId: id });
+      falhou = true;
+      break;
+    }
+  }
+  if (falhou && ctx.prazoFinal - deps.ms() >= MINIMO_PARA_ENVIAR_MS) {
+    await deps.enviar({ instancia: cfg.instancia, numero: destino, texto: FRASE_PREVIA_NAO_FOI, prazoMs: Math.min(PRAZO_ENVIO_MS, ctx.prazoFinal - deps.ms()) }).catch(() => false);
   }
 }
 

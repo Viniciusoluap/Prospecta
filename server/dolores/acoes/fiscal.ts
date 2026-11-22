@@ -1,0 +1,220 @@
+// EPIC-029 S-3 (22/11/2026) — ações fiscais da Dolores, na conversa NATURAL do dono (decisão dele: sem comandos para decorar).
+// As três são de FILA: aqui só se confere e se monta o resumo exato (nada é gravado); a gravação roda depois da resposta dele no
+// WhatsApp, reconhecida por código (server/dolores/pendencia.ts): "pode", "sim", "isso"… para REGISTRO (sem nota, depois, editar) e
+// "confirmo" para a ação SÉRIA (emitir) — o nível é de shared/dolores/confirmacao.ts#nivelDoItem, nunca da IA.
+//
+// Travas (todas por código):
+// - só com `ctx.pedidoFiscal` (a mensagem DIRETA do dono, sem colagem, sem anexo, com o assunto fiscal aberto — cerebro.ts);
+// - só executa com a decisão vinda do WhatsApp dele (`ctx.via === "whatsapp"`; a tela tem os botões próprios da aba Contabilidade);
+// - motivo de "sem nota" da lista fechada (shared/fiscal/motivos.ts); texto livre só no motivo "outro", e saído das palavras dele;
+// - a gravação usa as MESMAS funções da tela (server/fiscal/notas.ts: transição, versão lida, histórico imutável com via "whatsapp");
+// - emitir: até a S-4/S-5 a execução RECUSA ("a emissão ainda não está ativa") — nenhuma chamada de rede, status intacto. O servidor
+//   (notas.ts#emitir) e o gatilho da 0154 também recusam.
+import { TRPCError } from "@trpc/server";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { fiscalNotas } from "../../../drizzle/schema-fiscal.js";
+import { FRASE_EMISSAO_INATIVA, centavosDoValor, reaisDeCentavos } from "../../../shared/dolores/fiscal.js";
+import { prefixoDaFila } from "../../../shared/dolores/fila.js";
+import { veioDasPalavrasDoDono } from "../../../shared/dolores/memoria-longa.js";
+import { limparNomeDeTerceiro } from "../../../shared/dolores/operacao.js";
+import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota } from "../../../shared/fiscal/motivos.js";
+import { EMISSAO_DISPONIVEL } from "../../../shared/fiscal/status.js";
+import { adiar, detalhar, editar, naoEmitir, type NotaDetalhada } from "../../fiscal/notas.js";
+import { UFS } from "../../fiscal/router.js";
+import { bancoDaAcao, emTransacaoDeEscrita } from "../escrita.js";
+import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
+import { RecusaAcao, conferirMostrado, registrarAutoria, resumoDaFila, textoDoDono, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
+
+const id32 = z.number().int().positive().max(2_147_483_647);
+const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data no formato AAAA-MM-DD.")
+  .refine(d => !Number.isNaN(new Date(`${d}T00:00:00Z`).getTime()) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, "Data inválida.");
+const uf = z.enum(UFS);
+
+export const entradaDecidirNotaFiscal = z.object({
+  notaFiscalId: id32.describe("notaFiscalId de listar_notas_fiscais / ver_nota_fiscal."),
+  decisao: z.enum(["sem_nota", "adiada"]).describe("sem_nota = não emitir (precisa do motivo); adiada = deixar para depois."),
+  motivo: z.enum(MOTIVOS_SEM_NOTA).optional().describe("Só em sem_nota: reembolso_custas (custas/cartório), itbi_repassado, taxa_caixa_repassada, servico_nao_faturavel, emitida_fora ou outro."),
+  motivoTexto: z.string().trim().min(3).max(300).optional().describe("Só com motivo outro: o motivo com as palavras do dono."),
+  adiadaAte: data.optional().describe("Só em adiada, se o dono disse até quando (AAAA-MM-DD)."),
+}).strict();
+export const entradaDecidirAprovado = z.object({
+  notaFiscalId: id32, versao: z.number().int().positive(), decisao: z.enum(["sem_nota", "adiada"]),
+  motivo: z.enum(MOTIVOS_SEM_NOTA).nullable(), motivoTexto: z.string().max(300).nullable(), adiadaAte: data.nullable(),
+}).strict();
+
+export const entradaEditarRascunhoNota = z.object({
+  notaFiscalId: id32.describe("notaFiscalId de listar_notas_fiscais / ver_nota_fiscal."),
+  valorReais: z.number().positive().max(1_000_000_000).optional().describe("Valor novo em reais, como o dono disse (ex.: 1200 ou 1200.5)."),
+  voltarAoValorDaOrigem: z.literal(true).optional().describe("true quando o dono quer desfazer o ajuste de valor (volta ao do recebimento)."),
+  descricao: z.string().trim().min(3).max(600).optional().describe("Descrição nova, com as palavras do dono."),
+  municipio: z.string().trim().min(2).max(100).optional().describe("Município de incidência novo, como o dono disse (com a UF)."),
+  uf: uf.optional(),
+}).strict();
+export const entradaEditarAprovado = z.object({
+  notaFiscalId: id32, versao: z.number().int().positive(),
+  valorCentavos: z.number().int().positive().nullable().optional(), descricao: z.string().max(600).optional(),
+  municipio: z.string().max(100).optional(), uf: uf.optional(),
+}).strict();
+
+export const entradaEmitirNotaFiscal = z.object({ notaFiscalId: id32.describe("notaFiscalId de listar_notas_fiscais / ver_nota_fiscal.") }).strict();
+export const entradaEmitirAprovado = z.object({ notaFiscalId: id32, versao: z.number().int().positive() }).strict();
+
+export const FRASE_FISCAL_SO_DO_DONO = "Mudanças nas notas fiscais pela conversa só valem com o seu pedido direto (sem texto colado, sem anexo). Nada foi mudado.";
+const FRASE_SO_PELO_WHATSAPP = "As decisões das notas fiscais pela Dolores valem só com a sua resposta no WhatsApp; pela tela, use BPO › Contabilidade › Notas a decidir. Nada mudou.";
+const FRASE_NAO_E_DO_DONO = "O texto a gravar precisa sair das suas palavras nesta mensagem (não uso o que li no cadastro ou numa consulta). Diga com as suas palavras. Nada foi mudado.";
+
+const soPeloWhatsapp = (ctx: ContextoAcao) => { if (ctx.via !== "whatsapp") throw new RecusaAcao(FRASE_SO_PELO_WHATSAPP); };
+function pedidoDoDono(ctx: ContextoAcao): string {
+  const t = ctx.pedidoFiscal?.texto;
+  if (typeof t !== "string" || !t.trim()) throw new RecusaAcao(FRASE_FISCAL_SO_DO_DONO);
+  return t;
+}
+const aspas = (t: string) => `"${t}"`;
+const diaBr = (d: string) => d.split("-").reverse().join("/");
+const hoje = (agora: Date) => new Date(agora.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
+const local = (m: NotaDetalhada["municipio"]) => (m.nome ? `${limparNomeDeTerceiro(m.nome, 60)}${m.uf ? `/${m.uf}` : ""}` : "município não definido");
+/** Como a nota aparece no resumo: nome do tomador limpo, valor e serviço/município (dados do cadastro: o dono confere). */
+function rotulo(n: NotaDetalhada): string {
+  const nome = limparNomeDeTerceiro(n.tomador.nome, 60) || "tomador não identificado";
+  const servico = n.tipoServico?.nome ? `${limparNomeDeTerceiro(n.tipoServico.nome, 40)}, ` : "";
+  return `a nota de «${nome}», ${reaisDeCentavos(n.valorCentavos)} (${servico}${local(n.municipio)}; rascunho nº ${n.id})`;
+}
+
+/** O rascunho, lido numa transação só de leitura; precisa estar a decidir (ou deixado para depois). */
+async function rascunhoAberto(id: number): Promise<NotaDetalhada> {
+  const n = await emTransacaoSomenteLeitura(async () => {
+    const linhas = await bancoDaLeitura().select().from(fiscalNotas).where(eq(fiscalNotas.id, id)).limit(1);
+    return (await detalhar(bancoDaLeitura(), linhas))[0] ?? null;
+  }).catch(() => { throw new RecusaAcao("Não consegui ler os rascunhos de nota agora (o módulo fiscal pode não estar ativo). Nada foi mudado."); });
+  if (!n) throw new RecusaAcao(`Não achei o rascunho de nota ${id}. Nada foi mudado.`);
+  if (n.status !== "A_DECIDIR" && n.status !== "ADIADA") {
+    throw new RecusaAcao(`Esse rascunho já está decidido (${n.status === "SEM_NOTA" ? "sem nota" : n.status.toLowerCase()}); para mudar, reabra na aba Contabilidade. Nada foi mudado.`);
+  }
+  return n;
+}
+
+/** Erro da regra fiscal (transição, versão antiga, motivo) vira recusa explicada; o resto sobe (a porta diz "nada foi gravado"). */
+async function gravarFiscal<T>(fn: () => Promise<T>): Promise<T> {
+  try { return await fn(); } catch (e) {
+    if (e instanceof TRPCError) {
+      throw new RecusaAcao(e.code === "CONFLICT" ? "O rascunho mudou depois da proposta; nada mudou. Peça de novo." : `${e.message} Nada mudou.`);
+    }
+    throw e;
+  }
+}
+
+// ── decidir_nota_fiscal: sem nota (motivo da lista) ou deixar para depois — REGISTRO ("pode") ──
+
+export async function prepararDecidirNotaFiscal(args: z.infer<typeof entradaDecidirNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
+  const doDono = pedidoDoDono(ctx);
+  const n = await rascunhoAberto(args.notaFiscalId);
+  let motivo: MotivoSemNota | null = null;
+  let motivoTexto: string | null = null;
+  let adiadaAte: string | null = null;
+  let resumo: string;
+  if (args.decisao === "sem_nota") {
+    // motivo fora da lista nem passa do zod; aqui, motivo ausente e "outro" sem texto (a mesma regra da tela e do CHECK do banco)
+    const problema = problemaDoMotivo(args.motivo, args.motivoTexto);
+    if (problema) throw new RecusaAcao(`${problema} Nada foi mudado.`);
+    motivo = args.motivo!;
+    if (motivo === "outro") {
+      motivoTexto = textoDoDono(args.motivoTexto!.replace(/\s+/g, " "));
+      if (!veioDasPalavrasDoDono(motivoTexto, doDono)) throw new RecusaAcao(FRASE_NAO_E_DO_DONO);
+    }
+    resumo = `marcar ${rotulo(n)} como SEM NOTA — motivo: ${ROTULO_MOTIVO[motivo]}${motivoTexto ? ` (${aspas(motivoTexto)})` : ""}`;
+  } else {
+    if (args.adiadaAte) {
+      if (args.adiadaAte < hoje(ctx.agora)) throw new RecusaAcao("A data para retomar já passou; diga outra data (ou sem data). Nada foi mudado.");
+      if (args.adiadaAte > `${Number(hoje(ctx.agora).slice(0, 4)) + 1}${hoje(ctx.agora).slice(4)}`) throw new RecusaAcao("Deixar para depois vale por no máximo um ano. Nada foi mudado.");
+      adiadaAte = args.adiadaAte;
+    }
+    resumo = `deixar ${rotulo(n)} para DEPOIS${adiadaAte ? `, até ${diaBr(adiadaAte)}` : ", sem data"} (continua na lista de notas a decidir)`;
+  }
+  const final = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}${resumo}`, motivoTexto ? [aspas(motivoTexto)] : []);
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:decidir`, resumo: final, argumentos: { notaFiscalId: n.id, versao: n.versao, decisao: args.decisao, motivo, motivoTexto, adiadaAte } }], recusados: [] };
+}
+
+export async function executarDecidirAprovado(args: z.infer<typeof entradaDecidirAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
+  soPeloWhatsapp(ctx);
+  if (args.motivoTexto) conferirMostrado(ctx, [aspas(args.motivoTexto)]);
+  const autor = { usuarioId: ctx.autorId, via: "whatsapp" as const };
+  await emTransacaoDeEscrita(async () => {
+    const db = bancoDaAcao();
+    await gravarFiscal(() => args.decisao === "sem_nota"
+      ? naoEmitir(db, { id: args.notaFiscalId, versao: args.versao, motivo: args.motivo ?? "", texto: args.motivoTexto, ...autor })
+      : adiar(db, { id: args.notaFiscalId, versao: args.versao, ate: args.adiadaAte, ...autor }));
+    await registrarAutoria(ctx, { tabela: "fiscal_notas", registroId: args.notaFiscalId, funcao: "decidir_nota_fiscal",
+      descricao: `rascunho de nota ${args.notaFiscalId}: ${args.decisao === "sem_nota" ? `sem nota (${args.motivo})` : "deixado para depois"}` });
+  });
+  const feito = args.decisao === "sem_nota"
+    ? `marquei o rascunho de nota nº ${args.notaFiscalId} como sem nota (${ROTULO_MOTIVO[args.motivo as MotivoSemNota]})`
+    : `deixei o rascunho de nota nº ${args.notaFiscalId} para depois${args.adiadaAte ? `, até ${diaBr(args.adiadaAte)}` : ""}`;
+  return { dados: { notaFiscalId: args.notaFiscalId, decisao: args.decisao }, resumo: { notaFiscalId: args.notaFiscalId, decisao: args.decisao }, feitos: [feito] };
+}
+
+// ── editar_rascunho_nota: valor, descrição, município — REGISTRO ("pode"), com o antes e o depois ──
+
+export async function prepararEditarRascunhoNota(args: z.infer<typeof entradaEditarRascunhoNota>, ctx: ContextoAcao): Promise<Preparo> {
+  const doDono = pedidoDoDono(ctx);
+  const n = await rascunhoAberto(args.notaFiscalId);
+  const mudancas: string[] = [];
+  const trechos: string[] = [];
+  const argumentos: Record<string, unknown> = { notaFiscalId: n.id, versao: n.versao };
+  if (args.valorReais !== undefined && args.voltarAoValorDaOrigem) throw new RecusaAcao("Diga um valor novo OU que volta ao valor do recebimento, não os dois. Nada foi mudado.");
+  if (args.valorReais !== undefined) {
+    const c = centavosDoValor(args.valorReais);
+    if (c === null) throw new RecusaAcao("Esse valor não é um valor em reais válido (até dois centavos). Nada foi mudado.");
+    if (c !== n.valorCentavos) { mudancas.push(`valor ${reaisDeCentavos(n.valorCentavos)} → ${reaisDeCentavos(c)}`); argumentos.valorCentavos = c; }
+  } else if (args.voltarAoValorDaOrigem) {
+    if (n.valorAjustadoCentavos != null) { mudancas.push(`valor ${reaisDeCentavos(n.valorCentavos)} → ${reaisDeCentavos(n.valorSugeridoCentavos)} (o do recebimento)`); argumentos.valorCentavos = null; }
+  }
+  if (args.descricao !== undefined) {
+    const d = textoDoDono(args.descricao.replace(/\s+/g, " "));
+    if (!veioDasPalavrasDoDono(d, doDono)) throw new RecusaAcao(FRASE_NAO_E_DO_DONO);
+    if (d !== n.descricao) { mudancas.push(`descrição ${aspas(limparNomeDeTerceiro(n.descricao, 120) || "(vazia)")} → ${aspas(d)}`); trechos.push(aspas(d)); argumentos.descricao = d; }
+  }
+  if (args.municipio !== undefined) {
+    if (!args.uf) throw new RecusaAcao("Diga também a UF do município (ex.: Parauapebas/PA). Nada foi mudado.");
+    const m = textoDoDono(args.municipio.replace(/\s+/g, " "));
+    if (!veioDasPalavrasDoDono(m, doDono)) throw new RecusaAcao(FRASE_NAO_E_DO_DONO);
+    const novo = `${m}/${args.uf}`;
+    if (novo.toLocaleLowerCase("pt-BR") !== `${n.municipio.nome ?? ""}/${n.municipio.uf ?? ""}`.toLocaleLowerCase("pt-BR")) {
+      mudancas.push(`município ${local(n.municipio)} → ${novo}`); trechos.push(novo); argumentos.municipio = m; argumentos.uf = args.uf;
+    }
+  }
+  if (!mudancas.length) throw new RecusaAcao("Não há o que mudar nesse rascunho (o que você disse já é o que está lá). Nada foi mudado.");
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}corrigir ${rotulo(n)}: ${mudancas.join("; ")}`, trechos);
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:editar`, resumo, argumentos }], recusados: [] };
+}
+
+export async function executarEditarAprovado(args: z.infer<typeof entradaEditarAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
+  soPeloWhatsapp(ctx);
+  conferirMostrado(ctx, [...(args.descricao ? [aspas(args.descricao)] : []), ...(args.municipio ? [`${args.municipio}/${args.uf}`] : [])]);
+  await emTransacaoDeEscrita(async () => {
+    await gravarFiscal(() => editar(bancoDaAcao(), {
+      id: args.notaFiscalId, versao: args.versao, usuarioId: ctx.autorId, via: "whatsapp",
+      ...(args.valorCentavos !== undefined ? { valorCentavos: args.valorCentavos } : {}),
+      ...(args.descricao !== undefined ? { descricao: args.descricao } : {}),
+      ...(args.municipio !== undefined ? { municipioNome: args.municipio, municipioUf: args.uf ?? null } : {}),
+    }));
+    await registrarAutoria(ctx, { tabela: "fiscal_notas", registroId: args.notaFiscalId, funcao: "editar_rascunho_nota", descricao: `rascunho de nota ${args.notaFiscalId} corrigido` });
+  });
+  return { dados: { notaFiscalId: args.notaFiscalId }, resumo: { notaFiscalId: args.notaFiscalId, editada: true }, feitos: [`corrigi o rascunho de nota nº ${args.notaFiscalId}`] };
+}
+
+// ── emitir_nota_fiscal: SÉRIA ("confirmo"); até a S-4/S-5 a execução recusa e nada sai do sistema ──
+
+export async function prepararEmitirNotaFiscal(args: z.infer<typeof entradaEmitirNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
+  pedidoDoDono(ctx);
+  const n = await rascunhoAberto(args.notaFiscalId);
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${EMISSAO_DISPONIVEL ? "a nota sai pela API Nacional" : "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"}`);
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao } }], recusados: [] };
+}
+
+export async function executarEmitirAprovado(_args: z.infer<typeof entradaEmitirAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
+  soPeloWhatsapp(ctx);
+  // Nenhuma chamada de rede e nenhuma gravação: a emissão real entra na S-4 (homologação) e na S-5 (produção, liberada pelo dono).
+  const frase = FRASE_EMISSAO_INATIVA.charAt(0).toUpperCase() + FRASE_EMISSAO_INATIVA.slice(1);
+  throw new RecusaAcao(EMISSAO_DISPONIVEL ? "A emissão pela conversa entra na etapa 5 do módulo fiscal; nada foi emitido e o rascunho continua como estava." : `${frase}.`);
+}

@@ -56,6 +56,12 @@ export type ContextoAcao = {
    * original da proposta) e o que ela pede. Ausente → as ações de mesa recusam.
    */
   pedidoDeMesa?: { texto: string; tipos: readonly ("propor" | "revisar" | "aprovar" | "recusar")[] } | null;
+  /**
+   * EPIC-029 S-3 (fiscal) — só quando o assunto fiscal está aberto (cerebro.ts#abreFiscal: a mensagem do DONO fala de nota/fiscal, ou a
+   * conversa recente citou um rascunho de nota) e a mensagem é direta (sem colagem, sem anexo, não encaminhada): o texto dela, para
+   * conferir que o texto livre gravado (motivo "outro", descrição, município) saiu das palavras dele. Ausente → as ações fiscais recusam.
+   */
+  pedidoFiscal?: { texto: string } | null;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */
