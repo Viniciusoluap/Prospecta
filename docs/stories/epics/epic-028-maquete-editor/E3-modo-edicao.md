@@ -1,6 +1,6 @@
 # E3 — Modo edição dos itens (admin), versões rascunho × publicado e tabelas
 
-Status: InReview (Etapa 3 implementada em 21/11/2026; aguarda portão de QA e a revisão do dono)
+Status: Done (portão de QA de 22/11/2026: CONCERNS; aguarda a revisão do dono)
 Epic: EPIC-028 — Maquete fiel à planta com editor de itens (`ETAPA-0-PLANO.md`)
 Paridade: Maquete 3D é exceção registrada no `docs/stories/epics/ROADMAP.md` (EPIC-022): nada a portar ao Grupo Santa Fé.
 Tamanho: G. Migração `drizzle/0146_maquete_3d_itens_e_lotes.sql` criada e testada em banco de teste (PGlite), **não
@@ -91,3 +91,30 @@ Alterados:
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Ready → InProgress → InReview. Etapa 3 implementada (ver `ETAPA-3-RELATORIO.md`).
+- 22/11/2026 — @qa (Quinn): portão de QA → CONCERNS; InReview → Done (ver "QA Results").
+
+## QA Results
+22/11/2026 — @qa (Quinn), revisão de `aba97c7..2b01979` (base `cf7c78d`). **Decisão: CONCERNS** (nenhum achado importante).
+- `npx tsc --noEmit`: sem erro. `vitest run server/maquete-3d`: 15 arquivos, 354 testes, todos passando.
+  Novo `server/maquete-3d-editor-qa.test.ts`: 11 testes, todos passando (POST direto com a geladeira na P3, formatos hostis,
+  versão base adiantada/negativa, histórico preservado, rascunho não vaza, publicação simultânea, 0146 aplicada 3× sem mudar
+  nenhuma coluna da maquete antiga, link público antigo).
+- Permissão: `adminProcedure` + `exigirAdmin` antes de qualquer consulta em `abrir/salvar/publicar/restaurarPadrao/versoes`
+  (router.ts:224-248); colaborador com o módulo, corretor, empreiteiro, cliente, anônimo e papel inventado → FORBIDDEN sem banco.
+- Migração 0146: só aditiva e reexecutável; os únicos DROP são `DROP CONSTRAINT IF EXISTS` das duas CHECK de origem (recriadas
+  com a lista anterior + 'fonte', idênticas às da 0115 para 'projeto'/'incorporacao') e `DROP TRIGGER IF EXISTS` dos gatilhos
+  novos. Nenhum comando altera ou apaga dado existente.
+- Achados:
+  1. [médio] A maquete da planta (origem 'fonte') some só da lista; pelas rotas antigas por id (`detalhe`, `salvarModelo`,
+     `salvarComercial`…) o colaborador com o módulo ainda a lê (inclusive o token) e pode mexer no `modelo`. Hoje o `modelo` dela
+     não é usado pelo editor e o token não abre nada (status 'validada'), mas convém recusar origem 'fonte' nessas rotas antes da Etapa 4.
+  2. [médio, operacional] A 0146 tem de estar aplicada no Neon ANTES do merge/publicação: o Drizzle passa a citar as colunas
+     novas em todo SELECT/INSERT de `maquetes_3d` (inclusive o link público antigo).
+  3. [baixo] `slugPlantaValido` usa `s in ARQUIVOS`: a planta "constructor" passa e vira erro 500 (só admin, nada gravado,
+     sem acesso a arquivo). Trocar por `Object.hasOwn(ARQUIVOS, s)`.
+  4. [baixo] Item de piso com `elev` acima da altura da porta (ex.: geladeira a 2,2 m na frente da P3) escapa das regras da porta.
+  5. [baixo] `alcanca` vem da tela sem conferência: o admin pode alargar os ambientes em que um item pode ficar (paredes e
+     portas continuam valendo).
+  6. [baixo] Duas publicações simultâneas de versões diferentes podem terminar na mais antiga (estado consistente, sem aviso).
+  7. [baixo, visual] No computador a cozinha fica pequena no 3D do editor (contorno amarelo pouco visível) e a planta 2D lateral
+     fica miúda; a planta mostra dois rótulos "P3" (vem da Etapa 1).

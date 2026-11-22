@@ -23,6 +23,7 @@ import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } fro
 import { DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dolores/fila.js";
+import { VALIDADE_ITEM_CONFIRMAVEL_MS } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
 import { acoesDoPedido, porNaFila } from "./aprovacoes.js";
@@ -186,6 +187,16 @@ export type OpcoesExecucao = {
   semAcoes?: boolean;
   /** Recebe os códigos dos itens que este pedido pôs (ou achou) na fila — para o quadro do dono; nunca vai ao modelo. */
   aoPorNaFila?: (codigos: string[]) => void;
+  /**
+   * EPIC-027 C5 (E2, decisão do dono de 21/11: "registrar → um 'pode'"): NENHUMA ação executa na hora — nem as de nível "direto"
+   * (tarefa, acompanhamento): todas viram item esperando a resposta do dono. O laço do WhatsApp (cerebro.ts) sempre passa isto.
+   */
+  exigirConfirmacao?: boolean;
+  /**
+   * EPIC-027 C5 (E2): o pedido do dono é confirmável com "pode"/"confirmo" (intenção dele, reconhecida por código, e sem texto
+   * colado): o item vence junto com a proposta (curta) e o aviso ao modelo diz que o sistema pergunta logo abaixo.
+   */
+  confirmacaoNatural?: boolean;
 };
 
 /**
@@ -270,7 +281,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     return responder(429, { ok: false, erro: motivo });
   }
   if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
-    contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila });
+    contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
+    exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
@@ -299,10 +311,12 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   agora: Date; autor: number; mensagemId: number; pedidoId: string | null; registrar: Registrar;
   responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
+  exigirConfirmacao: boolean; confirmacaoNatural: boolean;
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
-    motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null };
+    motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null,
+    ...(c.confirmacaoNatural ? { validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS } : {}) };
   try {
     const feitas = await acoesDoPedido(c.mensagemId);
     if (feitas >= MAX_ACOES_POR_COMANDO) {
@@ -311,7 +325,7 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       return responder(429, { ok: false, erro: motivo });
     }
     // Ação direta ANTES de qualquer leitura de dados neste comando: executa na hora (transação mínima, com prazo).
-    if (acao.nivel === "direto" && !c.contaminado) {
+    if (acao.nivel === "direto" && !c.contaminado && !c.exigirConfirmacao) {
       // QA R2 M6 — desfecho ÚNICO: a transação tem o próprio prazo (metade do da porta: `bancoDaAcao` recusa e o banco
       // cancela a instrução), e a porta ESPERA ela terminar — ou o COMMIT foi confirmado ("feito"), ou foi desfeita
       // ("não feito"). Só se o banco não responder nem depois de prazo + 2 s vale o último recurso "confira no sistema".
@@ -336,7 +350,8 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       // a ação direta devolve só ids/códigos (QA R2 N2); se uma função marcar `contamina`, vale a marca dela
       return { ...responder(200, { ok: true, nivel: "direto", avisoSeguranca: AVISO_SEGURANCA, dados: valor }), contamina: acao.contamina };
     }
-    // Ação pedida DEPOIS de o comando ler dados (contaminação), ou de nível fila: nada é feito; vai para a fila do dono.
+    // Ação pedida DEPOIS de o comando ler dados (contaminação), de nível fila, ou no laço do WhatsApp (EPIC-027 C5 E2: tudo espera
+    // o "pode"/"confirmo" do dono): nada é feito; vira item esperando a decisão dele.
     const preparo = acao.nivel === "direto"
       ? { itens: [await comPrazo(acao.paraFila!(args as never, ctx), c.prazoMs)], recusados: [] }
       : await comPrazo(acao.preparar!(args as never, ctx), c.prazoMs);
@@ -346,15 +361,19 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
     c.aoPorNaFila?.(criados.map(x => x.codigo));
     await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
-      resumo: { nivel: "fila", contaminado: acao.nivel === "direto", naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
+      resumo: { nivel: "fila", contaminado: acao.nivel === "direto" && c.contaminado, confirmacaoNatural: c.confirmacaoNatural, naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
     // O modelo NÃO recebe os códigos: quem mostra os itens (com o código) ao dono é o sistema, depois da resposta.
+    // EPIC-027 C5 (E2): na conversa com confirmação natural o modelo não recebe o resumo (nomes do cadastro, editáveis pela equipe):
+    // quem o mostra ao dono é o sistema, logo abaixo da resposta — menos texto de terceiro dentro do laço
     const { valor } = limitarResposta(sanitizarResposta({
-      naFila: criados.map(x => ({ resumo: x.resumo, jaAguardava: x.jaAguardava })),
+      naFila: criados.map(x => (c.confirmacaoNatural ? { jaAguardava: x.jaAguardava } : { resumo: x.resumo, jaAguardava: x.jaAguardava })),
       naoPreparados: recusados,
     }, filtroDaSaida("whatsapp")));
     // o resumo dos itens cita nomes do cadastro: contamina (QA R2 N2)
     return { contamina: true, ...responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
-      aviso: acao.nivel === "direto"
+      aviso: c.confirmacaoNatural
+        ? "NADA foi feito ainda: logo abaixo da sua resposta o sistema mostra ao dono o resumo exato e pergunta se pode fazer. Diga em uma frase o que vai fazer e pare; não pergunte você mesma, não diga que fez e não fale em fila nem em código."
+        : acao.nivel === "direto"
         ? "NADA foi feito: como esta conversa já leu dados do sistema, o registro ficou esperando a confirmação do dono (regra fixa). O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código."
         : "NADA foi feito ainda: os itens ficaram esperando a confirmação do dono. O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código.", dados: valor }) };
   } catch (e) {

@@ -37,6 +37,11 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   salvar_documentos_grupo: "documentos do grupo",
   conciliar_nota_obra: "conciliação da nota",
   salvar_nota_obra: "nota na pasta da obra",
+  // EPIC-027 C5 (E2)
+  classificar_grupo: "tipo do grupo",
+  aceitar_grupo: "aceite do grupo",
+  ignorar_grupo: "grupo deixado de lado",
+  ligar_resposta_grupo: "resposta no grupo",
 });
 
 /** "tarefas, obras" — os rótulos das consultas feitas, sem repetir e na ordem; nome desconhecido vira "outra consulta". */

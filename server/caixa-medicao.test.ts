@@ -65,7 +65,7 @@ describe("PCI da CAIXA", () => {
   });
 
   it("recusa arquivo que não é planilha da CAIXA", () => {
-    expect(() => lerPci(new Uint8Array([1, 2, 3, 4]))).toThrow(/\.xls ou \.xlsb/);
+    expect(() => lerPci(new Uint8Array([1, 2, 3, 4]))).toThrow(/\.xls, \.xlsx, \.xlsm ou \.xlsb/);
   });
 
   it("incidências da PCI passam no cálculo de progresso sem erro e completas", () => {

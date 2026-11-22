@@ -1,4 +1,5 @@
 import { incidenciaPciParaTexto } from "../shared/pci-upload.js";
+import { prepararEdicaoComPci } from "../shared/medicao-pci-edicao.js";
 import { lixeiraDoArquivo } from "./drive-organizacao.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
@@ -165,6 +166,7 @@ export async function carregarProgresso(projectId: number) {
       editadaEm: constructionProgressHistory.updatedAt,
       tipo: constructionProgressHistory.measurementType,
       dadosCaixa: constructionProgressHistory.caixaData,
+      pciVersionId: constructionProgressHistory.pciVersionId,
     }).from(constructionProgressHistory)
       .leftJoin(users, eq(users.id, constructionProgressHistory.createdBy))
       .leftJoin(solicitante, eq(solicitante.id, constructionProgressHistory.requestedBy))
@@ -190,6 +192,7 @@ export async function carregarProgresso(projectId: number) {
       uploadedAt: constructionPci.uploadedAt,
       linkedAt: constructionPci.linkedAt,
       parsed: constructionPci.parsed,
+      versionId: constructionPci.versionId,
     }).from(constructionPci).where(eq(constructionPci.projectId, projectId)).limit(1),
     db.select({ id: constructionPhotos.id, imageUrl: constructionPhotos.imageUrl, caption: constructionPhotos.caption, includeInReport: constructionPhotos.includeInReport }).from(constructionPhotos).where(and(eq(constructionPhotos.projectId, projectId), isNull(constructionPhotos.progressHistoryId))),
     // A lista visível limita 100 medições; a data preenchida uma vez deve
@@ -241,6 +244,8 @@ export async function carregarProgresso(projectId: number) {
           formato: dadosPci.formato,
           incidencias: dadosPci.incidencias.map((v) => incidenciaPciParaTexto(v)),
           proponente: dadosPci.identificacao?.proponente ?? "",
+          versionId: pci.versionId,
+          plsPadrao: { ...dadosFixosDasMedicoes([], dadosPci), seloCasaAzul: dadosPci.seloCasaAzul },
           contrato: dadosPci.contrato,
           prazoMeses: dadosPci.prazoMeses,
           dataContratacao: dadosPci.dataContratacao,
@@ -372,30 +377,59 @@ export const obraProgressoRouter = router({
 
   editarMedicao: adminProcedure.input(z.object({
     medicaoId: z.number().int().positive(),
+    /** Versão exibida na edição; evita salvar silenciosamente com uma PCI trocada enquanto se digitava. */
+    pciVersionId: z.number().int().positive().nullable().optional(),
     itens: itensMedicao,
     tipo: tipoMedicao.optional(),
     dadosCaixa: z.unknown().optional(),
   })).mutation(async ({ input, ctx }) => {
     const atual = await medicaoOuErro(input.medicaoId);
-    const calculo = calcularProgresso(input.itens);
-    if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    const validacao = calcularProgresso(input.itens);
+    if (validacao.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: validacao.erros.join(" ") });
     const tipo = input.tipo ?? (ehTipoMedicao(atual.measurementType) ? atual.measurementType : "pls");
-    const dadosCaixa = input.dadosCaixa === undefined ? undefined : dadosCaixaValidados(tipo, input.dadosCaixa);
+    let dadosCaixa = input.dadosCaixa === undefined ? undefined : dadosCaixaValidados(tipo, input.dadosCaixa);
     const db = getDb();
     const agora = new Date();
-    const pciVersionId = await versaoPciParaMedicao(atual.projectId, input.itens, atual.pciVersionId);
+    const [pciAtual] = await db.select().from(constructionPci).where(eq(constructionPci.projectId, atual.projectId)).limit(1);
+    const vinculada = pciAtual?.linkedAt ? pciAtual : null;
+    if (vinculada && !vinculada.versionId) throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule novamente a PCI da obra antes de editar a medição." });
+    const pciVersionId = vinculada?.versionId ?? await versaoPciParaMedicao(atual.projectId, input.itens, atual.pciVersionId);
+    if (input.pciVersionId !== undefined && input.pciVersionId !== pciVersionId) throw new TRPCError({ code: "CONFLICT", message: "A PCI vinculada mudou. Reabra a edição da medição para carregar a versão atual." });
+    const mudouPci = pciVersionId !== atual.pciVersionId;
+    const parsed = vinculada?.parsed as DadosPci | undefined;
+    // Formulário atual já exibiu a PCI nova: nunca salvar um progresso diferente do mostrado.
+    // Só o cliente legado, sem versão e ainda na base anterior, precisa da adoção no servidor.
+    if (parsed && !(mudouPci && input.pciVersionId === undefined)
+      && !incidenciasCorrespondem(input.itens, SERVICOS_PROGRESSO.map(s => s.chave), parsed.incidencias)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "As incidências devem corresponder à PCI carregada na edição. Reabra a medição para usar os valores da planilha." });
+    }
+    const preparada = prepararEdicaoComPci(input.itens, dadosCaixa ?? atual.caixaData as DadosMedicaoCaixa | null,
+      parsed ? { incidencias: parsed.incidencias, plsPadrao: { ...dadosFixosDasMedicoes([], parsed), seloCasaAzul: parsed.seloCasaAzul } } : null,
+      mudouPci && (input.pciVersionId === undefined || input.dadosCaixa === undefined));
+    const calculo = calcularProgresso(preparada.itens);
+    if (calculo.erros.length) throw new TRPCError({ code: "BAD_REQUEST", message: calculo.erros.join(" ") });
+    if (mudouPci && preparada.dadosCaixa) dadosCaixa = dadosCaixaValidados(tipo, preparada.dadosCaixa);
+    const conferirVinculo = db.execute(sql`SELECT 1 / CASE WHEN ${vinculada
+      ? sql`EXISTS (SELECT 1 FROM construction_pci WHERE project_id = ${atual.projectId} AND version_id = ${pciVersionId} AND linked_at IS NOT NULL)`
+      : sql`NOT EXISTS (SELECT 1 FROM construction_pci WHERE project_id = ${atual.projectId} AND linked_at IS NOT NULL)`} THEN 1 ELSE 0 END AS pci_estavel`);
     const atualizarHistorico = db.update(constructionProgressHistory).set({
       pciVersionId,
       progressPct: calculo.progresso.toFixed(6),
       incidenceTotalPct: calculo.somaIncidencia.toFixed(15),
-      items: input.itens,
+      items: preparada.itens,
       requestEmailStatus: sql`CASE WHEN ${constructionProgressHistory.requestedAt} IS NOT NULL THEN 'pending' ELSE ${constructionProgressHistory.requestEmailStatus} END`,
       updatedAt: agora,
       updatedBy: ctx.user.id,
       measurementType: tipo,
       ...(dadosCaixa !== undefined ? { caixaData: dadosCaixa } : {}),
     }).where(eq(constructionProgressHistory.id, input.medicaoId));
-    await db.batch([travarObra(atual.projectId), atualizarHistorico, ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id, ehVigente(atual.projectId, input.medicaoId))]);
+    try {
+      await db.batch([travarObra(atual.projectId), conferirVinculo, atualizarHistorico, ...sincronizarMedicaoVigente(atual.projectId, ctx.user.id, ehVigente(atual.projectId, input.medicaoId))]);
+    } catch (e) {
+      const causa = (e as { cause?: { code?: string } })?.cause;
+      if ((e as { code?: string })?.code === "22012" || causa?.code === "22012") throw new TRPCError({ code: "CONFLICT", message: "A PCI vinculada mudou durante o salvamento. Reabra a edição da medição.", cause: e });
+      throw e;
+    }
     return { progresso: calculo.progresso };
   }),
 

@@ -20,7 +20,8 @@ export type DadosEdicao = {
 export type ConexaoEditor = {
   abrir: (planta: string) => Promise<DadosEdicao>;
   salvar: (planta: string, versaoBase: number, itens: ItemFonte[]) => Promise<{ versao: number }>;
-  publicar: (planta: string, versao: number) => Promise<{ versao: number }>;
+  /** `publicadaVista`: a versão publicada que a tela conhecia (null = nada publicado); mudou no servidor → CONFLICT. */
+  publicar: (planta: string, versao: number, publicadaVista: number | null) => Promise<{ versao: number }>;
   /** Etapa 4: lotes ligados à maquete da planta (página pública por lote). */
   lotes?: ConexaoLotes;
 };
@@ -64,7 +65,7 @@ export function useConexaoEditor(): ConexaoEditor | null {
   return useMemo(() => (admin ? {
     abrir: planta => utils.client.maquete3d.itens.abrir.mutate({ planta }) as Promise<DadosEdicao>,
     salvar: (planta, versaoBase, itens) => utils.client.maquete3d.itens.salvar.mutate({ planta, versaoBase, itens }),
-    publicar: (planta, versao) => utils.client.maquete3d.itens.publicar.mutate({ planta, versao }),
+    publicar: (planta, versao, publicadaVista) => utils.client.maquete3d.itens.publicar.mutate({ planta, versao, publicadaVista }),
     lotes: {
       listar: planta => utils.client.maquete3d.lotes.listar.query({ planta }) as Promise<ListaLotes>,
       salvar: dados => utils.client.maquete3d.lotes.salvar.mutate(dados),

@@ -167,7 +167,7 @@ tipos, situação (aceito, aguardando você, recusado) e se ela responde lá; re
 SHA-256, `decidir`, a tela da fila e a autoria); o que muda é COMO o dono decide e o NÍVEL. O modelo continua sem nenhuma
 ferramenta que execute sozinha, exceto as de configuração inofensiva marcadas "direto".
 
-**2.2.2 Níveis** (campo novo `nivel` no registro de ações e coluna `nivel` em `dolores_aprovacoes`, 0144):
+**2.2.2 Níveis** (campo novo `nivel` no registro de ações e coluna `nivel` em `dolores_aprovacoes`, 0144 — [CORRIGIDO na E2: migração **0145**, e o nível NÃO virou coluna: é calculado por código de função + argumentos guardados, `shared/dolores/confirmacao.ts#nivelDoItem`]):
 | Nível | Como o dono confirma | Ações |
 |---|---|---|
 | `consulta` | nada | todas as leituras |
@@ -197,7 +197,7 @@ sinal: proposta feita em pedido SEM verbo de ação ganha a mesma linha de alert
 Liberar em `permissoes.ts` como `LIBERADAS_ETAPA_7` (e `ETAPA_ATUAL = 7`); `PROIBIDAS` continua igual (envio, exclusão,
 pagamento, usuário, assinatura).
 
-**2.2.4 Confirmação natural com estado pendente seguro** — tabela `dolores_conversa_pendencia` (0144):
+**2.2.4 Confirmação natural com estado pendente seguro** — tabela `dolores_conversa_pendencia` (0144 → [CORRIGIDO na E2: **0145**, `drizzle/0145_dolores_pendencia.sql`; 0141–0144 já estavam em uso]):
 `id, criado_em, vence_em, mensagem_id (comando que gerou), pergunta_conversa_id (linha de dolores_conversa com a pergunta),
 aprovacao_ids int[], nivel ('registro'|'serio'), palavra varchar(30) (só no sério), situacao
 ('aberta'|'confirmada'|'recusada'|'vencida'|'substituida'), decidida_em, decidida_mensagem_id` + índice único parcial
@@ -385,7 +385,7 @@ pode responder "cria uma tarefa para isso" e ela sabe do que se trata).
   `shared/dolores/grupos-tipo.ts` (textos naturais, mantendo os comandos antigos), `server/dolores/whatsapp.ts`
   (`lerConfirmacao` na ordem certa), `server/dolores/permissoes.ts` (etapa 7), `client/src/components/admin/DoloresFilaCard.tsx`
   (mostrar nível e pendência aberta).
-- **Migração 0144** `0144_dolores_pendencia.sql`: `CREATE TABLE IF NOT EXISTS dolores_conversa_pendencia (...)` + índice único
+- **Migração 0145** (CORRIGIDO na E2; o plano dizia 0144, já usada) `0145_dolores_pendencia.sql`: `CREATE TABLE IF NOT EXISTS dolores_conversa_pendencia (...)` + índice único
   parcial `WHERE situacao='aberta'`; `ALTER TABLE dolores_aprovacoes ADD COLUMN IF NOT EXISTS nivel varchar(10)` (NULL =
   itens antigos, tratados como hoje).
 - **Testes:** `confirmacao.test.ts` (tabela de frases aceitas/recusadas; "pode sim, e cria outra para o Pedro" NÃO é
@@ -416,7 +416,7 @@ pode responder "cria uma tarefa para isso" e ela sabe do que se trata).
   @lid do dono no mesmo ponto em que aprende o da Dolores), `shared/dolores/marcacao.ts` (`remetenteEhODono(item, numeroDono,
   lidDono)` puro; `stanzaId` citado), `shared/dolores/grupos.ts` (tipo `orcamento`), `server/dolores/pendencia.ts` (origem
   "grupo"), `server/dolores/whatsapp.ts` (pergunta no privado via `enviarAvisoAoDono` + gravação na conversa).
-- **Migração 0145** `0145_dolores_pedido_no_grupo.sql`: `ALTER TABLE dolores_marcacoes_config ADD COLUMN IF NOT EXISTS
+- **Migração 0146 ou seguinte** (a 0145 ficou com a E2; renumerar ao implementar) `014x_dolores_pedido_no_grupo.sql`: `ALTER TABLE dolores_marcacoes_config ADD COLUMN IF NOT EXISTS
   lid_dono varchar(40), lid_dono_numero varchar(20), lid_dono_conferido_em timestamptz, pedidos_dono_dia smallint DEFAULT
   20 NOT NULL, frase_no_grupo boolean DEFAULT true NOT NULL`; contador reaproveita `dolores_marcacoes_contagem`; valor
   `orcamento` no CHECK do tipo de documento, se houver.

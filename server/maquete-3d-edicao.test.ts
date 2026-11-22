@@ -6,11 +6,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lerFonte, type ItemFonte } from "../shared/maquete-3d/fonte.js";
 import {
-  CATALOGO_ITENS, MATERIAIS_ITEM, alterarItem, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
+  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, vistaDoAmbiente, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
   desfazer, encaixar, encaixeNaParede, fecharGesto, girar, itemEditadoSchema, itensDoProblema, itensEdicaoSchema, novoId, novoItem,
   posicaoArrastada, problemasDaEdicao, refazer, registrar, tiposDoGrupo, travadosAlterados,
 } from "../shared/maquete-3d/edicao.js";
 import { TIPOS_MOVEL } from "../shared/maquete-3d/mobilia.js";
+import { cenaDaFonte } from "../shared/maquete-3d/fonte-cena.js";
+import { planta2d } from "../shared/maquete-3d/planta2d.js";
 
 const FONTE = lerFonte(JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../data/plantas/lote4-qd18.json"), "utf8")));
 const ITENS = FONTE.itens;
@@ -209,5 +211,48 @@ describe("portas bloqueadas (zonas em vermelho na tela)", () => {
     const b = portasBloqueadas(FONTE, itens);
     expect(b.map(x => [x.abertura, x.itens])).toEqual([["p3-cozinha", ["geladeira"]]]);
     expect(b[0].zonas).toHaveLength(4);
+  });
+});
+
+describe("correções do portão de QA (E3)", () => {
+  it("elevação só para tipo suspenso: geladeira elevada bloqueia; armário aéreo elevado sobre o vão da P3 continua bloqueando", () => {
+    expect(codigos(com("geladeira", { elev: 2.2, alt: 0.3 }))).toContain("item_elevado");
+    const aereo = { ...item("geladeira"), id: "aereo-teste", tipo: "armario_aereo" as const, x: 0.54, z: 1.36, rot: 0, larg: 0.6, prof: 0.35, alt: 0.3, elev: 1.0 };
+    const c = codigos([...ITENS.filter(i => i.id !== "bancada-pia"), aereo]);
+    expect(c).not.toContain("item_elevado");
+    expect(c.some(x => x === "item_giro_porta" || x === "item_faixa_livre" || x === "item_vao")).toBe(true);
+    for (const t of TIPOS_SUSPENSOS) expect(CATALOGO_ITENS[t].elev ?? 0).toBeGreaterThan(0);
+  });
+  it("trocar armário aéreo por guarda-roupa tira a elevação; o contrário usa a padrão", () => {
+    const aereo = { ...item("geladeira"), tipo: "armario_aereo" as const, elev: 1.5 };
+    expect(converterTipo(aereo, "guarda_roupa").elev).toBeUndefined();
+    expect(converterTipo({ ...aereo, tipo: "estante", elev: undefined }, "prateleira").elev).toBe(CATALOGO_ITENS.prateleira.elev);
+  });
+  it("alcanca é derivado da geometria: lista da tela é ignorada; só o balcão alcança", () => {
+    const d = comAlcanceDerivado(FONTE, com("sofa", { alcanca: ["Quarto 1"] }, com("balcao", { alcanca: ["Quarto 1", "Banheiro"] })));
+    expect(d.find(i => i.id === "sofa")!.alcanca).toBeUndefined();
+    expect(d.find(i => i.id === "balcao")!.alcanca).toEqual(item("balcao").alcanca);
+  });
+});
+
+describe("correções visuais do portão de QA (E3)", () => {
+  it("rótulos das portas na planta 2D não se sobrepõem (P3 do banheiro × P4 do quarto 2) e cada P3 fica junto do seu vão", () => {
+    const abs = planta2d(FONTE).aberturas;
+    for (let a = 0; a < abs.length; a++) for (let b = a + 1; b < abs.length; b++) {
+      const A = abs[a].rotulo, B = abs[b].rotulo;
+      expect(Math.abs(A.x - B.x) >= 0.26 || Math.abs(A.z - B.z) >= 0.17, `${abs[a].id} × ${abs[b].id}`).toBe(true);
+    }
+    for (const ab of abs.filter(x => x.codigo === "P3")) {
+      const cx = ab.vao.reduce((s, p) => s + p[0], 0) / ab.vao.length, cz = ab.vao.reduce((s, p) => s + p[1], 0) / ab.vao.length;
+      expect(Math.hypot(ab.rotulo.x - cx, ab.rotulo.z - cz), ab.id).toBeLessThan(0.6);
+    }
+  });
+  it("vista do editor enquadrada no ambiente: alvo no centro dele, mais perto que a visão geral", () => {
+    const geral = cenaDaFonte(FONTE).vistas.find(v => v.tipo === "geral")!;
+    const v = vistaDoAmbiente(FONTE, geral, "Cozinha")!;
+    expect(v.tipo).toBe("geral");
+    const dist = (x: typeof v) => Math.hypot(x.pos[0] - x.alvo[0], x.pos[1] - x.alvo[1], x.pos[2] - x.alvo[2]);
+    expect(dist(v)).toBeLessThan(dist(geral));
+    expect(vistaDoAmbiente(FONTE, geral, "Inexistente")).toBeNull();
   });
 });

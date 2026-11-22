@@ -169,20 +169,20 @@ describe("router maquete3d.itens", () => {
     const v1 = await admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(padrao(), "sofa", { z: 6.2 }) });
     const { maqueteId } = await admin().abrir({ planta: PLANTA });
     expect(await itensPublicados(maqueteId)).toBeNull(); // rascunho nunca é público
-    await admin().publicar({ planta: PLANTA, versao: v1.versao });
+    await admin().publicar({ planta: PLANTA, versao: v1.versao, publicadaVista: null });
     expect((await itensPublicados(maqueteId))!.itens.find(i => i.id === "sofa")!.z).toBe(6.2);
     const v2 = await admin().salvar({ planta: PLANTA, versaoBase: 1, itens: mover(padrao(), "rack-tv", { z: 6.4 }) });
     expect(v2.versao).toBe(2);
     expect((await itensPublicados(maqueteId))!.versao).toBe(1); // o cliente continua vendo a publicada
     const aberto = await admin().abrir({ planta: PLANTA });
     expect(aberto).toMatchObject({ versaoBase: 2, situacao: "rascunho", versaoPublicada: 1, rascunhoNaoPublicado: true });
-    await admin().publicar({ planta: PLANTA, versao: 2 });
+    await admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: 1 });
     expect((await itensPublicados(maqueteId))!.itens.find(i => i.id === "rack-tv")!.z).toBe(6.4);
     const versoes = await admin().versoes({ planta: PLANTA });
     expect(versoes.map(v => [v.versao, v.situacao, v.emUso])).toEqual([[2, "publicada", true], [1, "arquivada", false]]);
     expect((await admin().abrir({ planta: PLANTA })).situacao).toBe("publicada");
     // Publicar de novo a mesma versão não muda nada.
-    expect(await admin().publicar({ planta: PLANTA, versao: 2 })).toMatchObject({ jaPublicada: true });
+    expect(await admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: 2 })).toMatchObject({ jaPublicada: true });
   });
 
   it("concorrência: salvar com base desatualizada e publicar versão que não é a última → CONFLICT", async () => {
@@ -194,18 +194,34 @@ describe("router maquete3d.itens", () => {
     const r = await Promise.allSettled([admin().salvar({ planta: PLANTA, versaoBase: 1, itens: padrao() }), caller(2).salvar({ planta: PLANTA, versaoBase: 1, itens: padrao() })]);
     expect(r.filter(x => x.status === "fulfilled")).toHaveLength(1);
     expect((r.find(x => x.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ code: "CONFLICT" });
-    await expect(admin().publicar({ planta: PLANTA, versao: 1 })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(admin().publicar({ planta: PLANTA, versao: 9 })).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await admin().publicar({ planta: PLANTA, versao: 2 });
+    await expect(admin().publicar({ planta: PLANTA, versao: 1, publicadaVista: null })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(admin().publicar({ planta: PLANTA, versao: 9, publicadaVista: null })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: null });
+  });
+
+  it("publicação concorrente: quem publica com a versão publicada desatualizada recebe CONFLICT e a mais nova continua valendo", async () => {
+    const { maqueteId } = await admin().abrir({ planta: PLANTA }); // admin 1 vê: nada publicado
+    await admin().salvar({ planta: PLANTA, versaoBase: 0, itens: mover(padrao(), "sofa", { z: 6.2 }) });
+    await caller(2).publicar({ planta: PLANTA, versao: 1, publicadaVista: null }); // admin 2 publica a v1
+    await caller(2).salvar({ planta: PLANTA, versaoBase: 1, itens: mover(padrao(), "rack-tv", { z: 6.4 }) });
+    await caller(2).publicar({ planta: PLANTA, versao: 2, publicadaVista: 1 });
+    await admin().salvar({ planta: PLANTA, versaoBase: 2, itens: mover(padrao(), "sofa", { z: 6.25 }) });
+    // Admin 1 ainda acha que nada está publicado: não sobrescreve a v2 sem saber.
+    await expect(admin().publicar({ planta: PLANTA, versao: 3, publicadaVista: null })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/Outra pessoa publicou/) });
+    expect((await itensPublicados(maqueteId))!.versao).toBe(2);
+    await expect(admin().publicar({ planta: PLANTA, versao: 3, publicadaVista: 1 })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await admin().publicar({ planta: PLANTA, versao: 3, publicadaVista: 2 })).toMatchObject({ versao: 3, jaPublicada: false });
+    const { rows } = await banco.pg.query<{ versao: number; situacao: string }>("SELECT versao, situacao FROM maquete_3d_itens ORDER BY versao");
+    expect(rows.map(r => [r.versao, r.situacao])).toEqual([[1, "arquivada"], [2, "arquivada"], [3, "publicada"]]);
   });
 
   it("publicar revalida no servidor: versão gravada com problema (ou de outra estrutura) não é publicada", async () => {
     const { maqueteId } = await admin().abrir({ planta: PLANTA });
     const ruim = JSON.stringify(mover(padrao(), "geladeira", { x: 2.0 }));
     await banco.pg.query(`INSERT INTO maquete_3d_itens (maquete_id, versao, itens, quantidade, modelo_versao, estrutura_hash, situacao) VALUES ($1, 1, $2, 22, 1, $3, 'rascunho')`, [maqueteId, ruim, hashDaEstrutura(fonteDoRepo(PLANTA))]);
-    await expect(admin().publicar({ planta: PLANTA, versao: 1 })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/atravessa a parede/) });
+    await expect(admin().publicar({ planta: PLANTA, versao: 1, publicadaVista: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/atravessa a parede/) });
     await banco.pg.query(`INSERT INTO maquete_3d_itens (maquete_id, versao, itens, quantidade, modelo_versao, estrutura_hash, situacao) VALUES ($1, 2, $2, 22, 1, 'estrutura-antiga', 'rascunho')`, [maqueteId, JSON.stringify(padrao())]);
-    await expect(admin().publicar({ planta: PLANTA, versao: 2 })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/estrutura/) });
+    await expect(admin().publicar({ planta: PLANTA, versao: 2, publicadaVista: null })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/estrutura/) });
     expect((await admin().abrir({ planta: PLANTA })).estruturaMudou).toBe(true);
     expect(await itensPublicados(maqueteId)).toBeNull();
   });
@@ -231,7 +247,7 @@ describe("router maquete3d.itens", () => {
     for (const [nome, c] of quem) {
       for (const chamada of [
         () => c.abrir({ planta: PLANTA }), () => c.salvar({ planta: PLANTA, versaoBase: 0, itens: padrao() }),
-        () => c.publicar({ planta: PLANTA, versao: 1 }), () => c.restaurarPadrao({ planta: PLANTA, versaoBase: 0 }), () => c.versoes({ planta: PLANTA }),
+        () => c.publicar({ planta: PLANTA, versao: 1, publicadaVista: null }), () => c.restaurarPadrao({ planta: PLANTA, versaoBase: 0 }), () => c.versoes({ planta: PLANTA }),
       ]) {
         const e = await chamada().then(() => null, (x: { code: string }) => x);
         expect(e?.code, nome).toMatch(/^(FORBIDDEN|UNAUTHORIZED)$/);

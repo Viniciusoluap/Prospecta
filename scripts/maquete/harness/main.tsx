@@ -36,8 +36,8 @@ function conexaoEmMemoria(): ConexaoEditor {
       versoes.push({ versao: base + 1, itens });
       return { versao: base + 1 };
     },
-    publicar: async (_p, versao) => {
-      if (versoes.at(-1)?.versao !== versao) throw erro("Versão desatualizada.", "CONFLICT");
+    publicar: async (_p, versao, publicadaVista) => {
+      if (versoes.at(-1)?.versao !== versao || publicada !== publicadaVista) throw erro("Versão desatualizada.", "CONFLICT");
       publicada = versao;
       return { versao };
     },

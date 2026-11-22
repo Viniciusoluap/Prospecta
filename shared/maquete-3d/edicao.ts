@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { TIPOS_MOVEL, type TipoMovel } from "./mobilia.js";
 import { EPS_AREA, areaComum, contornoDoItem, eixoDaParede, ehOrtogonal, poligonoDoAmbiente, type AmbienteFonte, type FontePlanta, type ItemFonte } from "./fonte.js";
-import { ehAuxiliar } from "./fonte-cena.js";
+import { ehAuxiliar, type VistaCena } from "./fonte-cena.js";
 import { pontoInterno } from "./geometria3d.js";
 import { ROTULOS_MOVEL_FONTE } from "./rotulos-itens.js";
 import { temErro, validarFonte, zonasDaPorta, type ProblemaFonte } from "./validacao-fonte.js";
@@ -188,18 +188,69 @@ export function posicaoArrastada(f: FontePlanta, i: Pick<ItemFonte, "rot" | "lar
   return ima ? { x: ima.x, z: ima.z, paredeId: ima.paredeId } : { x: px, z: pz, paredeId: null as string | null };
 }
 
+/**
+ * Tipos suspensos por natureza (presos na parede ou no teto): os ÚNICOS que podem ter elevação (`elev` > 0). Lista
+ * fechada: item de piso "flutuando" não escapa das regras da porta. Mesmo os suspensos respeitam o vão e o giro da porta
+ * quando a base fica abaixo da altura dela (`validarFonte`).
+ */
+export const TIPOS_SUSPENSOS: readonly TipoMovel[] = ["armario_aereo", "prateleira", "espelho", "quadro", "pendente", "plafon"];
+export const podeTerElevacao = (t: TipoMovel) => TIPOS_SUSPENSOS.includes(t);
+
+/**
+ * Tipos que podem passar para ambientes vizinhos (`alcanca`): só o balcão (cozinha → sala). O servidor nunca aceita a
+ * lista da tela: ela é derivada da geometria (os ambientes que o item realmente ocupa) em `comAlcanceDerivado`.
+ */
+export const TIPOS_QUE_ALCANCAM: readonly TipoMovel[] = ["balcao"];
+
+/**
+ * Itens com `alcanca` derivado (nunca o valor vindo da tela): tipo que alcança → os outros ambientes sobre os quais o
+ * contorno dele fica de fato (no máximo 4, na ordem da planta); outro tipo → sem `alcanca`. Itens travados ficam
+ * como estão (o servidor já exige que sejam iguais aos da planta).
+ */
+export function comAlcanceDerivado(f: FontePlanta, itens: ItemFonte[]): ItemFonte[] {
+  return itens.map(i => {
+    if (!i.editavel) return i;
+    const { alcanca: _a, ...sem } = i;
+    if (!TIPOS_QUE_ALCANCAM.includes(i.tipo)) return sem;
+    const c = contornoDoItem(i);
+    const outros = f.estrutura.ambientes.filter(a => a.nome !== i.ambiente && areaComum(poligonoDoAmbiente(a), c) > EPS_AREA).map(a => a.nome).slice(0, 4);
+    return outros.length ? { ...sem, alcanca: outros } : sem;
+  });
+}
+
 /** Converte o item em outro tipo do MESMO grupo, mantendo posição, giro, medidas, material e cor. */
 export function converterTipo(i: ItemFonte, novo: TipoMovel): ItemFonte {
   if (novo === i.tipo) return i;
   if (grupoDoTipo(novo) !== grupoDoTipo(i.tipo))
     throw new Error(`${rotuloDoTipo(i.tipo)} só pode virar outro item de "${ROTULOS_GRUPO[grupoDoTipo(i.tipo)]}".`);
   const pad = CATALOGO_ITENS[novo];
-  const { opcoes: _o, ...resto } = i;
-  return { ...resto, tipo: novo, ...(pad.opcoes ? { opcoes: { ...pad.opcoes } } : {}) };
+  const { opcoes: _o, elev: _e, ...resto } = i;
+  // Elevação só para tipo suspenso: o de piso volta ao chão; o suspenso mantém a altura que tinha (ou a padrão).
+  const elev = podeTerElevacao(novo) ? (i.elev || pad.elev) : undefined;
+  return { ...resto, tipo: novo, ...(elev ? { elev } : {}), ...(pad.opcoes ? { opcoes: { ...pad.opcoes } } : {}) };
 }
 
 /** Ambientes onde se pode pôr item (sem as faixas auxiliares, como a divisa cozinha/sala). */
 export const ambientesEditaveis = (f: FontePlanta): AmbienteFonte[] => f.estrutura.ambientes.filter(a => !ehAuxiliar(a));
+
+/**
+ * Vista do editor (computador) enquadrada num ambiente: a mesma direção da visão geral, mais de cima e mais perto, para
+ * o contorno do item selecionado ficar bem visível. `null` se o ambiente não existe.
+ */
+export function vistaDoAmbiente(f: FontePlanta, geral: VistaCena, nome: string): VistaCena | null {
+  const a = f.estrutura.ambientes.find(x => x.nome === nome);
+  if (!a) return null;
+  const pts = poligonoDoAmbiente(a);
+  const xs = pts.map(q => q.x), zs = pts.map(q => q.y);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  const alvo: [number, number, number] = [r4((x0 + x1) / 2), a.piso, r4((z0 + z1) / 2)];
+  const d = [(geral.pos[0] - geral.alvo[0]) * 0.6, geral.pos[1] - geral.alvo[1], (geral.pos[2] - geral.alvo[2]) * 0.6];
+  const n = Math.hypot(d[0], d[1], d[2]) || 1, dist = Math.max(7.5, Math.hypot(x1 - x0, z1 - z0) * 2.4);
+  return {
+    ...geral, id: `foco-${a.nome}`, nome: a.nome, ambiente: a.nome,
+    pos: [r4(alvo[0] + (d[0] / n) * dist), r4(alvo[1] + (d[1] / n) * dist), r4(alvo[2] + (d[2] / n) * dist)], alvo,
+  };
+}
 
 /** Ponto de partida de um item novo num ambiente (ponto interno, no encaixe de 5 cm). */
 export function centroDoAmbiente(f: FontePlanta, nome: string) {
@@ -245,7 +296,14 @@ export function alterarItem(f: FontePlanta, itens: ItemFonte[], id: string, muda
 export const fonteComItens = (f: FontePlanta, itens: ItemFonte[]): FontePlanta => ({ ...f, itens });
 
 /** Problemas da planta com estes itens (`validarFonte`). Qualquer erro bloqueia salvar e publicar. */
-export const problemasDaEdicao = (f: FontePlanta, itens: ItemFonte[]): ProblemaFonte[] => validarFonte(fonteComItens(f, itens));
+export function problemasDaEdicao(f: FontePlanta, itens: ItemFonte[]): ProblemaFonte[] {
+  const derivados = comAlcanceDerivado(f, itens);
+  const elevados: ProblemaFonte[] = derivados.filter(i => i.editavel && (i.elev ?? 0) > 0 && !podeTerElevacao(i.tipo)).map(i => ({
+    nivel: "erro", codigo: "item_elevado", onde: i.id,
+    mensagem: `O item "${i.id}" (${i.tipo}) é de piso e não pode ficar elevado do chão (${String(i.elev).replace(".", ",")} m). Só itens de parede ou teto têm elevação.`,
+  }));
+  return [...elevados, ...validarFonte(fonteComItens(f, derivados))];
+}
 export const bloqueiaSalvar = (ps: ProblemaFonte[]) => temErro(ps);
 
 /** Itens citados num problema (`onde` é o id do item ou "a × b"). */
