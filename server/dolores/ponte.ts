@@ -209,6 +209,8 @@ export type OpcoesExecucao = {
   pedidoDoDono?: string | null;
   /** EPIC-027 C5 (criadora de mesas): a mensagem do DONO pede algo de mesa, por código (cerebro.ts). Ausente: as ações de mesa recusam. */
   pedidoDeMesa?: ContextoAcao["pedidoDeMesa"];
+  /** EPIC-029 S-3: o assunto fiscal está aberto na mensagem direta do DONO, por código (cerebro.ts). Ausente: as ações fiscais recusam. */
+  pedidoFiscal?: ContextoAcao["pedidoFiscal"];
 };
 
 /**
@@ -302,7 +304,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
   if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
     contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
     exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null,
-    pedidoDeMesa: opcoes.pedidoDeMesa ?? null });
+    pedidoDeMesa: opcoes.pedidoDeMesa ?? null, pedidoFiscal: opcoes.pedidoFiscal ?? null });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal, ...(leitura!.soConversaDoDono ? { pedidoDoDono: opcoes.pedidoDoDono ?? null } : {}) })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
@@ -332,13 +334,15 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   responder: (status: number, corpo: Record<string, unknown>) => RespostaPonte;
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
   exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null; pedidoDeMesa: ContextoAcao["pedidoDeMesa"];
+  pedidoFiscal: ContextoAcao["pedidoFiscal"];
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
     motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null,
     ...(c.confirmacaoNatural ? { validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS } : {}),
     ...(c.pedidoDeMemoria ? { pedidoDeMemoria: c.pedidoDeMemoria } : {}),
-    ...(c.pedidoDeMesa ? { pedidoDeMesa: c.pedidoDeMesa } : {}) };
+    ...(c.pedidoDeMesa ? { pedidoDeMesa: c.pedidoDeMesa } : {}),
+    ...(c.pedidoFiscal ? { pedidoFiscal: c.pedidoFiscal } : {}) };
   try {
     const feitas = await acoesDoPedido(c.mensagemId);
     if (feitas >= MAX_ACOES_POR_COMANDO) {

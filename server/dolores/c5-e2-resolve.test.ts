@@ -114,7 +114,8 @@ describe("regras puras", () => {
     // EPIC-027 C5-COM: gerar_link_maquete_lote com `troca: false` (lote sem link) também é "pode"
     // EPIC-027 C5-E4: silenciar_aviso também é "pode"
     // EPIC-027 C5 (criadora de mesas): propor/revisar/recusar_mesa são "pode"; propor_aprovacao_mesa é sério ("confirmo")
-    expect(registro).toEqual(["classificar_grupo", "corrigir_memoria", "criar_card_cliente", "criar_tarefa", "esquecer_memoria", "gerar_documento", "gerar_link_maquete_lote", "guardar_memoria", "ignorar_grupo", "ligar_resposta_grupo", "propor_mesa", "recusar_mesa", "registrar_acompanhamento", "revisar_mesa", "salvar_documentos_grupo", "salvar_nota_obra", "silenciar_aviso"]);
+    // EPIC-029 S-3: + decidir_nota_fiscal e editar_rascunho_nota (rascunho de nota: "pode"); emitir_nota_fiscal continua sério
+    expect(registro).toEqual(["classificar_grupo", "corrigir_memoria", "criar_card_cliente", "criar_tarefa", "decidir_nota_fiscal", "editar_rascunho_nota", "esquecer_memoria", "gerar_documento", "gerar_link_maquete_lote", "guardar_memoria", "ignorar_grupo", "ligar_resposta_grupo", "propor_mesa", "recusar_mesa", "registrar_acompanhamento", "revisar_mesa", "salvar_documentos_grupo", "salvar_nota_obra", "silenciar_aviso"]);
   });
 
   it("a pergunta não tem código nem a palavra \"código\" (o filtro de saída a trataria como senha)", () => {

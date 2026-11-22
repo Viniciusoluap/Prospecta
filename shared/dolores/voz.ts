@@ -18,6 +18,9 @@ export const ROTULO_CONSULTA: Readonly<Record<string, string>> = Object.freeze({
   guardar_memoria: "memória", corrigir_memoria: "memória", esquecer_memoria: "memória",
   // EPIC-027 C5-E4
   silenciar_aviso: "avisos automáticos",
+  // EPIC-029 S-3 (fiscal)
+  listar_notas_fiscais: "notas fiscais a decidir", ver_nota_fiscal: "rascunho da nota fiscal", decidir_nota_fiscal: "decisão da nota fiscal",
+  editar_rascunho_nota: "correção da nota fiscal", emitir_nota_fiscal: "emissão da nota fiscal",
   detalhar_processo_regularizacao: "detalhe do processo",
   consultar_cliente: "cadastro do cliente",
   historico_atendimento: "histórico de atendimento",

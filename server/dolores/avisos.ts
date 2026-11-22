@@ -13,17 +13,21 @@
 //   pergunta que ele está para responder. O aviso nunca abre proposta nem confirma nada.
 // - IA (opcional, desligada por padrão): chamada SEM ferramentas e sem histórico, só com dados estruturados já limpos; gasto na parte
 //   "avisos" (5%); bloqueio, estouro ou falha → texto fixo. A IA nunca decide enviar, para quem nem quando.
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
+import { HORA_RESUMO_FISCAL, temPalavraComando } from "../../shared/dolores/fiscal.js";
 import { bankAccounts, leadDocuments, leads, tasks } from "../../drizzle/schema.js";
 import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresAvisosAchados, doloresAvisosConfig, doloresAvisosEnvios, doloresAvisosTipos, type DoloresAvisosConfig } from "../../drizzle/schema-dolores-avisos.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import {
-  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SISTEMA_AVISOS, TIPOS_COLETADOS, agruparPorTipo, chaveDoAchado, dadosParaIA, dentroDaJanela,
-  diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, textoDaIAValido, type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
+  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SILENCIADOS_POR_PADRAO, SISTEMA_AVISOS, TIPOS_AVISO, TIPOS_COLETADOS, agruparPorTipo,
+  chaveDoAchado, comPerguntaFiscal, dadosParaIA, dentroDaJanela, diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, silenciadoPelaLinha, textoDaIAValido,
+  type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
 } from "../../shared/dolores/avisos.js";
 import { diasEntre } from "../../shared/dolores/formato.js";
-import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
+import { limparNomeDeTerceiro, relogioBrasilia } from "../../shared/dolores/operacao.js";
+import { detalhar } from "../fiscal/notas.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { vozDaDolores } from "../../shared/dolores/voz.js";
 import { responsavelDaTarefa } from "../../shared/dolores/regras.js";
@@ -63,19 +67,23 @@ export const configDaLinha = (c: DoloresAvisosConfig): ConfigAvisos => ({
   atualizadoEm: c.atualizadoEm,
 });
 
-/** Tipos silenciados. Sem a migração → vazio (com os avisos desligados por falta de configuração, nada sai de qualquer jeito). */
+/**
+ * Tipos silenciados: a linha da tabela vale; sem linha, o padrão do tipo (EPIC-029 S-3: "nota_fiscal" nasce silenciado —
+ * SILENCIADOS_POR_PADRAO). Sem a migração → só os padrões (com os avisos desligados por falta de configuração, nada sai de qualquer jeito).
+ */
 export async function tiposSilenciados(): Promise<Set<TipoAviso>> {
   try {
-    const r = await getDb().select({ tipo: doloresAvisosTipos.tipo }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.silenciado, true));
-    return new Set(r.map(x => x.tipo));
-  } catch { return new Set(); }
+    const r = await getDb().select({ tipo: doloresAvisosTipos.tipo, silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos);
+    const linhas = new Map(r.map(x => [x.tipo, x]));
+    return new Set(TIPOS_AVISO.filter(t => silenciadoPelaLinha(t, linhas.get(t))));
+  } catch { return new Set(SILENCIADOS_POR_PADRAO); }
 }
 
 /** Um tipo está silenciado? Falha ao ler → false (o alerta do gasto, que chama isto, continua saindo: lado seguro para o dono). */
 export async function tipoSilenciado(tipo: TipoAviso): Promise<boolean> {
   try {
-    const [r] = await getDb().select({ s: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1);
-    return r?.s === true;
+    const [r] = await getDb().select({ silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1);
+    return silenciadoPelaLinha(tipo, r);
   } catch { return false; }
 }
 
@@ -197,6 +205,30 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     return { ...c, completo: c.completo && linhas.length <= MAX_ACHADOS_POR_TIPO };
   },
   // conta bancária ligada a um provedor (Asaas/Pluggy) com erro na última sincronização (o sistema já grava o erro): só o nome do banco
+  // EPIC-029 S-3 — rascunho de nota fiscal (NFS-e) a decidir, ou deixado para depois com a data já chegada (o deixado "sem data" fica
+  // quieto: o dono disse depois). Os dados são os da aba Contabilidade (server/fiscal/notas.ts#detalhar): nome do tomador, valor, serviço
+  // e município — nunca CPF/CNPJ. A partir das 18h (rota dos avisos das 18h, sem cron novo) entra também o achado do RESUMO do dia
+  // (um por dia): com ele, o aviso leva TODOS os rascunhos pendentes num bloco só ("Você tem 4 notas a decidir, somando …").
+  nota_fiscal: async ({ agora }) => {
+    const r = relogioBrasilia(agora);
+    const conexao = bancoDaLeitura();
+    const linhas = await conexao.select().from(fiscalNotas)
+      .where(or(eq(fiscalNotas.status, "A_DECIDIR"), and(eq(fiscalNotas.status, "ADIADA"), isNotNull(fiscalNotas.adiadaAte), lte(fiscalNotas.adiadaAte, r.dia))))
+      .orderBy(asc(fiscalNotas.id)).limit(MAX_ACHADOS_POR_TIPO + 1);
+    const notas = await detalhar(conexao, linhas.slice(0, MAX_ACHADOS_POR_TIPO));
+    const achados: Achado[] = notas.map(n => ({
+      tipo: "nota_fiscal" as const, entidade: `fiscal:${n.id}`, faixa: 1,
+      dados: { nome: nomeLimpo(n.tomador.nome) || "tomador não identificado", valorCentavos: n.valorCentavos, servico: nomeLimpo(n.tipoServico?.nome) || null,
+        municipio: n.municipio.nome ? nomeLimpo(`${n.municipio.nome}${n.municipio.uf ? ` - ${n.municipio.uf}` : ""}`) : null,
+        marca: n.status === "ADIADA" ? "adiada_vencida" as const : null, ref: { tipo: "nota_fiscal" as const, id: n.id } },
+    }));
+    const completo = linhas.length <= MAX_ACHADOS_POR_TIPO;
+    if (r.hora >= HORA_RESUMO_FISCAL && achados.length) {
+      achados.push({ tipo: "nota_fiscal", entidade: `fiscal:resumo:${r.dia}`, faixa: 1,
+        dados: { nome: "resumo do dia", resumo: true, quantidade: achados.length, valorCentavos: notas.reduce((s, n) => s + n.valorCentavos, 0) } });
+    }
+    return { achados, completo };
+  },
   integracao: async () => {
     const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco }).from(bankAccounts)
       .where(and(eq(bankAccounts.ativo, true), ne(bankAccounts.provedor, "manual"), isNotNull(bankAccounts.ultimoErro))).limit(MAX_ACHADOS_POR_TIPO + 1);
@@ -245,8 +277,11 @@ let credencialTeste: (() => Promise<CredencialGrupo>) | null = null;
 /** Só para testes: o modelo falso e a credencial falsa (sem argumento, voltam ao padrão). */
 export function definirDependenciasAvisos(d?: { cliente?: ClienteAviso; credencial?: typeof credencialTeste }) { clienteTeste = d?.cliente ?? null; credencialTeste = d?.credencial ?? null; }
 
-/** Reserva de entrada de uma chamada de aviso (instrução + dados de até 8 tipos × 5 itens), por cima. */
-export const RESERVA_ENTRADA_AVISO = 3_000;
+/**
+ * Reserva de entrada de uma chamada de aviso (instrução + dados de todos os tipos × 5 itens), por cima. EPIC-029 S-3: com o 9º tipo
+ * (nota_fiscal, itens com valor, serviço e município) e uma regra a mais na instrução, o pior caso medido foi 3.205: 3.000 → 4.000.
+ */
+export const RESERVA_ENTRADA_AVISO = 4_000;
 /** Para tentar a IA é preciso este prazo (chamada + envio). */
 const MINIMO_PARA_IA_MS = 15_000;
 const PRAZO_IA_MS = 12_000;
@@ -350,8 +385,13 @@ export async function executarAvisos(p: { agora: Date; prazoFinal?: number; relo
     if (!ativos.length) return { r: "nada-novo", lidos, falhas };
     const candidatos = await getDb().select().from(doloresAvisosAchados).where(and(inArray(doloresAvisosAchados.tipo, ativos), isNull(doloresAvisosAchados.resolvidoEm),
       gte(doloresAvisosAchados.vistoEm, new Date(agora.getTime() - VALIDADE_DO_ACHADO_MS)))).orderBy(desc(doloresAvisosAchados.faixa), asc(doloresAvisosAchados.id)).limit(2_000);
-    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora, cfg.reavisoDias))
-      .map(a => ({ id: a.id, tipo: a.tipo, entidade: a.chave, faixa: a.faixa, dados: a.dados, faixaAvisada: a.faixaAvisada }));
+    const paraPendente = (a: (typeof candidatos)[number]): AchadoPendente => ({ id: a.id, tipo: a.tipo, entidade: a.chave, faixa: a.faixa, dados: a.dados, faixaAvisada: a.faixaAvisada });
+    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora, cfg.reavisoDias)).map(paraPendente);
+    // EPIC-029 S-3: o resumo do dia das notas fiscais (um achado por dia, a partir das 18h) leva TODOS os rascunhos pendentes, já avisados ou não
+    if (pendentes.some(a => a.tipo === "nota_fiscal" && a.dados.resumo)) {
+      const ja = new Set(pendentes.map(a => a.id));
+      for (const a of candidatos) if (a.tipo === "nota_fiscal" && !ja.has(a.id)) pendentes.push(paraPendente(a));
+    }
     if (!pendentes.length) return { r: "nada-novo", lidos, falhas };
     // 5) teto do dia e intervalo mínimo (envio que falhou também conta: sem laço)
     const dia = diaDosAvisos(agora);
@@ -369,7 +409,13 @@ export async function executarAvisos(p: { agora: Date; prazoFinal?: number; relo
     // 7) o texto: a IA só escreve (se ligada e com orçamento); senão, o fixo
     const grupos = agruparPorTipo(pendentes);
     const fixo = montarAvisoFixo(grupos, agora);
-    const ia = cfg.iaNoTexto ? await textoPelaIA(grupos, agora, prazoFinal, relogio, vaga.id) : { texto: null, motivo: "ia_desligada" };
+    const iaBruta = cfg.iaNoTexto ? await textoPelaIA(grupos, agora, prazoFinal, relogio, vaga.id) : { texto: null, motivo: "ia_desligada" };
+    // EPIC-029 S-3: com rascunho de nota fiscal, o texto da IA não pode trazer palavra-comando nem pedido de resposta (senão, o fixo) e
+    // termina com a mesma pergunta natural do texto fixo (por código)
+    const temFiscal = grupos.some(g => g.tipo === "nota_fiscal");
+    const ia: { texto: string | null; motivo?: string } = iaBruta.texto && temFiscal
+      ? (temPalavraComando(iaBruta.texto) ? { texto: null, motivo: "texto_recusado" } : { texto: comPerguntaFiscal(iaBruta.texto, grupos) })
+      : iaBruta;
     const texto = ia.texto ?? fixo;
     const tipos = Object.fromEntries(grupos.map(g => [g.tipo, g.total]));
     const refs: ReferenciaConversa[] = grupos.flatMap(g => g.itens.slice(0, 5)).filter(a => a.dados.ref && a.dados.nome)

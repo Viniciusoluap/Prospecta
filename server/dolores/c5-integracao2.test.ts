@@ -165,7 +165,8 @@ describe("integração 2 — aviso proativo × proposta de mesa ou de maquete ab
 
 describe("integração 2 — leituras só do dono (mesas e maquete): mecanismo único", () => {
   it("todas em LEITURAS_DO_DONO, com a marca, fora de FUNCOES e das ferramentas da ponte; presentes só na conversa do dono", () => {
-    expect(LEITURAS_DO_DONO.map(f => f.nome).sort()).toEqual([...SO_DO_DONO].sort());
+    // EPIC-029 S-3: + as duas leituras fiscais (mesmo mecanismo; cobertas em s3-fiscal.test.ts — só vão ao modelo com o assunto fiscal)
+    expect(LEITURAS_DO_DONO.map(f => f.nome).sort()).toEqual([...SO_DO_DONO, "listar_notas_fiscais", "ver_nota_fiscal"].sort());
     for (const f of LEITURAS_DO_DONO) {
       expect(f.soConversaDoDono, f.nome).toBe(true);
       expect(FUNCOES.some(x => x.nome === f.nome), f.nome).toBe(false);

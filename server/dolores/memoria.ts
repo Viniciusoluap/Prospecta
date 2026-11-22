@@ -236,6 +236,8 @@ const PARES: Array<{ chave: string; tipo: ReferenciaConversa["tipo"]; rotulos: s
   { chave: "tarefaId", tipo: "tarefa", rotulos: ["titulo"] },
   { chave: "notaId", tipo: "nota", rotulos: ["emitente", "descricao"] },
   { chave: "financiamentoId", tipo: "financiamento", rotulos: ["cliente", "nome"] },
+  // EPIC-029 S-3: rascunho de nota fiscal (leituras fiscais da conversa do dono)
+  { chave: "notaFiscalId", tipo: "nota_fiscal", rotulos: ["tomador", "descricao"] },
 ];
 
 /**
@@ -323,9 +325,11 @@ export function rotuloDoItem(i: ItemDaConversa): string {
 
 export const ROTULO_TIPO_REF: Record<ReferenciaConversa["tipo"], string> = {
   cliente: "cliente", grupo: "grupo do WhatsApp", obra: "obra", processo: "processo", tarefa: "tarefa", nota: "nota de obra", financiamento: "financiamento",
+  nota_fiscal: "rascunho de nota fiscal",
 };
 const CHAVE_REF: Record<ReferenciaConversa["tipo"], string> = {
   cliente: "leadId", grupo: "grupoId", obra: "obraId", processo: "processoId", tarefa: "tarefaId", nota: "notaId", financiamento: "financiamentoId",
+  nota_fiscal: "notaFiscalId",
 };
 
 /** Cabeçalho do pedido atual quando há conversa recente: regras de uso e as referências (ids só para as consultas). */
