@@ -43,6 +43,10 @@ marcada) 10% · clientes (atendimento a cliente cadastrado) 10% · avisos (proat
 - [AUTO-DECISION] A trava continua em TOKENS (o sistema não inventa preço); o alerta de 80% sai pela primeira medida que chegar
   (tokens contra a cota ou R$ contra o teto/parte, quando há preço completo). O de 100% diz "modo sem IA" só quando a trava (tokens)
   bate de fato — com os limites padrão, o limite em reais (pior caso R$ 480) fica abaixo do teto de R$ 1.621.
+- [AUTO-DECISION] Conversa: a parte segue a MESMA regra do limite inteiro (uso real ≥ parte bloqueia; a reserva de outra mensagem
+  em andamento → "outro_pedido"; a própria reserva não barra a primeira chamada). Motivo: a reserva de uma chamada (prefixo +
+  histórico, ~14–30 mil de entrada e até 5 mil de saída) barraria o dono com parte ainda sobrando; o comportamento do limite inteiro
+  já era esse. Efeito: a conversa pode passar da parte em no máximo uma chamada. Terceiros contam a própria reserva (como antes).
 - [AUTO-DECISION] Com 100% devido sem o de 80% ter saído, vai UMA mensagem (a de 100%) e o 80% fica marcado junto.
 - [AUTO-DECISION] Avisos (E4) ainda não chamam a IA: a parte "avisos" existe (5%, conta, tela, alerta), e a E4 usa
   `conferirTerceiro`/`registrarConsumo({ funcao: "avisos" })` quando a proatividade ganhar a reserva própria.
@@ -76,6 +80,19 @@ marcada) 10% · clientes (atendimento a cliente cadastrado) 10% · avisos (proat
 - `docs/dolores/como-ligar.md` (seção C5-E5)
 - testes antigos ajustados à parte de cada função: `server/dolores/{whatsapp,marcacao,grupos-qa-r2}.test.ts`
 - `server/dolores/c5-e5-gasto-por-funcao.test.ts` (novo)
+
+## Testes executados (21–22/11/2026)
+- (a) Automáticos: `npx tsc --noEmit` limpo; `npx vite build` ok. `server/dolores/c5-e5-gasto-por-funcao.test.ts` 19/19.
+  `e8-respostas-e-custo`, `c5-padroes-e-limite`, `operacao-regras`, `c5-e1-qa-r4`, `c5-e1-qa-r5`, `grupos-qa-r2`, `marcacao`, `grupos`,
+  `whatsapp`, `whatsapp-qa`, `e8-qa-seguranca`, `qa-e5-provas`, `notas-obra`, `operacao`, `operacao-qa-seguranca`, `grupos-qa`,
+  `grupos-qa-r3`, `e9-conexao-unica`, `c4-horario-relatorio`, `c5-e1-memoria`, `c5-e1-qa`, `c5-e2-resolve`, `integracoes-anthropic`:
+  verdes. Ajustados à regra nova (a parte de cada função): `whatsapp.test.ts` (limite atingido no meio do pedido: o resto do mês
+  já gasto por outra função; a resposta é procurada entre os envios), `whatsapp-qa.test.ts` (conta só as respostas; o alerta sai à
+  parte), `marcacao.test.ts` (parte dos grupos esgotada → silêncio já na porta da chave), `grupos-qa-r2.test.ts` (a porta dos
+  documentos fica em `limite_da_funcao`; o dono continua reservando).
+- (b) Manuais: nenhum.
+- (c) Pendentes em produção: aplicar a 0148 no Neon; conferir o cartão "Dolores — operação contínua" (5 barras, alertas,
+  divisão) e o primeiro alerta real de 80%.
 
 ## Change Log
 - 21/11/2026 — @dev (Dex): Ready → InProgress → InReview. Implementação completa; aguarda o portão de QA de segurança.
