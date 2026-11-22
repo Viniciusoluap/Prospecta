@@ -44,6 +44,12 @@ export type ContextoAcao = {
    * item não fica aprovável por 48 h depois que a proposta venceu. Sem ela, vale a validade da configuração da fila.
    */
   validadeFilaMs?: number;
+  /**
+   * EPIC-027 C5 (memória de longo prazo) — só quando a mensagem do DONO pede memória por código ("lembra que…", "guarda isso",
+   * "esquece que…"), sem colagem, sem anexo e não encaminhada (cerebro.ts): o texto dela, para conferir que o fato a guardar saiu das
+   * palavras dele. Ausente → as ações de memória recusam.
+   */
+  pedidoDeMemoria?: { texto: string } | null;
 };
 
 /** O pedido não pode ser feito (cliente não existe, nada pendente…): recusa explicada, auditada como "recusada". */

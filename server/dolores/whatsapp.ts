@@ -54,6 +54,7 @@ import {
 import { tratarAtendimento } from "./atendimento.js";
 import { transcreverAudio } from "./transcricao.js";
 import { esquecerConversa, gravarNaConversa, lerJanela, referenciaDoGrupo } from "./memoria.js";
+import { blocoParaConversaDoDono } from "./memoria-longa.js";
 import { FRASE_ESQUECI, ehPedidoDeEsquecer, vozDaDolores } from "../../shared/dolores/voz.js";
 import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
@@ -506,9 +507,12 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   try {
     // EPIC-027 C5 (E1): a conversa recente do dono (sem a mensagem atual, que vai como o pedido)
     const historico = await lerJanela(deps.agora(), msg.id);
+    // EPIC-027 C5 (memória de longo prazo): as lembranças ativas — SÓ aqui, na conversa direta do número do dono (grupo e cliente não)
+    const memoriaLonga = await blocoParaConversaDoDono(historico.referencias);
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
+      memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia,
     });
     // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
     const voz = vozDaDolores(r.texto);
@@ -525,7 +529,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       : null;
     const quadros = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
     const envio = { enviadas: 0 };
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
     await atualizarMensagem(msg.id, { situacao: ok ? "respondida" : "erro", motivo: r.parou ?? (ok ? null : "envio falhou"), respondidaEm: deps.agora(), voltas: r.voltas, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida });

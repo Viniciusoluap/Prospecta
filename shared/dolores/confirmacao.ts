@@ -72,6 +72,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
   switch (funcao) {
     case "criar_tarefa": case "registrar_acompanhamento": case "gerar_documento": case "criar_card_cliente":
     case "salvar_documentos_grupo": case "salvar_nota_obra": case "ignorar_grupo":
+    // EPIC-027 C5 (memória de longo prazo): lembrar/corrigir/esquecer um fato é registro ("pode"); esquecer só arquiva
+    case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria":
       return "registro";
     case "classificar_grupo":
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser
