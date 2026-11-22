@@ -7,7 +7,7 @@ import { z } from "zod";
 import { constructionProjects, leads } from "../../../drizzle/schema.js";
 import { doloresGrupoMensagens, doloresGrupos, doloresGruposConfig } from "../../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoes, doloresMarcacoesGrupo } from "../../../drizzle/schema-dolores-marcacoes.js";
-import { ROTULO_TIPO_GRUPO, tipoEfetivo } from "../../../shared/dolores/grupos-tipo.js";
+import { ROTULO_TIPO_GRUPO, ligadoPorPadrao, tipoEfetivo } from "../../../shared/dolores/grupos-tipo.js";
 import { isoFortaleza, paginar, truncar } from "../../../shared/dolores/formato.js";
 import { ROTULO_SITUACAO_GRUPO, ROTULO_TIPO_DOCUMENTO, ehDocumento, pendenteVencido, type TipoDocumentoGrupo } from "../../../shared/dolores/grupos.js";
 import { db, idPositivo, paginacao, type Resultado } from "./comum.js";
@@ -40,6 +40,8 @@ export async function listarGrupos(args: z.infer<typeof entradaListarGrupos>): P
     id: doloresGrupos.id, nome: doloresGrupos.nome, ativo: doloresGrupos.ativo, leadId: doloresGrupos.leadId, obraId: doloresGrupos.obraId,
     cliente: leads.name, obra: constructionProjects.title, tipo: doloresGrupos.tipo, situacao: doloresGrupos.situacaoConfirmacao,
     responde: doloresMarcacoesGrupo.responderLigado,
+    // revisão automática (B): sem linha própria do interruptor, vale o MESMO padrão da marcação (ligadoPorPadrao)
+    origem: doloresGrupos.origem, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao,
   }).from(doloresGrupos).leftJoin(leads, eq(leads.id, doloresGrupos.leadId)).leftJoin(constructionProjects, eq(constructionProjects.id, doloresGrupos.obraId))
     .leftJoin(doloresMarcacoesGrupo, eq(doloresMarcacoesGrupo.grupoId, doloresGrupos.id))
     .where(args.situacao === "ativos" ? eq(doloresGrupos.ativo, true) : undefined).orderBy(asc(doloresGrupos.nome)).limit(500);
@@ -54,7 +56,7 @@ export async function listarGrupos(args: z.infer<typeof entradaListarGrupos>): P
     const ultima = c.map(x => x.ultima).filter(Boolean).sort().at(-1) ?? null;
     return {
       grupoId: g.id, nome: truncar(g.nome, 120), ativo: g.ativo, vinculo: vinculoDe(g),
-      tipo: ROTULO_TIPO_GRUPO[tipoEfetivo(g)], situacao: SITUACAO_DO_GRUPO[g.situacao] ?? g.situacao, respondeQuandoMarcada: g.responde === true,
+      tipo: ROTULO_TIPO_GRUPO[tipoEfetivo(g)], situacao: SITUACAO_DO_GRUPO[g.situacao] ?? g.situacao, respondeQuandoMarcada: g.responde == null ? ligadoPorPadrao({ ...g, situacaoConfirmacao: g.situacao }) : g.responde === true,
       mensagens: c.reduce((a, x) => a + Number(x.n), 0), ultimaMensagemEm: isoFortaleza(ultima),
       documentos: { aClassificar: soma("a_classificar", "classificando", "erro"), classificados: soma("classificado"), confira: soma("confira"), salvosNoCard: soma("salvo"), naoBaixados: soma("grande_demais", "formato") },
     };

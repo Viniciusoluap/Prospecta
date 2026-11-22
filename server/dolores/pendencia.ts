@@ -108,10 +108,14 @@ async function abrirComItens(candidatos: ItemDaPendencia[], p: { mensagemId: num
   if (!escolhidos.length) return null;
   const nivel = nivelDosItens(escolhidos);
   const itensMotivo = escolhidos.map(paraMotivo);
-  const venceEm = p.venceEm ?? new Date(p.agora.getTime() + VALIDADE_PENDENCIA_MS[nivel]);
+  // Revisão automática (2): a proposta nunca vale mais que o item da fila que ela confirma (item reaproveitado de um pedido anterior
+  // vence antes): o prazo é o MENOR, e a pergunta diz a validade real — confirmar dentro dela executa de fato.
+  const padrao = p.venceEm ?? new Date(p.agora.getTime() + VALIDADE_PENDENCIA_MS[nivel]);
+  const venceEm = new Date(Math.min(padrao.getTime(), ...escolhidos.map(i => i.venceEm.getTime())));
+  const minutos = Math.floor((venceEm.getTime() - p.agora.getTime()) / 60_000);
   const { id, substituidas } = await gravar({ ids: escolhidos.map(i => i.id), nivel, venceEm, mensagemId: p.mensagemId, agora: p.agora });
   const fora = candidatos.length - escolhidos.length + p.restantesFora;
-  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, itensMotivo, fora);
+  const pergunta = perguntaDaPendencia(escolhidos.map(resumoMostrado), nivel, itensMotivo, fora, minutos);
   await auditar("ok", "proposta aberta: espera a resposta do dono", { pendenciaId: id, itens: escolhidos.length, nivel, substituidas, foraDaPergunta: fora }, p);
   const memoria = `(O sistema perguntou ao dono se pode fazer${nivel === "serio" ? ", pedindo \"confirmo\"" : ""}: ${escolhidos.slice(0, 3).map(i => resumoMostrado(i).slice(0, 200)).join("; ")}${escolhidos.length > 3 ? "; …" : ""})`;
   return { id, pergunta: substituidas ? `(A proposta anterior ficou de lado.)\n${pergunta}` : pergunta, memoria, nivel, itens: escolhidos.length };

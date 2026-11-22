@@ -119,7 +119,9 @@ async function ativasParaContexto(): Promise<MemoriaParaContexto[]> {
   const linhas = await getDb().select({ id: doloresMemoriaLonga.id, texto: doloresMemoriaLonga.texto, categoria: doloresMemoriaLonga.categoria,
     leadId: doloresMemoriaLonga.leadId, obraId: doloresMemoriaLonga.obraId, atualizadoEm: doloresMemoriaLonga.atualizadoEm })
     .from(doloresMemoriaLonga).where(eq(doloresMemoriaLonga.situacao, "ativa")).orderBy(desc(doloresMemoriaLonga.atualizadoEm), desc(doloresMemoriaLonga.id)).limit(MAX_MEMORIAS_ATIVAS);
-  return linhas;
+  // revisão automática (A): o texto já entra filtrado (textoDaMemoria); o filtro de segredos vale de novo na LEITURA, por defesa
+  // (linha escrita por outro caminho ou antes de uma regra nova). Idempotente: o texto limpo não muda (o cache fica estável).
+  return linhas.map(l => ({ ...l, texto: sanitizarTexto(l.texto, FILTRO_DO_REGISTRO) }));
 }
 
 /**

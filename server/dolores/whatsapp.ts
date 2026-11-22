@@ -232,10 +232,29 @@ async function responderAoDono(cfg: DoloresWhatsappConfig, numero: string, texto
   if (ctx.memoria !== false && enviadas.length) {
     const nota = ctx.memoria?.nota ? `\n${ctx.memoria.nota}` : ctx.quadros ? "\n(O sistema mostrou ao dono, abaixo desta resposta, o quadro do que foi registrado e do que espera a confirmação dele.)" : "";
     // QA C5-E1 (achado 3): resposta a um comando de confirmação (texto do SISTEMA) perde também os códigos citados
-    const gravado = ctx.memoria?.codigos ? semOsCodigos(filtrar(texto), ctx.memoria.codigos) : filtrar(texto);
-    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
+    // revisão automática (C): entrega incompleta → só o texto do modelo que de fato saiu (sem os quadros do sistema), com a marca
+    // de que o resto não chegou; o histórico nunca contém texto que o dono não recebeu
+    const entregue = completa ? filtrar(texto) : textoEntregue(enviadas.map(n => partes[n - 1]), ctx.quadros ? filtrar(ctx.quadros) : null);
+    const gravado = ctx.memoria?.codigos ? semOsCodigos(entregue, ctx.memoria.codigos) : entregue;
+    const marca = completa ? "" : `\n${MARCA_ENTREGA_INCOMPLETA}`;
+    await gravarNaConversa({ papel: "dolores", origem: "resposta", texto: `${gravado}${marca}${nota}`, agora: deps.agora(), mensagemId: ctx.mensagemId, referencias: ctx.memoria?.referencias });
   }
   return completa;
+}
+
+/** Revisão automática (C): a marca, na memória da conversa, de que parte da resposta não chegou ao dono. */
+export const MARCA_ENTREGA_INCOMPLETA = "(Parte desta resposta não chegou ao dono: o resto não foi enviado.)";
+/**
+ * Revisão automática (C): o texto do MODELO que saiu nas partes enviadas — sem a numeração "(i/n)" e sem os quadros do sistema (que
+ * vão no começo da 1ª parte). Se a 1ª parte não começa pelos quadros inteiros (quadro cortado), ela é só quadro: não entra nada dela.
+ */
+export function textoEntregue(enviadas: readonly string[], quadros: string | null): string {
+  const q = (quadros ?? "").trim();
+  return enviadas.map((p, i) => {
+    const t = p.replace(/^\(\d+\/\d+\)\n/, "");
+    if (i > 0 || !q) return t;
+    return t.startsWith(q) ? t.slice(q.length).replace(/^\s+/, "") : "";
+  }).map(t => t.trim()).filter(Boolean).join("\n");
 }
 
 /** QA E8 A1: aviso ao dono quando parte da resposta não saiu (por tempo ou falha de envio). */

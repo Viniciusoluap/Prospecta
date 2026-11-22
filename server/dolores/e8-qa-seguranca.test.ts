@@ -15,7 +15,7 @@ import { getDb } from "../db.js";
 import { AVISO_FERRAMENTA_CORTADA, FOLGA_DO_LACO_MS, TETO_ENTRADA_POR_PEDIDO, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte, executarFuncao } from "./ponte.js";
-import { AVISO_FALTOU_PARTE, MINIMO_PARA_ENVIAR_MS, PRAZO_TOTAL_MS, definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
+import { AVISO_FALTOU_PARTE, MARCA_ENTREGA_INCOMPLETA, MINIMO_PARA_ENVIAR_MS, PRAZO_TOTAL_MS, definirDependenciasWhatsapp, textoEntregue, segredoWebhookDolores, tratarWebhookDolores } from "./whatsapp.js";
 import { AGORA, CENARIO, criarBanco } from "./testes-banco.js";
 
 const DONO = "5599991234567";
@@ -189,6 +189,28 @@ describe("QA item 1 — envio em várias mensagens", () => {
     expect(enviados.every(e => e.numero === DONO)).toBe(true);
     const resumo = (await respostas()).find(x => x.motivo === "resposta incompleta: faltou parte")!.resumo;
     expect(resumo).toMatchObject({ partesEnviadas: [1], avisoDeFalta: true });
+  });
+
+  it("revisão automática (C): entrega incompleta — a memória guarda só o que saiu do texto do modelo (sem os quadros), com a marca", async () => {
+    comTarefa();
+    enviar.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
+    const enviados = enviar.mock.calls.map(c => c[0].texto as string);
+    const [linha] = await q<{ texto: string }>("SELECT texto FROM dolores_conversa WHERE origem = 'resposta' ORDER BY id DESC LIMIT 1");
+    expect(linha.texto).toContain(MARCA_ENTREGA_INCOMPLETA);
+    // o começo do texto do modelo (que foi na 1ª parte) está; o fim (que nunca saiu) não
+    expect(linha.texto).toContain("- 1. Cliente 1 —");
+    expect(enviados.join("\n")).not.toContain("- 300. Cliente 300");
+    expect(linha.texto).not.toContain("- 300. Cliente 300");
+    // os quadros do sistema não entram (só a nota de que foram mostrados)
+    expect(linha.texto).not.toMatch(/Posso fazer isto\?/);
+    expect(linha.texto).not.toMatch(/^\(\d\/\d\)/m);
+  });
+
+  it("revisão automática (C): textoEntregue (regra pura) — tira numeração e os quadros inteiros da 1ª parte; quadro cortado não deixa nada dela", () => {
+    expect(textoEntregue(["(1/3)\nQUADRO\n\nTexto um", "(2/3)\nTexto dois"], "QUADRO")).toBe("Texto um\nTexto dois");
+    expect(textoEntregue(["(1/3)\nQUADRO cortado…", "(2/3)\nTexto dois"], "QUADRO cortado por inteiro")).toBe("Texto dois");
+    expect(textoEntregue(["(1/2)\nSó texto"], null)).toBe("Só texto");
   });
 
   it("A1: o laço guarda tempo para as 3 partes — resposta longa que termina no limite do laço sai inteira", async () => {

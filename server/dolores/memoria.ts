@@ -130,7 +130,9 @@ export async function gravarNaConversa(p: { papel: PapelConversa; origem: Origem
     await db.delete(doloresConversa).where(lt(doloresConversa.criadoEm, horasAntes(p.agora, RETENCAO_HORAS)));
     await db.insert(doloresConversa).values({
       papel: p.papel, origem: p.origem, texto, criadoEm: p.agora, mensagemId: p.mensagemId ?? null, funcao: p.funcao?.slice(0, 40) ?? null,
-      referencias: (p.referencias ?? []).slice(0, MAX_REFERENCIAS_POR_TURNO).map(r => ({ tipo: r.tipo, id: r.id, rotulo: limparNomeDeTerceiro(r.rotulo, MAX_ROTULO) })),
+      // revisão automática (A): o rótulo vem de cadastro (nome de grupo/cliente escrito por pessoas) — passa pelo filtro de segredos
+      // ANTES de gravar; rótulo que fica vazio depois do filtro não é gravado
+      referencias: (p.referencias ?? []).slice(0, MAX_REFERENCIAS_POR_TURNO).map(r => ({ tipo: r.tipo, id: r.id, rotulo: rotuloSeguro(r.rotulo) })).filter(r => r.rotulo),
     });
     return true;
   } catch (e) {
@@ -194,7 +196,7 @@ export function janelaDe(linhas: ReadonlyArray<ItemDaConversa & { referencias?: 
   const ficam = Math.min(JANELA_MENSAGENS, n - quantasSaemPorContagem(n));
   const itens: ItemDaConversa[] = recentes.slice(0, Math.max(0, ficam)).map(l => ({
     papel: l.papel, origem: l.origem, criadoEm: l.criadoEm,
-    texto: l.texto.length > MAX_CARACTERES_POR_ITEM ? `${l.texto.slice(0, MAX_CARACTERES_POR_ITEM - 1)}…` : l.texto,
+    texto: (t => (t.length > MAX_CARACTERES_POR_ITEM ? `${t.slice(0, MAX_CARACTERES_POR_ITEM - 1)}…` : t))(sanitizarTexto(l.texto, FILTRO_DO_REGISTRO)),
     ...(l.emAndamento ? { emAndamento: true } : {}),
   }));
   itens.reverse(); // da mais antiga para a mais nova
@@ -210,9 +212,11 @@ export function janelaDe(linhas: ReadonlyArray<ItemDaConversa & { referencias?: 
   const vistas = new Set<string>();
   const referencias: ReferenciaConversa[] = [];
   for (const l of linhasDasRefs) {
-    for (const r of l.referencias ?? []) {
+    for (const bruta of l.referencias ?? []) {
+      // revisão automática (A): o filtro de segredos vale também na LEITURA (linhas gravadas antes da correção, sem o filtro)
+      const r = { ...bruta, rotulo: rotuloLido(bruta.rotulo) };
       const k = `${r.tipo}:${r.id}`;
-      if (vistas.has(k) || !Number.isInteger(r.id) || r.id <= 0) continue;
+      if (!r.rotulo || vistas.has(k) || !Number.isInteger(r.id) || r.id <= 0) continue;
       vistas.add(k);
       referencias.push(r);
       if (referencias.length >= MAX_REFERENCIAS) return { itens, referencias };
@@ -234,6 +238,18 @@ const PARES: Array<{ chave: string; tipo: ReferenciaConversa["tipo"]; rotulos: s
   { chave: "financiamentoId", tipo: "financiamento", rotulos: ["cliente", "nome"] },
 ];
 
+/**
+ * Revisão automática (A): rótulo de referência que vai ao modelo (nome de grupo, cliente, obra… escrito por pessoas, até pelo admin):
+ * senha, token, chave, código de acesso e dado bancário SEMPRE saem (o mesmo filtro do texto da conversa), depois a limpeza de nome.
+ */
+export const rotuloSeguro = (bruto: unknown) => limparNomeDeTerceiro(sanitizarTexto(String(bruto ?? ""), FILTRO_DO_REGISTRO), MAX_ROTULO);
+
+/** Na leitura: o rótulo gravado já passou por `limparNomeDeTerceiro`; só quando o filtro de segredos MUDA algo ele é limpo de novo. */
+const rotuloLido = (bruto: unknown) => {
+  const t = String(bruto ?? "");
+  return sanitizarTexto(t, FILTRO_DO_REGISTRO) === t ? t.slice(0, MAX_ROTULO) : rotuloSeguro(t);
+};
+
 /** Refs de UM resultado de consulta (ok: true), na ordem em que aparecem; profundidade e tamanho limitados. */
 export function referenciasDoResultado(corpo: unknown): ReferenciaConversa[] {
   const achadas: ReferenciaConversa[] = [];
@@ -248,7 +264,7 @@ export function referenciasDoResultado(corpo: unknown): ReferenciaConversa[] {
       const id = o[p.chave];
       if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) continue;
       const bruto = p.rotulos.map(r => o[r]).find(x => typeof x === "string" && x.trim());
-      const rotulo = limparNomeDeTerceiro(sanitizarTexto(String(bruto ?? ""), FILTRO_DO_REGISTRO), MAX_ROTULO);
+      const rotulo = rotuloSeguro(bruto);
       if (!rotulo) continue;
       const k = `${p.tipo}:${id}`;
       if (vistas.has(k)) continue;
@@ -281,7 +297,7 @@ export async function referenciaDoGrupo(grupoId: unknown): Promise<ReferenciaCon
   if (typeof grupoId !== "number" || !Number.isInteger(grupoId) || grupoId <= 0) return [];
   try {
     const [g] = await getDb().select({ id: doloresGrupos.id, nome: doloresGrupos.nome }).from(doloresGrupos).where(eq(doloresGrupos.id, grupoId)).limit(1);
-    const rotulo = limparNomeDeTerceiro(g?.nome ?? "", MAX_ROTULO);
+    const rotulo = rotuloSeguro(g?.nome);
     return g && rotulo ? [{ tipo: "grupo", id: g.id, rotulo }] : [];
   } catch { return []; }
 }

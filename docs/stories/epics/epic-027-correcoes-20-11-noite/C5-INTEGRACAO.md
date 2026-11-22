@@ -38,3 +38,29 @@ Nenhuma migração aplicada em banco (0148 e 0149 continuam pendentes no Neon).
   **72 arquivos, 1.303 testes, todos verdes** (1ª rodada parou no teto de 3.000 s com 48 arquivos/1.099 testes e as 2 falhas acima;
   os 24 restantes rodaram à parte: 204 verdes; os 2 arquivos corrigidos de novo: 43 verdes).
 - `npx tsc --noEmit` limpo; `npx vite build` ok.
+
+## Correções da revisão automática (etapas 1 e 2, já em produção) — feitas nesta integração
+Sem migração. Cada uma com teste que falha sem a correção e passa com ela.
+- **A (segurança)** `server/dolores/memoria.ts`: rótulo de referência (nome de grupo/cliente/obra) passa por `rotuloSeguro`
+  (`sanitizarTexto(…, FILTRO_DO_REGISTRO)` + `limparNomeDeTerceiro`) ANTES de gravar (`gravarNaConversa`, `referenciaDoGrupo`,
+  `referenciasDoResultado`) e de novo na LEITURA (`janelaDe`: rótulo e texto de linhas antigas). `server/dolores/memoria-longa.ts`:
+  texto da lembrança filtrado de novo na leitura. Teste: `revisao-automatica-c5.test.ts` › A (senha, `sk-ant-…`, agência/conta).
+  Resultado de consulta e resumo da fila já passavam pelo filtro (`sanitizarResposta`/`textoParaGravar`).
+- **B** `server/dolores/leitura/grupos.ts`: sem linha em `dolores_marcacoes_grupo`, `respondeQuandoMarcada` = `ligadoPorPadrao` (o
+  mesmo da marcação). Teste: `revisao-automatica-c5.test.ts` › B.
+- **C** `server/dolores/whatsapp.ts`: entrega incompleta → a memória guarda só o texto do modelo das partes enviadas (`textoEntregue`,
+  sem numeração nem quadros) + `MARCA_ENTREGA_INCOMPLETA`. Teste: `e8-qa-seguranca.test.ts` (2 testes novos).
+- **D** `server/dolores/grupos-decisao.ts` (`gruposEsperandoTipo`): tipo indefinido, entrada provada e pergunta dos últimos 30 min no
+  SQL, antes do `LIMIT 50` (ordem por id; o filtro em JS continua). Teste: `revisao-automatica-c5.test.ts` › D (60 vencidos + 2).
+- **1** `server/dolores/aprovacoes.ts` (`porNaFila`, vale para TODAS as ações: grupo, tarefa, acompanhamento, cobrança, notas,
+  memória longa, registro a partir do grupo): pedido novo para o mesmo alvo com argumentos/resumo diferentes SUBSTITUI o que esperava
+  (o antigo → `vencida`, motivo "substituído…"); executa e mostra o ÚLTIMO pedido.
+- **2** idem + `server/dolores/pendencia.ts` + `shared/dolores/confirmacao.ts`: na conversa com "pode" (validade curta), o mesmo
+  pedido repetido RENOVA o item (código e prazo novos; a validade gravada não muda por causa do gatilho da 0125); a proposta nunca
+  vale mais que o menor `venceEm` dos itens e a pergunta diz a validade real ("Vale por N minutos"). Fila da tela (horas): pedido
+  igual continua reaproveitando o item. Testes: `c5-e2-resolve.test.ts` › "revisão automática" (4).
+- Teste ajustado ao comportamento corrigido: `correcoes-e3-whatsapp.test.ts` › A9 (pedido repetido: o antigo vence, um só executável).
+
+## Suíte depois das correções
+- 73 arquivos (os 72 + `revisao-automatica-c5`): 48 arquivos/1.105 testes + 25 arquivos/212 testes; a única falha (A9, acima)
+  foi ajustada e o arquivo passou (5/5). `npx tsc --noEmit` limpo; `npx vite build` ok.

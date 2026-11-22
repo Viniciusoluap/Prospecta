@@ -10,12 +10,12 @@
 // - QA-SEG E7 (achado 6c; r2, R2-3): grupo RECUSADO ou automático "aguardando o dono" (sem prova de quem colocou a Dolores, ou
 //   adicionado pelo dono mas de tipo indefinido) só sai desse estado pelo comando do DONO no WhatsApp. Pela tela (admin que pode não ser o dono) só se vê e se desativa ("ignorar"); o gatilho da 0133 exige o
 //   mesmo ("decidido_por" começando por "whatsapp:").
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, isNull, lte, ne, notInArray, or } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresMarcacoesGrupo } from "../../drizzle/schema-dolores-marcacoes.js";
 import {
-  JANELA_RESPOSTA_NUMERADA_MS, ROTULO_TIPO_GRUPO, perguntaDoTipo, precisaDoAceiteDoDono, semProvaDoDono, textoDaConfirmacaoDoTipo, tipoEfetivo,
+  JANELA_RESPOSTA_NUMERADA_MS, ROTULO_TIPO_GRUPO, TIPOS_GRUPO, perguntaDoTipo, precisaDoAceiteDoDono, semProvaDoDono, textoDaConfirmacaoDoTipo, tipoEfetivo,
   type DecisaoDeGrupo, type RespostaNumerada,
 } from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
@@ -155,7 +155,20 @@ export async function marcarPerguntaDoTipo(grupoId: number, origem: OrigemDecisa
  * EPIC-027, achado 2): os únicos que a resposta só com o número resolve.
  */
 export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> {
-  const linhas = await getDb().select().from(doloresGrupos).where(and(eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono"))).limit(50);
+  // Revisão automática: a elegibilidade (tipo indefinido, entrada provada, pergunta dos últimos 30 min) vai no SQL, ANTES do limite —
+  // senão 50 linhas inelegíveis escondem as elegíveis e uma resposta ambígua pareceria ter um grupo só. As mesmas regras são
+  // conferidas de novo abaixo (tipoEfetivo/semProvaDoDono), e o limite folgado basta para ver que há 2 ou mais (pede o código).
+  const desde = new Date(agora.getTime() - JANELA_RESPOSTA_NUMERADA_MS);
+  const ate = new Date(agora.getTime() + 2 * 60_000);
+  const conhecidos = TIPOS_GRUPO.filter(t => t !== "indefinido");
+  const linhas = await getDb().select().from(doloresGrupos).where(and(
+    eq(doloresGrupos.ativo, true), eq(doloresGrupos.situacaoConfirmacao, "aguardando_dono"),
+    // tipo indefinido (tipoEfetivo): tipo gravado e fora dos tipos conhecidos (NULL vira cliente/engenharia — não é indefinido)
+    isNotNull(doloresGrupos.tipo), notInArray(doloresGrupos.tipo, conhecidos),
+    // entrada provada (não autoriaPendente): manual, ou adicionada pelo dono, ou aceita pelo dono
+    or(ne(doloresGrupos.origem, "automatico"), eq(doloresGrupos.adicionadoPor, "dono"), eq(doloresGrupos.provaAdicao, "aceito_pelo_dono")),
+    isNotNull(doloresGrupos.perguntaTipoEm), gte(doloresGrupos.perguntaTipoEm, desde), lte(doloresGrupos.perguntaTipoEm, ate),
+  )).orderBy(asc(doloresGrupos.id)).limit(50);
   return linhas.filter(g => tipoEfetivo(g) === "indefinido" && !semProvaDoDono(g) && !!g.perguntaTipoEm
     && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000);
 }

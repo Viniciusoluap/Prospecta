@@ -420,3 +420,69 @@ describe("grupos pela conversa (classificar, aceitar, ligar resposta)", () => {
     expect(r.status).toBe(403);
   });
 });
+
+// Revisão automática (etapa 2, em produção) — 1) pedido novo para o MESMO alvo substitui o que esperava (vale o último pedido);
+// 2) a proposta nunca vale mais que o item que ela confirma (e diz a validade real).
+describe("revisão automática — vale o ÚLTIMO pedido e a validade é a real", () => {
+  const GRUPO_R = "120363000000000098@g.us";
+  const grupoR = async () => (await q<any>(`SELECT * FROM dolores_grupos WHERE grupo_jid = '${GRUPO_R}'`))[0];
+
+  it("1) \"liga a resposta\" e, antes do \"pode\", \"desliga\": a proposta mostra e o \"pode\" faz o DESLIGAR; o pedido antigo vence sem ser feito", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, ativo, lead_id, tipo, origem, situacao_confirmacao) VALUES ('prospecta-dolores', '${GRUPO_R}', 'Obra Maria', true, 1, 'cliente', 'manual', 'confirmado')`);
+    const g = await grupoR();
+    roteiro.push(() => ferramenta(["ligar_resposta_grupo", { grupoId: g.id, ligado: true }]), () => texto("Vou ligar a minha resposta lá."));
+    await dono("liga a sua resposta no grupo da Maria");
+    roteiro.push(() => ferramenta(["ligar_resposta_grupo", { grupoId: g.id, ligado: false }]), () => texto("Certo, vou desligar então."));
+    await dono("não, melhor desligar a resposta nesse grupo");
+    expect(ultima()).toMatch(/deslig/i);
+    const itens = await fila();
+    expect(itens.map(i => i.situacao)).toEqual(["vencida", "aguardando"]);
+    expect((itens[0] as any).motivo).toMatch(/substituído por um pedido mais novo/);
+    await dono("pode");
+    expect(await q("SELECT responder_ligado FROM dolores_marcacoes_grupo")).toEqual([{ responder_ligado: false }]);
+    expect((await fila()).map(i => i.situacao)).toEqual(["vencida", "executada"]);
+  });
+
+  it("1) corrigir o vínculo proposto (Maria → João) antes do \"pode\": grava o vínculo do ÚLTIMO pedido", async () => {
+    await banco.pg.exec(`INSERT INTO dolores_grupos (instancia, grupo_jid, nome, nome_whatsapp, ativo, tipo, origem, situacao_confirmacao, codigo, adicionado_por, prova_adicao) VALUES
+      ('prospecta-dolores', '${GRUPO_R}', 'Obra Nova', 'Obra Nova', true, 'indefinido', 'automatico', 'aguardando_dono', 'KRVA', 'dono', 'evento_add')`);
+    const g = await grupoR();
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: 1 }]), () => texto("Vou ligar o grupo à Maria."));
+    await dono("vincula esse grupo à Maria");
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: 2 }]), () => texto("Corrigido: vou ligar o grupo ao João."));
+    await dono("vincula esse grupo ao João");
+    expect((await fila()).map(i => i.situacao)).toEqual(["vencida", "aguardando"]);
+    expect(ultima()).not.toMatch(/Maria Trello/);
+    await dono("pode");
+    expect(await grupoR()).toMatchObject({ tipo: "cliente", lead_id: 2 });
+  });
+
+  it("2) o mesmo pedido repetido 10 min depois renova o item: o \"pode\" dentro do prazo anunciado (15 min) executa", async () => {
+    await proporTarefa();
+    const [primeiro] = await fila();
+    agora = new Date(agora.getTime() + 10 * 60_000);
+    await proporTarefa();
+    expect(ultima()).toMatch(/Vale por 15 minutos\./);
+    const itens = await fila();
+    expect(itens.map(i => i.situacao)).toEqual(["vencida", "aguardando"]);
+    expect(itens[1].codigo).not.toBe(primeiro.codigo);
+    expect(new Date(itens[1].vence_em).getTime() - agora.getTime()).toBe(15 * 60_000);
+    // 12 min depois do 2º pedido (22 min do 1º): antes da correção, o item antigo já tinha vencido e nada era feito
+    agora = new Date(agora.getTime() + 12 * 60_000);
+    await dono("pode");
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João"]);
+  });
+
+  it("2) proposta montada de um item que vence antes: o prazo da proposta é o do item e a pergunta diz a validade real", async () => {
+    const { abrirPendenciaDosCodigos } = await import("./pendencia.js");
+    await proporTarefa();
+    const [item] = await fila();
+    const depois = new Date(agora.getTime() + 11 * 60_000);
+    const p = await abrirPendenciaDosCodigos({ codigos: [item.codigo], agora: depois, autor: null, pedidoId: "teste:revisao" });
+    expect(p?.pergunta).toMatch(/Vale por 4 minutos\./);
+    const aberta = (await q<any>("SELECT vence_em FROM dolores_conversa_pendencia WHERE situacao = 'aberta'"))[0];
+    expect(new Date(aberta.vence_em).getTime()).toBe(new Date(item.vence_em).getTime());
+    expect(perguntaDaPendencia(["x"], "registro", [], 0)).toMatch(/Vale por 15 minutos\./);
+    expect(perguntaDaPendencia(["x"], "serio", [{ funcao: "preparar_cobranca", argumentos: {} }] as never, 0, 1)).toMatch(/Vale por 1 minuto\./);
+  });
+});

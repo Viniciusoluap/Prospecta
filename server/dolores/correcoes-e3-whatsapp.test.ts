@@ -163,10 +163,14 @@ describe("achado 8 (A9) — pedido repetido enquanto o anterior aguarda", () => 
     const [item] = await fila();
     roteiro = [() => ferramenta(["preparar_cobranca", { leadIds: [1] }]), () => texto("Preparei de novo.")];
     await chamar(aviso({ texto: ACEITE }));
-    expect(await fila()).toHaveLength(1);
+    // revisão automática (etapa 2, item 2): na conversa com o "pode", o pedido repetido RENOVA o item (código e prazo novos, junto com
+    // a proposta nova); o anterior vence sem ser feito. Continua havendo um único item executável — nada duplica.
+    const itens = await fila();
+    expect(itens.map((i: any) => i.situacao)).toEqual(["vencida", "aguardando"]);
+    expect((itens[1] as any).resumo).toBe((item as any).resumo);
     expect(ultimaResposta()).toMatch(/\(A proposta anterior ficou de lado\.\)\n\*Isto precisa da sua confirmação por escrito\*/);
     expect(ultimaResposta()).toContain(`- ${(item as any).resumo}`);
     await chamar(aviso({ texto: "confirmo" }));
-    expect((await fila())[0].situacao).toBe("executada");
+    expect((await fila()).map((i: any) => i.situacao)).toEqual(["vencida", "executada"]);
   });
 });
