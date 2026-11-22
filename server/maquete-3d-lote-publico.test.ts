@@ -122,6 +122,19 @@ describe("regras compartilhadas do lote", () => {
   });
 });
 
+describe("editor → painel de lotes (tela)", () => {
+  it("publicar no editor faz o painel de lotes reler a lista, sem sair do editor", () => {
+    const ler = (c: string) => readFileSync(new URL(`../client/src/${c}`, import.meta.url), "utf8");
+    const editor = ler("components/maquete-3d/editor/EditorItens.tsx");
+    const painel = ler("components/maquete-3d/editor/PainelLotes.tsx");
+    const pagina = ler("pages/MaqueteDemo.tsx");
+    expect(editor).toMatch(/setVersaoPublicada\(r\.versao\);[\s\S]{0,200}aoPublicar\?\.\(r\.versao\)/);
+    expect(painel).toContain("useEffect(recarregar, [recarregar, atualizacao])");
+    expect(pagina).toMatch(/aoPublicar=\{\(\) => setPublicacoes\(n => n \+ 1\)\}/);
+    expect(pagina).toContain("atualizacao={publicacoes}");
+  });
+});
+
 describe("página pública por lote", () => {
   beforeEach(async () => {
     banco = await criarBanco();
@@ -233,6 +246,29 @@ describe("página pública por lote", () => {
     const us = await admin().lotes.unidades({ busca: "esmeralda" });
     expect(us.map(u => Object.keys(u).sort())).toEqual([["codigo", "estudo", "id", "status"], ["codigo", "estudo", "id", "status"]]);
     expect(JSON.stringify(us)).not.toContain("Fulano");
+  });
+
+  it("mais de 50 publicações: o lote fixado numa versão antiga continua válido na lista e aparece no seletor", async () => {
+    const a = await lotePadrao();
+    await publicarV1();
+    await admin().lotes.salvar({ planta: PLANTA, id: a.id, empreendimentoSlug: "vila-esmeralda", loteSlug: "qd18-lote4", empreendimentoNome: "Vila Esmeralda", quadra: "18", lote: "4", itensVersao: 1, unitId: 1, ativo: true });
+    // 60 publicações depois da v1 (v2..v61, a última é a publicada da maquete), copiadas da v1 direto no banco.
+    await banco.pg.exec(`
+      UPDATE maquete_3d_itens SET situacao = 'arquivada' WHERE versao = 1;
+      INSERT INTO maquete_3d_itens (maquete_id, versao, itens, quantidade, modelo_versao, estrutura_hash, situacao, origem, publicada_em)
+        SELECT maquete_id, g, itens, quantidade, modelo_versao, estrutura_hash, CASE WHEN g = 61 THEN 'publicada' ELSE 'arquivada' END, origem, now()
+        FROM maquete_3d_itens, generate_series(2, 61) g WHERE versao = 1;
+      UPDATE maquetes_3d SET itens_versao_publicada = 61 WHERE fonte_slug = '${PLANTA}';`);
+    const lista = await admin().lotes.listar({ planta: PLANTA });
+    const nums = lista.versoes.map(v => v.versao);
+    expect(nums.slice(0, 50)).toEqual(Array.from({ length: 50 }, (_, i) => 61 - i));
+    expect(nums).toContain(1);
+    expect(nums).toHaveLength(51);
+    expect(lista.versoes.find(v => v.versao === 1)).toMatchObject({ situacao: "arquivada", valeParaPlanta: true });
+    const l = lista.lotes.find(x => x.loteSlug === "qd18-lote4")!;
+    expect(l).toMatchObject({ versaoEfetiva: 1, pendencia: null });
+    // A lista e a página pública concordam: a versão antiga abre.
+    expect((await publico().porLote(partes(l.caminho!))).lote).toBe("4");
   });
 
   it("permissões: rotas de lotes só para o administrador; os outros papéis e o anônimo são barrados sem consulta ao banco", async () => {

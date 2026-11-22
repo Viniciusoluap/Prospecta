@@ -47,7 +47,10 @@ function usarComputador() {
 
 const ehCampoDeTexto = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName));
 
-export default function EditorItens({ planta, conexao, aoSair }: { planta: string; conexao: ConexaoEditor; aoSair: (itens: ItemFonte[] | null) => void }) {
+/** `aoPublicar`: avisa quem está ao lado (o painel de lotes) que uma versão acabou de ser publicada. */
+export default function EditorItens({ planta, conexao, aoSair, aoPublicar }: {
+  planta: string; conexao: ConexaoEditor; aoSair: (itens: ItemFonte[] | null) => void; aoPublicar?: (versao: number) => void;
+}) {
   const [dados, setDados] = useState<DadosEdicao | null>(null);
   const [erroAbrir, setErroAbrir] = useState<string | null>(null);
   const [h, setH] = useState<Historico<ItemFonte[]> | null>(null);
@@ -234,6 +237,7 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
       const r = await conexao.publicar(planta, versaoBase, versaoPublicada);
       setVersaoPublicada(r.versao);
       setMsg({ tipo: "ok", texto: `Publicado: o cliente passa a ver a versão ${r.versao}.` });
+      aoPublicar?.(r.versao);
     } catch (e) { const x = lerErro(e); setMsg({ tipo: "erro", texto: x.mensagem, conflito: x.conflito }); }
     finally { setOcupado(null); }
   };
