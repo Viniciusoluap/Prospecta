@@ -51,7 +51,7 @@ export type NotaDetalhada = FiscalNota & {
   tomador: Tomador;
   obra: { id: number; titulo: string; cidade: string | null; uf: string | null } | null;
   emissor: EmissorLido | null;
-  tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
+  tipoServico: { id: number; nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; itemLc116: string | null; codigoAtividadeSimples: string | null; aliquotaIss: string | null; descricaoPadrao: string | null } | null;
   municipio: { nome: string | null; uf: string | null; fonte: "ajuste" | "obra" | "tomador" | "emissor" | "nenhum" };
   /** Revisão do PR #302 (3): o cliente/card/obra ATUAL da origem difere do que o rascunho guardou ao nascer. */
   tomadorMudouNaOrigem: boolean;
@@ -218,7 +218,7 @@ export async function detalhar(db: DrizzleDb, salvas: FiscalNota[], efetivas?: M
       tomador,
       obra,
       emissor,
-      tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
+      tipoServico: tipo ? { id: tipo.id, nome: tipo.nome, codigoTributacaoNacional: tipo.codigoTributacaoNacional, codigoNbs: tipo.codigoNbs, itemLc116: tipo.itemLc116, codigoAtividadeSimples: tipo.codigoAtividadeSimples ?? null, aliquotaIss: tipo.aliquotaIss, descricaoPadrao: tipo.descricaoPadrao } : null,
       municipio,
       tomadorMudouNaOrigem,
     };

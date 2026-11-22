@@ -23,6 +23,7 @@ import { DoloresNotasCard } from "@/components/admin/DoloresNotasCard";
 import { DoloresOperacaoCard } from "@/components/admin/DoloresOperacaoCard";
 import { DoloresMemoriaCard } from "@/components/admin/DoloresMemoriaCard";
 import { YcloudCard } from "@/components/admin/YcloudCard";
+import { CertificadoFiscalCard } from "@/components/admin/CertificadoFiscalCard";
 
 type Servico = "asaas" | "pluggy" | "whatsapp";
 type Campo = { nome: string; rotulo: string; segredo?: boolean; placeholder?: string; opcional?: boolean };
@@ -207,6 +208,8 @@ export default function AdminIntegracoes() {
           <GoogleDriveCard />
           <MapboxCard />
           <AnthropicCard />
+          {/* EPIC-029 S-4: certificado A1 da emissão de NFS-e (resumo; o envio principal é pelo Jurídico) */}
+          <CertificadoFiscalCard />
           <DoloresCard />
           <AtendimentoEmpresaCard />
           <DoloresOperacaoCard />
