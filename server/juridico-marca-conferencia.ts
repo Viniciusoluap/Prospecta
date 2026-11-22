@@ -94,6 +94,7 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
   let larguraLinha = 1, nivel = 0, emTexto = false, fonte = 12, entrelinha = 0, tx = 0, ty = 0, linhaX = 0, linhaY = 0, contornos = 0;
   const espessuras: number[] = [], estadoGrafico: number[] = [];
   let textoDesenhado = false;
+  let fonteDefinida = false, posicaoDefinida = false;
   for (const fluxo of acrescentados) {
     const pilha: Token[] = [];
     for (const tk of lerConteudo(fluxo)) {
@@ -101,8 +102,8 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
       const op = tk.v, args = pilha.splice(0), nums = args.map(a => a.t === "num" ? a.v : NaN);
       if (!OPERADORES.has(op)) return false;
       switch (op) {
-        case "q": nivel++; estadoGrafico.push(larguraLinha); break;
-        case "Q": if (--nivel < 0) return false; larguraLinha = estadoGrafico.pop()!; break;
+        case "q": if (emTexto) return false; nivel++; estadoGrafico.push(larguraLinha); break;
+        case "Q": if (emTexto || --nivel < 0) return false; larguraLinha = estadoGrafico.pop()!; break;
         case "w": if (nums.length !== 1 || !Number.isFinite(nums[0]) || nums[0] <= 0) return false; larguraLinha = nums[0]; break;
         // A marca do assinador usa somente cores escuras, sem preenchimento de fundo.
         case "RG": case "rg": if (nums.length !== 3 || nums.some(n => !Number.isFinite(n) || n < 0 || n > 0.5)) return false; break;
@@ -111,16 +112,16 @@ export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagin
         case "m": case "l": if (emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]]); break;
         case "re": if (emTexto || nums.length !== 4 || nums.some(n => !Number.isFinite(n))) return false; pontos.push([nums[0], nums[1]], [nums[0] + nums[2], nums[1] + nums[3]]); break;
         case "S": contornos++; espessuras.push(larguraLinha); break;
-        case "BT": if (emTexto) return false; emTexto = true; textoDesenhado = false; tx = ty = linhaX = linhaY = 0; break;
+        case "BT": if (emTexto) return false; emTexto = true; textoDesenhado = false; fonteDefinida = false; posicaoDefinida = false; tx = ty = linhaX = linhaY = 0; break;
         case "ET": if (!emTexto) return false; emTexto = false; break;
-        case "Tf": if (args.length !== 2 || args[0].t !== "nome" || fontesPermitidas && !fontesPermitidas.has(args[0].v) || !(nums[1] > 0)) return false; fonte = nums[1]; break;
+        case "Tf": if (!emTexto || args.length !== 2 || args[0].t !== "nome" || fontesPermitidas && !fontesPermitidas.has(args[0].v) || !Number.isFinite(nums[1]) || !(nums[1] > 0)) return false; fonte = nums[1]; fonteDefinida = true; break;
         case "TL": entrelinha = nums[0]; break;
-        case "Tm": if (nums.length !== 6 || nums[0] !== 1 || nums[1] !== 0 || nums[2] !== 0 || nums[3] !== 1) return false; tx = linhaX = nums[4]; ty = linhaY = nums[5]; break;
-        case "Td": if (nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; tx = linhaX = linhaX + nums[0]; ty = linhaY = linhaY + nums[1]; break;
+        case "Tm": if (!emTexto || nums.length !== 6 || nums.some(n => !Number.isFinite(n)) || nums[0] !== 1 || nums[1] !== 0 || nums[2] !== 0 || nums[3] !== 1) return false; tx = linhaX = nums[4]; ty = linhaY = nums[5]; posicaoDefinida = true; break;
+        case "Td": if (!emTexto || nums.length !== 2 || nums.some(n => !Number.isFinite(n))) return false; tx = linhaX = linhaX + nums[0]; ty = linhaY = linhaY + nums[1]; break;
         // O assinador emite uma linha Tj por BT/ET. Outros avanços ou ajustes não pertencem à marca suportada.
         case "TJ": return false;
         case "Tj": {
-          if (!emTexto || textoDesenhado || args.length !== 1 || args[0].t !== "str") return false;
+          if (!emTexto || !fonteDefinida || !posicaoDefinida || textoDesenhado || args.length !== 1 || args[0].t !== "str") return false;
           textoDesenhado = true;
           const texto = args[0].v;
           if (!texto.trim().split(/\s+/).every(palavraOk)) return false;
