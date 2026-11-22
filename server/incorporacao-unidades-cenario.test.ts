@@ -82,8 +82,34 @@ it("permite excluir após cancelar a venda, guarda a auditoria e protege contra 
   const audit = await pg.query("SELECT previous_status, next_status, buyer, sale_price, performed_by_user_id FROM incorporation_unit_events WHERE unit_id = $1 ORDER BY id DESC LIMIT 1", [sold.id]);
   expect(audit.rows[0]).toEqual({ previous_status: "vendida", next_status: "disponivel", buyer: "Cliente CRM", sale_price: "23123.45", performed_by_user_id: 1 });
   await caller.delete({ studyId: 1, unitId: sold.id });
-  await caller.synchronize({ studyId: 1 });
+  await sincronizarUnidadesCenario(1, 1);
   expect((await caller.list({ studyId: 1 })).units.some(u => u.id === sold.id)).toBe(false);
   expect((await pg.query("SELECT next_status FROM incorporation_unit_events WHERE unit_id = $1 ORDER BY id DESC LIMIT 3", [sold.id])).rows)
     .toEqual([{ next_status: "excluida" }, { next_status: "disponivel" }, { next_status: "vendida" }]);
+});
+
+it("reimporta os 43 lotes após exclusão em lote sem duplicar nem restaurar a unidade avulsa", async () => {
+  expect(await caller.deleteAll({ studyId: 2 })).toEqual({ excluidas: 44 });
+  expect(await caller.list({ studyId: 2 })).toMatchObject({ units: [], totalCenario: 43 });
+  expect(await sincronizarUnidadesCenario(2, 1)).toEqual({ geradas: 0, totalCenario: 43 });
+  expect(await caller.synchronize({ studyId: 2 })).toEqual({ geradas: 43, totalCenario: 43 });
+  expect(await caller.synchronize({ studyId: 2 })).toEqual({ geradas: 0, totalCenario: 43 });
+  const { units } = await caller.list({ studyId: 2 });
+  expect(units).toHaveLength(43);
+  expect(units.every(u => u.status === "disponivel" && u.sourceKey !== null)).toBe(true);
+});
+
+it("exclui em lote apenas as unidades elegíveis do estudo e mantém a auditoria", async () => {
+  await caller.create({ studyId: 1, code: "Avulsa", kind: "lote" });
+  await caller.create({ studyId: 1, code: "Venda ativa", kind: "lote" });
+  const { units } = await caller.list({ studyId: 1 });
+  const avulsa = units.find(u => u.code === "Avulsa")!;
+  const vendida = units.find(u => u.code === "Venda ativa")!;
+  await caller.transition({ studyId: 1, unitId: vendida.id, action: "vender", buyer: "Cliente", salePrice: "100" });
+
+  expect(await caller.deleteAll({ studyId: 1 })).toEqual({ excluidas: 1 });
+  expect((await caller.list({ studyId: 1 })).units.map(u => u.status).sort()).toEqual(["reservada", "vendida"]);
+  expect((await caller.list({ studyId: 2 })).units).toHaveLength(43);
+  expect((await pg.query("SELECT next_status FROM incorporation_unit_events WHERE unit_id = $1 ORDER BY id DESC LIMIT 1", [avulsa.id])).rows)
+    .toEqual([{ next_status: "excluida" }]);
 });
