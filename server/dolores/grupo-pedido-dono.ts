@@ -32,7 +32,7 @@ import {
 } from "../../shared/dolores/grupo-pedido-dono.js";
 import { diaDeImperatriz, diaHoraCurta } from "../../shared/dolores/grupos.js";
 import { lerParticipante, tipoEfetivo } from "../../shared/dolores/grupos-tipo.js";
-import { marcacaoFresca } from "../../shared/dolores/marcacao.js";
+import { marcacaoFresca, MAX_PERGUNTA } from "../../shared/dolores/marcacao.js";
 import { ehNumeroDoDono } from "../../shared/dolores/whatsapp.js";
 import { metadadoDoGrupoEvolution, participantesDoGrupoEvolution } from "../_core/evolution.js";
 import { getDb } from "../db.js";
@@ -268,6 +268,11 @@ export async function tratarPedidoDoDono(cfg: DoloresWhatsappConfig, item: unkno
   if (pedido.tipo === "nao_entendi") {
     return nada("nao-entendi", "pedido de registro sem dizer o quê",
       `No grupo "${nomeGrupo}" não entendi o que registrar. Lá eu entendo, por exemplo, "anota: o cliente entregou a matrícula" ou, respondendo à foto do recibo, "salva essa nota". Nada foi registrado.`);
+  }
+  // o texto do grupo chega cortado em MAX_PERGUNTA (+1 de sentinela): pedido maior viraria registro incompleto. Recusa e avisa.
+  if (m.pergunta.length > MAX_PERGUNTA) {
+    return nada("texto-longo", `pedido de registro com mais de ${MAX_PERGUNTA} caracteres`,
+      `No grupo "${nomeGrupo}" ${TEXTO_PEDIDO}, mas o texto passou de ${MAX_PERGUNTA} caracteres e eu não leria até o fim. Mande mais curto lá, ou me peça aqui na nossa conversa. Nada foi registrado.`);
   }
   // tetos: pedidos do dono por dia (todos os grupos) e o teto diário de marcações do grupo
   const dia = diaDeImperatriz(o.agora);

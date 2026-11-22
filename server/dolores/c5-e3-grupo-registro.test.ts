@@ -249,6 +249,14 @@ describe("o dono pede no grupo", () => {
     expect(aoDono()[0]).toMatch(/Hoje já recebi 20 pedidos seus pelos grupos/);
   });
 
+  it("anotação maior que o limite do grupo (chega cortada): não vira proposta incompleta; o dono é avisado", async () => {
+    await noGrupoPede({ texto: `anota: ${"a cliente entregou a matrícula e pediu retorno. ".repeat(14)}FIM` });
+    expect(await fila()).toEqual([]);
+    expect(noGrupo()).toEqual([]);
+    expect(aoDono()[0]).toMatch(/passou de 400 caracteres/);
+    expect(aoDono()[0]).toMatch(/Nada foi registrado/);
+  });
+
   it("reentrega do mesmo aviso não duplica (uma proposta, uma pergunta, um \"Anotado.\")", async () => {
     const it1 = itemDeGrupo({ texto: "anota: reentrega", id: "E3REENTREGA" });
     await chamar(aviso(it1));
