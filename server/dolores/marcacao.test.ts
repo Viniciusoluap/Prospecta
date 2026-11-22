@@ -483,7 +483,8 @@ describe("travas da 3ª rodada da E4 também na resposta em grupo", () => {
       VALUES ('${mesFortaleza(AGORA)}', 'm', 1, ${(1_000_000 * ORCAMENTO_MARCACAO_PCT) / 100}, 0, 'grupo:end_turn'), ('${mesFortaleza(AGORA)}', 'm', 1, 300000, 0, 'end_turn')`);
     await chamar(aviso(item({ id: "ORC-1" })));
     expect(pedidos).toHaveLength(0);
-    expect((await marcacoes())[0].motivo).toBe("laço parou: orcamento_marcacao");
+    // EPIC-027 C5-E5: a parte dos grupos já acabou → a porta da chave para antes do laço (silêncio, sem IA); a conversa segue
+    expect((await marcacoes())[0].motivo).toBe("sem resposta: limite_da_funcao");
   });
 
   it("falha fechada: o consumo não gravou → desliga o interruptor geral (auditado), nenhuma volta a mais, nada enviado", async () => {

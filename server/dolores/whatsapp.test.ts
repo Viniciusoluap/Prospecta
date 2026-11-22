@@ -276,11 +276,18 @@ describe("limite mensal", () => {
     expect(enviar.mock.calls[2][0].texto).toBe("dezembro ok");
   });
   it("o limite atingido no meio do pedido para o laço e responde o que tem", async () => {
-    await banco.pg.exec("UPDATE dolores_whatsapp_config SET limite_mensal_tokens_saida = 300");
+    // EPIC-027 C5-E5: a conversa só usa a parte dela (55%) e cada chamada reserva a saída dela; para o limite INTEIRO bater no
+    // meio do pedido, o resto do mês já foi gasto por outras funções (linha antiga, sem função = documentos)
+    await banco.pg.exec(`UPDATE dolores_whatsapp_config SET limite_mensal_tokens_saida = 20000;
+      INSERT INTO dolores_consumo (mes, modelo, volta, tokens_entrada, tokens_saida, parada) VALUES ('2026-11', 'x', 1, 0, 19700, 'end_turn')`);
     roteiro = [() => ferramenta("listar_tarefas", {}), () => ferramenta("listar_obras", {})];
     await chamar(aviso());
     expect(pedidosModelo).toHaveLength(2);
-    const t = enviar.mock.calls[0][0].texto as string;
+    // os alertas de gasto (C5-E5) também vão só ao dono, antes da resposta; a resposta é a que diz que parou
+    const textos = enviar.mock.calls.map(c => c[0].texto as string);
+    expect(enviar.mock.calls.every(c => c[0].numero === DONO)).toBe(true);
+    expect(textos.filter(x => x.startsWith("Dolores: aviso de gasto da IA")).length).toBeGreaterThan(0);
+    const t = textos.find(x => /Parei antes de terminar/.test(x)) as string;
     expect(t).toMatch(/Parei antes de terminar: o limite mensal de gasto com a IA foi atingido\. Já olhei: tarefas, obras\./);
     expect(t).not.toMatch(/listar_/); // EPIC-027 C5 (E1): nunca o nome interno da consulta
     expect(t).toMatch(/limite mensal de gasto com a IA foi atingido; volto no mês que vem/); // aviso do mês, uma vez

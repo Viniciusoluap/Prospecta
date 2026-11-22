@@ -233,7 +233,8 @@ describe("QA r2 N0: rajada de PDFs densos não estoura o limite nem bloqueia o d
     const [dm] = await q<{ id: number }>("INSERT INTO dolores_mensagens (instancia, external_id, do_dono) VALUES ('prospecta-dolores', 'DONO1', true) RETURNING id");
     expect(await reservarChamada({ mes: "2026-11", mensagemId: dm.id, limites: LIMITE, reserva: { entrada: 30_000, saida: 2_000 }, validadeMs: 60_000 })).toBeNull();
     const cred = await credencialDaClassificacao();
-    expect(cred.motivo).toBeNull(); // a porta da chave não virou "limite_mensal" por causa de documentos
+    // a porta da chave não virou "limite_mensal" por causa de documentos; EPIC-027 C5-E5: só a parte dos documentos (20%) acabou
+    expect(cred.motivo).toBe("limite_da_funcao");
   }, 120_000);
 
   it("orçamento próprio atingido: só a classificação para ('classificacao-orcamento', auditada); a vaga do dia volta", async () => {
