@@ -20,7 +20,7 @@ import { erroParaLog } from "./erro-seguro.js";
 import { registrarAcao } from "./auditoria.js";
 import { FUNCOES, definicaoDaFerramenta, LEITURAS_DO_DONO, leituraPorNome } from "./funcoes.js";
 import { ETAPA_ATUAL, PREVISTAS, PROIBIDAS, funcaoLiberada, motivoDaRecusa } from "./permissoes.js";
-import { DoloresDesativada, usuarioDolores } from "./perfil.js";
+import { DoloresContaAlterada, DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dolores/fila.js";
 import { VALIDADE_ITEM_CONFIRMAVEL_MS } from "../../shared/dolores/confirmacao.js";
@@ -251,6 +251,11 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     if (e instanceof DoloresDesativada) {
       await registrar("recusada", { motivo: "usuária Dolores desativada" });
       return responder(503, { ok: false, erro: "A usuária Dolores está desativada no sistema (Usuários e acesso); a ponte não executa nada até ela ser reativada." });
+    }
+    if (e instanceof DoloresContaAlterada) {
+      console.error("[dolores/ponte] conta da Dolores fora do padrão (perfil, senha ou módulos alterados em Usuários e acesso); parada");
+      await registrar("recusada", { motivo: "conta da Dolores alterada em Usuários e acesso" });
+      return responder(503, { ok: false, erro: "A conta da Dolores foi alterada em Usuários e acesso (perfil, senha ou módulos); por segurança a ponte parou. Restaure o perfil padrão, sem módulos." });
     }
     await registrar("erro", { motivo: `usuária Dolores: ${erroSeguro(e)}` });
     return responder(503, { ok: false, erro: "Usuária Dolores indisponível ou alterada; ponte parada." });

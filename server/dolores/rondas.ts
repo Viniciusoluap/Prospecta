@@ -62,8 +62,9 @@ export const tempoLimiteDaSecao = (restanteMs: number) =>
 /** Para enviar o relatório depois da ronda. */
 const MINIMO_PARA_RELATORIO_MS = 6_000;
 
-const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada") =>
-  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso" : "configuração indisponível";
+const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada") =>
+  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso"
+    : m === "conta_alterada" ? "conta da Dolores alterada em Usuários e acesso (perfil, senha ou módulos)" : "configuração indisponível";
 /** Nome de terceiro (cliente, responsável) guardado nos destaques: filtro do registro + limpeza de nome (sem formatação nem comando). */
 const limpo = (s: string | null | undefined) => limparNomeDeTerceiro(sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO));
 const contar = (v: unknown) => Number(v ?? 0) || 0;
@@ -202,7 +203,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
 
 export type ResultadoRonda =
   | { ok: true; ronda: DoloresRonda; nova: boolean }
-  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "desligada" | "erro"; detalhe?: string | null };
+  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada" | "desligada" | "erro"; detalhe?: string | null };
 
 /**
  * Uma ronda na janela dada. Já existe → devolve a existente (nova = false), sem ler de novo. Pausa geral ou configuração que

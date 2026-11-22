@@ -21,7 +21,7 @@ import { registrarAcao } from "./auditoria.js";
 import { lerPausa } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { funcaoLiberada } from "./permissoes.js";
-import { DoloresDesativada, usuarioDolores } from "./perfil.js";
+import { DoloresContaAlterada, DoloresDesativada, usuarioDolores } from "./perfil.js";
 
 export type Via = "whatsapp" | "tela";
 
@@ -273,7 +273,7 @@ export async function decidir(codigos: readonly string[], decisao: "aprovar" | "
     const bloqueio = !pausa ? "não consegui ler a configuração da Dolores" : pausa.pausada ? "a Dolores está pausada" : null;
     if (!bloqueio) {
       try { autor = await usuarioDolores(); }
-      catch (e) { return codigos.map(codigo => ({ codigo, ok: false, situacao: "bloqueada" as const, texto: `[${codigo}] não executado: ${e instanceof DoloresDesativada ? "a usuária Dolores está desativada" : "usuária Dolores indisponível"}. Nada foi feito.` })); }
+      catch (e) { return codigos.map(codigo => ({ codigo, ok: false, situacao: "bloqueada" as const, texto: `[${codigo}] não executado: ${e instanceof DoloresDesativada ? "a usuária Dolores está desativada" : e instanceof DoloresContaAlterada ? "a conta da Dolores foi alterada em Usuários e acesso (restaure o perfil padrão, sem módulos)" : "usuária Dolores indisponível"}. Nada foi feito.` })); }
     } else {
       return codigos.map(codigo => ({ codigo, ok: false, situacao: "bloqueada" as const, texto: `[${codigo}] não executado: ${bloqueio}. Nada foi feito; o item continua aguardando.` }));
     }

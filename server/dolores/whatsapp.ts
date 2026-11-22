@@ -30,7 +30,7 @@ import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { FOLGA_DO_LACO_MS, FOLGA_FINAL_MS, FOLGA_POR_PARTE_MS, MINIMO_PARA_CHAMAR_MS, executarComando } from "./cerebro.js";
 import { lerConfigWhatsapp, lerPausa, marcarAvisoDoMes, parteDaFuncaoEsgotada, usoDoMes } from "./consumo.js";
-import { DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
+import { DoloresContaAlterada, DoloresDesativada, idDaDoloresSemCriar, usuarioDolores } from "./perfil.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
 import { lerDecisaoDoDono, quadroDePendencias, quadroDoQueFoiFeito } from "../../shared/dolores/fila.js";
 import { ehComandoRelatorio } from "../../shared/dolores/operacao.js";
@@ -353,7 +353,14 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: ke
     const autor = await usuarioDolores();
     return { motivo: null, apiKey: painel.apiKey, modelo, autor };
   } catch (e) {
-    return { motivo: e instanceof DoloresDesativada ? "usuaria_desativada" : "indisponivel" };
+    if (e instanceof DoloresDesativada) return { motivo: "usuaria_desativada" };
+    // 22/11/2026: conta editada em "Usuários e acesso" → motivo próprio (frase clara ao dono) e uma linha curta no log, sem dados
+    if (e instanceof DoloresContaAlterada) {
+      console.error("[dolores/whatsapp] conta da Dolores fora do padrão (perfil, senha ou módulos alterados em Usuários e acesso); parada");
+      return { motivo: "conta_alterada" };
+    }
+    console.error("[dolores/whatsapp] usuária Dolores indisponível", erroCurto(e));
+    return { motivo: "indisponivel" };
   }
 }
 
@@ -365,7 +372,7 @@ async function bloqueioAtual(cfg: DoloresWhatsappConfig, mes: string, funcao: ke
 export async function credencialDaClassificacao(funcao: "dolores_documentos" | "dolores_notas" = "dolores_documentos"): Promise<
   { motivo: MotivoBloqueio | "indisponivel"; detalhe?: string | null } | { motivo: null; apiKey: string; modelo: string; autor: number; limites: { entrada: number; saida: number }; mes: string }> {
   let cfg: DoloresWhatsappConfig | null;
-  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  try { cfg = await lerConfigWhatsapp(); } catch (e) { console.error("[dolores/whatsapp] falha ao ler a configuração", erroCurto(e)); return { motivo: "indisponivel" }; }
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, funcao);
@@ -380,7 +387,7 @@ export async function credencialDaClassificacao(funcao: "dolores_documentos" | "
  */
 export async function credencialDaMarcacao(): Promise<CredencialGrupo> {
   let cfg: DoloresWhatsappConfig | null;
-  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  try { cfg = await lerConfigWhatsapp(); } catch (e) { console.error("[dolores/whatsapp] falha ao ler a configuração", erroCurto(e)); return { motivo: "indisponivel" }; }
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, "dolores_grupo");
@@ -395,7 +402,7 @@ export async function credencialDaMarcacao(): Promise<CredencialGrupo> {
  */
 export async function credencialDoAtendimento(): Promise<CredencialGrupo> {
   let cfg: DoloresWhatsappConfig | null;
-  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  try { cfg = await lerConfigWhatsapp(); } catch (e) { console.error("[dolores/whatsapp] falha ao ler a configuração", erroCurto(e)); return { motivo: "indisponivel" }; }
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, "dolores_cliente");
@@ -416,7 +423,7 @@ export const credencialDaLeituraDeNota = () => credencialDaClassificacao("dolore
  */
 export async function credencialDosAvisos(): Promise<CredencialGrupo> {
   let cfg: DoloresWhatsappConfig | null;
-  try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+  try { cfg = await lerConfigWhatsapp(); } catch (e) { console.error("[dolores/whatsapp] falha ao ler a configuração", erroCurto(e)); return { motivo: "indisponivel" }; }
   if (!cfg) return { motivo: "indisponivel" };
   const mes = mesFortaleza(deps.agora());
   const estado = await bloqueioAtual(cfg, mes, "dolores_avisos");
@@ -435,7 +442,7 @@ export async function retomarTarefasDemoradas(p: { prazoFinal: number; canal: "w
     prazoFinal: p.prazoFinal, canal: p.canal, agora: deps.agora, ms: deps.ms,
     credencial: async () => {
       let cfg: DoloresWhatsappConfig | null;
-      try { cfg = await lerConfigWhatsapp(); } catch { return { motivo: "indisponivel" }; }
+      try { cfg = await lerConfigWhatsapp(); } catch (e) { console.error("[dolores/whatsapp] falha ao ler a configuração", erroCurto(e)); return { motivo: "indisponivel" }; }
       if (!cfg) return { motivo: "indisponivel" };
       const mes = mesFortaleza(deps.agora());
       const estado = await bloqueioAtual(cfg, mes, "dolores_whatsapp");

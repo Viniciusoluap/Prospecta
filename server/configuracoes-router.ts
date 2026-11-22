@@ -11,6 +11,7 @@ import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { DOLORES_OPEN_ID, ehContaDoSistema } from "./dolores/perfil.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, semConfundirFalhaDoBanco, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
@@ -64,6 +65,18 @@ async function ensureAnotherAdmin(userId: number) {
   }
 }
 
+/**
+ * 22/11/2026 (achado em produção): a conta da Dolores ("sistema:dolores") foi editada nesta tela — o perfil "user" aparecia como
+ * "Cliente", virou "Colaborador" com 16 módulos, e a Dolores parou. É uma conta do SISTEMA: perfil, módulos, nome, senha e exclusão são
+ * recusados aqui no servidor; só ativar/desativar (o botão de parada do administrador), por `definirContaDoSistemaAtiva`.
+ */
+export const FRASE_CONTA_DO_SISTEMA = "Esta é a conta do sistema da Dolores: perfil, módulos, nome e senha não podem ser alterados (e ela não pode ser excluída). Aqui só dá para ativar ou desativar.";
+
+async function recusarContaDoSistema(id: number) {
+  const [u] = await getDb().select({ openId: users.openId }).from(users).where(eq(users.id, id)).limit(1);
+  if (u && ehContaDoSistema(u.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
+}
+
 export const configuracoesRouter = router({
   listUsers: adminProcedure.query(async () => getDb().select({
     id: users.id,
@@ -85,6 +98,8 @@ export const configuracoesRouter = router({
     // EPIC-023 (S-A): dados do cadastro de corretor (antiga tela "Corretores").
     notes: brokerProfiles.notes,
     defaultCommissionPct: brokerProfiles.defaultCommissionPct,
+    // 22/11/2026: a conta do sistema da Dolores aparece como "Conta do sistema — não editável" (só ativar/desativar)
+    contaDoSistema: sql<boolean>`coalesce(${users.openId} = ${DOLORES_OPEN_ID}, false)`,
   }).from(users).leftJoin(leads, eq(users.leadId, leads.id))
     .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
     .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id)).orderBy(users.name)),
@@ -193,6 +208,7 @@ export const configuracoesRouter = router({
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    if (ehContaDoSistema(current.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
     if (input.id === ctx.user.id && (!input.active || input.role !== "admin")) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode remover seu próprio acesso administrativo" });
     }
@@ -240,6 +256,20 @@ export const configuracoesRouter = router({
     return updated;
   }),
 
+  /** 22/11/2026: a única mudança aceita na conta do sistema da Dolores — ativar/desativar (o botão de parada). Só para ela. */
+  definirContaDoSistemaAtiva: adminProcedure.input(z.object({ id: z.number().int().positive(), active: z.boolean() })).mutation(async ({ input }) => {
+    const db = getDb();
+    const [current] = await db.select({ id: users.id, openId: users.openId, active: users.active }).from(users).where(eq(users.id, input.id)).limit(1);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    if (!ehContaDoSistema(current.openId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Só a conta do sistema usa este botão; as demais se editam em Gerenciar acesso." });
+    const [updated] = await db.update(users).set({
+      active: input.active,
+      ...(current.active && !input.active ? { sessionVersion: sql`${users.sessionVersion} + 1` } : {}),
+      updatedAt: new Date(),
+    }).where(eq(users.id, input.id)).returning({ id: users.id, active: users.active });
+    return updated;
+  }),
+
   // O admin não digita mais a nova senha de outra pessoa: dispara um link de
   // redefinição por email, e o próprio usuário define a senha real. sessionVersion é
   // incrementado na hora (não só quando o link é usado) - qualquer sessão JWT já
@@ -247,6 +277,7 @@ export const configuracoesRouter = router({
   // imediatamente, sem esperar o reset ser concluído - ver _core/context.ts / shared/session.ts.
   resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
+      await recusarContaDoSistema(input.id);
       const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email })
         .from(users).where(eq(users.id, input.id)).limit(1);
       if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
@@ -263,6 +294,7 @@ export const configuracoesRouter = router({
 
   deleteUser: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     if (input.id === ctx.user.id) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode excluir sua própria conta" });
+    await recusarContaDoSistema(input.id);
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });

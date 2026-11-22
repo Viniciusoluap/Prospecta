@@ -199,7 +199,7 @@ async function manutencao(d: DependenciasRetomada): Promise<void> {
 }
 
 /** Bloqueios que não passam sozinhos em minutos: a tarefa para e o dono é avisado. Os demais (pausa, falha de leitura) esperam. */
-const BLOQUEIO_DEFINITIVO: ReadonlySet<string> = new Set(["ia_desligada", "sem_chave", "sem_modelo", "sem_limite", "limite_mensal", "limite_da_funcao", "usuaria_desativada"]);
+const BLOQUEIO_DEFINITIVO: ReadonlySet<string> = new Set(["ia_desligada", "sem_chave", "sem_modelo", "sem_limite", "limite_mensal", "limite_da_funcao", "usuaria_desativada", "conta_alterada"]);
 
 async function bloquearAguardando(d: DependenciasRetomada, motivo: MotivoBloqueio): Promise<void> {
   const agora = d.agora();
