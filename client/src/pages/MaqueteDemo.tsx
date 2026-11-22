@@ -40,6 +40,8 @@ const botao = "inline-flex min-h-[44px] flex-none items-center whitespace-nowrap
 function Pagina({ fonte: original, slug, conexao }: { fonte: FontePlanta; slug: string; conexao: ConexaoEditor | null }) {
   // Itens mostrados na prévia: os do JSON; depois de editar, os da edição (o cliente vê só o publicado — Etapa 4).
   const [itensEditados, setItensEditados] = useState<FontePlanta["itens"] | null>(null);
+  /** Conta as publicações feitas no editor: o painel de lotes relê a lista a cada uma. */
+  const [publicacoes, setPublicacoes] = useState(0);
   const fonte = useMemo(() => (itensEditados ? { ...original, itens: itensEditados } : original), [original, itensEditados]);
   const [editando, setEditando] = useState(() => !!conexao && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("editar") === "1");
   useEffect(() => { if (!conexao) setEditando(false); }, [conexao]);
@@ -85,10 +87,11 @@ function Pagina({ fonte: original, slug, conexao }: { fonte: FontePlanta; slug: 
       </header>
       <div className="px-[max(4vw,16px)]">
         <Suspense fallback={<div className="p-6 text-[#6B6B66]">Abrindo o editor…</div>}>
-          <EditorItens planta={slug} conexao={conexao} aoSair={itens => { if (itens) setItensEditados(itens); setEditando(false); }} />
+          <EditorItens planta={slug} conexao={conexao} aoPublicar={() => setPublicacoes(n => n + 1)}
+            aoSair={itens => { if (itens) setItensEditados(itens); setEditando(false); }} />
         </Suspense>
         {conexao.lotes && (
-          <Suspense fallback={null}><PainelLotes planta={slug} conexao={conexao.lotes} /></Suspense>
+          <Suspense fallback={null}><PainelLotes planta={slug} conexao={conexao.lotes} atualizacao={publicacoes} /></Suspense>
         )}
       </div>
     </div>

@@ -95,9 +95,15 @@ export async function listarLotes(planta: string) {
     SELECT id, itens_versao_publicada AS publicada FROM maquetes_3d WHERE fonte_slug = ${planta} AND deleted_at IS NULL LIMIT 1`));
   if (!m) return { versaoPublicada: null, versoes: [], lotes: [] };
   const hash = hashDaEstrutura(f);
+  // As 50 publicações mais recentes (histórico do seletor) MAIS, sempre, a publicada da maquete e as fixadas nos lotes:
+  // um lote preso numa versão antiga não pode parecer "inválido" só porque ela saiu do limite do histórico.
   const versoes = linhas<{ versao: number; situacao: string; publicada_em: Date | string; estrutura_hash: string }>(await db().execute(sql`
-    SELECT versao, situacao, publicada_em, estrutura_hash FROM maquete_3d_itens
-    WHERE maquete_id = ${m.id} AND publicada_em IS NOT NULL ORDER BY versao DESC LIMIT 50`))
+    SELECT versao, situacao, publicada_em, estrutura_hash FROM maquete_3d_itens i
+    WHERE i.maquete_id = ${m.id} AND i.publicada_em IS NOT NULL AND (
+      i.versao IN (SELECT r.versao FROM maquete_3d_itens r WHERE r.maquete_id = ${m.id} AND r.publicada_em IS NOT NULL ORDER BY r.versao DESC LIMIT 50)
+      OR i.versao IN (SELECT l.itens_versao FROM maquete_3d_lotes l WHERE l.maquete_id = ${m.id} AND l.itens_versao IS NOT NULL)
+      OR i.versao = ${m.publicada})
+    ORDER BY i.versao DESC`))
     .map(v => ({ versao: Number(v.versao), situacao: v.situacao, publicadaEm: v.publicada_em, valeParaPlanta: v.estrutura_hash === hash }));
   const validas = new Set(versoes.filter(v => v.valeParaPlanta).map(v => v.versao));
   const lotes = linhas<LinhaLote>(await db().execute(sql`

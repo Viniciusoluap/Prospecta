@@ -105,12 +105,14 @@ function NovoLote({ planta, conexao, aoCriar, avisar }: { planta: string; conexa
   );
 }
 
-export default function PainelLotes({ planta, conexao }: { planta: string; conexao: ConexaoLotes }) {
+/** `atualizacao`: muda a cada publicação no editor acima; o painel relê os lotes e as versões (sem sair do editor). */
+export default function PainelLotes({ planta, conexao, atualizacao = 0 }: { planta: string; conexao: ConexaoLotes; atualizacao?: number }) {
   const [lista, setLista] = useState<ListaLotes | null>(null);
   const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null);
   const avisar = useCallback((texto: string, erro = false) => setAviso({ texto, erro }), []);
   const recarregar = useCallback(() => { conexao.listar(planta).then(setLista, e => avisar(lerErro(e).mensagem, true)); }, [conexao, planta, avisar]);
-  useEffect(recarregar, [recarregar]);
+  // `atualizacao` entra só como sinal: cada publicação no editor faz o painel reler a lista.
+  useEffect(recarregar, [recarregar, atualizacao]);
   const semear = () => conexao.semearPadrao(planta).then(r => {
     avisar(r.criado ? `Lote padrão ligado${r.unidadeLigada ? ", com a unidade da Incorporação" : " (sem unidade: ligue para mostrar o status)"}.` : "O lote padrão já estava ligado.");
     recarregar();
