@@ -17,7 +17,7 @@
 
 ## Testes
 ### (a) Automáticos
-- 65 testes em 9 suítes: edição PCI (4 puros + 6 em PostgreSQL/PGlite), atomicidade, solicitação de medição (puro/banco), PLS fiel, medição CAIXA, formatos Excel e migração/histórico PCI.
+- 66 testes em 9 suítes: edição PCI (4 puros + 7 em PostgreSQL/PGlite), atomicidade, solicitação de medição (puro/banco), PLS fiel, medição CAIXA, formatos Excel e migração/histórico PCI.
 - Teste integrado salva a mesma medição, troca de XLS anterior para XLSX nova, preserva fotos e outra medição, gera PDF real e confere que traz a identificação NOVA e não a anterior.
 - Testa formulário desatualizado, vínculo alterado antes da trava com rollback completo, ausência de PCI vinculada, edição de medição antiga sem mudar a vigente, ajustes manuais após carregar a versão nova.
 - DOM com componente real e rede simulada: Editar, novos contrato/valor visíveis, incidências da nova PCI no payload, ID existente e versão atual, execuções/data/observações/foto mantidas, nenhuma chamada a criar nova medição.
@@ -36,3 +36,8 @@
 - Durante a implementação, a main avançou para `04f8e3b0f0d8af5168e66471cd292d56a1bd04d6` (PR #285, Dolores C5-E2).
 - Conferidos os 36 arquivos dessa frente: nenhuma sobreposição com os 6 arquivos desta correção. A branch foi sincronizada preservando integralmente os blobs da main nova; nenhuma migração/credencial/Dolores foi alterada por esta tarefa.
 - O próximo preview deve validar a combinação com essa main, antes do merge de produção.
+
+## Achado da revisão corrigido antes de publicar
+- As incidências vinculadas ficam somente para leitura durante a edição; execuções continuam editáveis.
+- O servidor recusa incidências divergentes da versão exibida (BAD_REQUEST), preservando a medição e evitando salvar um progresso diferente do preview. A adoção automática no backend fica restrita ao cliente legado que não informou versão e ainda usava a PCI anterior.
+- Regressão adicional em banco confirma que alterar incidências em formulário da versão atual não grava nada. DOM confere incidências somente para leitura e execuções editáveis. 66 testes aprovados, além do DOM e do TypeScript estrito.

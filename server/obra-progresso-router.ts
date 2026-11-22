@@ -397,6 +397,12 @@ export const obraProgressoRouter = router({
     if (input.pciVersionId !== undefined && input.pciVersionId !== pciVersionId) throw new TRPCError({ code: "CONFLICT", message: "A PCI vinculada mudou. Reabra a edição da medição para carregar a versão atual." });
     const mudouPci = pciVersionId !== atual.pciVersionId;
     const parsed = vinculada?.parsed as DadosPci | undefined;
+    // Formulário atual já exibiu a PCI nova: nunca salvar um progresso diferente do mostrado.
+    // Só o cliente legado, sem versão e ainda na base anterior, precisa da adoção no servidor.
+    if (parsed && !(mudouPci && input.pciVersionId === undefined)
+      && !incidenciasCorrespondem(input.itens, SERVICOS_PROGRESSO.map(s => s.chave), parsed.incidencias)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "As incidências devem corresponder à PCI carregada na edição. Reabra a medição para usar os valores da planilha." });
+    }
     const preparada = prepararEdicaoComPci(input.itens, dadosCaixa ?? atual.caixaData as DadosMedicaoCaixa | null,
       parsed ? { incidencias: parsed.incidencias, plsPadrao: { ...dadosFixosDasMedicoes([], parsed), seloCasaAzul: parsed.seloCasaAzul } } : null,
       mudouPci && (input.pciVersionId === undefined || input.dadosCaixa === undefined));

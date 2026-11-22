@@ -111,9 +111,16 @@ describe("salvar a edição adota a PCI atualmente vinculada", () => {
   it("preserva ajustes manuais feitos no formulário já carregado com a PCI atual", async () => {
     const t = await preparar();
     try {
-      await caller().editarMedicao({ medicaoId: 2, pciVersionId: 2, itens: t.itens, dadosCaixa: { ...t.dados, pls: { ...t.dados.pls, numeroContrato: "MANUAL-NOVO", valorImovel: 240000 } } });
+      await caller().editarMedicao({ medicaoId: 2, pciVersionId: 2, itens: t.itens.map((i,k) => ({ ...i, incidencia: String(t.n.incidencias[k]) })), dadosCaixa: { ...t.dados, pls: { ...t.dados.pls, numeroContrato: "MANUAL-NOVO", valorImovel: 240000 } } });
       const m = (await t.real.select().from(constructionProgressHistory)).find(m => m.id === 2)!;
       expect((m.caixaData as typeof t.dados).pls).toMatchObject({ numeroContrato: "MANUAL-NOVO", valorImovel: 240000 });
+    } finally { await t.pg.close(); }
+  }, 30_000);
+  it("recusa incidências alteradas num formulário que já exibiu a PCI atual", async () => {
+    const t = await preparar();
+    try {
+      await expect(caller().editarMedicao({ medicaoId: 2, pciVersionId: 2, itens: t.itens })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect((await t.pg.query("SELECT pci_version_id,updated_at FROM construction_progress_history WHERE id=2")).rows[0]).toEqual({ pci_version_id: 1, updated_at: null });
     } finally { await t.pg.close(); }
   }, 30_000);
 });

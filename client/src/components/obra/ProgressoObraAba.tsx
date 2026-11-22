@@ -19,18 +19,20 @@ type Linha = { chave: string; incidencia: string; execucao: string };
 const canonico = (n: number) => n.toFixed(4).replace(/\.?0+$/, "") || "0";
 const exibir = (v: string) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
-function CelulaPercentual({ valor, onChange, rotulo }: { valor: string; onChange: (v: string) => void; rotulo: string }) {
+function CelulaPercentual({ valor, onChange, rotulo, somenteLeitura = false }: { valor: string; onChange: (v: string) => void; rotulo: string; somenteLeitura?: boolean }) {
   const [texto, setTexto] = useState("");
   const [focado, setFocado] = useState(false);
   const invalido = focado && texto.trim() !== "" && lerPercentualDigitado(texto) === null;
   return (
     <Input
       aria-label={rotulo}
+      readOnly={somenteLeitura}
       inputMode="decimal"
       value={focado ? texto : exibir(valor)}
       onFocus={() => { setTexto(exibir(valor)); setFocado(true); }}
       onBlur={() => setFocado(false)}
       onChange={(e) => {
+        if (somenteLeitura) return;
         setTexto(e.target.value);
         const n = e.target.value.trim() === "" ? 0 : lerPercentualDigitado(e.target.value);
         if (n !== null && Number.isFinite(n)) onChange(canonico(n));
@@ -208,7 +210,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Medição por serviço</CardTitle>
           <CardDescription className="text-gray-400">
-            Incidência e Execução do Item são editáveis (até 4 casas decimais). Execução na Obra é automática.
+            {editando?.pciArquivo ? "Incidência segue a PCI desta edição; Execução do Item é editável (até 4 casas decimais)." : "Incidência e Execução do Item são editáveis (até 4 casas decimais)."} Execução na Obra é automática.
             {dados.pci?.vinculadaEm ? " Incidências vinculadas à PCI da CAIXA (valores exatos da planilha)." : ""}
           </CardDescription>
         </CardHeader>
@@ -244,7 +246,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                   return (
                     <tr key={s.chave} className="border-b border-[#C9A961]/10">
                       <td className="py-1.5 pr-2 text-gray-200">{s.nome}</td>
-                      <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Incidência ${s.nome}`} valor={linha.incidencia} onChange={(v) => alterar(s.chave, "incidencia", v)} /></div></td>
+                      <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Incidência ${s.nome}`} somenteLeitura={!!editando?.pciArquivo} valor={linha.incidencia} onChange={(v) => alterar(s.chave, "incidencia", v)} /></div></td>
                       <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Execução ${s.nome}`} valor={linha.execucao} onChange={(v) => alterar(s.chave, "execucao", v)} /></div></td>
                       <td className="py-1.5 pl-2 text-right text-gray-200 tabular-nums">{item ? formatarPercentual(item.execucaoObra, 4) : "—"}</td>
                     </tr>
