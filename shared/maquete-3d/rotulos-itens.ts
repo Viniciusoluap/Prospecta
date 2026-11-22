@@ -9,5 +9,5 @@ export const ROTULOS_MOVEL_FONTE: Record<TipoMovel, string> = {
   vaso_sanitario: "Vaso", lavatorio: "Lavatório", espelho: "Espelho", box_chuveiro: "Box", tanque: "Tanque",
   maquina_lavar: "Máquina", armario_servico: "Armário", mesa_externa: "Mesa externa", churrasqueira: "Churrasqueira",
   prateleira: "Prateleira", planta: "Planta", luminaria_piso: "Luminária", quadro: "Quadro", cortina: "Cortina",
-  pendente: "Pendente", plafon: "Plafon", carro: "Carro", balcao: "Balcão",
+  pendente: "Pendente", plafon: "Plafon", carro: "Carro", balcao: "Balcão", fogao: "Fogão",
 };

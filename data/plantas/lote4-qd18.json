@@ -441,9 +441,10 @@
         "alt": 2.5,
         "peitoril": 0,
         "abertura": "correr",
+        "folha_fixa": "inicio",
         "descricao": "Porta de correr com 2 painéis em alumínio e vidro (quadro: \"janela de correr\" de 1,60 × 2,50)",
         "fonte": "quadro de esquadrias",
-        "nota": "Posição medida no desenho (x 0,53–2,13); protótipo 0,52–2,12."
+        "nota": "Posição medida no desenho (x 0,53–2,13); protótipo 0,52–2,12. Folha fixa x 0,52–1,32 (lado do sofá) e folha que corre x 1,32–2,12: decisão do dono em 21/11 (\"sempre coloco o oposto do sofá\"); a faixa livre de 0,80 m vale só em frente à folha que corre."
       },
       {
         "id": "pt1",
@@ -455,10 +456,10 @@
         "alt": 2.4,
         "peitoril": 0,
         "abertura": "correr",
-        "descricao": "Portão da garagem (de enrolar na fachada norte)",
+        "descricao": "Portão de correr (folha única sobre trilho, chapa e gradil simples)",
         "fonte": "planta",
         "estimado": true,
-        "nota": "3,00 × 2,40 do quadro; posição medida no desenho (x ≈ 0,22–3,21). O protótipo põe o portão em x 1,00–4,00 e não tem a P1."
+        "nota": "3,00 × 2,40 do quadro; posição medida no desenho (x ≈ 0,22–3,21). O protótipo põe o portão em x 1,00–4,00 e não tem a P1. Tipo: portão de correr (decisão do dono em 21/11; nem gradeado de abrir, nem de enrolar)."
       },
       {
         "id": "p1",
@@ -881,8 +882,8 @@
         "esp": 0.15
       },
       "calhas": true,
-      "fonte": "protótipo",
-      "nota": "Mantido o telhado do protótipo validado pelo dono. A prancha diverge: planta de cobertura marca 25% (não 20%), águas de 4,40 m, calhas de zinco no fundo e na frente e rufos nas divisas; o corte B dá 1,60 m de platibanda acima do forro (+3,20 → +4,80) e mostra laje acima do forro. Decisão pendente do dono."
+      "fonte": "decisão do dono em 21/11",
+      "nota": "Vale o telhado do protótipo: 20% de inclinação e platibanda de 1,15 m (decisão do dono em 21/11). A prancha diverge (planta de cobertura com 25%, águas de 4,40 m; corte B com 1,60 m de platibanda acima do forro e laje), mas o dono escolheu o protótipo."
     }
   },
   "itens": [
@@ -1055,9 +1056,9 @@
       "tipo": "sofa",
       "ambiente": "Sala",
       "x": 0.55,
-      "z": 6.275,
+      "z": 6.9,
       "rot": 90,
-      "larg": 1.75,
+      "larg": 1.8,
       "prof": 0.8,
       "alt": 0.85,
       "material": "tecido",
@@ -1065,16 +1066,16 @@
       "editavel": true,
       "fonte": "protótipo",
       "estimado": true,
-      "nota": "Encostado na divisa esquerda. Recuado para z 5,40–7,15 (protótipo 6,00–7,80; prancha ≈ 6,26–7,87) para liberar a faixa de 0,80 m em frente à P2."
+      "nota": "Encostado na divisa esquerda, na posição do protótipo (x 0,15–0,95, z 6,00–7,80; prancha ≈ 6,26–7,87): fica em frente à folha FIXA da P2 (decisão do dono em 21/11), fora da faixa livre da folha que corre."
     },
     {
       "id": "rack-tv",
       "tipo": "rack_tv",
       "ambiente": "Sala",
       "x": 1.995,
-      "z": 6.575,
+      "z": 6.6,
       "rot": 270,
-      "larg": 1.05,
+      "larg": 1.1,
       "prof": 0.29,
       "alt": 0.5,
       "material": "madeira",
@@ -1085,7 +1086,7 @@
         "tv": true
       },
       "estimado": true,
-      "nota": "TV sobre o rack (protótipo: tela de 0,90 a 1,60 m). Recuado para z 6,05–7,10 (protótipo 6,30–7,40) pela faixa da P2."
+      "nota": "TV sobre o rack (protótipo: tela de 0,90 a 1,60 m). Medidas do protótipo (1,10 m); x 1,85–2,14 como no protótipo, mas z 6,05–7,15 (protótipo 6,30–7,40): o rack fica em frente à folha que CORRE da P2 e o protótipo invadiria 25 cm da faixa livre de 0,80 m."
     },
     {
       "id": "cama-q1",

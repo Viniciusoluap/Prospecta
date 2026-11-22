@@ -1,6 +1,6 @@
 // Maquete 3D (EPIC-028, Etapa 2) — planta 2D com cotas, em SVG, desenhada a partir de `planta2d` (puro, testado em
 // shared/maquete-3d/planta2d.ts), que lê o MESMO JSON-fonte da cena 3D. Leve: aparece antes do 3D e não usa WebGL.
-import { useMemo } from "react";
+import { useMemo, type PointerEvent as EventoPonteiro, type Ref } from "react";
 import type { FontePlanta } from "@shared/maquete-3d/fonte";
 import { fmtM, planta2d, type LinhaCota } from "@shared/maquete-3d/planta2d";
 
@@ -22,32 +22,58 @@ function Cota({ c }: { c: LinhaCota }) {
   );
 }
 
-export function Planta2D({ fonte, destaque }: { fonte: FontePlanta; destaque?: string | null }) {
+/** Modo edição (EPIC-028, Etapa 3): item selecionado, itens com erro, zonas bloqueadas e o toque nos itens. */
+export type EdicaoPlanta2D = {
+  selecionado: string | null;
+  comErro: ReadonlySet<string>;
+  /** Zonas proibidas das portas bloqueadas (vão, giro e faixa livre), em vermelho. */
+  zonas: [number, number][][];
+  aoApontarItem: (id: string, e: EventoPonteiro<SVGElement>) => void;
+  aoApontarFundo: (e: EventoPonteiro<SVGSVGElement>) => void;
+  svgRef?: Ref<SVGSVGElement>;
+};
+
+const SELECAO = "#FFE600";
+const ERRO = "#D92D20";
+
+export function Planta2D({ fonte, destaque, edicao }: { fonte: FontePlanta; destaque?: string | null; edicao?: EdicaoPlanta2D }) {
   const p = useMemo(() => planta2d(fonte), [fonte]);
   const [vx, vz, vw, vh] = p.viewBox;
   return (
     <figure className="m-0 flex h-full w-full flex-col">
-      <svg viewBox={`${vx} ${vz} ${vw} ${vh}`} className="h-full w-full" role="img" aria-label={`Planta baixa com cotas — ${fonte.nome}`} style={{ fontFamily: "inherit" }}>
+      <svg ref={edicao?.svgRef} viewBox={`${vx} ${vz} ${vw} ${vh}`} className="h-full w-full" role="img" aria-label={`Planta baixa com cotas — ${fonte.nome}`}
+        style={{ fontFamily: "inherit", touchAction: edicao ? "none" : undefined }} onPointerDown={edicao?.aoApontarFundo}>
         <rect x={vx} y={vz} width={vw} height={vh} fill="#FFFFFF" />
         {/* Ambientes: piso claro; o cômodo em destaque em amarelo-obra. */}
         {p.ambientes.map(a => (
           <polygon key={a.nome} points={a.poligono.map(q => q.join(",")).join(" ")}
             fill={a.nome === destaque ? "#FFF6A6" : a.interno ? "#F7F6F2" : /quintal/i.test(a.nome) ? "#EEF3E7" : "#F1F0EC"} />
         ))}
-        {/* Itens em contorno (tracejado = estimado). */}
-        {p.itens.map(i => (
-          <g key={i.id}>
-            <polygon points={i.poligono.map(q => q.join(",")).join(" ")} fill="#FFFFFF" fillOpacity={0.6} stroke={MUDO} strokeWidth={0.014} strokeDasharray={i.estimado ? "0.05 0.035" : undefined} />
-            {i.mostrarRotulo && <text x={i.x} y={i.z + 0.035} fontSize={0.1} textAnchor="middle" fill={MUDO}>{i.rotulo}</text>}
-          </g>
+        {/* Edição: zonas das portas bloqueadas (vão, giro da folha, faixa livre de 0,80 m). */}
+        {edicao?.zonas.map((z, k) => (
+          <polygon key={`z${k}`} points={z.map(q => q.join(",")).join(" ")} fill={ERRO} fillOpacity={0.16} stroke={ERRO} strokeWidth={0.012} strokeDasharray="0.06 0.04" />
         ))}
+        {/* Itens em contorno (tracejado = estimado); na edição, o selecionado em amarelo e os com erro em vermelho. */}
+        {p.itens.map(i => {
+          const sel = edicao?.selecionado === i.id, erro = edicao?.comErro.has(i.id);
+          return (
+            <g key={i.id} data-item={edicao ? i.id : undefined} style={edicao ? { cursor: "grab" } : undefined}
+              onPointerDown={edicao ? e => { e.stopPropagation(); edicao.aoApontarItem(i.id, e); } : undefined}>
+              <polygon points={i.poligono.map(q => q.join(",")).join(" ")}
+                fill={sel ? SELECAO : erro ? "#FDE2E1" : "#FFFFFF"} fillOpacity={sel ? 0.75 : 0.6}
+                stroke={erro ? ERRO : sel ? TINTA : MUDO} strokeWidth={sel || erro ? 0.035 : 0.014}
+                strokeDasharray={i.estimado && !sel && !erro ? "0.05 0.035" : undefined} />
+              {i.mostrarRotulo && <text x={i.x} y={i.z + 0.035} fontSize={0.1} textAnchor="middle" fill={erro ? ERRO : sel ? TINTA : MUDO} style={{ pointerEvents: "none" }}>{i.rotulo}</text>}
+            </g>
+          );
+        })}
         {/* Paredes cortadas: casa em preto, muros em cinza. */}
         {p.paredes.map(w => w.poligonos.map((pol, k) => (
           <polygon key={`${w.id}-${k}`} points={pol.map(q => q.join(",")).join(" ")} fill={w.muro ? "#8E8D88" : TINTA} />
         )))}
         {/* Aberturas. */}
         {p.aberturas.map(a => (
-          <g key={a.id}>
+          <g key={a.id} style={{ pointerEvents: "none" }}>
             <polygon points={a.vao.map(q => q.join(",")).join(" ")} fill="#FFFFFF" stroke={TINTA} strokeWidth={0.008} />
             <path d={a.tracos} fill="none" stroke={TINTA} strokeWidth={0.014} />
             {a.arco && <path d={a.arco} fill="none" stroke={TINTA} strokeWidth={0.01} strokeDasharray="0.04 0.03" />}
@@ -56,7 +82,7 @@ export function Planta2D({ fonte, destaque }: { fonte: FontePlanta; destaque?: s
         ))}
         {/* Nome, área e medidas de cada ambiente. */}
         {p.ambientes.map(a => (
-          <g key={`t-${a.nome}`}>
+          <g key={`t-${a.nome}`} style={{ pointerEvents: "none" }}>
             <text x={a.x} y={a.z - 0.06} fontSize={0.17} textAnchor="middle" fill={TINTA} fontWeight={600}>{a.nome}</text>
             <text x={a.x} y={a.z + 0.14} fontSize={0.13} textAnchor="middle" fill={TINTA}>
               {a.areaPlanta != null ? `${fmtM(a.areaPlanta)} m²` : `≈ ${fmtM(a.area)} m²`}{a.estimado ? " *" : ""}

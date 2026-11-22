@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { lerPercentualDigitado } from "@shared/financeiro/obra";
 import { SERVICOS_PROGRESSO, calcularProgresso, formatarPercentual, mesclarComPadrao } from "@shared/financeiro/progresso";
 import { dadosMedicaoPadrao, rotuloTipoMedicao, type DadosMedicaoCaixa, type TipoMedicao } from "@shared/medicao-caixa";
+import { prepararEdicaoComPci } from "@shared/medicao-pci-edicao";
 import { BotoesArquivosMedicao, CamposMedicaoCaixa, FotosMedicao, FotosSalvas, copiarMedicaoNoDrive, enviarFotosDaMedicao, type FotoNova } from "./MedicaoCaixa";
 
 // EPIC-020 Lote 4 (item 27) — progresso físico por incidência. O Progresso
@@ -18,18 +19,20 @@ type Linha = { chave: string; incidencia: string; execucao: string };
 const canonico = (n: number) => n.toFixed(4).replace(/\.?0+$/, "") || "0";
 const exibir = (v: string) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
-function CelulaPercentual({ valor, onChange, rotulo }: { valor: string; onChange: (v: string) => void; rotulo: string }) {
+function CelulaPercentual({ valor, onChange, rotulo, somenteLeitura = false }: { valor: string; onChange: (v: string) => void; rotulo: string; somenteLeitura?: boolean }) {
   const [texto, setTexto] = useState("");
   const [focado, setFocado] = useState(false);
   const invalido = focado && texto.trim() !== "" && lerPercentualDigitado(texto) === null;
   return (
     <Input
       aria-label={rotulo}
+      readOnly={somenteLeitura}
       inputMode="decimal"
       value={focado ? texto : exibir(valor)}
       onFocus={() => { setTexto(exibir(valor)); setFocado(true); }}
       onBlur={() => setFocado(false)}
       onChange={(e) => {
+        if (somenteLeitura) return;
         setTexto(e.target.value);
         const n = e.target.value.trim() === "" ? 0 : lerPercentualDigitado(e.target.value);
         if (n !== null && Number.isFinite(n)) onChange(canonico(n));
@@ -69,7 +72,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
   const excluir = trpc.obraProgresso.excluirMedicao.useMutation();
   const atualizarFoto = trpc.obraProgresso.atualizarFoto.useMutation();
   const excluirFoto = trpc.obraProgresso.excluirFoto.useMutation();
-  const [editando, setEditando] = useState<{ id: number; quando: string } | null>(null);
+  const [editando, setEditando] = useState<{ id: number; quando: string; pciVersionId?: number | null; pciArquivo?: string } | null>(null);
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
   // Pedido de 18/10: tipo de medição da CAIXA, campos de cada modelo e fotos em lote.
   const [versaoFormulario, setVersaoFormulario] = useState(0);
@@ -102,7 +105,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
     try {
       let medicaoId: number | null;
       if (editando) {
-        await editar.mutateAsync({ medicaoId: editando.id, itens: linhas, tipo, dadosCaixa });
+        await editar.mutateAsync({ medicaoId: editando.id, pciVersionId: editando.pciVersionId, itens: linhas, tipo, dadosCaixa });
         medicaoId = editando.id;
       } else {
         const r = await salvar.mutateAsync({ projectId, itens: linhas, tipo, dadosCaixa });
@@ -115,7 +118,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         if (falhas.length) {
           fotosNovas.filter(f => !falhas.includes(f)).forEach(f => URL.revokeObjectURL(f.previa));
           setFotosNovas(falhas);
-          setEditando({ id: medicaoId, quando: editando?.quando ?? dataHora(new Date()) });
+          setEditando({ id: medicaoId, quando: editando?.quando ?? dataHora(new Date()), pciVersionId: editando?.pciVersionId ?? (dados.pci?.vinculadaEm ? dados.pci.versionId : undefined), pciArquivo: editando?.pciArquivo ?? dados.pci?.arquivo });
           setUltimaSalva(medicaoId);
           toast.error(`${falhas.length} foto(s) não foram enviadas; a medição foi salva. Salve novamente para reenviar somente essas fotos.`);
           await consulta.refetch(); void utils.obraProgresso.galeria.invalidate({ projectId }); onFotosMudaram?.(); return;
@@ -151,14 +154,23 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
   };
 
   const iniciarEdicao = (h: (typeof dados.historico)[number]) => {
-    setEditando({ id: h.id, quando: dataHora(h.criadoEm) });
-    setLinhas(mesclarComPadrao(h.itens).map((i) => ({ chave: i.chave, incidencia: String(i.incidencia), execucao: String(i.execucao) })));
+    const pci = dados.pci?.vinculadaEm ? dados.pci : null;
+    setEditando({ id: h.id, quando: dataHora(h.criadoEm), pciVersionId: pci?.versionId ?? h.pciVersionId, pciArquivo: pci?.arquivo });
     setTipo(h.tipo);
     // H6: medição antiga sem os dados do contrato recebe os da obra (só o que nunca foi informado).
     const pp = dados.plsPadrao;
-    setDadosCaixa(h.dadosCaixa
+    const dadosAnteriores = h.dadosCaixa
       ? { ...h.dadosCaixa, pls: { ...h.dadosCaixa.pls, numeroContrato: h.dadosCaixa.pls.numeroContrato ?? pp.numeroContrato, valorImovel: h.dadosCaixa.pls.valorImovel ?? pp.valorImovel, dataContratacao: h.dadosCaixa.pls.dataContratacao ?? pp.dataContratacao } }
-      : dadosMedicaoPadrao(h.tipo, { ...pp, dataLevantamento: new Date(h.criadoEm).toISOString().slice(0, 10) }, dados.pci?.prazoMeses ?? null));
+      : dadosMedicaoPadrao(h.tipo, { ...pp, dataLevantamento: new Date(h.criadoEm).toISOString().slice(0, 10) }, dados.pci?.prazoMeses ?? null);
+    const preparada = prepararEdicaoComPci(
+      mesclarComPadrao(h.itens).map(i => ({ chave: i.chave, incidencia: String(i.incidencia), execucao: String(i.execucao) })),
+      dadosAnteriores,
+      pci ? { incidencias: pci.incidencias.map(Number), plsPadrao: pci.plsPadrao } : null,
+      !!pci && pci.versionId !== h.pciVersionId,
+    );
+    setLinhas(preparada.itens);
+    setDadosCaixa(preparada.dadosCaixa);
+    setVersaoFormulario(v => v + 1);
     setFotosNovas([]);
     document.getElementById("medicao-por-servico")?.scrollIntoView({ behavior: "smooth" });
   };
@@ -198,14 +210,14 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
         <CardHeader>
           <CardTitle className="text-[#C9A961]">Medição por serviço</CardTitle>
           <CardDescription className="text-gray-400">
-            Incidência e Execução do Item são editáveis (até 4 casas decimais). Execução na Obra é automática.
+            {editando?.pciArquivo ? "Incidência segue a PCI desta edição; Execução do Item é editável (até 4 casas decimais)." : "Incidência e Execução do Item são editáveis (até 4 casas decimais)."} Execução na Obra é automática.
             {dados.pci?.vinculadaEm ? " Incidências vinculadas à PCI da CAIXA (valores exatos da planilha)." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {editando && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-[#C9A961]/50 bg-[#C9A961]/10 p-3 text-sm text-[#F5E6C4]" role="status">
-              <span>Editando a medição de {editando.quando}. Ao salvar, ela é corrigida no histórico.</span>
+              <span>Editando a medição de {editando.quando}. Ao salvar, ela é corrigida no histórico.{editando.pciArquivo ? ` Esta edição usa a PCI vinculada: ${editando.pciArquivo}.` : ""}</span>
               <Button size="sm" variant="outline" onClick={cancelarEdicao} className="border-[#C9A961]/60 bg-transparent text-[#C9A961] gap-1"><X className="h-4 w-4" />Cancelar edição</Button>
             </div>
           )}
@@ -234,7 +246,7 @@ export function ProgressoObraAba({ projectId, onFotosMudaram }: { projectId: num
                   return (
                     <tr key={s.chave} className="border-b border-[#C9A961]/10">
                       <td className="py-1.5 pr-2 text-gray-200">{s.nome}</td>
-                      <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Incidência ${s.nome}`} valor={linha.incidencia} onChange={(v) => alterar(s.chave, "incidencia", v)} /></div></td>
+                      <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Incidência ${s.nome}`} somenteLeitura={!!editando?.pciArquivo} valor={linha.incidencia} onChange={(v) => alterar(s.chave, "incidencia", v)} /></div></td>
                       <td className="py-1.5 px-2"><div className="flex justify-end"><CelulaPercentual rotulo={`Execução ${s.nome}`} valor={linha.execucao} onChange={(v) => alterar(s.chave, "execucao", v)} /></div></td>
                       <td className="py-1.5 pl-2 text-right text-gray-200 tabular-nums">{item ? formatarPercentual(item.execucaoObra, 4) : "—"}</td>
                     </tr>

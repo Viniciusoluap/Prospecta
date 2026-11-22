@@ -347,3 +347,28 @@ remover tabela/coluna, credenciais e serviço pago novo continuam exigindo confi
     linha própria em Integrações › Anthropic. Serviço pago de imagem só com autorização dele.
 12. OpenClaw: não substitui nem é substituído; a Dolores é o cérebro do negócio dentro do Prospecta, com as travas. Avaliar
     OpenClaw só se ele pedir, e apenas como assistente pessoal pela ponte de leitura.
+
+## Decisões do dono em 21–22/11/2026 — Dolores, maquete nova e processo (REGRA)
+
+1. **Plano da Dolores aprovado** ("Tudo aprovado menos sobre o CARAXES"): resolver com "pode"/"confirmo"; anotar a partir do
+   grupo quando o dono pede; gasto por função (55/20/10/10/5) com alerta em 80% do teto; memória de longo prazo no sistema com
+   tela; avisos proativos; análise de regularização com roteiro de REURB; tarefa demorada sem travar; "criadora de mesas";
+   mesa comercial ligada à maquete. **CARAXES (Obsidian no Drive) FORA** até o plano dele ser desenhado com o dono — não
+   executar nada ligado a ele. Ficam fora também: Kapso/n8n, agente hospedado ("plano B", guardado no HANDOFF), escritório 3D,
+   servidor MCP de escrita e vídeo por IA.
+2. **Confirmação na conversa**: só texto escrito pelo número do dono confirma. **Áudio dizendo "pode" não confirma.** Trocar tipo
+   ou vínculo de grupo já definido pede "confirmo". O "pode" vale sempre para o ÚLTIMO pedido feito.
+3. **Sem tarefa manual quando o sistema pode fazer**: o que der para fazer com o que já está guardado no servidor (ex.: enviar
+   modelo da YCloud com a chave cifrada), o sistema faz. **Botão novo só se nenhum existente servir** — palavras dele: "esses
+   botões que têm aí já são mais do que o necessário; coloque a função dentro de um deles".
+4. **Frentes em paralelo**: ele pediu várias frentes ao mesmo tempo com agentes do AIOX. A publicação continua uma por vez, com
+   portão de QA; migração aditiva e produção a cada etapa estão autorizadas também para a maquete nova (EPIC-028).
+5. **Maquete nova (EPIC-028) — custo zero**: sem IA paga para ler a planta nem para desenhar; Higgsfield só ferramentas
+   gratuitas (opcional; 10 créditos, não gastar). Cada planta vira um JSON em `data/plantas/` feito em sessão; o PDF do cliente
+   não entra no repositório. Decisões da planta do Lote 4 Qd 18: telhado do protótipo (20%, platibanda 1,15 m); balcão de
+   1,10 m; **porta de correr: a folha que ABRE fica do lado oposto ao sofá** (regra geral para as próximas plantas); portão de
+   correr; link público por lote com código não adivinhável; WhatsApp da empresa (99) 98139-2210.
+6. **Revisor automático do GitHub (Codex)**: comenta em todo PR. Antes de mesclar, esperar a revisão ficar "Completed" e ler
+   `get_review_comments`; achado real é corrigido (o de segurança, antes de publicar). Em 22/11 uma mesclagem saiu 4 segundos
+   antes de a revisão terminar — não repetir.
+7. O nome é **Dolores** (nunca "Jarvis" em tela, texto ou conversa).

@@ -1339,12 +1339,43 @@ const balcao = criar(({ peca, m, estilo, k }) => {
   }
 });
 
+/**
+ * Fogão de piso (EPIC-028, Etapa 3): corpo de inox, mesa de vidro preto com quatro queimadores, painel de botões e
+ * porta do forno com visor e puxador. Frente (porta) em +Z.
+ */
+const fogao = criar(({ peca, m, k }) => {
+  const { largura: L, altura: H, profundidade: P } = peca;
+  const hp = 0.04, zC = -0.01, pC = P - 0.02, zF = P / 2 - 0.012;
+  k.rb(L, H - hp - 0.015, pC, 0, hp + (H - hp - 0.015) / 2, zC, m.inox, 0.01, { s: 1 });
+  k.cx(L - 0.06, hp, pC - 0.08, 0, hp / 2, zC - 0.02, m.metalEscuro);
+  // Mesa de vidro e queimadores.
+  k.cx(L, 0.015, pC, 0, H - 0.0075, zC, m.tela);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const x = sx * L * 0.23, z = zC + sz * pC * 0.22, r = sz < 0 ? 0.05 : 0.042;
+    k.cil(r, r + 0.004, 0.012, x, H + 0.006, z, m.metalEscuro, 16);
+    k.cil(r * 0.42, r * 0.42, 0.016, x, H + 0.008, z, m.metal, 12, { fixo: true });
+    for (const giro of [0, Math.PI / 2]) k.cx(r * 2.3, 0.008, 0.008, x, H + 0.018, z, m.metalEscuro, { r: [0, giro, 0], fixo: true });
+  }
+  // Painel de botões.
+  const yP = H - 0.06;
+  k.cx(L - 0.02, 0.07, 0.012, 0, yP, zF, m.metalEscuro);
+  for (let i = 0; i < 4; i++) k.cil(0.014, 0.016, 0.02, -L * 0.3 + i * L * 0.2, yP, zF + 0.016, m.cromado, 12, { r: EIXO_Z, fixo: true });
+  // Porta do forno: visor e puxador.
+  const hPorta = Math.max(0.2, H * 0.56), yPorta = hp + 0.04 + hPorta / 2;
+  k.cx(L - 0.03, hPorta, 0.02, 0, yPorta, zF, m.inox);
+  k.cx(L - 0.13, hPorta * 0.5, 0.004, 0, yPorta - 0.01, zF + 0.011, m.tela, { sombra: false });
+  const yPux = yPorta + hPorta / 2 - 0.045;
+  k.cil(0.008, 0.008, L * 0.7, 0, yPux, zF + 0.038, m.cromado, 10, { r: EIXO_X });
+  for (const s of [-1, 1]) k.cx(0.012, 0.012, 0.03, s * L * 0.33, yPux, zF + 0.024, m.cromado);
+});
+
 /** Móveis da área íntima (quarto, banheiro) e de serviço (cozinha, lavanderia, churrasqueira). */
 export const MOVEIS_INTIMO_SERVICO: CatalogoMoveis = {
   cama,
   criado_mudo: criadoMudo,
   guarda_roupa: guardaRoupa,
   bancada_cozinha: bancadaCozinha,
+  fogao,
   armario_aereo: armarioAereo,
   geladeira,
   vaso_sanitario: vasoSanitario,

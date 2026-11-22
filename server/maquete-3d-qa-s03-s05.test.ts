@@ -31,7 +31,7 @@ const RASTER = pdfDeUmJpeg({ jpeg: JPEG, ...ladosDoJpeg(JPEG)! });
 const VETORIAL = readFileSync(new URL("./fixtures/maquete-3d/sobrado.pdf", import.meta.url));
 const CHAVE = "sk-ant-api03-SEGREDO-QA-1234567890";
 const PAINEL: CredencialIA = { apiKey: CHAVE, modelo: "claude-sonnet-5-5", origem: "painel" };
-const MIGRACOES = ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql", "0121_maquete_3d_revisoes.sql"];
+const MIGRACOES = ["0111_maquete_3d.sql", "0112_maquete_3d_comercial.sql", "0113_maquete_3d_pagamento.sql", "0114_maquete_3d_email.sql", "0115_maquete_3d_lead_arquivos.sql", "0121_maquete_3d_revisoes.sql", "0146_maquete_3d_itens_e_lotes.sql"];
 
 const ret = [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 8 }, { x: 0, y: 8 }];
 const PLANTA = {

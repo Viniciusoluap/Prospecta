@@ -14,6 +14,8 @@ export const TIPOS_MOVEL = [
   // EPIC-028: balcão americano (base baixa + tampo em balanço), usado pelos itens do JSON-fonte; a mobília
   // automática não o sorteia.
   "balcao",
+  // EPIC-028 (Etapa 3): fogão de piso do catálogo do editor (0,55 × 0,60 × 0,85); a mobília automática não o sorteia.
+  "fogao",
 ] as const;
 export type TipoMovel = (typeof TIPOS_MOVEL)[number];
 

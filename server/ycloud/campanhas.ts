@@ -37,16 +37,21 @@ export const ehAdminYcloud = (papel: string | null | undefined) => papel === "ad
 /** Texto ÚNICO que o colaborador lê quando a integração (número, conta, cadastro do número da empresa) precisa do administrador. */
 export const AVISO_AJUSTE_ADMIN = "A integração precisa de ajuste do administrador.";
 
+/** C7.3: texto NEUTRO para o colaborador quando o motivo traz número (6+ dígitos ou "••••") e não é problema do número da integração. */
+export const AVISO_NAO_CONCLUIDO = "Não foi possível concluir. Avise o administrador.";
+
 /**
- * Traduz um motivo (recusa, pausa, falha de envio) para quem não é admin: problema de NÚMERO da integração vira o aviso genérico (sem
- * números, nem mascarados); o limite do dia sai sem o valor (o tier e o teto do painel são do admin); a janela de repetição sai sem os
- * dias. O admin sempre recebe o texto original. Qualquer sequência longa de dígitos ou "••••" também vira o genérico (na dúvida, nada).
+ * Traduz um motivo (recusa, pausa, falha de envio) para quem não é admin: problema de NÚMERO da integração vira o aviso da integração
+ * (sem números, nem mascarados); o limite do dia sai sem o valor (o tier e o teto do painel são do admin); a janela de repetição sai sem
+ * os dias. O admin sempre recebe o texto original. Qualquer outra sequência longa de dígitos ou "••••" vira o aviso NEUTRO (C7.3: não
+ * diz que é a integração quando não se sabe; na dúvida, nada de número).
  */
 export function motivoParaEquipe(m: string): string;
 export function motivoParaEquipe(m: string | null): string | null;
 export function motivoParaEquipe(m: string | null): string | null {
   if (!m) return m;
-  if (/n[ãa]o [ée] o (n[úu]mero )?da empresa|n[úu]mero da empresa ainda n[ãa]o est[áa] cadastrado|nenhum n[úu]mero de whatsapp conectado|••••|\d{6,}/i.test(m)) return AVISO_AJUSTE_ADMIN;
+  if (/n[ãa]o [ée] o (n[úu]mero )?da empresa|n[úu]mero da empresa ainda n[ãa]o est[áa] cadastrado|nenhum n[úu]mero de whatsapp conectado/i.test(m)) return AVISO_AJUSTE_ADMIN;
+  if (/••••|\d{6,}/.test(m)) return AVISO_NAO_CONCLUIDO;
   return m
     .replace(/Limite de \d+ destinat[áa]rios em 24 h/g, "Limite de destinatários em 24 h")
     .replace(/nos [úu]ltimos \d+ dia\(s\)/g, "recentemente");
@@ -153,14 +158,28 @@ export const verificacoesYcloud = { jaReceberamOModelo: (...a: Parameters<typeof
 
 const STATUS_JA_SAIU = ["enviando", "aceita", "enviada", "entregue", "lida", "incerto"] as const;
 
-/** Telefones (forma canônica) que já receberam — ou estão para receber — o MESMO modelo em OUTRA campanha desde `desde`. */
-export async function jaReceberamOModelo(chaves: string[], modelo: { nome: string; idioma: string }, desde: Date, o: { excetoCampanha?: number; incluirFila: boolean }): Promise<Set<string>> {
+/**
+ * C7.3 (portão de QA da C7.1, rodada 2): código do envio que estava na fila de uma campanha PAUSADA PELO ADMIN (ou por uma trava do
+ * sistema) e que o admin cancelou. Derivado do que já existe (`erro_codigo`, varchar 60), sem coluna nova. Para quem não é admin, esse
+ * envio conta como "já recebeu" na janela de repetição do mesmo modelo: cancelar + recriar não contorna a pausa do admin.
+ */
+export const CODIGO_CANCELADA_EM_PAUSA_ADMIN = "CANCELADA_PAUSA_ADMIN";
+
+/**
+ * Telefones (forma canônica) que já receberam — ou estão para receber — o MESMO modelo em OUTRA campanha desde `desde`.
+ * `incluirCanceladasEmPausaAdmin` (operação de quem não é admin): também os da fila de campanha pausada pelo admin/trava e cancelada.
+ */
+export async function jaReceberamOModelo(chaves: string[], modelo: { nome: string; idioma: string }, desde: Date,
+  o: { excetoCampanha?: number; incluirFila: boolean; incluirCanceladasEmPausaAdmin?: boolean }): Promise<Set<string>> {
   if (!chaves.length) return new Set();
   const status: StatusEnvioYcloud[] = o.incluirFila ? [...STATUS_JA_SAIU, "na_fila"] : [...STATUS_JA_SAIU];
   const linhas = await getDb().select({ c: ycloudEnvios.chaveTelefone }).from(ycloudEnvios)
     .innerJoin(ycloudCampanhas, eq(ycloudCampanhas.id, ycloudEnvios.campanhaId))
     .where(and(
-      inArray(ycloudEnvios.chaveTelefone, chaves), inArray(ycloudEnvios.status, status),
+      inArray(ycloudEnvios.chaveTelefone, chaves),
+      o.incluirCanceladasEmPausaAdmin
+        ? or(inArray(ycloudEnvios.status, status), and(eq(ycloudEnvios.status, "falhou"), eq(ycloudEnvios.erroCodigo, CODIGO_CANCELADA_EM_PAUSA_ADMIN)))
+        : inArray(ycloudEnvios.status, status),
       eq(ycloudCampanhas.modeloNome, modelo.nome), eq(ycloudCampanhas.modeloIdioma, modelo.idioma),
       gte(sql`coalesce(${ycloudEnvios.aceitoEm}, ${ycloudEnvios.criadoEm})`, desde),
       o.excetoCampanha ? sql`${ycloudEnvios.campanhaId} <> ${o.excetoCampanha}` : undefined,
@@ -220,7 +239,8 @@ export async function prepararCampanha(entrada: EntradaCampanha, situacao: Situa
   const bloqueios = await bloqueiosDeOptout(chaves, cadastro.map(l => l.id));
   // mínimo 1 dia, também aqui (o banco já recusa 0): a proteção nunca some
   const janela = Math.max(1, situacao.cfg.janelaRepeticaoDias);
-  const repetidos = await jaReceberamOModelo(chaves, modelo, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000), { incluirFila: true });
+  const repetidos = await jaReceberamOModelo(chaves, modelo, new Date(d.agora().getTime() - janela * 24 * 60 * 60_000),
+    { incluirFila: true, incluirCanceladasEmPausaAdmin: !ehAdminYcloud(papel) });
   const usaNome = modelo.analise.campos.some(c => entrada.variaveis[c.chave]?.fonte !== "fixo");
 
   const contagem = { selecionados: ids.length, aEnviar: 0, optout: 0, invalidos: ids.length - cadastro.length, duplicados: 0, reservados: 0, semNome: 0, nomeRecusado: 0, parametroInvalido: 0, jaRecebeu: 0, acimaDoLimite: 0 };
@@ -328,7 +348,8 @@ export async function criarCampanha(entrada: EntradaCampanha, confirmarQuantidad
   if (!camp) { const outra = await existente(); if (outra) return outra; throw new RecusaYcloud("Não consegui criar a campanha."); }
   const linhas = p.destinos.map((x, i) => ({
     campanhaId: camp.id, leadId: x.leadId, telefone: x.telefone, chaveTelefone: x.chave, nome: x.nome?.slice(0, 255) ?? null,
-    parametros: { cabecalho: x.cabecalho, corpo: x.corpo, textoCompleto: x.textoCompleto }, texto: x.texto,
+    // C7.3: o rodapé do modelo (ou null) vai junto, para o eco no roteamento ser comparado com o texto EXATO da campanha
+    parametros: { cabecalho: x.cabecalho, corpo: x.corpo, textoCompleto: x.textoCompleto, rodape: p.modelo.analise.rodape ?? null }, texto: x.texto,
     externalId: `prospecta-c${camp.id}-${i + 1}`, status: "na_fila" as const, criadoEm: d.agora(), atualizadoEm: d.agora(),
   }));
   for (let i = 0; i < linhas.length; i += 500) await db.insert(ycloudEnvios).values(linhas.slice(i, i + 500)).onConflictDoNothing();
@@ -508,6 +529,11 @@ async function enviarLoteTravado(campanhaId: number, autor: AutorYcloud): Promis
   const janela = Math.max(1, situacao.cfg.janelaRepeticaoDias);
   const desdeRepeticao = new Date(d.agora().getTime() - janela * 24 * 60 * 60_000);
   const modeloDoLote = { nome: camp.modeloNome, idioma: camp.modeloIdioma };
+  // C7.3: campanha de quem não é admin (ou lote rodado por quem não é admin) também confere os cancelados em pausa do admin.
+  // Sem conseguir ler o papel de quem criou → confere (na dúvida, a regra mais restrita).
+  const papelDoCriador = camp.criadaPor ? await db.select({ papel: users.role }).from(users).where(eq(users.id, camp.criadaPor)).limit(1)
+    .then(r => r[0]?.papel ?? null, () => null) : null;
+  const incluirCanceladasEmPausaAdmin = !ehAdminYcloud(autor.papel) || !ehAdminYcloud(papelDoCriador);
   const conexaoId = await d.conexaoDaEmpresaId().catch(() => null);
   const origem = situacao.conferencia.numero;
   let ultimoEnvio = 0;
@@ -527,7 +553,7 @@ async function enviarLoteTravado(campanhaId: number, autor: AutorYcloud): Promis
       continue;
     }
     let repetido: boolean;
-    try { repetido = (await verificacoesYcloud.jaReceberamOModelo([e.chaveTelefone], modeloDoLote, desdeRepeticao, { excetoCampanha: campanhaId, incluirFila: false })).size > 0; }
+    try { repetido = (await verificacoesYcloud.jaReceberamOModelo([e.chaveTelefone], modeloDoLote, desdeRepeticao, { excetoCampanha: campanhaId, incluirFila: false, incluirCanceladasEmPausaAdmin })).size > 0; }
     catch {
       // R2-2: mesma regra do opt-out — sem conferir, nada sai: este e os demais reservados voltam para a fila (nunca "incerto") e pausa
       await devolverParaFila(pendentes());
@@ -619,9 +645,24 @@ export async function mudarCampanha(campanhaId: number, acao: "pausar" | "contin
     ));
   }
   if (acao === "cancelar") {
-    await db.update(ycloudCampanhas).set({ status: "cancelada", concluidaEm: d.agora(), atualizadoEm: d.agora() }).where(eq(ycloudCampanhas.id, campanhaId));
-    await db.update(ycloudEnvios).set({ status: "falhou", erroCodigo: "CANCELADA", motivo: "Campanha cancelada antes do envio.", falhouEm: d.agora(), atualizadoEm: d.agora() })
-      .where(and(eq(ycloudEnvios.campanhaId, campanhaId), eq(ycloudEnvios.status, "na_fila")));
+    // C7.3 (portão de QA da C7.1, rodada 2): pausa do admin ou trava do sistema só o admin cancela (cancelar + recriar contornava a
+    // pausa). Quem estava na fila dessa campanha fica marcado e conta como "já recebeu" para a equipe (CODIGO_CANCELADA_EM_PAUSA_ADMIN).
+    const emPausaDoAdmin = c.status === "pausada" && !podeContinuarPausa(c.motivoPausa, "colaborador");
+    if (emPausaDoAdmin && !ehAdminYcloud(autor.papel)) {
+      throw new RecusaYcloud("Esta campanha foi pausada pelo administrador ou por uma trava de segurança: só o administrador pode cancelar.");
+    }
+    // o UPDATE confere a MESMA situação e o MESMO motivo lidos (se o admin pausou entre a leitura e a gravação, nada muda)
+    const feito = await db.update(ycloudCampanhas).set({ status: "cancelada", concluidaEm: d.agora(), atualizadoEm: d.agora() }).where(and(
+      eq(ycloudCampanhas.id, campanhaId), eq(ycloudCampanhas.status, c.status),
+      c.motivoPausa === null ? isNull(ycloudCampanhas.motivoPausa) : eq(ycloudCampanhas.motivoPausa, c.motivoPausa),
+    )).returning({ id: ycloudCampanhas.id });
+    if (!feito.length) throw new RecusaYcloud("A campanha mudou enquanto você cancelava. Atualize a lista e tente de novo.");
+    await db.update(ycloudEnvios).set({
+      status: "falhou", falhouEm: d.agora(), atualizadoEm: d.agora(),
+      ...(emPausaDoAdmin
+        ? { erroCodigo: CODIGO_CANCELADA_EM_PAUSA_ADMIN, motivo: "Campanha cancelada antes do envio (estava pausada pelo administrador ou por uma trava de segurança)." }
+        : { erroCodigo: "CANCELADA", motivo: "Campanha cancelada antes do envio." }),
+    }).where(and(eq(ycloudEnvios.campanhaId, campanhaId), eq(ycloudEnvios.status, "na_fila")));
   }
   await auditarYcloud({ acao: `campanha_${acao}`, usuarioId: autor.id, papel: autor.papel, campanhaId, modelo: c.modeloNome });
 }
@@ -726,23 +767,57 @@ export async function totalOptout() {
 
 /** Só é eco se o envio da campanha ao mesmo número saiu há no máximo isso. */
 export const JANELA_ECO_CAMPANHA_MS = 10 * 60_000;
+/**
+ * C7.3: tolerância para a parte do modelo que o envio não guardou (envios anteriores à C7.3 não têm o rodapé; os de teste antigos, nem
+ * o cabeçalho): no máximo o tamanho de um cabeçalho/rodapé da Meta (60 caracteres) antes e depois do corpo. Parte guardada = exata.
+ */
+export const TOLERANCIA_ECO_CAMPANHA = 60;
+
+type ParametrosDoEnvio = { textoCompleto?: unknown; rodape?: unknown } | null;
+
+/**
+ * O texto do eco é a mensagem da campanha daquele envio? Compara com o que a pessoa recebeu (já com as variáveis preenchidas para o
+ * contato): `ycloud_envios.texto` (corpo) e `parametros.textoCompleto` (cabeçalho + corpo), seguidos do rodapé do modelo. Nada de
+ * "contém": o que sobra antes/depois do corpo tem de ser o cabeçalho/rodapé guardado (exato) ou, quando o envio não guardou essa parte,
+ * caber na tolerância de um cabeçalho/rodapé. Corpo da campanha + um acréscimo da equipe → false (é mensagem da equipe).
+ */
+export function textoEhDaCampanha(textoDoEco: string | null | undefined, envio: { texto: string | null; parametros: unknown }): boolean {
+  const eco = textoComparavel(textoDoEco);
+  const corpo = textoComparavel(envio.texto);
+  if (!eco || corpo.length < 3) return false;
+  const p = (envio.parametros && typeof envio.parametros === "object" ? envio.parametros : null) as ParametrosDoEnvio;
+  const completo = typeof p?.textoCompleto === "string" ? textoComparavel(p.textoCompleto) : null;
+  const rodapeGuardado = p !== null && "rodape" in p;
+  const rodape = typeof p?.rodape === "string" ? textoComparavel(p.rodape) : "";
+  const cabecalhoGuardado = completo !== null;
+  const cabecalho = cabecalhoGuardado && completo !== corpo && completo.endsWith(corpo) ? completo.slice(0, completo.length - corpo.length).trim() : "";
+  // TODA ocorrência do corpo é tentada: o corpo pode aparecer também dentro do cabeçalho e/ou do rodapé (ex.: corpo "Olá", cabeçalho
+  // "Olá, cliente", rodapé "Olá novamente"); só a primeira e a última não bastam. Cada posição continua exigindo o resto exato.
+  for (let pos = eco.indexOf(corpo); pos >= 0; pos = eco.indexOf(corpo, pos + 1)) {
+    const antes = eco.slice(0, pos).trim();
+    const depois = eco.slice(pos + corpo.length).trim();
+    const antesOk = cabecalhoGuardado ? antes === "" || antes === cabecalho : antes.length <= TOLERANCIA_ECO_CAMPANHA;
+    const depoisOk = rodapeGuardado ? depois === "" || depois === rodape : depois.length <= TOLERANCIA_ECO_CAMPANHA;
+    if (antesOk && depoisOk) return true;
+  }
+  return false;
+}
 
 /**
  * Em coexistência, a mensagem enviada pela API aparece no app e pode chegar pela Evolution como "enviada pela empresa" (fromMe).
  * Regra SEGURA, por código: é eco de campanha só se (1) houve envio de campanha pela API ao MESMO número (forma canônica, regra estrita
- * do número do dono) aceito há no máximo 10 min e (2) o texto do eco CONTÉM o corpo preenchido daquele envio (`ycloud_envios.texto`).
- * Qualquer dúvida (sem texto, texto diferente, fora da janela) → false = é mensagem da EQUIPE (o roteamento segue a regra de sempre).
- * Ligação pela frente da Dolores: ver a story C7, "Eco em coexistência".
+ * do número do dono) aceito há no máximo 10 min e (2) o texto do eco É a mensagem daquele envio (`textoEhDaCampanha`, C7.3 — não basta
+ * conter o corpo). Qualquer dúvida (sem texto, texto diferente, acréscimo, fora da janela) → false = é mensagem da EQUIPE (o roteamento
+ * segue a regra de sempre). Ligação pela frente da Dolores: ver a story C7, "Eco em coexistência".
  */
 export async function ehEcoDeCampanhaOficial(numero: string, textoDoEco: string | null | undefined, agora: Date = depsYcloud().agora()): Promise<boolean> {
   const chave = chaveCanonicaTelefone(numero);
-  const eco = textoComparavel(textoDoEco);
-  if (!chave || !eco) return false;
+  if (!chave || !textoComparavel(textoDoEco)) return false;
   try {
     const desde = new Date(agora.getTime() - JANELA_ECO_CAMPANHA_MS);
-    const linhas = await getDb().select({ texto: ycloudEnvios.texto }).from(ycloudEnvios)
+    const linhas = await getDb().select({ texto: ycloudEnvios.texto, parametros: ycloudEnvios.parametros }).from(ycloudEnvios)
       .where(and(eq(ycloudEnvios.chaveTelefone, chave), inArray(ycloudEnvios.status, ["aceita", "enviada", "entregue", "lida", "incerto"]),
         gte(ycloudEnvios.aceitoEm, desde), lt(ycloudEnvios.aceitoEm, new Date(agora.getTime() + 60_000)))).limit(20);
-    return linhas.some(l => { const corpo = textoComparavel(l.texto); return corpo.length >= 3 && eco.includes(corpo); });
+    return linhas.some(l => textoEhDaCampanha(textoDoEco, l));
   } catch { return false; }
 }

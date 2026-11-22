@@ -112,9 +112,9 @@ Regressões testadas: geladeira na posição antiga → "porta P3 bloqueada" (gi
 
 ## Pendências
 
-1. Dono decidir o telhado: 20% (protótipo) ou 25% (cobertura), e platibanda 1,15 (protótipo) ou 1,60 (corte B).
+1. ~~Dono decidir o telhado~~ — RESOLVIDO em 21/11: vale o do protótipo (20%, platibanda 1,15 m).
 2. Dono confirmar a altura do balcão (1,10 estimada; a prancha desenha o elemento até o forro).
-3. Dono confirmar qual folha da P2 é fixa (se a faixa de 0,80 m puder valer só na folha que corre, o sofá volta para
-   perto da parede, como na planta).
+3. ~~Dono confirmar qual folha da P2 é fixa~~ — RESOLVIDO em 21/11: a folha que abre fica do lado oposto ao sofá
+   (regra geral); a faixa de 0,80 m vale só na folha que corre; sofá de volta à posição do protótipo (rack em z 6,05–7,15).
 4. Medidas reais da geladeira e altura dos muros (sem cota).
 5. Etapa 2: conversor JSON-fonte → `ModeloMaquete` (cena 3D) e desenho do balcão americano no catálogo.

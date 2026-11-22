@@ -101,6 +101,61 @@ export const AUTOR_DOLORES = "Dolores";
 
 export const LIMITE_MENSAGENS_GRUPO = 60;
 
+// ---- Histórico do grupo na tela (puro): páginas antigas + a página mais nova, que se atualiza sozinha ----
+
+/** Uma página como a rota `whatsappGrupos.mensagens` devolve (da mais antiga para a mais nova). */
+export type PaginaDoGrupo<M extends { chave: string }> = { mensagens: readonly M[]; temMais: boolean; maisAntiga: Date | string | null };
+/**
+ * O que a tela já carregou de UM grupo: todas as mensagens vistas (páginas antigas e cada atualização da mais nova, unidas por
+ * `chave`) e, se a pessoa pediu "Ver mensagens anteriores", o cursor da página antiga mais velha. Sempre amarrado ao `grupoId`.
+ */
+export type HistoricoDoGrupo<M extends { chave: string }> = {
+  grupoId: number; mensagens: M[]; antigas: { temMais: boolean; maisAntiga: Date | string | null } | null;
+};
+
+/**
+ * União por `chave`, em ordem: primeiro as de `maisVelhas` que não estão em `maisNovas`, depois `maisNovas` (a versão de `maisNovas`
+ * prevalece — ex.: a situação de um envio da equipe). Sem duplicar, nem dentro de uma mesma lista. Nunca abre buraco: o que já
+ * foi carregado e saiu da janela da página mais nova continua.
+ */
+export function unirMensagensDoGrupo<M extends { chave: string }>(maisVelhas: readonly M[], maisNovas: readonly M[]): M[] {
+  const novas = new Set(maisNovas.map(m => m.chave));
+  const vistas = new Set<string>();
+  const out: M[] = [];
+  for (const m of [...maisVelhas.filter(v => !novas.has(v.chave)), ...maisNovas]) {
+    if (vistas.has(m.chave)) continue;
+    vistas.add(m.chave); out.push(m);
+  }
+  return out;
+}
+
+/** Chegou a página mais nova do grupo `grupoId`: une ao que já foi carregado dele; de outro grupo (ou nada ainda), recomeça. */
+export function aplicarPaginaRecente<M extends { chave: string }>(h: HistoricoDoGrupo<M> | null, grupoId: number, p: PaginaDoGrupo<M>): HistoricoDoGrupo<M> {
+  if (!h || h.grupoId !== grupoId) return { grupoId, mensagens: [...p.mensagens], antigas: null };
+  return { ...h, mensagens: unirMensagensDoGrupo(h.mensagens, p.mensagens) };
+}
+
+/**
+ * Chegou uma página antiga pedida para o grupo `grupoId`. Se a tela já está em outro grupo (a pessoa trocou antes de a resposta
+ * chegar), a página é DESCARTADA: mensagens de um grupo nunca aparecem debaixo do título de outro, nem o cursor dele é usado.
+ */
+export function aplicarPaginaAntiga<M extends { chave: string }>(h: HistoricoDoGrupo<M> | null, grupoId: number, p: PaginaDoGrupo<M>): HistoricoDoGrupo<M> | null {
+  if (!h || h.grupoId !== grupoId) return h;
+  return { grupoId, mensagens: unirMensagensDoGrupo(p.mensagens, h.mensagens), antigas: { temMais: p.temMais, maisAntiga: p.maisAntiga } };
+}
+
+/**
+ * O que a tela mostra do grupo `grupoId`: o histórico dele unido à página mais nova (que pode ter chegado antes de o histórico se
+ * atualizar), e o cursor de "Ver mensagens anteriores" — o da página antiga mais velha, ou o da mais nova se nenhuma foi pedida.
+ * Histórico de outro grupo é ignorado.
+ */
+export function vistaDoGrupo<M extends { chave: string }>(h: HistoricoDoGrupo<M> | null, grupoId: number | null, recente: PaginaDoGrupo<M> | null | undefined) {
+  const meu = h && grupoId !== null && h.grupoId === grupoId ? h : null;
+  const mensagens = unirMensagensDoGrupo(meu?.mensagens ?? [], recente?.mensagens ?? []);
+  const pag = meu?.antigas ?? (recente ? { temMais: recente.temMais, maisAntiga: recente.maisAntiga } : null);
+  return { mensagens, temMais: pag?.temMais ?? false, cursor: pag?.maisAntiga ?? null };
+}
+
 export const TEXTO_GRUPOS = {
   aguardando: "aguardando o dono",
   semEscrita: "Este grupo ainda espera o dono confirmar quem colocou a empresa nele: por aqui só dá para ler.",

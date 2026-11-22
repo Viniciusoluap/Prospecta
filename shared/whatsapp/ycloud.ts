@@ -113,7 +113,8 @@ export function telefoneMascarado(e164: string | null | undefined): string {
 
 export type ComponenteModelo = { type?: string; format?: string; text?: string; buttons?: Array<{ type?: string; text?: string; url?: string }> };
 export type CampoModelo = { chave: string; local: "cabecalho" | "corpo"; indice: number; limite: number };
-export type AnaliseModelo = { compativel: boolean; motivo: string | null; campos: CampoModelo[]; corpo: string; cabecalho: string | null };
+/** `rodape` (C7.3): texto do rodapé do modelo (sem variável), guardado no envio para reconhecer o eco exato da campanha. */
+export type AnaliseModelo = { compativel: boolean; motivo: string | null; campos: CampoModelo[]; corpo: string; cabecalho: string | null; rodape?: string | null };
 
 const PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
@@ -161,10 +162,11 @@ export function analisarModelo(components: ComponenteModelo[] | null | undefined
   for (const n of ns) campos.push({ chave: `corpo.${n}`, local: "corpo", indice: n, limite: 1024 });
   const rodape = cs.find(c => tipo(c) === "FOOTER");
   if (rodape && placeholders(String(rodape.text ?? "")).length) return falha("Rodapé com variável não é suportado.");
+  const textoRodape = rodape ? String(rodape.text ?? "").trim() || null : null;
   for (const b of cs.find(c => tipo(c) === "BUTTONS")?.buttons ?? []) {
     if (placeholders(`${b.url ?? ""} ${b.text ?? ""}`).length) return falha("Botão com variável não é suportado nesta tela.");
   }
-  return { compativel: true, motivo: null, campos, corpo, cabecalho };
+  return { compativel: true, motivo: null, campos, corpo, cabecalho, rodape: textoRodape };
 }
 
 /**
@@ -184,15 +186,160 @@ export function problemaDoParametro(valor: string, limite: number): string | nul
 const TLD_COMUNS = "com|net|org|br|io|me|co|info|biz|app|site|online|store|shop|link|ly|xyz|gov|edu|tv|us|uk|pt|top|club|live|page|digital";
 const DOMINIO_COM_TLD = new RegExp(`(?:^|[^a-z0-9@])[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:${TLD_COMUNS})(?![a-z0-9])`, "i");
 
+/** Caracteres que parecem ponto (U+2024, U+00B7, U+2027, U+2219, U+22C5, U+30FB, U+FF65, U+3002, U+FF61, U+FE52, U+0701…). */
+const PARECE_PONTO = "[\\u00B7\\u0387\\u06D4\\u0701\\u0702\\u2022\\u2024\\u2027\\u2219\\u22C5\\u2E31\\u3002\\u30FB\\uFE52\\uFF0E\\uFF61\\uFF65]";
+/** Colado entre dois caracteres ("exemplo·com") vira ponto; com espaço ("Piscina • Academia", lista com marcador) vira espaço. */
+const PONTO_COLADO = new RegExp(`(?<=\\S)${PARECE_PONTO}(?=\\S)`, "g");
+const PONTO_SOLTO = new RegExp(PARECE_PONTO, "g");
+// classes Unicode (\p{...}) pelo construtor: o alvo do TypeScript não aceita a flag "u" em literal
+const MARCAS = new RegExp("\\p{M}", "gu");
+const INVISIVEIS = new RegExp("\\p{Cf}", "gu");
+const DIGITOS = new RegExp("\\p{Nd}", "gu");
+const TRACOS = new RegExp("\\p{Pd}", "gu");
+
+/** Mesma normalização de `textoFixoNormalizado`, com ou sem passar para minúsculas (a caixa decide a abreviação colada). */
+function normalizarTextoFixo(valor: string, minusculas: boolean): string {
+  const base = String(valor ?? "").normalize("NFKC").normalize("NFKD")
+    .replace(MARCAS, "").replace(INVISIVEIS, "")
+    .replace(DIGITOS, ch => (/[0-9]/.test(ch) ? ch : "0"));
+  return (minusculas ? base.toLowerCase() : base)
+    .replace(PONTO_COLADO, ".").replace(PONTO_SOLTO, " ").replace(TRACOS, "-")
+    .replace(/\s+/g, " ").replace(/ +\. */g, ".").trim();
+}
+
 /**
- * C7.1 (portão de QA, 21/11/2026): texto fixo de variável digitado por quem NÃO é admin (colaborador com o módulo WhatsApp) não leva
- * link (`http`, `https`, `www.`, domínio com terminação comum) nem telefone (8+ dígitos seguidos, aceitando espaço, ponto, hífen,
- * parênteses e "+"). O modelo foi aprovado pela Meta; a variável não pode virar um canal para mandar o cliente a outro lugar.
+ * C7.3: forma comparável do texto fixo — NFKC/NFKD (dígitos largos, "＠", ponto largo e "①" viram ASCII), sem marcas (acento,
+ * tecla de emoji), sem caracteres invisíveis, minúsculas, pontos e traços "parecidos" viram "." e "-", espaços colapsados e
+ * espaço ANTES do ponto removido ("exemplo . com" → "exemplo.com"; "frase. Depois" fica como está). Dígitos de outros alfabetos
+ * contam como dígito.
+ */
+export function textoFixoNormalizado(valor: string): string {
+  return normalizarTextoFixo(valor, true);
+}
+
+/** Link escrito por extenso: "ponto com", "ponto br", "arroba", "dot com"… */
+const LINK_POR_EXTENSO = /\b(?:ponto|dot)\s*-?\s*(?:com|br|net|org|me|io|ly|app|dev|ai|site|online|info|link|store|shop|xyz)\b|\barroba\b/;
+/** Qualquer `palavra.palavra` com 2+ letras depois do ponto (cobre terminações fora da lista: .dev, .ai, .app, .io…). */
+const PALAVRA_PONTO_PALAVRA = /[a-z0-9_-]\.[a-z]{2,}/;
+/**
+ * Abreviações de endereço/tratamento que aparecem coladas na palavra seguinte ("Av.Brasil", "Sr.João"). Só valem com a palavra
+ * seguinte começando por MAIÚSCULA; terminação conhecida (`.com`, `.br`… em `DOMINIO_COM_TLD`) continua sendo link.
+ */
+const ABREVIACOES = new Set(["av", "r", "rod", "al", "tv", "trav", "pca", "pc", "est", "vl", "jd", "jdm", "pq", "res", "cond", "ed", "bl",
+  "ap", "apto", "qd", "qda", "lt", "n", "no", "nro", "sr", "sra", "srta", "dr", "dra", "sto", "sta", "s", "eng", "arq", "prof", "profa",
+  "fazenda", "faz", "sit", "loteam", "ltda", "cia"]);
+const ABREVIACAO_COLADA = /(?<![A-Za-z0-9])([A-Za-z]{1,7})\.(?=[A-Z])/g;
+/** Acima disso o texto fixo é recusado sem análise (o campo aceita 1024): mantém o filtro com custo limitado. */
+const LIMITE_TEXTO_FIXO = 2000;
+
+const SEPARADORES_NUMERO = " ().+/_-";
+const ehDigito = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+const ehDia = (g: string) => g.length <= 2 && Number(g) >= 1 && Number(g) <= 31;
+const ehMes = (g: string) => g.length <= 2 && Number(g) >= 1 && Number(g) <= 12;
+const ehAno = (g: string) => g.length === 2 || (g.length === 4 && (g.startsWith("19") || g.startsWith("20")));
+const ehSeparadorDeData = (s: string) => s === "/" || s === "." || s === "-";
+const ehTraco = (s: string | undefined) => s !== undefined && s.trim() === "-";
+
+type TokenNumero = { tipo: "data" | "cep" | "reais" | "hora" | "numero" };
+
+/**
+ * Uma sequência de grupos de dígitos ligados só por separadores (espaço, traço, barra, ponto, parênteses, "+", "_") parece telefone?
+ * Menos de 8 dígitos: não. Não contam, desde que a sequência tenha no máximo dois desses itens e nenhum número solto: data com dia e
+ * mês válidos (e intervalo "data - data"), data seguida de hora ("25/11/2026 14h"), CEP e valor em R$ com milhar ("R$ 250.000 -
+ * 300.000", até 9 dígitos: DDD + número não se esconde aí). Lista de unidades ("101 102 103": só grupos de 3 dígitos, crescentes,
+ * separados por espaço ou barra) também não conta. Qualquer outro caso soma todos os dígitos.
+ */
+function sequenciaPareceTelefone(grupos: string[], seps: string[], reaisAntes: boolean, depois: string): boolean {
+  let total = 0;
+  for (const g of grupos) total += g.length;
+  if (total < 8) return false;
+  if (grupos.length >= 2 && grupos.every(g => g.length === 3) && seps.every(s => s === " " || s === "/")
+    && grupos.every((g, i) => i === 0 || Number(g) > Number(grupos[i - 1]))) return false;
+  const tokens: TokenNumero[] = [];
+  const n = grupos.length;
+  let i = 0;
+  while (i < n && tokens.length <= 2) {
+    const anterior = tokens[tokens.length - 1];
+    if (ehDia(grupos[i]) && i + 1 < n && ehSeparadorDeData(seps[i]) && ehMes(grupos[i + 1])) {
+      const fim = i + 2 < n && seps[i + 1] === seps[i] && ehAno(grupos[i + 2]) ? i + 3 : i + 2;
+      tokens.push({ tipo: anterior === undefined || (anterior.tipo === "data" && ehTraco(seps[i - 1])) ? "data" : "numero" });
+      i = fim;
+      continue;
+    }
+    if (grupos[i].length === 5 && i + 1 < n && seps[i] === "-" && grupos[i + 1].length === 3) {
+      tokens.push({ tipo: "cep" });
+      i += 2;
+      continue;
+    }
+    if (grupos[i].length <= 3 && i + 1 < n && seps[i] === "." && grupos[i + 1].length === 3) {
+      let f = i + 1;
+      while (f + 1 < n && seps[f] === "." && grupos[f + 1].length === 3) f++;
+      let digitos = 0;
+      for (let k = i; k <= f; k++) digitos += grupos[k].length;
+      const reais = (i === 0 && reaisAntes) || (anterior?.tipo === "reais" && ehTraco(seps[i - 1]));
+      tokens.push({ tipo: reais && digitos <= 9 ? "reais" : "numero" });
+      i = f + 1;
+      continue;
+    }
+    if (i === n - 1 && anterior?.tipo === "data" && grupos[i].length <= 2 && Number(grupos[i]) <= 23 && (depois === "h" || depois === ":")) {
+      tokens.push({ tipo: "hora" });
+      i++;
+      continue;
+    }
+    tokens.push({ tipo: "numero" });
+    i++;
+  }
+  return !(i >= n && tokens.length <= 2 && tokens.every(t => t.tipo !== "numero"));
+}
+
+/** Varredura linear (sem regex com retrocesso): cada sequência de grupos de dígitos é avaliada uma vez. */
+function temTelefone(t: string): boolean {
+  const n = t.length;
+  let i = 0;
+  while (i < n) {
+    if (!ehDigito(t[i])) { i++; continue; }
+    let p = i - 1;
+    if (t[p] === " ") p--;
+    const reaisAntes = t[p] === "$" && t[p - 1] === "r";
+    const grupos: string[] = [];
+    const seps: string[] = [];
+    let fimDigitos = i;
+    for (;;) {
+      let j = i;
+      while (ehDigito(t[j])) j++;
+      grupos.push(t.slice(i, j));
+      fimDigitos = j;
+      let k = j;
+      while (k < n && SEPARADORES_NUMERO.includes(t[k])) k++;
+      if (k > j && ehDigito(t[k])) { seps.push(t.slice(j, k)); i = k; continue; }
+      i = k;
+      break;
+    }
+    if (sequenciaPareceTelefone(grupos, seps, reaisAntes, t[fimDigitos] ?? "")) return true;
+  }
+  return false;
+}
+
+/**
+ * C7.1 (portão de QA, 21/11/2026) e C7.3 (rodadas 2 e 3): texto fixo de variável digitado por quem NÃO é admin (colaborador com o
+ * módulo WhatsApp) não leva link nem telefone. Sobre a forma normalizada (`textoFixoNormalizado`): recusa `http`, `www.`, domínio com
+ * terminação conhecida, link por extenso ("ponto com", "arroba"), qualquer `palavra.palavra` (2+ letras depois do ponto; exceto
+ * abreviação conhecida colada em palavra com maiúscula, "Av.Brasil"), `@algo`, e 8+ dígitos em sequência ligada por espaço, traço,
+ * barra, ponto, parênteses, "+" ou "_" (exceções em `sequenciaPareceTelefone`: data, intervalo de datas, data e hora, CEP, valor em
+ * R$, lista de unidades). Texto acima de 2.000 caracteres é recusado. O modelo foi aprovado pela Meta; a variável não pode virar um
+ * canal para mandar o cliente a outro lugar. Resta o número por extenso ("onze nove…") e número disfarçado de intervalo de datas.
  */
 export function problemaDoTextoFixoDaEquipe(valor: string): string | null {
-  if (/https?:|www\./i.test(valor) || DOMINIO_COM_TLD.test(valor)) return "não pode ter link (só o administrador pode usar link em texto fixo)";
-  const corridas = valor.match(/[+(]?\d[\d\s().+-]*\d/g) ?? [];
-  if (corridas.some(c => c.replace(/\D/g, "").length >= 8)) return "não pode ter número de telefone (só o administrador pode usar telefone em texto fixo)";
+  if (String(valor ?? "").length > LIMITE_TEXTO_FIXO) return `passa de ${LIMITE_TEXTO_FIXO} caracteres`;
+  const t = textoFixoNormalizado(valor);
+  const semAbreviacoes = normalizarTextoFixo(valor, false)
+    .replace(ABREVIACAO_COLADA, (m, abrev: string) => (ABREVIACOES.has(abrev.toLowerCase()) ? `${abrev}. ` : m))
+    .toLowerCase();
+  if (/https?:|www\./.test(t) || DOMINIO_COM_TLD.test(t) || LINK_POR_EXTENSO.test(t) || PALAVRA_PONTO_PALAVRA.test(semAbreviacoes)
+    || /@\s*[a-z0-9_]/.test(t)) {
+    return "não pode ter link (só o administrador pode usar link em texto fixo)";
+  }
+  if (temTelefone(t)) return "não pode ter número de telefone (só o administrador pode usar telefone em texto fixo)";
   return null;
 }
 
