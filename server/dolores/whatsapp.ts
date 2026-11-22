@@ -60,6 +60,7 @@ import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -273,7 +274,9 @@ const comAvisoDeFalta = (t: string) => {
  */
 export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown>;
   /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
-  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null }> {
+  pendenciaId?: number | null }): Promise<{ ok: boolean; motivo: string | null;
+  /** QA C5 (B1): false = recusado ANTES do envio (com certeza não saiu); true = o envio foi tentado (com erro, pode ter chegado). */
+  tentou: boolean }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
     registrarAcao({ funcao: ctx.funcao, resultado, motivo, autorUserId: ctx.autor, canal: ctx.canal, pedidoId: ctx.pedidoId, resumo: { ...ctx.resumo, ...extra }, duracaoMs });
   let cfg: DoloresWhatsappConfig | null = null;
@@ -282,12 +285,12 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   const recusa = !cfg ? "configuração do WhatsApp da Dolores indisponível"
     : !pausa ? "não consegui ler a pausa geral" : pausa.pausada ? "Dolores pausada (pausa geral)"
     : !cfg.numeroDono ? "número do dono não cadastrado" : !cfg.instancia || cfg.statusConexao !== "conectado" ? "Dolores desconectada" : null;
-  if (recusa || !cfg?.numeroDono || !cfg.instancia) { await auditar("recusada", `${recusa ?? "sem destino"}; nada foi enviado`); return { ok: false, motivo: recusa }; }
+  if (recusa || !cfg?.numeroDono || !cfg.instancia) { await auditar("recusada", `${recusa ?? "sem destino"}; nada foi enviado`); return { ok: false, motivo: recusa, tentou: false }; }
   const numero = cfg.numeroDono;
-  if (!ehNumeroDoDono(numero, cfg.numeroDono)) { await auditar("recusada", "destino não é o número do dono; nada foi enviado"); return { ok: false, motivo: "destino inválido" }; }
+  if (!ehNumeroDoDono(numero, cfg.numeroDono)) { await auditar("recusada", "destino não é o número do dono; nada foi enviado"); return { ok: false, motivo: "destino inválido", tentou: false }; }
   const final = cortarResposta(sanitizarTexto(tratarLinksDaResposta(texto, urlDoSistemaParaLinks()), filtroDaSaida("whatsapp")));
   const restante = ctx.prazoFinal - deps.ms();
-  if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar" }; }
+  if (restante < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para enviar dentro do prazo", { caracteres: final.length }); return { ok: false, motivo: "sem tempo para enviar", tentou: false }; }
   // EPIC-027 C5 (E2): um aviso no meio tira a proposta aberta da "ordem" (o "pode" solto depois dele não confirma) — menos a desta pergunta (E3)
   await marcarForaDeOrdem(ctx.pendenciaId ?? null);
   const inicio = deps.ms();
@@ -305,7 +308,7 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
     await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
       referencias: await referenciaDoGrupo(ctx.resumo?.grupoId) });
   }
-  return { ok, motivo };
+  return { ok, motivo, tentou: true };
 }
 
 /**
@@ -1074,6 +1077,9 @@ async function tratarAvisoDaInstancia(cfg: DoloresWhatsappConfig & { instancia: 
   if (contagem.antiga) {
     await registrarAcao({ funcao: "whatsapp_mensagem", resultado: "recusada", motivo: "mensagem antiga (reentrega ou histórico): não vira comando", autorUserId: autor, canal: "whatsapp", resumo: { antigas: contagem.antiga } });
   }
+  // QA C5 (B1): os alertas de gasto registrados neste aviso (pendentes) saem só agora, DEPOIS das respostas, no tempo que sobrar do
+  // prazo do aviso; com proposta aberta e confirmável na conversa do dono, esperam (B2). Nunca lança.
+  await enviarAlertasPendentes({ prazoFinal, canal: "whatsapp", agora: deps.agora(), relogio: deps.ms });
   return { status: 200, body: { ok: true, r: contagem, ...(Object.keys(rota).length ? { rota } : {}) } };
 }
 

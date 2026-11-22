@@ -16,7 +16,7 @@
 //  (f) só chega aqui mensagem do número do dono, na conversa direta, não encaminhada e sem mídia (whatsapp.ts). Mensagem de grupo,
 //      de cliente ou de terceiro nunca chega; texto de consulta ou de ferramenta nunca é lido como resposta.
 // Nesta tabela não há texto nem dado pessoal: só ids, nível, situação e horas. Os resumos mostrados vêm de dolores_aprovacoes.
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { doloresConversaPendencia, type DoloresConversaPendencia } from "../../drizzle/schema-dolores-pendencia.js";
 import {
@@ -146,6 +146,32 @@ export async function marcarForaDeOrdem(excetoId: number | null): Promise<void> 
     await getDb().update(doloresConversaPendencia).set({ adjacente: false })
       .where(and(eq(doloresConversaPendencia.situacao, "aberta"), eq(doloresConversaPendencia.adjacente, true), ...(excetoId ? [ne(doloresConversaPendencia.id, excetoId)] : [])));
   } catch (e) { console.error("[dolores/pendencia] falha ao marcar a proposta fora de ordem", erroParaLog(e)); }
+}
+
+/**
+ * QA C5 (achado B2) — PONTO ÚNICO da regra "posso mandar agora um aviso AUTOMÁTICO ao dono (que não é resposta a ele)?".
+ * Não, enquanto houver uma proposta ABERTA e ainda CONFIRMÁVEL na conversa do dono: aberta, dentro da validade e com a pergunta
+ * como a última coisa que ele recebeu (`adjacente`) — ou ainda saindo (pergunta não enviada). Um aviso no meio tiraria a proposta
+ * "de ordem" (marcarForaDeOrdem) e o "pode" dele não confirmaria. O aviso ESPERA: fica pendente e sai quando a proposta for
+ * decidida ou vencer (fim do próximo aviso do WhatsApp, ou o cron).
+ * Quem usa: os alertas de gasto (operacao-gasto.ts#enviarAlertasPendentes). Qualquer aviso automático novo (proatividade,
+ * lembretes) que vá ao dono pelo `enviarAvisoAoDono` deve conferir AQUI antes, e não reescrever a regra. NÃO vale para a resposta
+ * a uma mensagem dele (ele pediu outra coisa: aí a proposta sai de ordem de propósito) nem para a pergunta da própria proposta.
+ * Sem a tabela (0145 não aplicada) não há proposta → true. Falha ao ler → false (espera: um alerta atrasado é melhor que um "pode"
+ * perdido).
+ */
+export async function podeEnviarAvisoAgora(agora: Date): Promise<boolean> {
+  try {
+    const existe = await getDb().execute(sql`SELECT to_regclass('public.dolores_conversa_pendencia') IS NOT NULL AS existe`);
+    if ((existe as unknown as { rows: Array<{ existe: boolean }> }).rows[0]?.existe !== true) return true;
+    const [aberta] = await getDb().select({ id: doloresConversaPendencia.id }).from(doloresConversaPendencia)
+      .where(and(eq(doloresConversaPendencia.situacao, "aberta"), gt(doloresConversaPendencia.venceEm, agora),
+        or(eq(doloresConversaPendencia.adjacente, true), isNull(doloresConversaPendencia.perguntaEnviadaEm)))).limit(1);
+    return !aberta;
+  } catch (e) {
+    console.error("[dolores/pendencia] falha ao conferir se há proposta aberta", erroParaLog(e));
+    return false;
+  }
 }
 
 /**

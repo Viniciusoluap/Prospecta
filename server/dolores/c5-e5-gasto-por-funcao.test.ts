@@ -19,7 +19,7 @@ import {
   reservarMarcacao, usoPorFuncaoNoMes,
 } from "./consumo.js";
 import { consumoDoMesDetalhado } from "./custo.js";
-import { conferirAlertasDoGasto, definirEnvioDosAlertas, gastoPorFuncaoDoMes, type EnvioDoAlerta } from "./operacao-gasto.js";
+import { MAX_TENTATIVAS_DO_ALERTA, MINIMO_PARA_ALERTA_MS, conferirAlertasDoGasto, definirEnvioDosAlertas, enviarAlertasPendentes, gastoPorFuncaoDoMes, registrarAlertasDevidos, type EnvioDoAlerta } from "./operacao-gasto.js";
 import { CENARIO, criarBanco } from "./testes-banco.js";
 
 const MES = "2026-11";
@@ -119,6 +119,8 @@ describe("C5-E5 — banco (PGlite)", () => {
     banco.pg.exec(`INSERT INTO dolores_consumo (mes, mensagem_id, modelo, volta, tokens_entrada, tokens_saida, parada, funcao)
       VALUES ('${MES}', ${f.mensagemId ?? "NULL"}, 'm', 1, ${f.entrada}, ${f.saida ?? 0}, ${f.parada ? `'${f.parada}'` : "NULL"}, ${f.funcao ? `'${f.funcao}'` : "NULL"})`);
   const novaMensagem = async (ext: string) => (await q<{ id: number }>(`INSERT INTO dolores_mensagens (instancia, external_id, do_dono) VALUES ('prospecta-dolores', '${ext}', true) RETURNING id`))[0].id;
+  // QA C5 (B1): o laço só REGISTRA o alerta (pendente); o envio sai depois da resposta principal (fim do aviso) ou no cron
+  const enviarPendentes = (prazoMs = 8_000) => enviarAlertasPendentes({ mes: MES, prazoFinal: Date.now() + prazoMs, canal: "whatsapp" });
 
   beforeEach(async () => {
     esquecerColunaFuncao();
@@ -174,6 +176,9 @@ describe("C5-E5 — banco (PGlite)", () => {
     expect(await reservarChamada({ mes: MES, mensagemId: m, limites: LIMITES, reserva: { entrada: 30_000, saida: 3_000 }, validadeMs: VALIDADE })).toBeNull();
     await liberarReserva(m);
     expect(await reservarClassificacao({ mes: MES, mensagemGrupoId: 1, limites: LIMITES, reserva: { entrada: 28_000, saida: 300 }, validadeMs: VALIDADE })).toBeNull();
+    // QA C5 (B1): nada foi enviado no meio das reservas — o alerta ficou pendente
+    expect(enviados).toEqual([]);
+    await enviarPendentes();
     // e o alerta de 100% saiu SÓ para os grupos
     expect(enviados.map(e => e.ctx.resumo)).toEqual([{ mes: MES, alvo: "grupos", nivel: 100 }]);
   });
@@ -188,6 +193,7 @@ describe("C5-E5 — banco (PGlite)", () => {
     expect(await reservarAtendimento({ mes: MES, atendimentoId: 1, limites: LIMITES, reserva: { entrada: 6_000, saida: 400 }, validadeMs: VALIDADE })).toBeNull();
     expect(await reservarClassificacao({ mes: MES, mensagemGrupoId: 1, limites: LIMITES, reserva: { entrada: 28_000, saida: 300 }, validadeMs: VALIDADE })).toBeNull();
     // antes da 0148 a conversa podia usar até 100%: agora ela fica nos 55% dela, mesmo com o resto do limite livre
+    await enviarPendentes();
     expect(enviados.map(e => e.ctx.resumo)).toEqual([{ mes: MES, alvo: "conversa", nivel: 100 }]);
     expect(enviados[0].texto).toMatch(/Entrei em modo sem IA só nessa função/);
   });
@@ -225,9 +231,35 @@ describe("C5-E5 — banco (PGlite)", () => {
     expect(total.e).toBeLessThanOrEqual(LIMITES.entrada);
     expect(total.s).toBeLessThanOrEqual(LIMITES.saida);
     // cada limite cruzado avisou UMA vez (80% junto com 100% quando os dois chegaram ao mesmo tempo)
+    await enviarPendentes();
+    await enviarPendentes();
     const chaves = enviados.map(e => `${e.ctx.resumo.alvo}:${e.ctx.resumo.nivel}`);
     expect(new Set(chaves).size).toBe(chaves.length);
     expect(chaves).toEqual(expect.arrayContaining(["documentos_e_notas:100", "grupos:100", "clientes:100", "conversa:100"]));
+  });
+
+  it("QA C5 (M1): total real + reserva da conversa em andamento acima do limite → grupos, clientes e documentos barrados; sem a reserva, passam", async () => {
+    await consumir({ funcao: "documentos_e_notas", entrada: 150_000 });
+    await consumir({ funcao: "clientes", entrada: 90_000 });
+    await consumir({ funcao: "avisos", entrada: 50_000 });
+    await consumir({ funcao: "grupos", entrada: 90_000 });
+    const m = await novaMensagem("M1-CONV");
+    await consumir({ funcao: "conversa", mensagemId: m, entrada: 545_000 }); // total real 925.000
+    const terceiros = async () => [
+      await reservarMarcacao({ mes: MES, marcacaoId: 1, limites: LIMITES, reserva: { entrada: 5_000, saida: 100 }, validadeMs: VALIDADE }),
+      await reservarAtendimento({ mes: MES, atendimentoId: 1, limites: LIMITES, reserva: { entrada: 5_000, saida: 100 }, validadeMs: VALIDADE }),
+      await reservarClassificacao({ mes: MES, mensagemGrupoId: 1, limites: LIMITES, reserva: { entrada: 5_000, saida: 100 }, validadeMs: VALIDADE }),
+    ];
+    expect(await reservarChamada({ mes: MES, mensagemId: m, limites: LIMITES, reserva: { entrada: 72_000, saida: 3_000 }, validadeMs: VALIDADE })).toBeNull();
+    // 925.000 + 72.000 + 5.000 = 1.002.000 > 1.000.000: cada terceiro cabe na própria parte, mas o comprometido não cabe no limite
+    expect(await terceiros()).toEqual(["folga_do_dono", "folga_do_dono", "folga_do_dono"]);
+    expect((await q<{ n: number }>("SELECT (SELECT count(*) FROM dolores_marcacoes WHERE reserva_entrada > 0) + (SELECT count(*) FROM dolores_atendimentos WHERE reserva_entrada > 0) + (SELECT count(*) FROM dolores_grupo_mensagens WHERE reserva_entrada > 0) AS n"))[0].n).toBe(0);
+    // a conversa do dono soltou a reserva → os terceiros voltam a caber (sem falso bloqueio)
+    await liberarReserva(m);
+    expect((await terceiros())[0]).toBeNull();
+    // e a conversa do dono nunca é barrada pelo que os terceiros comprometem
+    await banco.pg.exec("UPDATE dolores_marcacoes SET reserva_ate = NULL, reserva_entrada = 0, reserva_saida = 0");
+    expect(await reservarChamada({ mes: MES, mensagemId: m, limites: LIMITES, reserva: { entrada: 20_000, saida: 3_000 }, validadeMs: VALIDADE })).toBeNull();
   });
 
   it("concorrência nas reservas: duas mensagens do dono ao mesmo tempo no fim da parte da conversa — só uma reserva", async () => {
@@ -271,19 +303,86 @@ describe("C5-E5 — banco (PGlite)", () => {
     await consumir({ parada: "end_turn", entrada: 950_000 });
     const m = await novaMensagem("TOTAL");
     expect(await reservarChamada({ mes: MES, mensagemId: m, limites: LIMITES, reserva: { entrada: 14_000, saida: 100 }, validadeMs: VALIDADE })).toBe("limite_mensal");
+    await enviarPendentes();
     const t = enviados.find(e => e.ctx.resumo.alvo === "total" && e.ctx.resumo.nivel === 100);
     expect(t?.texto).toMatch(/Entrei em modo sem IA: não uso mais a IA neste mês/);
   });
 
-  it("envio que falhou devolve a vaga: o alerta sai na próxima conferência (e só uma vez)", async () => {
+  it("QA C5 (B1): envio que com certeza não saiu (desconectada, tentou=false) fica PENDENTE e sai depois, uma vez só", async () => {
     envioOk = false;
+    definirEnvioDosAlertas(async (texto, ctx) => { enviados.push({ texto, ctx }); return envioOk ? { ok: true, motivo: null, tentou: true } : { ok: false, motivo: "Dolores desconectada", tentou: false }; });
     await consumir({ funcao: "grupos", entrada: 85_000 });
     await conferirAlertasDoGasto(MES);
     expect(enviados).toHaveLength(1);
-    expect(await q("SELECT * FROM dolores_gasto_alertas")).toEqual([]);
+    // a vaga continua tomada (pendente), sem tentativa contada
+    expect(await q("SELECT alvo, nivel, enviado_em IS NOT NULL AS enviado FROM dolores_gasto_alertas")).toEqual([{ alvo: "grupos", nivel: 80, enviado: false }]);
+    expect(await q("SELECT id FROM dolores_acoes WHERE pedido_id LIKE 'gasto:%:tentativa'")).toEqual([]);
     envioOk = true;
+    await Promise.all([enviarPendentes(), enviarPendentes(), conferirAlertasDoGasto(MES)]);
+    await enviarPendentes();
+    expect(enviados.map(e => e.ctx.resumo)).toEqual([{ mes: MES, alvo: "grupos", nivel: 80 }, { mes: MES, alvo: "grupos", nivel: 80 }]);
+    expect(await q("SELECT enviado_em IS NOT NULL AS enviado FROM dolores_gasto_alertas")).toEqual([{ enviado: true }]);
+  });
+
+  it("QA C5 (B1): envio TENTADO com erro (pode ter chegado) não devolve a vaga às cegas — no máximo mais UMA tentativa, nunca em laço", async () => {
+    let chamadas = 0;
+    definirEnvioDosAlertas(async (texto, ctx) => {
+      enviados.push({ texto, ctx });
+      if (++chamadas === 1) throw new Error("tempo esgotado na Evolution");
+      return { ok: false, motivo: "falha no envio", tentou: true };
+    });
+    await consumir({ funcao: "grupos", entrada: 85_000 });
     await conferirAlertasDoGasto(MES);
+    for (let i = 0; i < 4; i++) await enviarPendentes();
+    expect(enviados).toHaveLength(MAX_TENTATIVAS_DO_ALERTA);
+    expect(MAX_TENTATIVAS_DO_ALERTA).toBe(2);
+    // a tentativa fica na auditoria (sem texto nem número) e o alerta fica como não enviado na tela
+    const tent = await q<{ resultado: string; resumo: Record<string, unknown> }>("SELECT resultado, resumo FROM dolores_acoes WHERE pedido_id = 'gasto:2026-11:grupos:80:tentativa' ORDER BY id");
+    expect(tent.map(t => t.resumo.tentativa)).toEqual([1, 2]);
+    expect(JSON.stringify(tent)).not.toMatch(/Dolores: aviso|\d{10,}/);
+    expect(await q("SELECT enviado_em IS NOT NULL AS enviado FROM dolores_gasto_alertas")).toEqual([{ enviado: false }]);
+    // e um registro novo do mesmo limite não cria outra vaga (uma vez por mês)
+    await registrarAlertasDevidos(MES);
+    expect(await q("SELECT count(*)::int AS n FROM dolores_gasto_alertas")).toEqual([{ n: 1 }]);
+  });
+
+  it("QA C5 (B1): registrar o consumo NUNCA envia; o envio respeita o prazo de quem chamou (sem tempo → fica pendente)", async () => {
+    const prazos: number[] = [];
+    definirEnvioDosAlertas(async (texto, ctx) => { enviados.push({ texto, ctx }); prazos.push(ctx.prazoFinal); return { ok: true, motivo: null, tentou: true }; });
+    await consumir({ funcao: "grupos", entrada: 84_000 });
+    expect(await registrarConsumo({ mes: MES, mensagemId: null, modelo: "m", volta: 1, parada: "grupo:end_turn", uso: uso(2_000) })).toBe(true);
+    expect(enviados).toEqual([]);
+    expect(await q("SELECT alvo, nivel, enviado_em IS NOT NULL AS enviado FROM dolores_gasto_alertas")).toEqual([{ alvo: "grupos", nivel: 80, enviado: false }]);
+    // prazo de quem chamou já quase no fim: nada é tentado
+    await enviarPendentes(MINIMO_PARA_ALERTA_MS - 500);
+    expect(enviados).toEqual([]);
+    // com tempo: sai, e o prazo do envio nunca passa do de quem chamou
+    const prazoDoChamador = Date.now() + 5_000;
+    await enviarAlertasPendentes({ mes: MES, prazoFinal: prazoDoChamador, canal: "whatsapp" });
+    expect(enviados).toHaveLength(1);
+    expect(prazos[0]).toBeLessThanOrEqual(prazoDoChamador);
+  });
+
+  it("QA C5 (B2): com proposta aberta e confirmável na conversa do dono, o alerta ESPERA (não a tira de ordem); sai quando ela é decidida", async () => {
+    await consumir({ funcao: "grupos", entrada: 85_000 });
+    await registrarAlertasDevidos(MES);
+    await banco.pg.exec(`INSERT INTO dolores_conversa_pendencia (vence_em, aprovacao_ids, nivel, situacao, adjacente, pergunta_enviada_em)
+      VALUES (now() + interval '10 minutes', '{1}', 'registro', 'aberta', true, now())`);
+    await enviarPendentes();
     await conferirAlertasDoGasto(MES);
+    expect(enviados).toEqual([]);
+    expect(await q("SELECT adjacente FROM dolores_conversa_pendencia")).toEqual([{ adjacente: true }]); // o "pode" continua valendo
+    // proposta ainda saindo (pergunta não enviada) também segura
+    await banco.pg.exec("UPDATE dolores_conversa_pendencia SET adjacente = false, pergunta_enviada_em = NULL");
+    await enviarPendentes();
+    expect(enviados).toEqual([]);
+    // proposta já fora de ordem (outra mensagem no meio) não segura; decidida ou vencida, também não
+    for (const sql of ["UPDATE dolores_conversa_pendencia SET adjacente = false, pergunta_enviada_em = now()",
+      "UPDATE dolores_conversa_pendencia SET situacao = 'confirmada', adjacente = true, decidida_em = now()"]) {
+      await banco.pg.exec("UPDATE dolores_gasto_alertas SET enviado_em = NULL");
+      await banco.pg.exec(sql);
+      await enviarPendentes();
+    }
     expect(enviados.map(e => e.ctx.resumo)).toEqual([{ mes: MES, alvo: "grupos", nivel: 80 }, { mes: MES, alvo: "grupos", nivel: 80 }]);
   });
 

@@ -296,7 +296,7 @@ describe("QA B — gasto por função sob reservas simultâneas e alertas", () =
   // ACHADO M1 (médio): a conferência dos terceiros (conferirTerceiro) não soma a reserva da CONVERSA em andamento nem confere o
   // total; antes da E5 a "folga do dono" somava uso total + reservas das mensagens. Com a conversa perto da parte dela e as demais
   // cheias, uma reserva de grupo cabe na parte dos grupos e é aceita enquanto o total real + reservas já passa do limite.
-  it.fails("ACHADO M1: com o total real + a reserva da conversa em andamento acima do limite, uma reserva de grupo deveria ser barrada", async () => {
+  it("ACHADO M1 (corrigido): com o total real + a reserva da conversa em andamento acima do limite, uma reserva de grupo é barrada", async () => {
     await consumir({ funcao: "documentos_e_notas", entrada: 200_000 });
     await consumir({ funcao: "clientes", entrada: 100_000 });
     await consumir({ funcao: "avisos", entrada: 50_000 });

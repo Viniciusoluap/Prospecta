@@ -103,11 +103,14 @@ export async function parteDaFuncaoEsgotada(mes: string, funcao: FuncaoDoConsumo
   }
 }
 
-/** Dispara a conferência dos alertas de 80%/100% (server/dolores/operacao-gasto.ts). Nunca lança nem derruba quem chamou. */
+/**
+ * REGISTRA os alertas de 80%/100% devidos, PENDENTES (server/dolores/operacao-gasto.ts). QA C5 (B1): nada é enviado daqui — isto
+ * roda no meio do laço; o envio sai depois da resposta principal ou no cron (enviarAlertasPendentes). Nunca lança.
+ */
 async function dispararAlertas(mes: string, o: { bloqueadas?: FuncaoDoConsumo[]; totalBloqueado?: boolean } = {}) {
   try {
-    const { conferirAlertasDoGasto } = await import("./operacao-gasto.js");
-    await conferirAlertasDoGasto(mes, o);
+    const { registrarAlertasDevidos } = await import("./operacao-gasto.js");
+    await registrarAlertasDevidos(mes, o);
   } catch (e) {
     console.error("[dolores/consumo] falha ao conferir os alertas de gasto", erroParaLog(e));
   }
@@ -175,7 +178,8 @@ export async function registrarConsumo(c: { mes: string; mensagemId: number | nu
     console.error("[dolores/consumo] falha ao registrar o consumo", erroParaLog(e));
     return false;
   }
-  // C5-E5: o gasto cruzou 80%/100% (do total ou da parte da função)? O alerta sai uma vez por mês por limite; nunca derruba o registro.
+  // C5-E5: o gasto cruzou 80%/100% (do total ou da parte da função)? O alerta fica PENDENTE (uma vez por mês por limite) e sai
+  // depois da resposta principal (QA C5 B1); nunca derruba o registro.
   await dispararAlertas(c.mes);
   return true;
 }
@@ -286,19 +290,43 @@ export const ORCAMENTO_CLASSIFICACAO_PCT_PADRAO = 20;
 /**
  * C5-E5 — conferência comum das funções de TERCEIROS (documentos, grupos, clientes; e os avisos da E4), já sob a trava, depois do
  * "uma chamada por vez" e do limite inteiro:
- * 1. Folga do dono: o uso real dos terceiros (tudo menos a conversa) + esta reserva ≤ FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite.
- *    Antes contava também o uso da conversa; agora a conversa tem a PARTE dela e não come o crédito dos outros (decisão do dono:
- *    "cada função com seu gasto"). A folga continua valendo para o caso de o admin dar aos terceiros mais do que 80% somados.
- * 2. A PARTE da função: uso real dela + esta reserva ≤ a parte (dolores_gasto_partes). Acabou → "parte" (só ela para).
+ * 1. QA C5 (achado M1) — o TOTAL comprometido: uso real de TODAS as funções + TODAS as reservas ativas (as das mensagens do dono em
+ *    `dolores_mensagens` e as dos outros terceiros, `outrasReservas`) + esta reserva ≤ o limite inteiro. Antes só o uso real dos
+ *    terceiros era somado: com a conversa perto da parte dela e uma reserva da conversa em andamento, um terceiro cabia na própria
+ *    parte e o comprometido passava do limite. Passou → "folga_do_dono" (o terceiro para; a conversa do dono nunca é barrada aqui).
+ * 2. Folga do dono: o uso real dos terceiros (tudo menos a conversa) + esta reserva ≤ FRACAO_DO_LIMITE_PARA_CLASSIFICACAO do limite.
+ *    A conversa tem a PARTE dela e não come o crédito dos outros (decisão do dono: "cada função com seu gasto"). A folga continua
+ *    valendo para o caso de o admin dar aos terceiros mais do que 80% somados.
+ * 3. A PARTE da função: uso real dela + esta reserva ≤ a parte (dolores_gasto_partes). Acabou → "parte" (só ela para).
+ * Roda dentro da MESMA transação e da MESMA trava (linha 1 de dolores_whatsapp_config em FOR UPDATE) das outras conferências:
+ * duas reservas ao mesmo tempo nunca leem o mesmo "sobra".
  */
-async function conferirTerceiro(tx: Transacao, p: { mes: string; limites: Limites; reserva: Uso; funcao: Exclude<FuncaoDoConsumo, "conversa"> }): Promise<"folga_do_dono" | "parte" | null> {
+async function conferirTerceiro(tx: Transacao, p: { mes: string; limites: Limites; reserva: Uso; funcao: Exclude<FuncaoDoConsumo, "conversa">;
+  /** reservas ativas dos OUTROS terceiros (classificação, marcação, atendimento), sem a da própria chamada */
+  outrasReservas: Uso; agora: Date }): Promise<"folga_do_dono" | "parte" | null> {
   const [porFuncao, { partes }] = await Promise.all([usoPorFuncaoNoMes(p.mes, tx), lerPartesDoGasto(tx)]);
-  const terceiros = FUNCOES_DO_GASTO.filter(f => f !== "conversa").reduce((s, f) => ({ entrada: s.entrada + porFuncao[f].entrada, saida: s.saida + porFuncao[f].saida }), { entrada: 0, saida: 0 });
+  const soma = (fs: readonly FuncaoDoConsumo[]) => fs.reduce((s, f) => ({ entrada: s.entrada + porFuncao[f].entrada, saida: s.saida + porFuncao[f].saida }), { entrada: 0, saida: 0 });
+  // 1. total comprometido (M1): uso real de tudo + reservas das mensagens do dono + reservas dos outros terceiros + esta
+  const total = soma(FUNCOES_DO_GASTO);
+  const [doDono] = await tx.select({
+    entrada: sql<number>`coalesce(sum(${doloresMensagens.reservaEntrada}), 0)`.mapWith(Number),
+    saida: sql<number>`coalesce(sum(${doloresMensagens.reservaSaida}), 0)`.mapWith(Number),
+  }).from(doloresMensagens).where(gt(doloresMensagens.reservaAte, p.agora));
+  const comprometido = {
+    entrada: total.entrada + Number(doDono?.entrada ?? 0) + p.outrasReservas.entrada + p.reserva.entrada,
+    saida: total.saida + Number(doDono?.saida ?? 0) + p.outrasReservas.saida + p.reserva.saida,
+  };
+  if (comprometido.entrada > p.limites.entrada || comprometido.saida > p.limites.saida) return "folga_do_dono";
+  // 2. folga do dono (os terceiros somados)
+  const terceiros = soma(FUNCOES_DO_GASTO.filter(f => f !== "conversa"));
   const teto = { entrada: Math.floor(p.limites.entrada * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO), saida: Math.floor(p.limites.saida * FRACAO_DO_LIMITE_PARA_CLASSIFICACAO) };
   if (terceiros.entrada + p.reserva.entrada > teto.entrada || terceiros.saida + p.reserva.saida > teto.saida) return "folga_do_dono";
+  // 3. a parte da função
   if (!cabeNaParte(porFuncao[p.funcao], { entrada: 0, saida: 0 }, p.reserva, p.limites, partes[p.funcao])) return "parte";
   return null;
 }
+
+const somaDeReservas = (...us: Uso[]): Uso => us.reduce((s, u) => ({ entrada: s.entrada + u.entrada, saida: s.saida + u.saida }), { entrada: 0, saida: 0 });
 
 /** Depois da transação: a parte acabou → o código próprio da função e o alerta de 100% dela; limite inteiro → o alerta do total. */
 async function depoisDaReserva<B extends string>(mes: string, funcao: FuncaoDoConsumo, r: B | "parte" | null, codigoDaParte: B): Promise<B | null> {
@@ -347,7 +375,7 @@ export async function reservarClassificacao(p: { mes: string; mensagemGrupoId: n
     }).from(doloresConsumo).where(eq(doloresConsumo.mes, p.mes));
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
-    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "documentos_e_notas" });
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "documentos_e_notas", outrasReservas: outras, agora });
     if (terceiro) return terceiro;
     const pct = Math.min(50, Math.max(1, Math.round(p.orcamentoPct ?? ORCAMENTO_CLASSIFICACAO_PCT_PADRAO)));
     const orcamento = { entrada: Math.floor((p.limites.entrada * pct) / 100), saida: Math.floor((p.limites.saida * pct) / 100) };
@@ -440,7 +468,8 @@ export async function reservarMarcacao(p: { mes: string; marcacaoId: number; lim
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
     // C5-E5: folga do dono e a PARTE das respostas em grupo (padrão 10%, a mesma do ORCAMENTO_MARCACAO_PCT fixo de antes)
-    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "grupos" });
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "grupos",
+      outrasReservas: somaDeReservas(classificacoes, outras, clientes), agora });
     if (terceiro) return terceiro;
     await tx.update(doloresMarcacoes).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),
@@ -500,7 +529,8 @@ export async function reservarAtendimento(p: { mes: string; atendimentoId: numbe
     const real = bloqueioDoLimite({ entrada: Number(usado?.entrada ?? 0), saida: Number(usado?.saida ?? 0) }, p.limites);
     if (real) return real;
     // C5-E5: folga do dono e a PARTE do atendimento a clientes (padrão 10%, a mesma do ORCAMENTO_ATENDIMENTO_PCT fixo de antes)
-    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "clientes" });
+    const terceiro = await conferirTerceiro(tx, { mes: p.mes, limites: p.limites, reserva: p.reserva, funcao: "clientes",
+      outrasReservas: somaDeReservas(classificacoes, marcacoes, outros), agora });
     if (terceiro) return terceiro;
     await tx.update(doloresAtendimentos).set({
       reservaEntrada: Math.max(0, Math.round(p.reserva.entrada)), reservaSaida: Math.max(0, Math.round(p.reserva.saida)),

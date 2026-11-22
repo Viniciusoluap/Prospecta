@@ -6,22 +6,38 @@
 //   cliente, telefone, CPF ou texto de mensagem). Vai SÓ ao número do dono, pela porta de sempre (whatsapp.ts#enviarAvisoAoDono:
 //   pausa geral, conexão e filtros de saída).
 // - UMA vez por mês por limite (mês, alvo, nível): a chave primária de dolores_gasto_alertas faz a idempotência sob concorrência —
-//   INSERT … ON CONFLICT DO NOTHING, e só quem inseriu envia. Envio que falhou devolve a vaga (tenta de novo na próxima chamada).
+//   INSERT … ON CONFLICT DO NOTHING (a vaga).
+// - QA C5 (achado B1) — registrar e enviar são DOIS passos. O registro (`registrarAlertasDevidos`) roda na hora em que o consumo é
+//   gravado ou a reserva é barrada: só toma a vaga, PENDENTE (`enviado_em` vazio), sem mandar nada — nunca come o prazo de quem está
+//   no meio do laço. O envio (`enviarAlertasPendentes`) roda DEPOIS da resposta principal (fim do aviso do WhatsApp) e no cron,
+//   dentro do prazo de quem chamou. Para mandar, a rotina TOMA o alerta (UPDATE condicional `enviado_em` vazio → agora): duas
+//   rotinas ao mesmo tempo nunca mandam o mesmo alerta. Envio que com certeza não saiu (pausa, desconectada, sem tempo: `tentou`
+//   = false) volta a pendente; envio tentado que deu erro (pode ter chegado) conta uma TENTATIVA (registrada na auditoria) e é
+//   refeito no máximo UMA vez — o dono recebe o mesmo alerta no máximo duas vezes, nunca em laço.
+// - QA C5 (achado B2) — enquanto houver uma proposta aberta e confirmável na conversa do dono, o alerta ESPERA (fica pendente; sai
+//   quando a proposta for decidida/vencer, no fim do próximo aviso ou no cron): ele nunca tira a proposta "de ordem" (o "pode" do
+//   dono continua confirmando). A regra fica num ponto só: pendencia.ts#podeEnviarAvisoAgora.
 // - Sem a migração 0148, não há alerta (não há como garantir "uma vez"); a divisão padrão continua valendo nas reservas.
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { doloresAcoes } from "../../drizzle/schema-dolores.js";
 import { doloresGastoAlertas } from "../../drizzle/schema-dolores-operacao.js";
 import {
   NIVEIS_ALERTA, alertasDevidos, custoDoMes, situacaoDoGasto, textoDoAlerta, type AlvoAlerta, type FuncaoDoConsumo, type NivelAlerta, type PartesDoGasto,
   type SituacaoDoGasto,
 } from "../../shared/dolores/custo.js";
 import { TETO_DONO_REAIS } from "../../shared/dolores/operacao.js";
+import { mesFortaleza } from "../../shared/dolores/whatsapp.js";
 import { getDb } from "../db.js";
 import { lerConfigWhatsapp, lerPartesDoGasto } from "./consumo.js";
 import { consumoDoMesDetalhado, lerPrecos, type PrecosCadastrados } from "./custo.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { registrarAcao } from "./auditoria.js";
 import { lerConfigOperacao } from "./operacao.js";
+import { podeEnviarAvisoAgora } from "./pendencia.js";
 
-export type EnvioDoAlerta = (texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown> }) => Promise<{ ok: boolean; motivo: string | null }>;
+export type EnvioDoAlerta = (texto: string, ctx: { funcao: string; pedidoId: string; autor: number | null; prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; resumo: Record<string, unknown> }) => Promise<{ ok: boolean; motivo: string | null;
+  /** false = com certeza nada saiu (recusado antes do envio: pausa, desconectada, sem tempo). Sem o campo = pode ter saído. */
+  tentou?: boolean }>;
 
 let envioDeTeste: EnvioDoAlerta | null = null;
 /** Só para testes: troca o envio ao dono (null volta ao de verdade). */
@@ -31,8 +47,12 @@ async function envio(): Promise<EnvioDoAlerta> {
   const { enviarAvisoAoDono } = await import("./whatsapp.js");
   return enviarAvisoAoDono;
 }
-/** Prazo do envio de um alerta (ele sai no meio de outra rotina: curto). */
+/** Prazo máximo do envio de um alerta (curto), nunca além do prazo de quem chamou. */
 const PRAZO_ALERTA_MS = 8_000;
+/** Abaixo disto do prazo de quem chamou, nenhum alerta é tentado (fica pendente para o próximo aviso ou o cron). */
+export const MINIMO_PARA_ALERTA_MS = 3_000;
+/** Envios TENTADOS que deram erro (podem ter chegado): a 1ª e no máximo mais uma. */
+export const MAX_TENTATIVAS_DO_ALERTA = 2;
 
 export type GastoPorFuncao = { mes: string; partes: PartesDoGasto; partesDisponiveis: boolean; situacao: SituacaoDoGasto; limites: { entrada: number; saida: number } };
 
@@ -64,55 +84,134 @@ export async function alertasDoMes(mes: string): Promise<{ disponivel: boolean; 
   }
 }
 
-/** Reserva a vaga do alerta (mês, alvo, nível): true só para quem inseriu agora. */
+/** Toma a vaga do alerta (mês, alvo, nível), PENDENTE: true só para quem inseriu agora. */
 async function reservarVaga(mes: string, alvo: AlvoAlerta, nivel: NivelAlerta): Promise<boolean> {
   const r = await getDb().insert(doloresGastoAlertas).values({ mes, alvo, nivel }).onConflictDoNothing().returning({ alvo: doloresGastoAlertas.alvo });
   return r.length > 0;
 }
-const devolverVaga = (mes: string, alvo: AlvoAlerta, nivel: NivelAlerta) =>
-  getDb().delete(doloresGastoAlertas).where(and(eq(doloresGastoAlertas.mes, mes), eq(doloresGastoAlertas.alvo, alvo), eq(doloresGastoAlertas.nivel, nivel), isNull(doloresGastoAlertas.enviadoEm)));
 
 /**
- * Confere se o gasto do mês cruzou 80% ou 100% (do total ou da parte de uma função) e avisa o dono UMA vez por limite. Chamado
- * depois de cada consumo registrado e quando uma reserva é barrada pela parte/limite (`bloqueadas`, `totalBloqueado`). Nunca lança.
- * Devolve os alertas enviados agora (para os testes e o registro).
+ * QA C5 (B1) — confere se o gasto do mês cruzou 80% ou 100% (do total ou da parte de uma função) e REGISTRA o alerta pendente, UMA
+ * vez por limite. Não envia nada (o envio é `enviarAlertasPendentes`, depois da resposta principal). Chamado depois de cada consumo
+ * registrado e quando uma reserva é barrada pela parte/limite (`bloqueadas`, `totalBloqueado`). Nunca lança. Devolve os registrados agora.
  */
-export async function conferirAlertasDoGasto(mes: string, o: { bloqueadas?: readonly FuncaoDoConsumo[]; totalBloqueado?: boolean } = {}): Promise<Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }>> {
-  const enviados: Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }> = [];
+export async function registrarAlertasDevidos(mes: string, o: { bloqueadas?: readonly FuncaoDoConsumo[]; totalBloqueado?: boolean } = {}): Promise<Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }>> {
+  const novos: Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }> = [];
   try {
-    if (!(await tabelaDosAlertas())) return enviados;
-    const jaSaiu = new Set((await getDb().select({ alvo: doloresGastoAlertas.alvo, nivel: doloresGastoAlertas.nivel }).from(doloresGastoAlertas)
+    if (!(await tabelaDosAlertas())) return novos;
+    const jaTem = new Set((await getDb().select({ alvo: doloresGastoAlertas.alvo, nivel: doloresGastoAlertas.nivel }).from(doloresGastoAlertas)
       .where(eq(doloresGastoAlertas.mes, mes))).map(a => `${a.alvo}:${a.nivel}`));
-    // nada a conferir se todos os alertas possíveis do mês já saíram (barato: sem ler consumo e preços)
-    if (jaSaiu.size >= 6 * NIVEIS_ALERTA.length) return enviados;
+    // nada a conferir se todos os alertas possíveis do mês já foram registrados (barato: sem ler consumo e preços)
+    if (jaTem.size >= 6 * NIVEIS_ALERTA.length) return novos;
     const g = await gastoPorFuncaoDoMes(mes);
-    const devidos = alertasDevidos(g.situacao, o).filter(a => !jaSaiu.has(`${a.alvo}:${a.nivel}`));
-    if (!devidos.length) return enviados;
-    const enviar = await envio();
-    for (const a of devidos) {
-      if (!(await reservarVaga(mes, a.alvo, a.nivel))) continue; // outra rotina pegou esta vaga ao mesmo tempo
-      // com 100% devido, o de 80% do mesmo alvo vai junto (uma mensagem só): reserva a vaga dele também, sem enviar outro texto
-      const junto = a.nivel === 100 && !jaSaiu.has(`${a.alvo}:80`) ? await reservarVaga(mes, a.alvo, 80) : false;
-      let ok = false;
-      try {
-        const r = await enviar(textoDoAlerta(a, g.situacao, mes), { funcao: "gasto_alerta", pedidoId: `gasto:${mes}:${a.alvo}:${a.nivel}`, autor: null,
-          prazoFinal: Date.now() + PRAZO_ALERTA_MS, canal: "whatsapp", resumo: { mes, alvo: a.alvo, nivel: a.nivel } });
-        ok = r.ok;
-      } catch (e) {
-        console.error("[dolores/operacao-gasto] falha ao enviar o alerta", erroParaLog(e));
-      }
-      if (ok) {
-        await getDb().update(doloresGastoAlertas).set({ enviadoEm: new Date() })
-          .where(and(eq(doloresGastoAlertas.mes, mes), eq(doloresGastoAlertas.alvo, a.alvo), inArray(doloresGastoAlertas.nivel, junto ? [a.nivel, 80] : [a.nivel])));
-        enviados.push(a);
-      } else {
-        // não saiu (pausa, desconectada, falha): devolve a vaga — o alerta é conferido de novo na próxima chamada
-        await devolverVaga(mes, a.alvo, a.nivel).catch(() => undefined);
-        if (junto) await devolverVaga(mes, a.alvo, 80).catch(() => undefined);
-      }
+    for (const a of alertasDevidos(g.situacao, o).filter(a => !jaTem.has(`${a.alvo}:${a.nivel}`))) {
+      if (!(await reservarVaga(mes, a.alvo, a.nivel))) continue; // outra rotina registrou ao mesmo tempo
+      novos.push(a);
+      // com 100% devido, o de 80% do mesmo alvo fica registrado também: no envio, os dois saem numa mensagem só
+      if (a.nivel === 100 && !jaTem.has(`${a.alvo}:80`)) await reservarVaga(mes, a.alvo, 80);
     }
   } catch (e) {
-    console.error("[dolores/operacao-gasto] falha ao conferir os alertas de gasto", erroParaLog(e));
+    console.error("[dolores/operacao-gasto] falha ao registrar os alertas de gasto", erroParaLog(e));
+  }
+  return novos;
+}
+
+const pedidoDoAlerta = (mes: string, alvo: string, nivel: number) => `gasto:${mes}:${alvo}:${nivel}`;
+/** A marca de cada envio TENTADO que deu erro fica na auditoria, com um pedidoId próprio (sem texto nem número). */
+const pedidoDaTentativa = (mes: string, alvo: string, nivel: number) => `${pedidoDoAlerta(mes, alvo, nivel)}:tentativa`;
+
+/** Quantas tentativas com erro este alerta já teve. Falha ao ler → null (quem chama não envia: lado seguro, nunca duplica). */
+async function tentativasComErro(mes: string, alvo: string, nivel: number): Promise<number | null> {
+  try {
+    const [r] = await getDb().select({ n: sql<number>`count(*)`.mapWith(Number) }).from(doloresAcoes)
+      .where(and(eq(doloresAcoes.funcao, "gasto_alerta"), eq(doloresAcoes.pedidoId, pedidoDaTentativa(mes, alvo, nivel))));
+    return Number(r?.n ?? 0);
+  } catch (e) {
+    console.error("[dolores/operacao-gasto] falha ao contar as tentativas do alerta", erroParaLog(e));
+    return null;
+  }
+}
+
+/** Toma o envio (pendente → enviado agora). Devolve os níveis tomados por ESTA rotina. */
+async function tomarEnvio(mes: string, alvo: string, niveis: NivelAlerta[]): Promise<NivelAlerta[]> {
+  const r = await getDb().update(doloresGastoAlertas).set({ enviadoEm: new Date() })
+    .where(and(eq(doloresGastoAlertas.mes, mes), eq(doloresGastoAlertas.alvo, alvo), inArray(doloresGastoAlertas.nivel, niveis), isNull(doloresGastoAlertas.enviadoEm)))
+    .returning({ nivel: doloresGastoAlertas.nivel });
+  return r.map(x => x.nivel as NivelAlerta);
+}
+/** Volta a pendente (o envio não saiu). */
+const devolverAPendente = (mes: string, alvo: string, niveis: NivelAlerta[]) =>
+  getDb().update(doloresGastoAlertas).set({ enviadoEm: null })
+    .where(and(eq(doloresGastoAlertas.mes, mes), eq(doloresGastoAlertas.alvo, alvo), inArray(doloresGastoAlertas.nivel, niveis)));
+
+/**
+ * QA C5 (B1/B2) — envia os alertas PENDENTES do mês ao dono, dentro do prazo de quem chamou. Chamado depois da resposta principal
+ * (fim do aviso do WhatsApp) e no cron. Com uma proposta aberta e confirmável na conversa do dono, não envia nada (espera:
+ * pendencia.ts#podeEnviarAvisoAgora). Nunca lança. Devolve os alertas enviados agora.
+ */
+export async function enviarAlertasPendentes(p: { prazoFinal: number; canal: "whatsapp" | "tela" | "cron"; mes?: string; agora?: Date; relogio?: () => number }): Promise<Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }>> {
+  const enviados: Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }> = [];
+  const ms = p.relogio ?? Date.now;
+  try {
+    if (p.prazoFinal - ms() < MINIMO_PARA_ALERTA_MS) return enviados;
+    if (!(await tabelaDosAlertas())) return enviados;
+    const agora = p.agora ?? new Date();
+    const mes = p.mes ?? mesFortaleza(agora);
+    const pendentes = await getDb().select({ alvo: doloresGastoAlertas.alvo, nivel: doloresGastoAlertas.nivel }).from(doloresGastoAlertas)
+      .where(and(eq(doloresGastoAlertas.mes, mes), isNull(doloresGastoAlertas.enviadoEm)));
+    if (!pendentes.length) return enviados;
+    const porAlvo = new Map<AlvoAlerta, NivelAlerta[]>();
+    for (const a of pendentes) porAlvo.set(a.alvo as AlvoAlerta, [...(porAlvo.get(a.alvo as AlvoAlerta) ?? []), a.nivel as NivelAlerta]);
+    let g: GastoPorFuncao | null = null;
+    let enviar: EnvioDoAlerta | null = null;
+    for (const [alvo, niveis] of Array.from(porAlvo.entries())) {
+      if (p.prazoFinal - ms() < MINIMO_PARA_ALERTA_MS) break; // sem tempo: fica pendente
+      // B2: proposta aberta e confirmável → espera (conferido a cada alerta: uma proposta pode ter nascido no meio)
+      if (!(await podeEnviarAvisoAgora(agora))) break;
+      // com 100% pendente, sai só o texto de 100% (o de 80% pendente vai junto, numa mensagem só)
+      const nivel: NivelAlerta = niveis.includes(100) ? 100 : 80;
+      const tentativas = await tentativasComErro(mes, alvo, nivel);
+      if (tentativas === null || tentativas >= MAX_TENTATIVAS_DO_ALERTA) continue; // já tentou o bastante: fica registrado como não enviado
+      const tomados = await tomarEnvio(mes, alvo, nivel === 100 ? niveis : [80]);
+      if (!tomados.includes(nivel)) { if (tomados.length) await devolverAPendente(mes, alvo, tomados).catch(() => undefined); continue; } // outra rotina pegou
+      g ??= await gastoPorFuncaoDoMes(mes);
+      enviar ??= await envio();
+      let r: Awaited<ReturnType<EnvioDoAlerta>>;
+      try {
+        r = await enviar(textoDoAlerta({ alvo, nivel }, g.situacao, mes), { funcao: "gasto_alerta", pedidoId: pedidoDoAlerta(mes, alvo, nivel), autor: null,
+          prazoFinal: Math.min(p.prazoFinal, ms() + PRAZO_ALERTA_MS), canal: p.canal, resumo: { mes, alvo, nivel } });
+      } catch (e) {
+        console.error("[dolores/operacao-gasto] falha ao enviar o alerta", erroParaLog(e));
+        r = { ok: false, motivo: "falha no envio", tentou: true };
+      }
+      if (r.ok) {
+        enviados.push({ alvo, nivel });
+        // o texto de 100% cobre o de 80% do mesmo alvo: se ele ainda estava pendente (outra rotina), sai junto
+        if (nivel === 100) await tomarEnvio(mes, alvo, [80]).catch(() => undefined);
+        continue;
+      }
+      if (r.tentou === false) {
+        // com certeza não saiu (pausa, desconectada, sem tempo): volta a pendente, sem contar tentativa
+        await devolverAPendente(mes, alvo, tomados).catch(() => undefined);
+        continue;
+      }
+      // tentado e com erro: pode ter chegado. Conta a tentativa; sem conseguir contar, o alerta fica como enviado (nunca duplica).
+      const marcou = await registrarAcao({ funcao: "gasto_alerta", resultado: "erro", motivo: "envio do alerta sem confirmação: no máximo mais uma tentativa",
+        autorUserId: null, canal: p.canal, pedidoId: pedidoDaTentativa(mes, alvo, nivel), resumo: { mes, alvo, nivel, tentativa: tentativas + 1 } });
+      if (marcou) await devolverAPendente(mes, alvo, tomados).catch(() => undefined);
+    }
+  } catch (e) {
+    console.error("[dolores/operacao-gasto] falha ao enviar os alertas de gasto", erroParaLog(e));
   }
   return enviados;
+}
+
+/**
+ * Registra (B1) e, em seguida, tenta enviar os alertas pendentes do mês, com prazo curto próprio. Para quem NÃO está no meio de
+ * outra rotina (tela, testes). O laço da IA nunca chama isto: lá só se registra (consumo.ts).
+ */
+export async function conferirAlertasDoGasto(mes: string, o: { bloqueadas?: readonly FuncaoDoConsumo[]; totalBloqueado?: boolean } = {},
+  p: { prazoFinal?: number; canal?: "whatsapp" | "tela" | "cron" } = {}): Promise<Array<{ alvo: AlvoAlerta; nivel: NivelAlerta }>> {
+  await registrarAlertasDevidos(mes, o);
+  return enviarAlertasPendentes({ mes, prazoFinal: p.prazoFinal ?? Date.now() + PRAZO_ALERTA_MS, canal: p.canal ?? "whatsapp" });
 }
