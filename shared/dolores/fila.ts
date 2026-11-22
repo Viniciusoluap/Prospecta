@@ -64,6 +64,8 @@ const VERBOS_DE_ACAO = new RegExp([
   // EPIC-027 C5 (E2): os pedidos de grupo e de registro que ela agora resolve pela conversa ("vincular ela ao grupo dela")
   "vincul\\w*", "lig(?:ar|a|ue|uem)", "deslig\\w*", "aceit(?:ar|a|e)", "classifi\\w*", "defin(?:ir|a|e)", "ignor(?:ar|a|e)",
   "salv(?:ar|a|e)", "concili\\w*",
+  // EPIC-027 C5-COM: "troca o link da maquete", "regenera o link"
+  "troc(?:ar|a|e)", "regener\\w*",
 ].map(v => `\\b${v}\\b`).join("|"), "i");
 export function intencaoDeAcao(texto: string | null | undefined): boolean {
   // QA R2 N1: o verbo de ação só vale no trecho do DONO (antes de qualquer marca de colagem/citação) — um e-mail colado

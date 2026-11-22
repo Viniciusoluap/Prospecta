@@ -546,7 +546,9 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const pendencia = r.podeConfirmar
       ? await abrirPendencia({ mensagemId: msg.id, codigos: r.codigosNaFila, agora: deps.agora(), autor }).catch(e => { console.error("[dolores/whatsapp] falha ao abrir a proposta", erroCurto(e)); return null; })
       : null;
-    const quadros = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
+    const quadrosDoPedido = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
+    // EPIC-027 C5-COM: link da maquete e rascunho ao cliente, montados pelo sistema, vão intactos num quadro (nunca cortado), antes da pergunta
+    const quadros = [...(r.anexos ?? []), ...(quadrosDoPedido ? [quadrosDoPedido] : [])].join("\n\n") || null;
     const envio = { enviadas: 0 };
     const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)

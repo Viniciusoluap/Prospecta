@@ -79,6 +79,10 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
       // registro só na PRIMEIRA classificação (ou confirmação do mesmo tipo/vínculo) de um tipo simples: `troca` tem de ser
       // literalmente false (montado pelo servidor no preparo); ausente ou qualquer outro valor → sério
       return ehTipoSimples(a.tipo) && a.troca === false ? "registro" : "serio";
+    case "gerar_link_maquete_lote":
+      // EPIC-027 C5-COM: gerar o PRIMEIRO link (o lote não tinha) é registro; trocar um link que existe invalida o anterior → sério.
+      // `troca` tem de ser literalmente false (montado pelo servidor no preparo); ausente ou qualquer outro valor → sério
+      return a.troca === false ? "registro" : "serio";
     case "ligar_resposta_grupo":
       // desligar (literalmente false) é registro; ligar só é registro nos tipos simples
       return a.ligado === false || (a.ligado === true && ehTipoSimples(a.tipo)) ? "registro" : "serio";
@@ -98,7 +102,8 @@ export const FUNCOES_DE_GRUPO = ["classificar_grupo", "aceitar_grupo", "ignorar_
  * funções (cobrança, conciliação…) continuam com o "aprovar CÓDIGO" de sempre — os comandos antigos delas não mudam.
  */
 export const exigeConfirmoNoCodigo = (funcao: string, argumentos: unknown) =>
-  (FUNCOES_DE_GRUPO as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
+  // EPIC-027 C5-COM: trocar o link da maquete também (o link anterior deixa de abrir)
+  ([...FUNCOES_DE_GRUPO, "gerar_link_maquete_lote"] as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
 
 type ItemParaMotivo = string | { funcao: string; argumentos?: unknown };
 const ehTroca = (i: ItemParaMotivo) => typeof i !== "string" && i.funcao === "classificar_grupo" &&
@@ -110,6 +115,7 @@ export function motivoDoSerio(itens: readonly ItemParaMotivo[]): string {
   if (funcoes.includes("conciliar_nota_obra")) return "mexe com pagamento";
   if (funcoes.includes("preparar_cobranca")) return "é uma cobrança a cliente";
   if (funcoes.includes("aceitar_grupo")) return "é um grupo em que outra pessoa me colocou";
+  if (funcoes.includes("gerar_link_maquete_lote")) return "troca o link da maquete: o link de hoje deixa de abrir na hora";
   if (itens.some(ehTroca)) return "troca o tipo ou o cliente/obra de um grupo que já estava definido";
   return "libera mais coisa do que eu posso dizer no grupo";
 }
