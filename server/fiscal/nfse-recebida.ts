@@ -96,20 +96,27 @@ function documentoDe(el: No | null): { documento: DocumentoConferido | null; lid
   return { documento: bruto ? documentoFiscalConferido(bruto) : null, lido: !!bruto };
 }
 
-/** Lê o XML da NFS-e nacional. Nunca lança: o que não der para ler volta com o motivo. */
-export function lerNfseRecebida(xml: string): LeituraNfse {
+/** As MESMAS proteções para a NFS-e e para o evento: vazio, teto, DOCTYPE/ENTITY e XML malformado são recusados. */
+function raizDoXml(xml: string): { ok: true; raiz: No } | { ok: false; motivo: string } {
   if (typeof xml !== "string" || !xml.trim()) return { ok: false, motivo: "xml_vazio" };
   if (xml.length > MAX_CARACTERES_XML) return { ok: false, motivo: "xml_grande_demais" };
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) return { ok: false, motivo: "xml_com_doctype" };
-  let raiz: No | null;
   try {
     let erro = false;
     const doc = new DOMParser({ onError: (nivel: string) => { if (nivel !== "warning") erro = true; } }).parseFromString(xml, "text/xml");
-    raiz = doc.documentElement as unknown as No | null;
+    const raiz = doc.documentElement as unknown as No | null;
     if (erro || !raiz) return { ok: false, motivo: "xml_invalido" };
+    return { ok: true, raiz };
   } catch {
     return { ok: false, motivo: "xml_invalido" };
   }
+}
+
+/** Lê o XML da NFS-e nacional. Nunca lança: o que não der para ler volta com o motivo. */
+export function lerNfseRecebida(xml: string): LeituraNfse {
+  const r = raizDoXml(xml);
+  if (!r.ok) return r;
+  const raiz = r.raiz;
   if (raiz.localName !== "NFSe") return { ok: false, motivo: "nao_e_nfse" };
   const inf = filho(raiz, "infNFSe");
   const id = inf?.getAttribute?.("Id") ?? "";
@@ -137,6 +144,57 @@ export function lerNfseRecebida(xml: string): LeituraNfse {
       codigoTributacaoNacional: texto(dps, "serv", "cServ", "cTribNac"),
     },
   };
+}
+
+// ── Evento da NFS-e (EPIC-029 S-5b) ──
+
+/**
+ * Eventos que CANCELAM a NFS-e (PESQUISA.md §1.5, Anexo II oficial): 101101 cancelamento; 105102 cancelamento por
+ * substituição; 105104 cancelamento deferido em análise fiscal; 305101 cancelamento de ofício. Qualquer outro tipo (ex.:
+ * 101103 pedido de análise, 105105 indeferido) não cancela e vai para o dono conferir.
+ */
+export const EVENTOS_DE_CANCELAMENTO = ["101101", "105102", "105104", "305101"] as const;
+export type TipoCancelamento = (typeof EVENTOS_DE_CANCELAMENTO)[number];
+export const ehCancelamento = (tipo: string): tipo is TipoCancelamento => (EVENTOS_DE_CANCELAMENTO as readonly string[]).includes(tipo);
+
+export type EventoNfse = { chave: string; tipo: string; ambiente: "producao" | "producao_restrita" | null };
+export type LeituraEvento = { ok: true; evento: EventoNfse } | { ok: false; motivo: string };
+
+/**
+ * Lê o XML de um EVENTO da NFS-e (leiaute nacional, XSD `tiposEventos_v1.01.xsd`): `evento/infEvento/pedRegEvento/infPedReg`
+ * (o evento distribuído pelo ADN) ou `pedRegEvento/infPedReg` (só o pedido) [NÃO CONFIRMADO com um XML real do ADN — S-4].
+ * Do `infPedReg`: `tpAmb`, `chNFSe` (50) e o grupo do tipo (`e101101`, ...; exatamente um). O `Id` (`PRE` + chave + tipo +
+ * nº do pedido) e o `Id` de `infEvento` (`EVT` + chave + tipo + sequência), quando vierem, têm de bater com a chave e o tipo.
+ * Mesmas proteções da NFS-e (DOCTYPE/ENTITY, teto, XML malformado). Raiz que não é evento → "nao_e_evento".
+ */
+export function lerEventoNfse(xml: string): LeituraEvento {
+  const r = raizDoXml(xml);
+  if (!r.ok) return r;
+  const raiz = r.raiz;
+  let inf: No | null = null;
+  let infEvento: No | null = null;
+  if (raiz.localName === "evento") { infEvento = filho(raiz, "infEvento"); inf = filho(infEvento, "pedRegEvento", "infPedReg"); }
+  else if (raiz.localName === "pedRegEvento") inf = filho(raiz, "infPedReg");
+  else return { ok: false, motivo: "nao_e_evento" };
+  if (!inf) return { ok: false, motivo: "evento_sem_pedido" };
+  const chave = texto(inf, "chNFSe")?.toUpperCase() ?? "";
+  if (!FORMA_CHAVE_NFSE.test(chave)) return { ok: false, motivo: "chave_invalida" };
+  const grupos: string[] = [];
+  const lista = inf.childNodes;
+  if (lista) for (let i = 0; i < lista.length; i++) {
+    const nome = lista[i].nodeType === 1 ? lista[i].localName ?? "" : "";
+    const m = nome.match(/^e(\d{6})$/);
+    if (m) grupos.push(m[1]);
+  }
+  if (grupos.length !== 1) return { ok: false, motivo: "tipo_do_evento_invalido" };
+  const tipo = grupos[0];
+  const idPedido = inf.getAttribute?.("Id") ?? "";
+  if (idPedido && idPedido !== `PRE${chave}${tipo}${idPedido.slice(-3)}`) return { ok: false, motivo: "id_do_evento_nao_confere" };
+  if (idPedido && !/^PRE[0-9A-Z]{50}\d{9}$/.test(idPedido)) return { ok: false, motivo: "id_do_evento_nao_confere" };
+  const idEvento = infEvento?.getAttribute?.("Id") ?? "";
+  if (idEvento && (!/^EVT[0-9A-Z]{50}\d{9}$/.test(idEvento) || idEvento.slice(3, 59) !== `${chave}${tipo}`)) return { ok: false, motivo: "id_do_evento_nao_confere" };
+  const tpAmb = texto(inf, "tpAmb");
+  return { ok: true, evento: { chave, tipo, ambiente: tpAmb === "1" ? "producao" : tpAmb === "2" ? "producao_restrita" : null } };
 }
 
 // ── Vínculo com obra e empreiteiro (por CNPJ/CPF, por código) ──
@@ -173,6 +231,10 @@ export type LinhaNotaRecebida = {
   numero: string | null; dataEmissao: string | null; valorCentavos: number | null; descricao: string | null;
   itens: []; chaveNfse: string; nsu: number; categoria: "empreiteiro" | null; etapa: null;
   confianca: Record<string, number>; duvidas: string[]; alertas: string[]; duplicadaDe: number | null; modelo: null; lidaEm: Date;
+  /** S-5b: a mesma nota já registrada pela OUTRA origem (grupo da obra); só a primeira é conciliada. */
+  outraOrigemDe: number | null;
+  /** S-5b: o cancelamento já tinha chegado antes da nota (evento guardado): a nota já nasce cancelada. */
+  canceladaEm: Date | null; cancelamentoTipo: string | null;
 };
 
 export type MapeamentoNota =
@@ -185,6 +247,7 @@ export type MapeamentoNota =
  */
 export function mapearNotaRecebida(nota: NfseRecebida, p: {
   tomadorCnpj: string; nsu: number; agora: Date; vinculo: Vinculo; duplicadaDe?: { id: number; motivo: string } | null;
+  outraOrigemDe?: { id: number; motivo: string } | null; cancelamento?: { em: Date; tipo: string } | null;
 }): MapeamentoNota {
   const tomador = normalizarDocumento(p.tomadorCnpj);
   if (nota.ambiente === "producao_restrita") return { gravar: false, motivo: "producao_restrita" };
@@ -208,6 +271,9 @@ export function mapearNotaRecebida(nota: NfseRecebida, p: {
   }
   if (p.vinculo.duvida) duvidas.push(p.vinculo.duvida);
   if (p.duplicadaDe) alertas.push(`nota DUPLICADA: ${p.duplicadaDe.motivo} (não é conciliada)`);
+  const outraOrigem = p.duplicadaDe ? null : p.outraOrigemDe ?? null;
+  if (outraOrigem) alertas.push(`mesma nota já registrada pelo grupo da obra: ${outraOrigem.motivo} (a conciliação fica na nota ${outraOrigem.id})`);
+  if (p.cancelamento) alertas.push(`NFS-e CANCELADA (evento ${p.cancelamento.tipo} do ADN): não pode ser paga nem conciliada`);
   const emitenteNome = lerTexto(nota.emitente.nome, 160);
   const descricao = lerTexto(nota.descricao, 400);
   if (bancario) alertas.push(ALERTA_BANCARIO);
@@ -217,11 +283,12 @@ export function mapearNotaRecebida(nota: NfseRecebida, p: {
     linha: {
       origem: "adn", grupoId: null, mensagemId: null, arquivoSha256: null, tipo: "nfse",
       obraId: p.vinculo.obraId, empreiteiroUserId: p.vinculo.empreiteiroUserId,
-      situacao: duvidas.length || p.duplicadaDe ? "confira" : "rascunho",
+      situacao: duvidas.length || p.duplicadaDe || p.cancelamento ? "confira" : "rascunho",
       emitenteNome, emitenteDocumento: doc && !doc.alfanumerico ? doc.valor : null, emitenteCnpjAlfa: doc?.alfanumerico ? doc.valor : null,
       numero: nota.numero, dataEmissao: nota.dataEmissao, valorCentavos: valor, descricao,
       itens: [], chaveNfse: nota.chave, nsu: p.nsu, categoria: p.vinculo.empreiteiroUserId ? "empreiteiro" : null, etapa: null,
       confianca: {}, duvidas: duvidas.slice(0, 20), alertas: alertas.slice(0, 12), duplicadaDe: p.duplicadaDe?.id ?? null, modelo: null, lidaEm: p.agora,
+      outraOrigemDe: outraOrigem?.id ?? null, canceladaEm: p.cancelamento?.em ?? null, cancelamentoTipo: p.cancelamento?.tipo ?? null,
     },
   };
 }

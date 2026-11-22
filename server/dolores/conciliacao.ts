@@ -39,6 +39,9 @@ export async function executarConciliarAprovado(args: z.infer<typeof entradaConc
     if (n.obraId !== args.obraId || n.valorCentavos !== args.valorCentavos || n.duplicadaDe || !n.dataEmissao) {
       throw new RecusaAcao(`A nota ${n.id} mudou depois do pedido (obra, valor ou duplicidade); nada foi feito. Peça de novo.`);
     }
+    // EPIC-029 S-5b: cancelada (pode ter chegado o evento entre o pedido e a aprovação) ou mesma nota da outra origem → nada
+    if (n.canceladaEm) throw new RecusaAcao(`A nota ${n.id} foi CANCELADA pelo emitente depois do pedido; nada foi feito.`);
+    if (n.outraOrigemDe) throw new RecusaAcao(`A nota ${n.id} é a mesma nota ${n.outraOrigemDe} da outra origem: a conciliação fica na nota ${n.outraOrigemDe}; nada foi feito.`);
     const janela = await janelaDaConciliacao(tx as never);
     const lancs = await lancamentosParaConciliar(tx as never, somarDias(n.dataEmissao, -janela), somarDias(n.dataEmissao, janela));
     const l = lancs.find(x => x.id === args.lancamentoId);

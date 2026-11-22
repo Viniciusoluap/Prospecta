@@ -145,3 +145,56 @@ continuam pendentes (dependem da S-4 e do dono). Nada foi aplicado em banco nenh
   a captura das recebidas e a retentativa do Jurídico). Testes: `server/fiscal/*` 98/98, `notas-obra` 42, `notas-regras` 23,
   `c5-e4-proatividade` 28, `pci-gerador` 11, `juridico-modelos` 6; `pnpm check` e `vite build` verdes.
 - Atenção: a `main` já tem `drizzle/0161_juridico_validacao_assinaturas.sql` — o número 0161 reservado à S-3 colidiu.
+
+## S-5b — correções da revisão independente (PR #315) — 22/11/2026 — Dev (Dex)
+
+A captura do ADN continua **desligada** (sem cliente registrado e sem CNPJ ligado). Estas correções são pré-requisito para ligá-la.
+Migração nova `drizzle/0166_obra_notas_cancelamento_e_outra_origem.sql` (só aditiva, idempotente, **não aplicada**; aplicar
+ANTES de publicar este código — o esquema passa a ler as colunas novas de `obra_notas`).
+
+### O que mudou, por achado
+1. **MÉDIO — cancelamento perdido.** Documento cuja raiz não é `NFSe` vai ao leitor novo `lerEventoNfse`
+   (`server/fiscal/nfse-recebida.ts`; mesmas proteções: sem DOCTYPE/ENTITY, teto de 300 000, XML malformado, `tpAmb`; `Id` do
+   pedido/evento conferido com a chave e o tipo). Cancelamento (101101, 105102, 105104, 305101 — PESQUISA.md §1.5) é guardado em
+   `obra_notas_eventos_adn` e marca `obra_notas.cancelada_em/cancelamento_tipo` na nota daquela chave **e na mesma nota da outra
+   origem**; se a nota ainda não chegou, o evento fica guardado e ela já nasce cancelada (evento casado). Nota cancelada: apontamento
+   `cancelada` (nunca "já lançado"), recusada em `conciliar_nota_obra` (preparo e execução aprovada) e bloqueada por gatilho no banco
+   para ligar ao BPO; aviso `nota_obra` com a marca nova `cancelada` ao dono (30 dias; inclui a já ligada a pagamento, que não é
+   desfeita — o dono confere). Evento de outro tipo ou raiz desconhecida → `a_conferir`: NSU em `fiscal_distribuicao_estado.nsus_a_conferir`
+   e rodada "parcial" (nada some em silêncio). Evento de produção restrita → ignorado; sem `tpAmb` ou chave divergente → ilegível.
+2. **MÉDIO — origem dupla travava o arquivo.** Duplicada agora é só dentro da MESMA origem (grupo × grupo, ADN × ADN — proteção
+   mantida). Mesma nota (emitente + número) por grupo e por ADN → `obra_notas.outra_origem_de` (não `duplicada_de`): a nota de grupo
+   pode ir ao Drive (`prepararSalvarNota`), mas só a primeira é conciliada (apontamento `outra_origem`, recusa no preparo e na execução).
+   Nos dois sentidos (`gravarNotaRecebida` e `gravarNota` de `server/dolores/notas-obra.ts`). Chave: a nota de grupo só lê a chave de
+   44 da NF-e, então o casamento entre origens é por emitente + número.
+3. **BAIXO — exceção travava o CNPJ.** O NSU que deu exceção fica em `nsu_com_falha`/`tentativas_nsu_com_falha`; na 3ª tentativa
+   (`MAX_TENTATIVAS_POR_NSU`) vai para os ilegíveis e a captura segue.
+4. **BAIXO — GZip quebrado = "sem XML".** `xmlDoArquivoAdn` devolve `{ ilegivel: "gzip_invalido" | "grande_demais" }` (nunca null);
+   `DocumentoDistribuido.xml` aceita esse valor e ele conta como ilegível. `null` continua sendo "o ADN não mandou XML" (ignorado).
+5. **BAIXO — contador da ronda.** `contarNotasDaRonda` (exportada de `server/dolores/rondas.ts`): "sem conciliação" conta também a nota
+   do ADN pendente (rascunho/confira, sem BPO); não conta cancelada nem a da outra origem. Texto do relatório: "(inclui as recebidas pelo ADN)".
+
+### Decisões autônomas
+- [AUTO-DECISION] Tipos que cancelam → 101101, 105102, 105104, 305101 (reason: os quatro que PESQUISA.md §1.5 lista como cancelamento; o resto vai ao dono).
+- [AUTO-DECISION] Caminho do XML do evento → `evento/infEvento/pedRegEvento/infPedReg` ou `pedRegEvento/infPedReg` [NÃO CONFIRMADO com XML real; conferir na S-4].
+- [AUTO-DECISION] Cancelamento de nota já conciliada → não desfaz o vínculo (reason: regra do dono de não alterar dado existente); aviso ao dono.
+- [AUTO-DECISION] Aviso da cancelada por 30 dias (`DIAS_AVISO_CANCELADA`) (reason: evitar reaviso eterno de algo que o dono já viu).
+- [AUTO-DECISION] Evento de tipo desconhecido em lista própria `nsus_a_conferir` (não misturado aos ilegíveis), mesma regra dos 20 mais recentes.
+
+### Testes
+- Reprodução na `main` (worktree temporária, teste descartado): evento → "ignorada"; GZip quebrado → null; NSU com exceção → 5 rodadas
+  com erro e NSU parado. Achados 2 e 5 reproduzidos pela expectativa antiga de `notas-recebidas.test.ts` (ADN depois do grupo = "duplicada").
+- Novo `server/fiscal/notas-recebidas-s5b.test.ts` (15). Ajustados: `notas-recebidas.test.ts` (gzip → ilegível; grupo × ADN = outra
+  origem) e `notas-recebidas-qa.test.ts` (aplica a 0166 depois da 0163).
+- `server/fiscal/*` 7 arquivos 170/170 (com o novo); `notas-obra` 42, `notas-regras` 23, `acoes` 24, `acoes-whatsapp` 12,
+  `c5-e4-proatividade` 28, `operacao-regras` 19; também `operacao`, `operacao-qa-seguranca`, `c4-horario-relatorio`, `c5-integracao2(+qa)`,
+  `c5-tarefa-demorada(+qa)`, `qa-c4-c5-prova`, `s3-fiscal(+qa)` 208/208 (não há `rondas*.test`). `npx tsc --noEmit` e `npx vite build` verdes.
+- Pendente: aplicar a 0166 no Neon (antes do deploy) e portão de QA.
+
+### File List (S-5b)
+- `drizzle/0166_obra_notas_cancelamento_e_outra_origem.sql` (novo), `drizzle/schema-dolores-notas.ts`, `drizzle/schema-fiscal.ts`
+- `server/fiscal/nfse-recebida.ts`, `server/fiscal/distribuicao.ts`, `server/fiscal/notas-recebidas-s5b.test.ts` (novo),
+  `server/fiscal/notas-recebidas.test.ts`, `server/fiscal/notas-recebidas-qa.test.ts`
+- `server/dolores/notas-obra.ts`, `server/dolores/acoes/notas.ts`, `server/dolores/conciliacao.ts`, `server/dolores/leitura/notas.ts`,
+  `server/dolores/notas-router.ts`, `server/dolores/avisos.ts`, `server/dolores/rondas.ts`, `server/dolores/testes-banco.ts`
+- `shared/dolores/notas.ts`, `shared/dolores/avisos.ts`, `shared/dolores/operacao.ts`, `client/src/components/admin/DoloresNotasCard.tsx`

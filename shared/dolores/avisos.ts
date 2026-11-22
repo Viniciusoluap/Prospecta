@@ -94,12 +94,14 @@ export const MAX_ITENS_POR_TIPO = 5;
 export const MAX_ACHADOS_POR_TIPO = 200;
 
 /** Marcas FIXAS que um achado pode levar (nunca texto livre de dado). */
-export type MarcaAchado = "sem_dono" | "sem_movimento" | "sem_confirmacao" | "divergente" | "aguardando" | "recusado" | "erro_sincronizacao" | "adiada_vencida";
+export type MarcaAchado = "sem_dono" | "sem_movimento" | "sem_confirmacao" | "divergente" | "aguardando" | "recusado" | "erro_sincronizacao" | "adiada_vencida" | "cancelada";
 const TEXTO_MARCA: Record<MarcaAchado, string> = {
   sem_dono: "sem responsável", sem_movimento: "sem nenhuma mudança", sem_confirmacao: "sem confirmação do empreiteiro",
   divergente: "divergente na conciliação com o BPO", aguardando: "esperando você dizer o que é", recusado: "outra pessoa me colocou lá",
   erro_sincronizacao: "a última sincronização deu erro",
   adiada_vencida: "você tinha deixado para depois e a data chegou",
+  // EPIC-029 S-5b: NFS-e recebida cancelada pelo emitente (evento do ADN)
+  cancelada: "CANCELADA pelo emitente na Receita: não pode ser paga nem conciliada (se já foi paga, confira)",
 };
 
 export type RefAchado = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota" | "nota_fiscal"; id: number };

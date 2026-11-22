@@ -51,6 +51,11 @@ export const obraNotas = pgTable("obra_notas", {
   chaveNfse: varchar("chave_nfse", { length: 50 }),
   nsu: bigint("nsu", { mode: "number" }),
   emitenteCnpjAlfa: varchar("emitente_cnpj_alfa", { length: 14 }),
+  // EPIC-029 S-5b (0166): NFS-e cancelada (evento do ADN; vazio → preenchido uma vez) e "mesma nota por outra origem"
+  // (ADN × grupo: não é duplicada, mas só a primeira é conciliada).
+  canceladaEm: timestamp("cancelada_em", { withTimezone: true }),
+  cancelamentoTipo: varchar("cancelamento_tipo", { length: 6 }),
+  outraOrigemDe: integer("outra_origem_de"),
 }, t => [
   uniqueIndex("obra_notas_mensagem_uidx").on(t.mensagemId),
   index("obra_notas_obra_idx").on(t.obraId, t.criadoEm),
@@ -69,6 +74,20 @@ export const obraNotasAdn = pgTable("obra_notas_adn", {
   xmlSha256: varchar("xml_sha256", { length: 64 }).notNull(),
   capturadaEm: timestamp("capturada_em", { withTimezone: true }).defaultNow().notNull(),
 });
+
+/** EPIC-029 S-5b (0166): eventos de cancelamento lidos na distribuição do ADN (casados com a nota quando ela existir). */
+export const obraNotasEventosAdn = pgTable("obra_notas_eventos_adn", {
+  id: serial("id").primaryKey(),
+  chaveNfse: varchar("chave_nfse", { length: 50 }).notNull(),
+  tipoEvento: varchar("tipo_evento", { length: 6 }).notNull(),
+  nsu: bigint("nsu", { mode: "number" }).notNull(),
+  tomadorCnpj: varchar("tomador_cnpj", { length: 14 }).notNull(),
+  xml: text("xml").notNull(),
+  xmlSha256: varchar("xml_sha256", { length: 64 }).notNull(),
+  recebidoEm: timestamp("recebido_em", { withTimezone: true }).defaultNow().notNull(),
+  notaId: integer("nota_id").references(() => obraNotas.id, { onDelete: "restrict" }),
+  casadoEm: timestamp("casado_em", { withTimezone: true }),
+}, t => [uniqueIndex("obra_notas_eventos_adn_uidx").on(t.chaveNfse, t.tipoEvento)]);
 
 export const obraNotasRespostas = pgTable("obra_notas_respostas", {
   id: serial("id").primaryKey(),

@@ -137,10 +137,15 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolea
     const recebidas = MIGRACAO_0163();
     await pg.exec(recebidas);
     await pg.exec(recebidas);
+    // EPIC-029 S-5b (cancelamento do ADN e "mesma nota por outra origem"): migração 0166, também duas vezes.
+    const s5b = MIGRACAO_0166();
+    await pg.exec(s5b);
+    await pg.exec(s5b);
   }
   return { pg, db: drizzle(pg) };
 }
 
+export const MIGRACAO_0166 = () => readFileSync(new URL("../../drizzle/0166_obra_notas_cancelamento_e_outra_origem.sql", import.meta.url), "utf8");
 export const MIGRACAO_0163 = () => readFileSync(new URL("../../drizzle/0163_obra_notas_origem_adn.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0160 = () => readFileSync(new URL("../../drizzle/0160_dolores_avisos_reserva.sql", import.meta.url), "utf8");

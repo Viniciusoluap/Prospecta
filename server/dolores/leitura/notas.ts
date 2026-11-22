@@ -116,7 +116,13 @@ export const paraConciliar = (n: typeof obraNotas.$inferSelect): NotaParaConcili
   // EPIC-029 S-5: o CNPJ alfanumérico (coluna própria) entra na MESMA regra de fornecedor
   id: n.id, obraId: n.obraId, valorCentavos: n.valorCentavos, dataEmissao: n.dataEmissao, emitenteDocumento: n.emitenteDocumento ?? n.emitenteCnpjAlfa,
   emitenteNome: n.emitenteNome, duplicadaDe: n.duplicadaDe, bpoLancamentoId: n.bpoLancamentoId,
+  // EPIC-029 S-5b: cancelada (evento do ADN) e "mesma nota por outra origem" nunca são apontadas como válidas
+  cancelada: n.canceladaEm !== null, outraOrigemDe: n.outraOrigemDe,
 });
+
+/** EPIC-029 S-5b: texto da nota cancelada para a leitura e a tela (null se não foi cancelada). */
+export const textoCancelada = (n: Pick<typeof obraNotas.$inferSelect, "canceladaEm" | "cancelamentoTipo">) =>
+  n.canceladaEm ? `NFS-e CANCELADA pelo emitente (evento ${n.cancelamentoTipo ?? "?"} do ADN, registrado em ${isoFortaleza(n.canceladaEm)}): não pode ser paga nem conciliada` : null;
 
 /** Respostas registradas do empreiteiro (remetente mascarado, texto filtrado). */
 export async function respostasDasNotas(conexao: Conexao, ids: number[]) {
@@ -153,6 +159,7 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
       itens: (n.itens ?? []).slice(0, 30).map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valorBRL: i.valorCentavos !== null ? i.valorCentavos / 100 : null })),
       categoria: n.categoria ? ROTULO_CATEGORIA_NOTA[n.categoria] : null, etapa: n.etapa ? NOME_ETAPA[n.etapa] ?? n.etapa : null,
       empreiteiroDaObraConfere: n.empreiteiroUserId !== null, duvidas: n.duvidas, alertas: n.alertas, duplicadaDe: n.duplicadaDe,
+      cancelada: textoCancelada(n), mesmaNotaDeOutraOrigem: n.outraOrigemDe,
       confirmacao: CONFIRMACAO[n.confirmacao] ?? n.confirmacao, respostasDoEmpreiteiro: respostas.get(n.id) ?? [],
       conciliacao: ap ? { situacao: ROTULO_APONTAMENTO[ap.situacao], detalhe: "texto" in ap ? ap.texto : `ligada ao lançamento #${ap.situacao === "conciliada" ? ap.lancamentoId : ""} do BPO` } : null,
       vinculoPerdido: vinculoPerdido(n) ? TEXTO_VINCULO_PERDIDO : null,

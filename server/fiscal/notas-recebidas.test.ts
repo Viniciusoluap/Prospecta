@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CENARIO, criarBanco } from "../dolores/testes-banco.js";
+import { CENARIO, MIGRACAO_0166, criarBanco } from "../dolores/testes-banco.js";
 import { apontarNotas, documentoDoFornecedor, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
 import { cnpjValido as cnpjDosContratos } from "../../shared/contratos/modelos.js";
 import { cnpjValido as cnpjDasNotasDeGrupo, documentoConferido } from "../../shared/dolores/notas.js";
@@ -54,6 +54,8 @@ function clienteFalso(total: number, gerar: (nsu: number) => DocumentoDistribuid
 async function aplicarMigracao() {
   await banco.pg.exec(MIGRACAO);
   await banco.pg.exec(MIGRACAO); // idempotente
+  await banco.pg.exec(MIGRACAO_0166());
+  await banco.pg.exec(MIGRACAO_0166()); // S-5b, idempotente
 }
 
 /** Grupo de obra + mensagem, para notas de origem 'grupo'. */
@@ -247,7 +249,8 @@ describe("leitura do XML nacional (fixture) e mapeamento — puro", () => {
 
   it("XML do ADN: GZip + Base64", () => {
     expect(xmlDoArquivoAdn(gzipSync(Buffer.from(FIXTURE)).toString("base64"))).toBe(FIXTURE);
-    expect(xmlDoArquivoAdn("não é base64 de gzip")).toBeNull();
+    // S-5b: a falha não é mais null ("sem XML"): é ilegível, para o NSU entrar na lista do dono
+    expect(xmlDoArquivoAdn("não é base64 de gzip")).toEqual({ ilegivel: "gzip_invalido" });
   });
 });
 
@@ -317,13 +320,13 @@ describe("captura por NSU — desligada, idempotente, com último NSU e espera d
     expect(b.duvidas.join(" ")).toMatch(/2 obras ativas/);
   });
 
-  it("nota de grupo com o mesmo emitente e número já registrada → a do ADN entra como duplicada (não concilia duas vezes)", async () => {
+  it("nota de grupo com o mesmo emitente e número já registrada → a do ADN é a mesma nota por OUTRA origem (S-5b; não concilia duas vezes)", async () => {
     await aplicarMigracao();
     const { grupoId, mensagemId } = await mensagemDeGrupo("DUP");
     const [g] = await q<{ id: number }>(`INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao, tipo, emitente_documento, numero) VALUES ($1, $2, 1, 'rascunho', 'nfse', $3, '000123') RETURNING id`, [grupoId, mensagemId, EMPREITEIRO]);
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
-    const [n] = await q<{ duplicada_de: number; situacao: string }>("SELECT duplicada_de, situacao FROM obra_notas WHERE origem = 'adn'");
-    expect(n).toEqual({ duplicada_de: g.id, situacao: "confira" });
+    const [n] = await q<{ duplicada_de: number; outra_origem_de: number; situacao: string }>("SELECT duplicada_de, outra_origem_de, situacao FROM obra_notas WHERE origem = 'adn'");
+    expect(n).toEqual({ duplicada_de: null, outra_origem_de: g.id, situacao: "rascunho" });
   });
 
   it("falha do ADN: registra 'erro', não avança o NSU e não lança", async () => {
