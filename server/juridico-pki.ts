@@ -30,6 +30,8 @@ export function derDe(texto: Buffer | Uint8Array): ArrayBuffer {
   return Uint8Array.from(der).buffer;
 }
 export const raizesIcp: Certificate[] = raizes.map(item => Certificate.fromBER(derDe(Buffer.from(item.pem))));
+/** Impressões das raízes OFICIAIS (fixadas no carregamento): só nelas se exige política de assinatura ICP-Brasil. */
+const OFICIAIS = new Set(raizesIcp.map(c => createHash("sha256").update(Buffer.from(c.toSchema().toBER(false))).digest("hex")));
 
 export function derCertificado(cert: Certificate): Buffer { return Buffer.from(cert.toSchema().toBER(false)); }
 const idCert = (cert: Certificate) => createHash("sha256").update(derCertificado(cert)).digest("hex");
@@ -71,9 +73,61 @@ export function certificadosPublicos(bytes: Buffer): Certificate[] {
     return (new SignedData({ schema: cms.content }).certificates || []).filter((c): c is Certificate => c instanceof Certificate).slice(0, 10);
   } catch { return []; }
 }
+/** Algoritmo/curva que o WebCrypto do servidor não confere (ex.: ECDSA secp256k1): não é prova de assinatura inválida. */
+export function algoritmoNaoSuportado(e: unknown): boolean {
+  const erro = e as { name?: string; message?: string } | null;
+  return erro?.name === "NotSupportedError" || /not ?supported|unsupported|unrecognized|unknown (?:algorithm|curve|named curve)|namedCurve/i.test(erro?.message || "");
+}
+class NaoSuportado extends Error {}
 async function assinadoPor(cert: Certificate, emissor: Certificate): Promise<boolean> {
   if (!cert.issuer.isEqual(emissor.subject)) return false;
-  try { return await cert.verify(emissor); } catch { return false; }
+  try { return await cert.verify(emissor); } catch (e) { if (algoritmoNaoSuportado(e)) throw new NaoSuportado(); return false; }
+}
+const organizacoes = (nome: Certificate["subject"]) => nome.typesAndValues.filter(t => t.type === "2.5.4.10").map(t => String(t.value.valueBlock.value).trim().toUpperCase());
+/**
+ * Só segue o AIA quando o emissor declarado pertence à mesma hierarquia das raízes confiáveis (O= de alguma raiz; nas
+ * oficiais, "ICP-Brasil"). Reduz o uso do servidor para buscar endereços de certificados fabricados por quem envia o PDF.
+ */
+function emissorDaHierarquia(cert: Certificate, roots: Certificate[]) {
+  const permitidas = new Set(roots.flatMap(r => organizacoes(r.subject)));
+  return organizacoes(cert.issuer).some(o => permitidas.has(o));
+}
+
+const OID_EKU = { email: "1.3.6.1.5.5.7.3.4", qualquer: "2.5.29.37.0", adobe: "1.2.840.113583.1.1.5", msDocumento: "1.3.6.1.4.1.311.10.3.12" };
+/** EKU da folha: ausente, proteção de e-mail (padrão ICP-Brasil A1/A3), "qualquer" ou assinatura de documento. */
+export function ekuPermiteAssinatura(cert: Certificate): boolean {
+  const ext = cert.extensions?.find(e => e.extnID === "2.5.29.37");
+  if (!ext) return true;
+  const usos: string[] = ext.parsedValue?.keyPurposes || [];
+  return usos.some(u => Object.values(OID_EKU).includes(u));
+}
+/** Políticas de certificado de ASSINATURA da ICP-Brasil (A1 a A4: 2.16.76.1.2.1–4.*). Sigilo (S) e tempo (T) não assinam. */
+export function politicaAssinaturaIcp(cert: Certificate): boolean {
+  const politicas: { policyIdentifier: string }[] = cert.extensions?.find(e => e.extnID === "2.5.29.32")?.parsedValue?.certificatePolicies || [];
+  return politicas.some(p => /^2\.16\.76\.1\.2\.[1-4]\./.test(p.policyIdentifier));
+}
+/**
+ * CPF/CNPJ do titular: primeiro o SAN otherName da ICP-Brasil (2.16.76.1.3.3 = CNPJ; 2.16.76.1.3.1 = data de nascimento
+ * + CPF), depois o sufixo ":documento" do nome comum. Se os dois existirem e divergirem, não identifica ninguém.
+ */
+export function documentoDoCertificado(cert: Certificate): string {
+  const cn = cert.subject.typesAndValues.filter(t => t.type === "2.5.4.3").map(t => String(t.value.valueBlock.value)).join(" ");
+  const doCn = /(?:^|:)\s*(\d{14}|\d{11})\s*$/.exec(cn)?.[1] || "";
+  let doSan = "";
+  try {
+    const nomes: { type: number; value: { valueBlock?: { value?: unknown[] } } }[] = cert.extensions?.find(e => e.extnID === "2.5.29.17")?.parsedValue?.altNames || [];
+    for (const nome of nomes) {
+      if (nome.type !== 0) continue;
+      const partes = (nome.value?.valueBlock?.value || []) as { valueBlock?: { toString?: () => string; value?: unknown[] } }[];
+      const oid = partes[0]?.valueBlock?.toString?.() || "";
+      const conteudo = ((partes[1]?.valueBlock?.value || [])[0] as { valueBlock?: { value?: string; valueHexView?: Uint8Array } } | undefined)?.valueBlock;
+      const texto = typeof conteudo?.value === "string" ? conteudo.value : conteudo?.valueHexView ? Buffer.from(conteudo.valueHexView).toString("latin1") : "";
+      if (oid === "2.16.76.1.3.3" && /^\d{14}$/.test(texto.trim())) doSan = texto.trim();
+      if (oid === "2.16.76.1.3.1" && /^\d{19}/.test(texto.trim())) doSan = texto.trim().slice(8, 19);
+    }
+  } catch { /* SAN ilegível: usa só o nome comum */ }
+  if (doSan && doCn && doSan !== doCn) return "";
+  return doSan || doCn;
 }
 
 type Cadeia = { estado: EstadoPki; transitoria: boolean; motivo: string; caminho: Certificate[]; intermediarios: Certificate[] };
@@ -97,6 +151,7 @@ function regrasExtras(caminho: Certificate[]): string | null {
   }
   const usoFolha = usoDaChave(caminho[0]);
   if (usoFolha !== null && !(usoFolha & 0xc0)) return "O certificado não tem permissão de assinatura digital.";
+  if (!ekuPermiteAssinatura(caminho[0])) return "O uso estendido do certificado não permite assinatura de documentos.";
   return null;
 }
 function ehAutoassinado(cert: Certificate) { return cert.subject.isEqual(cert.issuer); }
@@ -111,11 +166,12 @@ export async function montarCadeia(cert: Certificate, fornecidos: Certificate[],
   const pool = new Map<string, Certificate>();
   for (const item of fornecidos.slice(0, 10)) if (!mesmo(item, cert) && !ehRaiz(item, roots)) pool.set(idCert(item), item);
   let transitoria = false, atual = cert, chegou = false;
+  try {
   for (let nivel = 0; nivel < 6; nivel++) {
     let emissor: Certificate | undefined;
     for (const root of roots) if (await assinadoPor(atual, root)) { emissor = root; break; }
     if (!emissor) for (const candidato of Array.from(pool.values())) if (!mesmo(candidato, atual) && await assinadoPor(atual, candidato)) { emissor = candidato; break; }
-    if (!emissor) {
+    if (!emissor && emissorDaHierarquia(atual, roots)) {
       for (const url of urlsEmissor(atual)) {
         try {
           for (const candidato of certificadosPublicos(await sessao.baixar(url))) {
@@ -129,6 +185,10 @@ export async function montarCadeia(cert: Certificate, fornecidos: Certificate[],
     if (ehRaiz(emissor, roots)) { chegou = true; break; }
     if (ehAutoassinado(emissor)) break; // raiz que não é ICP-Brasil
     atual = emissor;
+  }
+  } catch (e) {
+    if (e instanceof NaoSuportado) return { estado: "pendente", transitoria: false, motivo: "Algoritmo de assinatura do certificado não suportado pela conferência automática. Confira manualmente.", caminho: [], intermediarios: Array.from(pool.values()) };
+    throw e;
   }
   const intermediarios = Array.from(pool.values());
   if (!chegou) {
@@ -149,6 +209,9 @@ export async function montarCadeia(cert: Certificate, fornecidos: Certificate[],
   }
   const problema = regrasExtras(caminho);
   if (problema) return { estado: problema.startsWith("Extensão crítica") ? "pendente" : "invalida", transitoria: false, motivo: problema, caminho: [], intermediarios };
+  if (OFICIAIS.has(idCert(caminho[caminho.length - 1])) && !politicaAssinaturaIcp(cert)) {
+    return { estado: "pendente", transitoria: false, motivo: "O certificado não declara política de assinatura ICP-Brasil (A1 a A4). Confira manualmente.", caminho: [], intermediarios };
+  }
   return { estado: "valida", transitoria: false, motivo: "", caminho, intermediarios: caminho.slice(1, -1) };
 }
 

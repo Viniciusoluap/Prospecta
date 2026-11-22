@@ -9,9 +9,9 @@ import { getDb } from "./db.js";
 import { CAMPOS_MODELO, MODELOS_CONTRATO, modeloNovo, montarContrato, type CamposModelo } from "../shared/contratos/modelos.js";
 import { gerarPdfModelo } from "../shared/contratos/pdf.js";
 import { opcoesModelosContrato } from "./juridico-modelos.js";
-import { readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
+import { enviarParaLixeira, readPrivateDocument, tryDriveUpload, uploadPrivateDocument } from "./drive-documents.js";
 import { nomeContrato } from "../shared/contratos/documentos.js";
-import { confirmarTodasAssinaturas, salvarRetornoContrato, conteudoContrato } from "./juridico-workflow.js";
+import { confirmarTodasAssinaturas, salvarRetornoContrato, conteudoContrato, mesmoConteudo } from "./juridico-workflow.js";
 import { sendEmail } from "./_core/email-smtp.js";
 import { gerarESalvarContratoPdf } from "./juridico-pdf.js";
 import { readPrivateDbFile } from "./private-document-files.js";
@@ -179,13 +179,15 @@ export const juridicoRouter = router({
     let relatorio: Awaited<ReturnType<typeof relatorioEmpresa>> | null = null;
     if (input.type === "assinatura_digital") {
       let origem: { id: number; bytes: Buffer } | null = null;
-      if (input.documentoOrigemId) {
+      // Achado A2: a assinatura da empresa sempre aponta o documento de origem (o PDF que foi assinado).
+      if (!input.documentoOrigemId) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o documento de origem da assinatura." });
+      {
         const [doc] = await db.select().from(portalContractDocuments).where(and(eq(portalContractDocuments.id, input.documentoOrigemId), eq(portalContractDocuments.contractId, contract.id))).limit(1);
-        if (!doc) throw new TRPCError({ code: "BAD_REQUEST", message: "O documento de origem não pertence a este contrato." });
+        if (!doc || !["contrato_gerado", "anexo"].includes(doc.type)) throw new TRPCError({ code: "BAD_REQUEST", message: "O documento de origem não pertence a este contrato." });
         const bytes = await conteudoContrato(doc);
         if (bytes) origem = { id: doc.id, bytes };
       }
-      relatorio = await relatorioEmpresa(contract, buffer, origem);
+      relatorio = await relatorioEmpresa(contract, buffer, origem, mesmoConteudo);
     }
     const fileName = `${contract.number.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}.pdf`;
     const leadId = contract.leadId;
@@ -203,7 +205,12 @@ export const juridicoRouter = router({
     if (input.type === "assinatura_digital") ops.push(db.update(portalContracts).set({
       signatureStatus: "parcial", signedDocumentUrl: null, updatedAt: new Date(),
     }).where(eq(portalContracts.id, input.contractId)));
-    await db.batch(ops as unknown as Parameters<typeof db.batch>[0]);
+    try { await db.batch(ops as unknown as Parameters<typeof db.batch>[0]); }
+    catch (e) {
+      // B4: o lote falhou depois de o arquivo ir ao Drive → manda a cópia órfã para a lixeira (melhor esforço).
+      if (driveFileId) await enviarParaLixeira(driveFileId).catch(() => undefined);
+      throw e;
+    }
     const [document] = await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id, id));
     return { ...document, validacao: relatorio ? resumir(id, relatorio, 0, gravar ? proximaTentativa(relatorio, 0, new Date()) : null) : null };
   }),

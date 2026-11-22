@@ -66,16 +66,23 @@ function piorar(r: RelatorioValidacao, estado: EstadoPki, motivo: string, transi
 }
 
 /** Assinatura da empresa: integridade, cadeia/LCR, titular = Parte A e vínculo com o documento de origem. */
-export async function relatorioEmpresa(contrato: Contrato, bytes: Buffer, origem: { id: number; bytes: Buffer } | null, roots?: Certificate[], opcoes?: OpcoesConferencia): Promise<RelatorioValidacao> {
+export type ComparaConteudo = (antes: Buffer, depois: Buffer, marca?: { titular: string }) => Promise<boolean>;
+export async function relatorioEmpresa(contrato: Contrato, bytes: Buffer, origem: { id: number; bytes: Buffer } | null, mesmoConteudo: ComparaConteudo, roots?: Certificate[], opcoes?: OpcoesConferencia): Promise<RelatorioValidacao> {
   const conf = await conferirAssinaturas(bytes, contrato, roots, opcoes);
   let r: RelatorioValidacao = { ...base("assinatura_empresa", bytes, conf), documentoOrigemId: origem?.id ?? null, shaOrigem: origem ? sha256Hex(origem.bytes) : null };
   // A assinatura da empresa ainda não conclui o contrato; "todos" só vale para o retorno.
   r.todos = false;
   if (!origem) { r.vinculoOrigem = "ausente"; r = piorar(r, "pendente", "Documento de origem não informado: confira manualmente que este PDF é o contrato certo."); }
-  else if (origem.bytes.length >= bytes.length || !bytes.subarray(0, origem.bytes.length).equals(origem.bytes)) { r.vinculoOrigem = "divergente"; r = piorar(r, "invalida", "O PDF assinado não corresponde ao documento de origem deste contrato."); }
-  else r.vinculoOrigem = "conferido";
-  const esperado = digitos(contrato.partyADocument);
   const ultima = [...conf.assinaturas].sort((a, b) => b.cobertura[1] - a.cobertura[1])[0];
+  if (origem) {
+    // Prefixo idêntico (atualização incremental) E conteúdo das páginas conservado: só a marca visível da assinatura
+    // daquele titular pode ter entrado (achado A1: texto acrescentado antes de assinar não passa).
+    const prefixo = origem.bytes.length < bytes.length && bytes.subarray(0, origem.bytes.length).equals(origem.bytes);
+    const conserva = prefixo && await mesmoConteudo(origem.bytes, bytes, { titular: ultima?.titular || "" });
+    if (!conserva) { r.vinculoOrigem = "divergente"; r = piorar(r, "invalida", "O PDF assinado não corresponde ao documento de origem deste contrato (conteúdo alterado ou outro arquivo)."); }
+    else r.vinculoOrigem = "conferido";
+  }
+  const esperado = digitos(contrato.partyADocument);
   if (esperado.length !== 11 && esperado.length !== 14) {
     r.parteA = { documento: esperado, conferida: false };
     r = piorar(r, "pendente", "O contrato não tem CPF/CNPJ da Parte A para comparar com o titular do certificado.");
@@ -88,7 +95,7 @@ export async function relatorioEmpresa(contrato: Contrato, bytes: Buffer, origem
   return r;
 }
 
-/** Retorno do cliente (portal ou anexado pelo admin). `base` = revisão assinada pela empresa, se houver. */
+/** Retorno do cliente (portal ou anexado pelo admin). `base` = revisão assinada pela empresa JÁ CONFERIDA (válida e vinculada à origem), se houver. */
 export async function relatorioRetorno(origem: "retorno_portal" | "retorno_admin", contrato: Contrato, bytes: Buffer, baseEmpresa: { id: number; bytes: Buffer } | null,
   mesmoConteudo: (antes: Buffer, depois: Buffer) => Promise<boolean>, roots?: Certificate[], opcoes?: OpcoesConferencia): Promise<RelatorioValidacao> {
   const conf = await conferirAssinaturas(bytes, contrato, roots, opcoes);
@@ -98,7 +105,8 @@ export async function relatorioRetorno(origem: "retorno_portal" | "retorno_admin
     r.conservaEmpresa = prefixo && await mesmoConteudo(baseEmpresa.bytes, bytes);
   }
   // Conclusão automática exige as identidades conferidas E a revisão da empresa conservada.
-  if (r.todos && r.conservaEmpresa !== true) { r.todos = false; r.motivo = "O documento retornado precisa de conferência do responsável."; }
+  if (r.todos && !baseEmpresa) { r.todos = false; r.motivo = "Não há assinatura da empresa conferida para comparar. O responsável confere o documento."; }
+  else if (r.todos && r.conservaEmpresa !== true) { r.todos = false; r.motivo = "O documento retornado precisa de conferência do responsável."; }
   return r;
 }
 

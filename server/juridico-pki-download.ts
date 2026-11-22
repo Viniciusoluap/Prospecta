@@ -179,7 +179,9 @@ export class SessaoPki {
         if (!resposta.location || salto >= LIMITES_PKI.redirecionamentos) throw new ErroRedePki("Redirecionamento da certificadora não aceito.");
         let proxima: string;
         try { proxima = new URL(resposta.location, url).href; } catch { throw new EnderecoRecusadoPki(); }
-        url = urlCertificadora(proxima);
+        const seguinte = urlCertificadora(proxima);
+        if (url.protocol === "https:" && seguinte.protocol === "http:") throw new EnderecoRecusadoPki("Redirecionamento de HTTPS para HTTP recusado.");
+        url = seguinte;
         continue;
       }
       if (resposta.status !== 200 || !resposta.corpo) throw new ErroRedePki("Certificadora indisponível.");

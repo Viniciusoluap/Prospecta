@@ -1,6 +1,10 @@
 // Conferência automática das assinaturas, relatório gravado por documento e retentativa — ICP sintética, banco PGlite,
 // rede SIMULADA (nenhuma chamada real), nenhum e-mail enviado, nenhum contrato real.
+import "fake-indexeddb/auto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -28,6 +32,8 @@ import { portalRouter } from "./portal-router";
 import { proximaTentativa, RETENTATIVA, sha256Hex, _esquecerTabela } from "./juridico-validacao";
 import { revalidarDocumento, revalidarPendentes } from "./juridico-revalidacao";
 import { montarCadeiaPublica, _limparLimiteCadeia } from "./juridico-cadeia";
+import { _limparEnviosPortal } from "./juridico-workflow";
+import { assinarPdf, importarCertificado } from "../client/src/lib/certificados-digitais";
 
 let pki: Pki;
 const signers: Record<string, P12Signer> = {};
@@ -37,7 +43,7 @@ beforeAll(async () => {
   for (const nome of ["empresa", "cliente", "testemunha", "revogado"]) signers[nome] = await P12Signer.create(pki.pfx(nome), "teste-somente", { buildChain: false });
 }, 120_000);
 afterAll(() => { raizesIcp.splice(raizesIcp.indexOf(pki.raiz), 1); pki?.limpar(); });
-beforeEach(() => { limparCacheLcr(); _esquecerTabela(); _limparLimiteCadeia(); simulado.rede = rede(pki); });
+beforeEach(() => { limparCacheLcr(); _esquecerTabela(); _limparLimiteCadeia(); _limparEnviosPortal(); simulado.rede = rede(pki); });
 afterEach(() => vi.restoreAllMocks());
 
 const contratoBase = () => { const doc = new jsPDF(); doc.text("CONTRATO SINTETICO DE TESTE", 20, 20); return Buffer.from(doc.output("arraybuffer")); };
@@ -74,6 +80,31 @@ describe("conferência das assinaturas do PDF (ICP sintética)", () => {
     const r = await conferirAssinaturas(await assinar(contratoBase(), "empresa"), partes);
     expect(r).toMatchObject({ estado: "pendente", transitoria: true, todos: false });
     expect(r.assinaturas[0]).toMatchObject({ integridade: true, estado: "pendente" });
+  });
+  it("ByteRange manipulado é inválido", async () => {
+    const assinado = await assinar(contratoBase(), "empresa");
+    const texto = assinado.toString("latin1");
+    const m = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(texto)!;
+    const ultimo = m[4], trocado = String(Number(ultimo) - 1).padStart(ultimo.length, "0");
+    const alterado = Buffer.from(texto.replace(m[0], m[0].replace(new RegExp(`${ultimo}(\\s*\\])$`), `${trocado}$1`)), "latin1");
+    expect(alterado.equals(assinado)).toBe(false);
+    expect((await conferirAssinaturas(alterado, partes)).estado).toBe("invalida");
+  });
+  it("CMS com dois signerInfos no mesmo campo é inválido", async () => {
+    const assinado = await assinar(contratoBase(), "empresa");
+    const texto = assinado.toString("latin1");
+    const m = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(texto)!;
+    const [a, b, c, d] = m.slice(1).map(Number);
+    writeFileSync(join(pki.dir, "dados.bin"), Buffer.concat([assinado.subarray(a, a + b), assinado.subarray(c, c + d)]));
+    execFileSync("openssl", ["cms", "-sign", "-binary", "-outform", "DER", "-in", "dados.bin", "-out", "dois.der",
+      "-signer", "empresa.pem", "-inkey", "empresa-chave.pem", "-signer", "cliente.pem", "-inkey", "cliente-chave.pem"], { cwd: pki.dir, stdio: "ignore" });
+    const { readFileSync: ler } = await import("node:fs");
+    const hex = ler(join(pki.dir, "dois.der")).toString("hex");
+    const espaco = c - b - 2;
+    expect(hex.length).toBeLessThanOrEqual(espaco);
+    const novo = Buffer.from(assinado);
+    novo.write(`<${hex.padEnd(espaco, "0")}>`, b, "latin1");
+    expect((await conferirAssinaturas(novo, partes))).toMatchObject({ estado: "invalida" });
   });
   it("PDF sem assinatura ou ilegível é inválido", async () => {
     expect((await conferirAssinaturas(contratoBase(), partes)).estado).toBe("invalida");
@@ -150,8 +181,36 @@ describe("upload da assinatura da empresa: conferência no servidor e relatório
       expect(divergente.validacao).toMatchObject({ estado: "invalida", vinculoOrigem: "divergente" });
       await pg.exec("INSERT INTO portal_contracts (id, number) VALUES (2,'OUTRO')");
       await expect(admin().uploadDocument({ contractId: 2, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-      const semOrigem = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")) });
-      expect(semOrigem.validacao).toMatchObject({ estado: "pendente", transitoria: false, vinculoOrigem: "ausente" });
+      // Origem que não é contrato gerado/anexo (ex.: outra assinatura) também é recusada.
+      await expect(admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: outroTitular.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("A1: texto acrescentado à página antes de assinar ('VALOR ALTERADO 999') quebra o vínculo com a origem", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      const pdf = await PDF.load(new Uint8Array(original));
+      pdf.getPage(0)!.drawText("VALOR ALTERADO 999", { x: 20, y: 700, size: 12 });
+      const adulterado = Buffer.from((await pdf.sign({ signer: signers.empresa })).bytes);
+      expect(adulterado.subarray(0, original.length).equals(original)).toBe(true); // o prefixo sozinho não basta
+      const doc = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(adulterado), documentoOrigemId: origemId });
+      expect(doc.validacao).toMatchObject({ estado: "invalida", vinculoOrigem: "divergente" });
+      // A marca legítima do assinador (retângulo + linhas do titular) continua aceita.
+      const salvo = await importarCertificado(31, new File([pki.pfx("empresa")], "empresa.pfx"), "teste-somente");
+      const { bytes } = await assinarPdf(new Uint8Array(original), salvo, "teste-somente", { pagina: 0, x: 60, y: 80, largura: 300, altura: 84 });
+      const marcado = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(Buffer.from(bytes)), documentoOrigemId: origemId });
+      expect(marcado.validacao).toMatchObject({ estado: "valida", vinculoOrigem: "conferido" });
+      // Marca com retângulo preenchido (capaz de cobrir cláusulas) não é aceita.
+      const cobre = await PDF.load(new Uint8Array(original));
+      cobre.getPage(0)!.drawRectangle({ x: 0, y: 0, width: 300, height: 300, color: rgb(1, 1, 1) });
+      const coberto = Buffer.from((await cobre.sign({ signer: signers.empresa })).bytes);
+      expect((await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(coberto), documentoOrigemId: origemId })).validacao).toMatchObject({ estado: "invalida" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("A2: assinatura da empresa exige o documento de origem", async () => {
+    const pg = await preparar();
+    try {
+      await expect(admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(contratoBase(), "empresa")) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     } finally { await pg.close(); }
   }, 60_000);
   it("falha ao gravar o relatório desfaz documento, arquivo e status (atômico)", async () => {
@@ -218,6 +277,23 @@ describe("pendência de rede e retentativa automática", () => {
     expect(proximaTentativa({ estado: "pendente", transitoria: false }, 0, inicio, inicio)).toBeNull();
     expect(proximaTentativa({ estado: "invalida", transitoria: true }, 0, inicio, inicio)).toBeNull();
   });
+  it("M3: no teto (6 tentativas ou 7 dias) a reserva não acontece, nada é baixado e a pendência vira manual", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      simulado.rede = rede(pki, { fora: [URLS.interCert] });
+      const doc = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId });
+      await pg.query("UPDATE portal_contract_document_validacoes SET tentativas = 6, proxima_tentativa = now() - interval '1 minute' WHERE document_id = $1", [doc.id]);
+      simulado.rede = rede(pki);
+      const r = await revalidarDocumento(doc.id);
+      expect(r).toMatchObject({ estado: "pendente", transitoria: false, proximaTentativa: null, tentativas: 6 });
+      expect(r?.motivo).toMatch(/Prazo das novas tentativas esgotado/);
+      expect(simulado.rede.chamadas).toEqual([]);
+      await pg.query("UPDATE portal_contract_document_validacoes SET tentativas = 1, primeira_em = now() - interval '8 days', proxima_tentativa = now() - interval '1 minute' WHERE document_id = $1", [doc.id]);
+      expect(await revalidarDocumento(doc.id)).toMatchObject({ estado: "pendente", proximaTentativa: null });
+      expect(simulado.rede.chamadas).toEqual([]);
+    } finally { await pg.close(); }
+  }, 60_000);
   it("rodada do cron respeita o prazo e nunca lança", async () => {
     const pg = await preparar();
     try {
@@ -274,6 +350,64 @@ describe("retorno pelo portal", () => {
       expect(await revalidarDocumento(doc.id, { agora: new Date(Date.now() + 11 * 60_000) })).toMatchObject({ estado: "valida", conservaEmpresa: true });
       expect((await pg.query("SELECT type FROM portal_contract_documents WHERE id=$1", [doc.id])).rows[0]).toEqual({ type: "assinado" });
       expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "assinado" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("A2: se a assinatura da empresa não foi conferida como válida, o retorno nunca conclui sozinho", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      simulado.rede = rede(pki, { fora: [URLS.interCert, URLS.interCrl] });
+      const empresa = await assinar(original, "empresa");
+      await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(empresa), documentoOrigemId: origemId }); // fica pendente
+      await pg.exec("UPDATE portal_contracts SET signature_status='solicitado'");
+      simulado.rede = rede(pki);
+      const r = await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(await assinar(empresa, "cliente")) });
+      expect(r.todos).toBe(false);
+      expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "em_conferencia" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("M2: a retentativa não conclui se a empresa assinou de novo (outra base) ou se o contrato saiu de 'em conferência'", async () => {
+    const pg = await preparar();
+    try {
+      const empresa = await empresaAssinou(pg);
+      const retorno = await assinar(empresa, "cliente");
+      limparCacheLcr();
+      simulado.rede = rede(pki, { fora: [URLS.interCrl] });
+      await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(retorno) });
+      const doc = (await pg.query<{ id: number }>("SELECT id FROM portal_contract_documents WHERE type='recebido_assinado'")).rows[0];
+      simulado.rede = rede(pki);
+      // A empresa assina outra vez: a base usada no envio deixa de ser a última.
+      const origemId = (await pg.query<{ id: number }>("SELECT id FROM portal_contract_documents WHERE type='contrato_gerado'")).rows[0].id;
+      const original = Buffer.from((await pg.query<{ data: Uint8Array }>("SELECT data FROM portal_contract_file_data WHERE document_id=$1", [origemId])).rows[0].data);
+      await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId });
+      await pg.exec("UPDATE portal_contracts SET signature_status='em_conferencia'");
+      const r = await revalidarDocumento(doc.id, { agora: new Date(Date.now() + 11 * 60_000) });
+      expect(r?.estado).toBe("valida");
+      expect((await pg.query("SELECT type FROM portal_contract_documents WHERE id=$1", [doc.id])).rows[0]).toEqual({ type: "recebido_assinado" });
+      expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "em_conferencia" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("M2: contrato já concluído/alterado por outra via não é sobrescrito pela retentativa", async () => {
+    const pg = await preparar();
+    try {
+      const empresa = await empresaAssinou(pg);
+      limparCacheLcr();
+      simulado.rede = rede(pki, { fora: [URLS.interCrl] });
+      await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(await assinar(empresa, "cliente")) });
+      const doc = (await pg.query<{ id: number }>("SELECT id FROM portal_contract_documents WHERE type='recebido_assinado'")).rows[0];
+      await pg.exec("UPDATE portal_contracts SET signature_status='solicitado'"); // mudou de estado no meio do caminho
+      simulado.rede = rede(pki);
+      await revalidarDocumento(doc.id, { agora: new Date(Date.now() + 11 * 60_000) });
+      expect((await pg.query("SELECT type FROM portal_contract_documents WHERE id=$1", [doc.id])).rows[0]).toEqual({ type: "recebido_assinado" });
+      expect((await pg.query("SELECT signature_status FROM portal_contracts")).rows[0]).toEqual({ signature_status: "solicitado" });
+    } finally { await pg.close(); }
+  }, 60_000);
+  it("B1: envios pelo portal têm limite por cliente", async () => {
+    const pg = await preparar();
+    try {
+      await pg.exec("UPDATE portal_contracts SET signature_status='solicitado'");
+      for (let i = 0; i < 6; i++) await cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(Buffer.from("%PDF-1.7 SEM ASSINATURA")) });
+      await expect(cliente().uploadSignedContract({ contractId: 1, fileName: "r.pdf", mimeType: "application/pdf", base64: b64(Buffer.from("%PDF-1.7 SEM ASSINATURA")) })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
     } finally { await pg.close(); }
   }, 60_000);
   it("retorno anexado pelo admin nunca conclui sozinho (continua exigindo a confirmação)", async () => {

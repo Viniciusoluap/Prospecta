@@ -14,7 +14,7 @@ import type { Certificate } from "pkijs";
 import { portalContractDocuments, portalContracts } from "../drizzle/schema.js";
 import { nomeContrato } from "../shared/contratos/documentos.js";
 import { getDb } from "./db.js";
-import { conteudoContrato, mesmoConteudo } from "./juridico-workflow.js";
+import { baseDaEmpresa, conteudoContrato, mesmoConteudo } from "./juridico-workflow.js";
 import { listarValidacoes, proximaTentativa, relatorioEmpresa, relatorioRetorno, RETENTATIVA, resumir, sha256Hex, tabelaValidacoes, type RelatorioValidacao, type ResumoValidacao } from "./juridico-validacao.js";
 import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
 import { SessaoPki } from "./juridico-pki-download.js";
@@ -34,12 +34,22 @@ async function bytesDoDocumento(id: number | null | undefined, contractId: numbe
 export async function revalidarDocumento(documentId: number, opcoes: OpcoesRevalidacao = {}): Promise<ResumoValidacao | null> {
   if (!(await tabelaValidacoes())) return null;
   const db = getDb(), agora = opcoes.agora ?? new Date(), token = randomUUID();
+  const limitePrazo = new Date(agora.getTime() - RETENTATIVA.prazoMs).toISOString();
+  // Achado M3: o teto (tentativas e 7 dias) vale na própria reserva; quem passou do teto fica pendente para conferência manual.
   const reserva = await db.execute(sql`UPDATE portal_contract_document_validacoes
     SET execucao = ${token}, tentativas = tentativas + 1, proxima_tentativa = ${new Date(agora.getTime() + RETENTATIVA.reservaMs).toISOString()}::timestamptz, atualizado_em = now()
     WHERE document_id = ${documentId} AND estado = 'pendente' AND proxima_tentativa IS NOT NULL AND proxima_tentativa <= ${agora.toISOString()}::timestamptz
+      AND tentativas < ${RETENTATIVA.maxTentativas} AND primeira_em > ${limitePrazo}::timestamptz
     RETURNING relatorio, tentativas, primeira_em, sha256, origem`);
   const linha = linhas<Linha>(reserva)[0];
-  if (!linha) return (await listarValidacoes([documentId]))[0] ?? null;
+  if (!linha) {
+    await db.execute(sql`UPDATE portal_contract_document_validacoes
+      SET proxima_tentativa = NULL, versao = versao + 1, atualizado_em = now(),
+          relatorio = jsonb_set(jsonb_set(relatorio, '{transitoria}', 'false'::jsonb), '{motivo}', to_jsonb(COALESCE(relatorio->>'motivo', '') || ' Prazo das novas tentativas esgotado: confira manualmente.'))
+      WHERE document_id = ${documentId} AND estado = 'pendente' AND proxima_tentativa IS NOT NULL
+        AND (tentativas >= ${RETENTATIVA.maxTentativas} OR primeira_em <= ${limitePrazo}::timestamptz)`);
+    return (await listarValidacoes([documentId]))[0] ?? null;
+  }
   const antigo: RelatorioValidacao = typeof linha.relatorio === "string" ? JSON.parse(linha.relatorio) : linha.relatorio;
   const tentativas = Number(linha.tentativas), primeiraEm = new Date(linha.primeira_em);
   const [doc] = await db.select().from(portalContractDocuments).where(eq(portalContractDocuments.id, documentId)).limit(1);
@@ -49,9 +59,11 @@ export async function revalidarDocumento(documentId: number, opcoes: OpcoesReval
   if (!doc || !contract || !bytes || sha256Hex(bytes) !== linha.sha256) {
     novo = { ...antigo, estado: "pendente", transitoria: false, verificadoEm: agora.toISOString(), motivo: "O arquivo conferido não está mais disponível ou mudou. Confira manualmente." };
   } else if (linha.origem === "assinatura_empresa") {
-    novo = await relatorioEmpresa(contract, bytes, await bytesDoDocumento(antigo.documentoOrigemId, contract.id), opcoes.roots, opcoes);
+    novo = await relatorioEmpresa(contract, bytes, await bytesDoDocumento(antigo.documentoOrigemId, contract.id), mesmoConteudo, opcoes.roots, opcoes);
   } else {
-    novo = await relatorioRetorno(linha.origem, contract, bytes, await bytesDoDocumento(antigo.documentoBaseId, contract.id), mesmoConteudo, opcoes.roots, opcoes);
+    // A base só vale se ainda for a ÚLTIMA assinatura da empresa, conferida, e a mesma usada no envio (achados A2/M2).
+    const base = await baseDaEmpresa(contract.id);
+    novo = await relatorioRetorno(linha.origem, contract, bytes, base && base.id === antigo.documentoBaseId ? base : null, mesmoConteudo, opcoes.roots, opcoes);
   }
   const proxima = proximaTentativa(novo, tentativas, primeiraEm, agora);
   if (novo.estado === "pendente" && novo.transitoria && !proxima) novo = { ...novo, transitoria: false, motivo: `${novo.motivo} Prazo das novas tentativas esgotado: confira manualmente.` };
@@ -59,12 +71,18 @@ export async function revalidarDocumento(documentId: number, opcoes: OpcoesReval
     SET estado = ${novo.estado}, relatorio = ${JSON.stringify(novo)}::jsonb, verificado_em = ${novo.verificadoEm}::timestamptz,
         proxima_tentativa = ${proxima ? proxima.toISOString() : null}::timestamptz, versao = versao + 1, atualizado_em = now()
     WHERE document_id = ${documentId} AND execucao = ${token}`)];
-  if (doc && contract && linha.origem === "retorno_portal" && novo.todos && novo.estado === "valida" && novo.conservaEmpresa === true) {
+  const baseId = novo.documentoBaseId;
+  if (doc && contract && baseId && linha.origem === "retorno_portal" && novo.todos && novo.estado === "valida" && novo.conservaEmpresa === true) {
+    // Achado M2: no momento da gravação, o contrato precisa continuar "em conferência" e a base usada precisa continuar
+    // sendo a última assinatura da empresa, com conferência válida. Senão, nada é concluído.
     ops.push(db.execute(sql`UPDATE portal_contract_documents SET type = 'assinado', name = ${nomeContrato(contract.partyB, "assinado")}
       WHERE id = ${documentId} AND type = 'recebido_assinado'
-        AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id = ${documentId} AND execucao = ${token} AND estado = 'valida')`));
+        AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id = ${documentId} AND execucao = ${token} AND estado = 'valida')
+        AND EXISTS (SELECT 1 FROM portal_contracts WHERE id = ${contract.id} AND signature_status = 'em_conferencia')
+        AND ${baseId} = (SELECT id FROM portal_contract_documents WHERE contract_id = ${contract.id} AND type = 'assinatura_digital' ORDER BY created_at DESC, id DESC LIMIT 1)
+        AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id = ${baseId} AND estado = 'valida' AND relatorio->>'vinculoOrigem' = 'conferido')`));
     ops.push(db.execute(sql`UPDATE portal_contracts SET signature_status = 'assinado', updated_at = now()
-      WHERE id = ${contract.id} AND signature_status <> 'assinado'
+      WHERE id = ${contract.id} AND signature_status = 'em_conferencia'
         AND EXISTS (SELECT 1 FROM portal_contract_documents WHERE id = ${documentId} AND type = 'assinado')
         AND EXISTS (SELECT 1 FROM portal_contract_document_validacoes WHERE document_id = ${documentId} AND execucao = ${token})`));
   }
@@ -85,8 +103,13 @@ export async function revalidarPendentes(limiteMs: number, opcoes: OpcoesRevalid
     for (const { document_id } of linhas<{ document_id: number }>(res)) {
       const resta = limiteMs - (Date.now() - inicio);
       if (resta < 3_000) break;
-      await revalidarDocumento(Number(document_id), { ...opcoes, sessao: opcoes.sessao ?? new SessaoPki({ prazoMs: resta - 1_000 }) });
-      conferidos++;
+      try {
+        await revalidarDocumento(Number(document_id), { ...opcoes, sessao: opcoes.sessao ?? new SessaoPki({ prazoMs: resta - 1_000 }) });
+        conferidos++;
+      } catch (e) {
+        // Um documento com erro não impede os outros; a tentativa já foi contada na reserva (teto garantido).
+        console.error("[juridico/revalidar]", Number(document_id), e instanceof Error ? e.message : "falha");
+      }
     }
     return { conferidos };
   } catch (e) {

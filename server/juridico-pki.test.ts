@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { criarPki, rede, URLS, type Pki } from "./__fixtures__/juridico-pki-ca";
-import { conferirRevogacao, limparCacheLcr, montarCadeia, raizesIcp, validarCertificado } from "./juridico-pki";
+import { conferirRevogacao, documentoDoCertificado, ekuPermiteAssinatura, limparCacheLcr, montarCadeia, politicaAssinaturaIcp, raizesIcp, validarCertificado } from "./juridico-pki";
 import { ErroRedePki, EnderecoRecusadoPki, SessaoPki, _estadoConcorrencia, transportePadrao, urlCertificadora } from "./juridico-pki-download";
 
 let pki: Pki;
@@ -88,6 +88,53 @@ describe("cadeia ICP sintética no PKIjs 3.4.0", () => {
   });
 });
 
+describe("regras extras (portão de QA de 22/11)", () => {
+  it("intermediária revogada na LCR da raiz invalida a assinatura", async () => {
+    const r = await validarCertificado(pki.cert("sob_inter2"), [], [pki.raiz], sessao(rede(pki)));
+    expect(r).toMatchObject({ estado: "invalida", revogacao: "revogado" });
+    expect(r.motivo).toMatch(/autoridade revogado/);
+  });
+  it("LCR delta e escopos de IDP: só o escopo compatível confirma", async () => {
+    const com = async (crl: Buffer) => { limparCacheLcr(); return validarCertificado(pki.cert("empresa"), [pki.intermediaria], [pki.raiz], sessao(rede(pki, { trocar: { [URLS.interCrl]: crl } }))); };
+    expect(await com(pki.crl.delta)).toMatchObject({ estado: "pendente", revogacao: "pendente" });
+    expect(await com(pki.crl.idpOk)).toMatchObject({ estado: "valida", revogacao: "regular" });
+    expect(await com(pki.crl.idpSoCa)).toMatchObject({ estado: "pendente" });
+    expect(await com(pki.crl.idpOutro)).toMatchObject({ estado: "pendente" });
+  });
+  it("CA sem cRLSign não serve para assinar a LCR", async () => {
+    const r = await validarCertificado(pki.cert("sob_inter3"), [], [pki.raiz], sessao(rede(pki)));
+    expect(r).toMatchObject({ estado: "pendente", revogacao: "pendente" });
+    expect(r.motivo).toMatch(/permissão para assinar LCR/);
+  });
+  it("pathLen: sub-AC abaixo de AC com pathlen:0 é inválida", async () => {
+    const r = await validarCertificado(pki.cert("sob_sub"), [pki.intermediaria, pki.cert("sub")], [pki.raiz], sessao(rede(pki)));
+    expect(r).toMatchObject({ estado: "invalida" });
+    expect(r.motivo).toMatch(/limite de níveis/);
+  });
+  it("EKU: só servidor/carimbo de tempo é recusado; e-mail (padrão ICP-Brasil) é aceito", async () => {
+    expect(ekuPermiteAssinatura(pki.cert("servidor"))).toBe(false);
+    expect(ekuPermiteAssinatura(pki.cert("email"))).toBe(true);
+    expect(ekuPermiteAssinatura(pki.cert("empresa"))).toBe(true);
+    expect(await validarCertificado(pki.cert("servidor"), [pki.intermediaria], [pki.raiz], sessao(rede(pki)))).toMatchObject({ estado: "invalida" });
+    expect(await validarCertificado(pki.cert("email"), [pki.intermediaria], [pki.raiz], sessao(rede(pki)))).toMatchObject({ estado: "valida" });
+  });
+  it("CPF/CNPJ do SAN otherName ICP-Brasil, com o nome comum como alternativa; política ICP exigida só nas raízes oficiais", () => {
+    expect(documentoDoCertificado(pki.cert("san"))).toBe("12345678000190");
+    expect(documentoDoCertificado(pki.cert("empresa"))).toBe("12345678000190");
+    expect(politicaAssinaturaIcp(pki.cert("empresa"))).toBe(false);
+  });
+  it("algoritmo não suportado pelo WebCrypto (ECDSA secp256k1) fica pendente para conferência manual, não inválido", async () => {
+    const r = await validarCertificado(pki.cert("sob_interec"), [pki.cert("interec")], [pki.raiz], sessao(rede(pki)));
+    expect(r).toMatchObject({ estado: "pendente", transitoria: false });
+    expect(r.motivo).toMatch(/não suportado/);
+  });
+  it("AIA de certificado fora da hierarquia das raízes confiáveis não é seguido (sem rede)", async () => {
+    const r = rede(pki);
+    expect((await validarCertificado(pki.cert("empresa"), [], raizesIcp, sessao(r))).estado).toBe("invalida");
+    expect(r.chamadas).toEqual([]);
+  });
+});
+
 describe("download PKI: SSRF, prazo e limites", () => {
   it("recusa endereços fora da política", () => {
     for (const url of ["file:///etc/passwd", "ftp://ac.example/a.crl", "http://127.0.0.1/a.crl", "http://2130706433/a.crl", "http://[::1]/a.crl",
@@ -115,6 +162,8 @@ describe("download PKI: SSRF, prazo e limites", () => {
     await expect(paraInterno.baixar("http://ac.example/a.crl")).rejects.toBeInstanceOf(EnderecoRecusadoPki);
     const paraIp = new SessaoPki({ resolver, transporte: async () => ({ status: 301, location: "http://169.254.169.254/latest" }) });
     await expect(paraIp.baixar("http://ac.example/a.crl")).rejects.toBeInstanceOf(EnderecoRecusadoPki);
+    const rebaixa = new SessaoPki({ resolver, transporte: async () => ({ status: 302, location: "http://ac.example/a.crl" }) });
+    await expect(rebaixa.baixar("https://ac.example/a.crl")).rejects.toThrow(/HTTPS para HTTP/);
     const laco = new SessaoPki({ resolver, transporte: async () => ({ status: 302, location: "/de-novo" }) });
     await expect(laco.baixar("http://ac.example/a.crl")).rejects.toBeInstanceOf(ErroRedePki);
     expect(laco.requisicoes).toBe(3);

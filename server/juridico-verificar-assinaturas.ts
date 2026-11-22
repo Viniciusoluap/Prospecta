@@ -10,7 +10,7 @@
 // Uma falha de rede nunca é tratada como assinatura inválida, e um timeout nunca vira válido.
 import { PDF, PdfNumber } from "@libpdf/core";
 import { Certificate, ContentInfo, SignedData, type SignedDataVerifyResult } from "pkijs";
-import { raizesIcp, validarCertificado, type ConsultaPki, type EstadoPki, type Baixador } from "./juridico-pki.js";
+import { algoritmoNaoSuportado, documentoDoCertificado, raizesIcp, validarCertificado, type ConsultaPki, type EstadoPki, type Baixador } from "./juridico-pki.js";
 import { SessaoPki } from "./juridico-pki-download.js";
 
 export const MAX_ASSINATURAS = 20;
@@ -32,6 +32,7 @@ const digitos = (v: string | null | undefined) => (v || "").replace(/\D/g, "");
 const atributo = (nome: Certificate["subject"], oid: string) => nome.typesAndValues.filter(x => x.type === oid).map(x => String(x.value.valueBlock.value)).join(" ");
 
 class FalhaEstrutural extends Error {}
+class NaoSuportadoCms extends Error { constructor(readonly fim: number) { super("não suportado"); } }
 
 export async function conferirAssinaturas(bytes: Buffer, partes: Partes, roots: Certificate[] = raizesIcp, opcoes: OpcoesConferencia = {}): Promise<ConferenciaAssinaturas> {
   const agora = opcoes.agora ?? new Date();
@@ -60,17 +61,28 @@ export async function conferirAssinaturas(bytes: Buffer, partes: Partes, roots: 
       const signed = new SignedData({ schema: cms.content });
       if ((signed.signerInfos || []).length !== 1) throw new FalhaEstrutural("A assinatura deve ter um único signatário.");
       const data = Uint8Array.from(Buffer.concat([bytes.subarray(0, b), bytes.subarray(c, c + d)])).buffer;
-      const result = await signed.verify({ signer: 0, data, checkChain: false, extendedMode: true }) as SignedDataVerifyResult;
+      let result: SignedDataVerifyResult;
+      try { result = await signed.verify({ signer: 0, data, checkChain: false, extendedMode: true }) as SignedDataVerifyResult; }
+      catch (e) {
+        if (algoritmoNaoSuportado(e)) throw new NaoSuportadoCms(c + d);
+        throw e;
+      }
       if (!result.signatureVerified || !result.signerCertificate) throw new FalhaEstrutural("A assinatura não passou na conferência de integridade.");
       cert = result.signerCertificate;
       fornecidos = (signed.certificates || []).filter((item): item is Certificate => item instanceof Certificate);
       fim = c + d;
     } catch (e) {
+      if (e instanceof NaoSuportadoCms) {
+        // Algoritmo que o servidor não sabe conferir: não é prova de fraude nem de validade → pendência manual.
+        assinaturas.push({ titular: "", documento: "", emissor: "", serial: "", integridade: false, cobertura: [0, e.fim], cadeia: "pendente", revogacao: "pendente", estado: "pendente", transitoria: false, motivo: "Algoritmo da assinatura não suportado pela conferência automática. Confira manualmente." });
+        integroAte = Math.max(integroAte, e.fim);
+        continue;
+      }
       // Erro de leitura do CMS também é falha criptográfica/estrutural: não depende de rede.
       return invalido(e instanceof FalhaEstrutural ? e.message : "A assinatura não passou na conferência de integridade.");
     }
     const titular = atributo(cert.subject, "2.5.4.3") || atributo(cert.subject, "2.5.4.10");
-    const documento = /(?:^|:)\s*(\d{14}|\d{11})\s*$/.exec(atributo(cert.subject, "2.5.4.3"))?.[1] || "";
+    const documento = documentoDoCertificado(cert);
     const pki = await validarCertificado(cert, fornecidos, roots, sessao, agora);
     let estado = pki.estado, motivo = pki.motivo, transitoria = pki.transitoria;
     if (estado === "valida" && !documento) { estado = "pendente"; transitoria = false; motivo = "Assinatura conferida, mas o certificado não identifica CPF/CNPJ no nome do titular."; }
