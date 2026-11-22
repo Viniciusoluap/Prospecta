@@ -619,3 +619,45 @@ Botão novo só se nenhum existente servir.
 Receber o QA da C7.2 → publicar #280; receber a E2 da Dolores → QA → `0145` → publicar; receber a Etapa 2 da maquete → conferir
 os screenshots → Etapa 3 (editor + tabelas em branch do Neon). Perguntas abertas ao dono: aprovar o plano da Dolores; pasta do
 CARAXES; se a maquete pode ser publicada a cada etapa.
+
+---
+
+## Atualização de 22/11/2026 ~03:40 UTC — EPIC-027 e EPIC-028
+
+### Em produção (desde a atualização anterior)
+| Frente | PR | Migração no Neon |
+|---|---|---|
+| C7.2 modelos da YCloud enviados pelo sistema (formulário de templates + modelo padrão automático) | #280 | — |
+| C5-E2 Dolores "pode" / "confirmo" | #285 | `0145` aplicada |
+| C7.3 ajustes da campanha pelo colaborador (filtro, eco exato, pausa do admin) | #287, #290 | — |
+| C2 grupos na Central — 3 defeitos da revisão automática | #289 | — |
+| EPIC-028 maquete nova: etapas 1–2 (#283), editor (#288), página por lote + decisões do dono (#292), painel de lotes (#293) | #283 #288 #292 #293 | `0146` e `0147` aplicadas |
+Detalhe da maquete: `HANDOFF-21-11-MAQUETE-EDITOR.md`.
+
+### Em andamento
+- **Pacote Dolores integrado** (worktree `epic027-c5int`, HEAD `527336e`, espelho a criar): E3 registrar a partir do grupo
+  (sem migração) + E5 gasto por função e alerta 80% (`0148`) + memória de longo prazo (`0149`) + 6 correções da revisão
+  automática das etapas 1 e 2 (segredo em rótulo de grupo indo ao modelo; último pedido vale; validade real da proposta;
+  `ligadoPorPadrao` na leitura; memória guarda só o texto entregue; elegibilidade antes do LIMIT). Suíte ~1.317 testes verdes
+  em duas partes. Em portão de QA de segurança. `0148` e `0149` NÃO aplicadas.
+- **Proatividade (E4)** — worktree `epic027-c5pro` (`0150`); **criadora de mesas** — `epic027-c5mesas` (`0151`); **mesa
+  comercial/maquete** — `epic027-c5com` (sem migração). As três nascem do `epic027-c5int`.
+
+### Pendente (não começado)
+- Análise de regularização com roteiro de REURB (usar o conteúdo da skill A.68 do dono); tarefa demorada sem travar a conversa.
+- YCloud: histórico de tentativas do modelo padrão por conta ao voltar para uma conta anterior (baixo).
+- Conferir depois das 07h BRT se `novidades_prospecta` foi criado (`dashboard_settings` com chave `ycloud.%`).
+- CARAXES: fora até planejar com o dono. Segundo prompt do dono: ainda não enviado.
+
+### Testes
+- (a) Automáticos: cada PR com `tsc`, vitest dos módulos afetados e `vite build`; portões de QA: C5-E2 (2 rodadas, PASS),
+  C7.2 (CONCERNS corrigido), C7.3 (segurança OK), maquete E3 (CONCERNS corrigido) e E4 (PASS).
+- (b) Manuais: nenhum.
+- (c) Pendentes de validação em produção pelo dono: Dolores marcada em grupo; aba Grupos da Central; "pode"/"confirmo" pelo
+  WhatsApp; memória da conversa; logotipo por IA; envio de template à Meta pelo formulário; maquete (editar, publicar, gerar
+  link do lote e abrir no celular); leitura real de planta pela IA (EPIC-027 C1).
+
+### Próximo passo exato
+Receber o QA do pacote integrado → corrigir achados → aplicar `0148` e `0149` → branch a partir da `main` com
+`git -C ../epic027-c5int diff origin/main...HEAD` → PR → esperar o Codex concluir → merge → conferir a Vercel. Depois integrar
+proatividade, criadora de mesas e mesa comercial sobre a `main`, com QA, e publicar.
