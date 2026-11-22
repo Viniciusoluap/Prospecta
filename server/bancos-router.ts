@@ -1,6 +1,6 @@
 // Pedido de 25/10: BPO › Bancos — contas por API (Asaas, Pluggy/Meu Pluggy) e por importação.
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc.js";
 import { encryptSecret } from "./_core/secret-vault.js";
@@ -14,6 +14,51 @@ import { confirmarImportacao, previaImportacao, registrarWebhookPluggy, sincroni
 import { classificarMovimentacao, movimentacoesDaConta, reprocessarMovimentacoes } from "./bpo-extrato.js";
 import { CATEGORIAS_BPO } from "../shared/financeiro/bpo-extrato.js";
 import { limparContaComBackup, previaLimpezaConta } from "./bpo-auditoria.js";
+import { MAX_APELIDO, cnpjDaEmpresa, cnpjValido, ehMatriz, formatarCnpj, raizDoCnpj, rotuloRegime } from "../shared/fiscal/regimes.js";
+import { ensureTaxSchema } from "./tax-router.js";
+
+/** EPIC-029 S-6: apelido (renomear a conta; vazio = volta ao nome do banco). */
+const apelidoSchema = z.string().trim().max(MAX_APELIDO, `O apelido tem no máximo ${MAX_APELIDO} caracteres.`).nullable().optional();
+/** EPIC-029 S-6: CNPJ da empresa dona da conta (de um perfil tributário que já existe); null = sem empresa definida. */
+const empresaSchema = z.string().trim().max(20).nullable().optional();
+
+/**
+ * Confere o ESTABELECIMENTO (CNPJ completo, matriz ou filial): a empresa (raiz do CNPJ) precisa ter perfil tributário e o estabelecimento
+ * precisa já ser conhecido — um perfil com esse CNPJ ou o complemento fiscal (emissor) da filial. Nada é digitado de novo aqui.
+ */
+async function empresaDoCadastro(valor: string | null | undefined): Promise<string | null | undefined> {
+  if (valor === undefined) return undefined;
+  if (valor === null || valor === "") return null;
+  const cnpj = cnpjDaEmpresa(valor);
+  if (!cnpjValido(cnpj)) throw new TRPCError({ code: "BAD_REQUEST", message: "CNPJ da empresa inválido." });
+  await ensureTaxSchema();
+  const conhecido = (await estabelecimentos()).find(e => e.cnpj === cnpj);
+  if (!conhecido) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre primeiro o perfil tributário desta empresa (BPO › Contabilidade) ou, para uma filial, o complemento fiscal dela." });
+  return cnpj;
+}
+
+/** Estabelecimentos conhecidos: CNPJs dos perfis tributários + filiais com complemento fiscal cuja raiz tem perfil. Regime/nome: da empresa. */
+async function estabelecimentos() {
+  await ensureTaxSchema();
+  const perfis = (((await db.getDb().execute(sql`
+    SELECT DISTINCT ON (upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')))
+      upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')) AS cnpj, company_name, regime, is_active
+    FROM tax_profiles WHERE coalesce(cnpj, '') <> ''
+    ORDER BY upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`)) as { rows?: Record<string, unknown>[] }).rows ?? [])
+    .map(x => ({ cnpj: String(x.cnpj), nome: String(x.company_name), regime: String(x.regime), ativo: Boolean(x.is_active) }));
+  let emissores: string[] = [];
+  try {
+    emissores = (((await db.getDb().execute(sql`SELECT cnpj FROM fiscal_emissores WHERE ativo = true`)) as { rows?: Record<string, unknown>[] }).rows ?? []).map(x => String(x.cnpj));
+  } catch { /* sem a migração 0154: só os perfis */ }
+  const lista = perfis.map(p => ({ ...p, raiz: raizDoCnpj(p.cnpj), matriz: ehMatriz(p.cnpj) }));
+  for (const c of emissores) {
+    if (lista.some(e => e.cnpj === c)) continue;
+    const daEmpresa = lista.find(e => e.raiz === raizDoCnpj(c) && e.matriz) ?? lista.find(e => e.raiz === raizDoCnpj(c));
+    if (daEmpresa) lista.push({ cnpj: c, nome: daEmpresa.nome, regime: daEmpresa.regime, ativo: daEmpresa.ativo, raiz: raizDoCnpj(c), matriz: ehMatriz(c) });
+  }
+  return lista.sort((a, b) => a.raiz.localeCompare(b.raiz) || Number(b.matriz) - Number(a.matriz) || a.cnpj.localeCompare(b.cnpj));
+}
+const apelidoLimpo = (v: string | null | undefined) => (v === undefined ? undefined : v && v.trim() ? v.trim() : null);
 
 const dataIsoSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida").nullable().optional();
 const erro = (e: unknown, padrao: string) =>
@@ -96,6 +141,13 @@ export const pluggySettingsRouter = router({
 export const bancarioRouter = router({
   contas: router({
     list: adminProcedure.query(async () => (await db.getAllBankAccounts()).map(semSegredo)),
+    /**
+     * EPIC-029 S-6: estabelecimentos (matriz/filial) que podem ser donos de uma conta = os CNPJs dos perfis tributários e as filiais com
+     * complemento fiscal; a empresa é a raiz do CNPJ. Nada é cadastrado aqui.
+     */
+    empresas: adminProcedure.query(async () => (await estabelecimentos()).map(e => ({
+      cnpj: e.cnpj, cnpjFormatado: formatarCnpj(e.cnpj), raiz: e.raiz, matriz: e.matriz, nome: e.nome, regime: e.regime, regimeRotulo: rotuloRegime(e.regime), ativo: e.ativo,
+    }))),
     /** Lote 4: o cadastro mostra "API do Banco Inter (beta)" só com BANCO_INTER_API=1. */
     interHabilitado: adminProcedure.query(() => interHabilitado()),
 
@@ -106,6 +158,8 @@ export const bancarioRouter = router({
         conta: z.string().trim().optional(),
         tipo: z.enum(["corrente", "poupanca", "pagamento", "investimento"]).optional(),
         descricao: z.string().optional(),
+        apelido: apelidoSchema,
+        empresaCnpj: empresaSchema,
         saldoAtual: z.number().optional(),
         provedor: z.enum(["manual", "asaas", "inter"]).default("manual"),
         apiKey: z.string().trim().optional(),
@@ -117,6 +171,7 @@ export const bancarioRouter = router({
         }).optional(),
       }))
       .mutation(async ({ input }) => {
+        const empresaCnpj = (await empresaDoCadastro(input.empresaCnpj)) ?? null;
         let saldo = input.saldoAtual ?? 0;
         if (input.provedor === "asaas") {
           // LOTE B (25/10): sem chave própria, valida e usa a chave central (Integrações).
@@ -146,6 +201,8 @@ export const bancarioRouter = router({
           conta: input.conta || (input.provedor === "asaas" ? "Asaas" : input.provedor === "inter" ? "Inter" : "—"),
           tipo: input.tipo ?? "corrente",
           descricao: input.descricao || null,
+          apelido: apelidoLimpo(input.apelido) ?? null,
+          empresaCnpj,
           saldoAtual: saldo.toFixed(2),
           provedor: input.provedor,
           credencialEncrypted: credencialInter ? encryptSecret(credencialInter) : input.apiKey ? encryptSecret(input.apiKey) : null,
@@ -155,16 +212,24 @@ export const bancarioRouter = router({
       }),
 
     update: adminProcedure
-      .input(z.object({ id: z.number(), dataInicial: dataIsoSchema, descricao: z.string().optional(), apiKey: z.string().trim().optional() }))
+      .input(z.object({
+        id: z.number(), dataInicial: dataIsoSchema, descricao: z.string().optional(), apiKey: z.string().trim().optional(),
+        // EPIC-029 S-6: renomear (apelido) e vincular à empresa; ausente = não muda; null = limpa.
+        apelido: apelidoSchema, empresaCnpj: empresaSchema,
+      }))
       .mutation(async ({ input }) => {
         const atual = await db.getBankAccountById(input.id);
         if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada" });
+        const empresaCnpj = await empresaDoCadastro(input.empresaCnpj);
+        const apelido = apelidoLimpo(input.apelido);
         if (input.apiKey) {
           try { await fetchAsaasSaldo(input.apiKey); } catch (e) { throw erro(e, "Chave do Asaas não aceita."); }
         }
         await db.getDb().update(bankAccounts).set({
           ...(input.dataInicial !== undefined ? { dataInicial: input.dataInicial } : {}),
           ...(input.descricao !== undefined ? { descricao: input.descricao || null } : {}),
+          ...(apelido !== undefined ? { apelido } : {}),
+          ...(empresaCnpj !== undefined ? { empresaCnpj } : {}),
           ...(input.apiKey ? { credencialEncrypted: encryptSecret(input.apiKey) } : {}),
         }).where(eq(bankAccounts.id, input.id));
         return { success: true };

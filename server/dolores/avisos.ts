@@ -19,9 +19,12 @@ import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresAvisosAchados, doloresAvisosConfig, doloresAvisosEnvios, doloresAvisosTipos, type DoloresAvisosConfig } from "../../drizzle/schema-dolores-avisos.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import {
-  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SISTEMA_AVISOS, TIPOS_COLETADOS, agruparPorTipo, chaveDoAchado, dadosParaIA, dentroDaJanela,
-  diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, textoDaIAValido, type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
+  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SILENCIADOS_POR_PADRAO, SISTEMA_AVISOS, TIPOS_AVISO, TIPOS_COLETADOS, TIPOS_SEM_REAVISO,
+  agruparPorTipo, chaveDoAchado, dadosParaIA, dentroDaJanela, diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, silenciadoPelaLinha, textoDaIAValido,
+  type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
 } from "../../shared/dolores/avisos.js";
+import { anoEmBrasilia, nomeDaConta } from "../../shared/fiscal/regimes.js";
+import { apurarLimites } from "../fiscal/teto.js";
 import { diasEntre } from "../../shared/dolores/formato.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
@@ -63,19 +66,23 @@ export const configDaLinha = (c: DoloresAvisosConfig): ConfigAvisos => ({
   atualizadoEm: c.atualizadoEm,
 });
 
-/** Tipos silenciados. Sem a migração → vazio (com os avisos desligados por falta de configuração, nada sai de qualquer jeito). */
+/**
+ * Tipos silenciados: a linha da tabela vale; sem linha, o padrão do tipo (EPIC-029 S-6: "limite_receita" nasce silenciado —
+ * SILENCIADOS_POR_PADRAO). Sem a migração → só os padrões (com os avisos desligados por falta de configuração, nada sai de qualquer jeito).
+ */
 export async function tiposSilenciados(): Promise<Set<TipoAviso>> {
   try {
-    const r = await getDb().select({ tipo: doloresAvisosTipos.tipo }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.silenciado, true));
-    return new Set(r.map(x => x.tipo));
-  } catch { return new Set(); }
+    const r = await getDb().select({ tipo: doloresAvisosTipos.tipo, silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos);
+    const linhas = new Map(r.map(x => [x.tipo, x]));
+    return new Set(TIPOS_AVISO.filter(t => silenciadoPelaLinha(t, linhas.get(t))));
+  } catch { return new Set(SILENCIADOS_POR_PADRAO); }
 }
 
 /** Um tipo está silenciado? Falha ao ler → false (o alerta do gasto, que chama isto, continua saindo: lado seguro para o dono). */
 export async function tipoSilenciado(tipo: TipoAviso): Promise<boolean> {
   try {
-    const [r] = await getDb().select({ s: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1);
-    return r?.s === true;
+    const [r] = await getDb().select({ silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1);
+    return silenciadoPelaLinha(tipo, r);
   } catch { return false; }
 }
 
@@ -197,10 +204,24 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
   },
   // conta bancária ligada a um provedor (Asaas/Pluggy) com erro na última sincronização (o sistema já grava o erro): só o nome do banco
   integracao: async () => {
-    const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco }).from(bankAccounts)
+    const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco, apelido: bankAccounts.apelido }).from(bankAccounts)
       .where(and(eq(bankAccounts.ativo, true), ne(bankAccounts.provedor, "manual"), isNotNull(bankAccounts.ultimoErro))).limit(MAX_ACHADOS_POR_TIPO + 1);
-    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(b.banco), marca: "erro_sincronizacao" as const } })));
+    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(nomeDaConta(b)), marca: "erro_sincronizacao" as const } })));
     return { ...c, completo: c.completo && linhas.length <= MAX_ACHADOS_POR_TIPO };
+  },
+  // EPIC-029 S-6 — receita REGISTRADA no ano da empresa (soma das contas dela; sem transferência entre contas dela nem estorno) a 70/85/95/100%
+  // de cada limite do regime vigente (Simples: ME, sublimite, teto; Presumido: R$ 78 mi; Real e "a confirmar": nada). Um achado por empresa (raiz do CNPJ: matriz + filiais) +
+  // limite + ano, com a faixa = % alcançado: cada faixa sai UMA vez (sem reaviso: TIPOS_SEM_REAVISO). Nunca "resolve" no mesmo ano (completo =
+  // false): se a receita cair (estorno) e subir de novo, a faixa já avisada não volta. Só nome da empresa, %, falta e o ano (sem CNPJ, sem conta).
+  limite_receita: async ({ agora }) => {
+    const ap = await apurarLimites(bancoDaLeitura(), agora);
+    const achados: Achado[] = [];
+    for (const e of ap.empresas) for (const l of e.limites) {
+      if (l.faixa <= 0) continue;
+      achados.push({ tipo: "limite_receita", entidade: `empresa:${e.raiz}:${ap.ano}:${l.chave}`, faixa: l.faixa,
+        dados: { nome: nomeLimpo(e.nome), limite: l.chave, percentual: l.percentual, faltaCentavos: l.faltaCentavos, ano: ap.ano } });
+    }
+    return { achados: achados.slice(0, MAX_ACHADOS_POR_TIPO), completo: false };
   },
 };
 
@@ -217,6 +238,11 @@ async function gravarAchados(tipo: TipoAviso, c: Coleta, agora: Date): Promise<v
         avisadoEm: sql`CASE WHEN ${doloresAvisosAchados.resolvidoEm} IS NOT NULL THEN NULL ELSE ${doloresAvisosAchados.avisadoEm} END`,
         resolvidoEm: sql`NULL`,
       } });
+  }
+  if (tipo === "limite_receita") {
+    // EPIC-029 S-6: o achado de um ano anterior fica resolvido (o ano está na chave: nunca volta a ser avisado)
+    await db.update(doloresAvisosAchados).set({ resolvidoEm: agora }).where(and(eq(doloresAvisosAchados.tipo, tipo), isNull(doloresAvisosAchados.resolvidoEm),
+      sql`${doloresAvisosAchados.chave} NOT LIKE ${`limite_receita:empresa:%:${anoEmBrasilia(agora)}:%`}`));
   }
   if (c.completo) {
     await db.update(doloresAvisosAchados).set({ resolvidoEm: agora })
@@ -244,8 +270,11 @@ let credencialTeste: (() => Promise<CredencialGrupo>) | null = null;
 /** Só para testes: o modelo falso e a credencial falsa (sem argumento, voltam ao padrão). */
 export function definirDependenciasAvisos(d?: { cliente?: ClienteAviso; credencial?: typeof credencialTeste }) { clienteTeste = d?.cliente ?? null; credencialTeste = d?.credencial ?? null; }
 
-/** Reserva de entrada de uma chamada de aviso (instrução + dados de até 8 tipos × 5 itens), por cima. */
-export const RESERVA_ENTRADA_AVISO = 3_000;
+/**
+ * Reserva de entrada de uma chamada de aviso (instrução + dados de todos os tipos × 5 itens), por cima. EPIC-029 S-6: com o tipo
+ * "limite_receita" (título mais longo e itens com % e falta) o pior caso medido foi 3.219: 3.000 → 4.000 (o mesmo valor da S-3).
+ */
+export const RESERVA_ENTRADA_AVISO = 4_000;
 /** Para tentar a IA é preciso este prazo (chamada + envio). */
 const MINIMO_PARA_IA_MS = 15_000;
 const PRAZO_IA_MS = 12_000;
@@ -349,7 +378,8 @@ export async function executarAvisos(p: { agora: Date; prazoFinal?: number; relo
     if (!ativos.length) return { r: "nada-novo", lidos, falhas };
     const candidatos = await getDb().select().from(doloresAvisosAchados).where(and(inArray(doloresAvisosAchados.tipo, ativos), isNull(doloresAvisosAchados.resolvidoEm),
       gte(doloresAvisosAchados.vistoEm, new Date(agora.getTime() - VALIDADE_DO_ACHADO_MS)))).orderBy(desc(doloresAvisosAchados.faixa), asc(doloresAvisosAchados.id)).limit(2_000);
-    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora, cfg.reavisoDias))
+    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora,
+      TIPOS_SEM_REAVISO.includes(a.tipo) ? 0 : cfg.reavisoDias))
       .map(a => ({ id: a.id, tipo: a.tipo, entidade: a.chave, faixa: a.faixa, dados: a.dados, faixaAvisada: a.faixaAvisada }));
     if (!pendentes.length) return { r: "nada-novo", lidos, falhas };
     // 5) teto do dia e intervalo mínimo (envio que falhou também conta: sem laço)

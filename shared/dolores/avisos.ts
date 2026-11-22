@@ -9,15 +9,28 @@
 // entre «»), nunca título, comando ou instrução.
 import { relogioBrasilia, limparNomeDeTerceiro } from "./operacao.js";
 import { MAX_CARACTERES_WHATSAPP, cortarResposta } from "./whatsapp.js";
+import { LIMITES, reaisCurtos, type ChaveLimite } from "../fiscal/regimes.js";
 
 /** Os tipos de aviso da primeira entrega (a ordem é a da mensagem). "gasto" sai pelo alerta da E5 (operacao-gasto.ts), não pelo coletor. */
 export const TIPOS_AVISO = [
   "obra_atrasada", "tarefa_vencida", "documento_pendente", "nota_obra", "regularizacao_parada", "grupo_aguardando", "integracao", "gasto",
+  // EPIC-029 S-6: receita do ano da empresa chegando no limite do regime dela (Simples: ME, sublimite, teto; Presumido: R$ 78 mi)
+  "limite_receita",
 ] as const;
 export type TipoAviso = (typeof TIPOS_AVISO)[number];
 /** Tipos que o coletor lê (o "gasto" é o alerta de 80% da E5, reaproveitado sem duplicar). */
 export const TIPOS_COLETADOS: readonly TipoAviso[] = TIPOS_AVISO.filter(t => t !== "gasto");
 export const ehTipoAviso = (v: unknown): v is TipoAviso => typeof v === "string" && (TIPOS_AVISO as readonly string[]).includes(v);
+/**
+ * Tipos que nascem SILENCIADOS (sem linha em dolores_avisos_tipos = silenciado): ligar é decisão do dono, na tela ou pela conversa.
+ * EPIC-029 S-6: "limite_receita". (Mesmo mecanismo da S-3, que acrescenta "nota_fiscal": ao juntar as frentes, a lista é a união.)
+ */
+export const SILENCIADOS_POR_PADRAO: readonly TipoAviso[] = ["limite_receita"];
+/** O tipo está silenciado? A linha da tabela vale; sem linha, o padrão do tipo. */
+export const silenciadoPelaLinha = (tipo: TipoAviso, linha: { silenciado: boolean } | null | undefined) =>
+  linha ? linha.silenciado === true : SILENCIADOS_POR_PADRAO.includes(tipo);
+/** Tipos sem reaviso na mesma faixa (cada faixa sai UMA vez): o limite de receita avisa 70/85/95/100% uma vez por empresa, limite e ano. */
+export const TIPOS_SEM_REAVISO: readonly TipoAviso[] = ["limite_receita"];
 
 /** Nome de gente de cada tipo (tela, pergunta do "pode" e título no aviso). */
 export const ROTULO_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.freeze({
@@ -29,6 +42,7 @@ export const ROTULO_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.fre
   grupo_aguardando: "grupos esperando a sua decisão",
   integracao: "contas bancárias sem sincronizar",
   gasto: "gasto da IA chegando no limite (80%)",
+  limite_receita: "receita do ano chegando no limite do regime da empresa",
 });
 /** A regra de cada tipo, em linguagem de gente (a tela mostra; N é o limite configurável). */
 export const REGRA_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.freeze({
@@ -40,6 +54,7 @@ export const REGRA_TIPO_AVISO: Readonly<Record<TipoAviso, string>> = Object.free
   grupo_aguardando: "grupo em que ela entrou e que espera a sua decisão (entrada ou tipo) há N horas ou mais",
   integracao: "conta bancária ligada ao Asaas/Pluggy com erro na última sincronização",
   gasto: "é o alerta de 80% do gasto (uma vez por mês por limite); silenciado, o de 80% não sai — o de 100% sai sempre",
+  limite_receita: "receita registrada no ano (soma das contas de cada empresa) a 70%, 85%, 95% e 100% do limite do regime dela — Simples: ME R$ 360 mil (informativo), sublimite R$ 3,6 mi e teto R$ 4,8 mi; Presumido: R$ 78 mi; Real: sem limite — uma vez por faixa, por empresa, por ano; nasce silenciado",
 });
 
 /** Limites N de cada tipo (padrão sensato) e as faixas acima dele (o reaviso acontece quando o achado sobe de faixa). */
@@ -56,7 +71,7 @@ export const FAIXA_DOS_LIMITES: Readonly<Record<keyof LimitesAvisos, readonly [n
   regularizacaoParadaDias: [5, 180], grupoAguardandoHoras: [1, 168],
 });
 /** Degraus acima do mínimo (dias; no grupo, horas). */
-export const DEGRAUS: Readonly<Record<Exclude<TipoAviso, "gasto" | "integracao">, readonly number[]>> = Object.freeze({
+export const DEGRAUS: Readonly<Record<Exclude<TipoAviso, "gasto" | "integracao" | "limite_receita">, readonly number[]>> = Object.freeze({
   obra_atrasada: [7, 15, 30, 60, 90],
   tarefa_vencida: [7, 15, 30],
   documento_pendente: [15, 30, 60],
@@ -88,7 +103,9 @@ const TEXTO_MARCA: Record<MarcaAchado, string> = {
 };
 
 export type RefAchado = { tipo: "cliente" | "grupo" | "obra" | "processo" | "tarefa" | "nota"; id: number };
-export type DadosAchado = { nome: string; dias?: number | null; quantidade?: number | null; marca?: MarcaAchado | null; ref?: RefAchado | null };
+export type DadosAchado = { nome: string; dias?: number | null; quantidade?: number | null; marca?: MarcaAchado | null; ref?: RefAchado | null }
+  // EPIC-029 S-6 (limite_receita): qual limite, % alcançado (1 casa), quanto falta e o ano
+  & { limite?: ChaveLimite | null; percentual?: number | null; faltaCentavos?: number | null; ano?: number | null };
 export type Achado = { tipo: TipoAviso; entidade: string; faixa: number; dados: DadosAchado };
 /** Um achado pendente na hora do envio: com a faixa do aviso anterior (para dizer "antes 3"). */
 export type AchadoPendente = Achado & { id: number; faixaAvisada: number | null };
@@ -168,7 +185,11 @@ const dias = (n: number, unidade: "dia" | "hora" = "dia") => `${n} ${unidade}${n
 function linhaDoItem(a: AchadoPendente): string {
   const d = a.dados;
   const partes: string[] = [nome(d.nome)];
-  if (a.tipo === "grupo_aguardando" && d.dias != null) partes.push(`há ${dias(Math.max(1, Math.floor(d.dias / 24)))}`);
+  if (a.tipo === "limite_receita" && d.limite && LIMITES[d.limite]) {
+    const l = LIMITES[d.limite];
+    partes.push(`${String(d.percentual ?? 0).replace(".", ",")}% do ${l.rotulo}${d.ano ? ` em ${d.ano}` : ""}`);
+    partes.push(d.faltaCentavos ? `faltam ${reaisCurtos(d.faltaCentavos)}` : l.consequencia);
+  } else if (a.tipo === "grupo_aguardando" && d.dias != null) partes.push(`há ${dias(Math.max(1, Math.floor(d.dias / 24)))}`);
   else if (a.tipo === "obra_atrasada" && d.dias != null) partes.push(`${dias(d.dias)} de atraso${a.faixaAvisada && a.faixaAvisada < a.faixa ? ` (no último aviso, ${dias(a.faixaAvisada)} ou mais)` : ""}`);
   else if (a.tipo === "documento_pendente" && d.quantidade) partes.push(`${d.quantidade} documento${d.quantidade === 1 ? "" : "s"}${d.dias != null ? `, o mais antigo há ${dias(d.dias)}` : ""}`);
   else if (d.dias != null) partes.push(`há ${dias(d.dias)}`);
@@ -186,6 +207,7 @@ const TITULO: Record<TipoAviso, (n: number) => string> = {
   grupo_aguardando: n => (n === 1 ? "1 grupo esperando a sua decisão" : `${n} grupos esperando a sua decisão`),
   integracao: n => (n === 1 ? "1 conta bancária sem sincronizar" : `${n} contas bancárias sem sincronizar`),
   gasto: n => `${n} alerta(s) de gasto`,
+  limite_receita: n => (n === 1 ? "1 limite de receita chegando perto (receita registrada no sistema; a apuração oficial é do contador)" : `${n} limites de receita chegando perto (receita registrada no sistema; a apuração oficial é do contador)`),
 };
 
 /** Frase do fim: como silenciar (a conversa entende e pede o "pode"). */

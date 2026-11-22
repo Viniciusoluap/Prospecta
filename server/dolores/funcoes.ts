@@ -26,6 +26,7 @@ import { hashDaPlanta } from "./maquete-lote.js";
 import { entradaListarMesas, listarMesas } from "./leitura/mesas.js";
 import { analisarRegularizacaoReurb, entradaAnalisarReurb } from "./leitura/reurb.js";
 import { FUNCAO_REURB } from "../../shared/dolores/reurb-conhecimento.js";
+import { consultarLimitesReceita, entradaLimitesReceita } from "./leitura/limites-receita.js";
 
 /**
  * `canal` decide o interruptor dos dados pessoais dos campos estruturados (campoPessoal). Etapa 7: "grupo" (grupo interno, quando
@@ -95,6 +96,7 @@ const CONTAMINA: Record<string, boolean> = {
   // EPIC-027 C5 (criadora de mesas): textos das propostas (pedido do dono, campos preenchidos pela IA)
   listar_mesas: true,
   [FUNCAO_REURB]: true, // nome do cliente, observações do processo e das etapas
+  consultar_limites_receita: true, // EPIC-029 S-6: nomes de empresa e apelidos de conta digitados pela equipe
 };
 
 /**
@@ -183,6 +185,10 @@ export const LEITURAS_DO_DONO: readonly FuncaoDolores[] = [
   soDoDono(f("rascunhar_mensagem_lote",
     "Monta um texto CURTO para o DONO copiar e encaminhar ao cliente, com o link da maquete do lote (loteId) — NÃO envia nada a ninguém nem grava nada. Modelo fixo do sistema; tom proximo (padrão) ou formal. Sem preço: valor e nome do cliente só se o dono os disse nesta mensagem. O sistema mostra o texto ao dono logo abaixo da sua resposta: não o reescreva.",
     entradaRascunharMensagemLote, (a, ctx) => rascunharMensagemLote(a, ctx, hashDaPlanta))),
+  // EPIC-029 S-6 (pedido do dono de 22/11): limite de receita do ano por empresa — só na conversa direta do dono
+  soDoDono(f("consultar_limites_receita",
+    "Receita REGISTRADA no ano por empresa (soma das contas bancárias de cada uma, sem transferências entre contas dela e sem estornos), o regime de cada uma e quanto falta para cada limite: Simples (ME R$ 360 mil informativo, sublimite R$ 3,6 mi, teto R$ 4,8 mi), Presumido (R$ 78 mi), Real sem limite; com a projeção do ano pelo ritmo. Use quando o dono perguntar quanto falta para estourar o Simples/limite. Diga sempre que a apuração oficial é do contador. Só lê.",
+    entradaLimitesReceita, consultarLimitesReceita)),
 ];
 export const leituraDoDonoPorNome = (nome: string) => LEITURAS_DO_DONO.find(x => x.nome === nome) ?? null;
 /** Qualquer leitura registrada (as de `FUNCOES` e as só do dono) — para a porta e a regra de contaminação. */

@@ -35,10 +35,15 @@ describe("leitura: estático", () => {
         const permitido = ["drizzle-orm", "drizzle-orm/pg-core", "zod"].includes(origem) || /^\.\.\/\.\.\/\.\.\/(drizzle\/schema|shared\/)/.test(origem)
           || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem)
           // o interruptor dos dados pessoais (opção B, 16/11): só lê a variável de ambiente e formata; não toca o banco
-          || origem === "../dados-pessoais.js";
+          || origem === "../dados-pessoais.js"
+          // EPIC-029 S-6: a soma das receitas por empresa (mesma conta da aba Contabilidade) recebe a conexão SOMENTE LEITURA como argumento
+          || origem === "../../fiscal/teto.js";
         expect(permitido, `${a} importa ${origem}`).toBe(true);
       }
     }
+    // …e ela mesma não abre conexão própria: só drizzle-orm e regras puras
+    const teto = readFileSync(new URL("../fiscal/teto.ts", import.meta.url), "utf8");
+    for (const [, origem] of teto.matchAll(/from\s+"([^"]+)"/g)) expect(["drizzle-orm", "../../shared/fiscal/regimes.js"], `teto.ts importa ${origem}`).toContain(origem);
   });
 });
 

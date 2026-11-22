@@ -18,6 +18,7 @@ import {
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
+import { apurarLimites } from "./teto.js";
 
 /**
  * QA S-2 (B6): erro inesperado (ex.: CHECK/gatilho do banco) nunca chega ao cliente com o SQL nem com o texto do banco —
@@ -97,10 +98,17 @@ export const fiscalRouter = router({
         FROM tax_profiles WHERE coalesce(cnpj, '') <> ''
         ORDER BY upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`)) as { rows?: Record<string, unknown>[] }).rows ?? [];
       const complementos = await db.select().from(fiscalEmissores);
-      return perfis.map(p => {
+      const lista = perfis.map(p => {
         const e = complementos.find(c => c.cnpj === p.cnpj) ?? null;
         return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e };
       });
+      // EPIC-029 S-6: filial (estabelecimento da mesma raiz de CNPJ) com complemento fiscal próprio aparece com o nome e o regime da empresa
+      for (const e of complementos) {
+        if (lista.some(x => x.cnpj === e.cnpj)) continue;
+        const empresa = lista.find(x => x.cnpj.slice(0, 8) === e.cnpj.slice(0, 8));
+        if (empresa) lista.push({ ...empresa, cnpj: e.cnpj, emissor: e });
+      }
+      return lista;
     }),
     salvar: adminPorPapel
       .input(z.object({
@@ -115,9 +123,10 @@ export const fiscalRouter = router({
         await ensureTaxSchema();
         const db = getDb();
         const cnpj = cnpjLimpo(input.cnpj);
-        // O emissor só nasce de um perfil tributário que JÁ existe (nunca com CNPJ digitado de novo).
+        // O emissor só nasce de um perfil tributário que JÁ existe (nunca com CNPJ digitado de novo). EPIC-029 S-6: a FILIAL (mesma raiz
+        // do CNPJ) usa o perfil da empresa — o regime é da empresa; inscrição municipal e município são do estabelecimento.
         const existe = ((await db.execute(sql`
-          SELECT 1 FROM tax_profiles WHERE upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')) = ${cnpj} LIMIT 1`)) as { rows?: unknown[] }).rows ?? [];
+          SELECT 1 FROM tax_profiles WHERE substr(upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 1, 8) = ${cnpj.slice(0, 8)} LIMIT 1`)) as { rows?: unknown[] }).rows ?? [];
         if (!existe.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre primeiro o perfil tributário com este CNPJ." });
         const valores = {
           municipioNome: input.municipioNome, municipioUf: input.municipioUf, municipioIbge: input.municipioIbge ?? null,
@@ -235,4 +244,13 @@ export const fiscalRouter = router({
   }),
 
   emissoresComPerfil: fiscalProcedure.query(() => emissoresComPerfil(getDb())),
+
+  /**
+   * EPIC-029 S-6: por empresa (perfil tributário por CNPJ), o regime vigente hoje, as contas vinculadas, a receita registrada no ano e o
+   * limite do regime (Simples, Presumido; Real sem limite; "a confirmar" sem conta). Ver: admin e colaborador com BPO (só leitura).
+   */
+  limitesReceita: fiscalProcedure.query(async () => {
+    await ensureTaxSchema();
+    return apurarLimites(getDb());
+  }),
 });

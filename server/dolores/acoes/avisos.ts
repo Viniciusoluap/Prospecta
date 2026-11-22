@@ -4,7 +4,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { doloresAvisosTipos } from "../../../drizzle/schema-dolores-avisos.js";
-import { ROTULO_TIPO_AVISO, TIPOS_AVISO, type TipoAviso } from "../../../shared/dolores/avisos.js";
+import { ROTULO_TIPO_AVISO, TIPOS_AVISO, silenciadoPelaLinha, type TipoAviso } from "../../../shared/dolores/avisos.js";
 import { prefixoDaFila } from "../../../shared/dolores/fila.js";
 import { registrarAcao } from "../auditoria.js";
 import { definirSilencio } from "../avisos.js";
@@ -13,7 +13,7 @@ import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js
 import { RecusaAcao, conferirMostrado, registrarAutoria, resumoDaFila, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
 
 export const entradaSilenciarAviso = z.object({
-  tipo: z.enum(TIPOS_AVISO).describe("obra_atrasada, tarefa_vencida, documento_pendente, nota_obra, regularizacao_parada, grupo_aguardando, integracao (contas bancárias) ou gasto."),
+  tipo: z.enum(TIPOS_AVISO).describe("obra_atrasada, tarefa_vencida, documento_pendente, nota_obra, regularizacao_parada, grupo_aguardando, integracao (contas bancárias), gasto ou limite_receita (receita do ano chegando no limite do regime da empresa)."),
   silenciar: z.boolean().describe("true = parar de avisar; false = voltar a avisar."),
 }).strict();
 export const entradaSilenciarAprovado = entradaSilenciarAviso;
@@ -23,8 +23,8 @@ const frase = (tipo: TipoAviso, silenciar: boolean) => (silenciar ? `parar de te
 
 async function silenciadoAgora(tipo: TipoAviso): Promise<boolean> {
   try {
-    const [r] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ s: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1));
-    return r?.s === true;
+    const [r] = await emTransacaoSomenteLeitura(() => bancoDaLeitura().select({ silenciado: doloresAvisosTipos.silenciado }).from(doloresAvisosTipos).where(eq(doloresAvisosTipos.tipo, tipo)).limit(1));
+    return silenciadoPelaLinha(tipo, r);
   } catch { throw new RecusaAcao(SEM_MIGRACAO); }
 }
 

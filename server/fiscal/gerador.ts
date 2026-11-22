@@ -65,6 +65,8 @@ type Candidato = {
   leadId: number | null;
   obraId: number | null;
   leadServiceId: number | null;
+  /** EPIC-029 S-6: CNPJ da empresa dona da conta bancária em que o dinheiro entrou (se o lançamento veio do extrato). */
+  contaCnpj: string | null;
 };
 
 const num = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
@@ -127,28 +129,32 @@ async function candidatos(
 
   // 1) Recebimentos da obra (parcela da Caixa e entrada), confirmados. Município = o da obra.
   await varrer("obra_movimento", "om.natureza", (c, lim, f) => sql`
-    SELECT om.id, om.natureza AS subtipo, om.data::text AS data, cp.id AS obra_id, cp.lead_id, cp.lead_service_id, l.cliente_id
+    SELECT om.id, om.natureza AS subtipo, om.data::text AS data, cp.id AS obra_id, cp.lead_id, cp.lead_service_id, l.cliente_id, ba.empresa_cnpj
     FROM obra_movimentos om
     JOIN construction_projects cp ON cp.id = om.project_id
     LEFT JOIN bpo_lancamentos l ON l.id = om.bpo_lancamento_id
+    LEFT JOIN bank_transactions bt ON bt.id = l.bank_transaction_id
+    LEFT JOIN bank_accounts ba ON ba.id = bt.account_id
     WHERE om.id > ${c} AND om.natureza IN ('recebimento_cef', 'entrada') AND om.status = 'confirmado' AND om.data >= ${inicioData}::date
       AND ${semNota("obra_movimento", "om.id")} AND ${lancamentoJaTemNota("om.bpo_lancamento_id")} AND ${f}
     ORDER BY om.id LIMIT ${lim}`,
   r => ({ origemTipo: "obra_movimento", origemId: Number(r.id), subtipo: txt(r.subtipo), dataEvento: dataEmBrasilia(r.data),
-    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: num(r.obra_id), leadServiceId: num(r.lead_service_id) }));
+    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: num(r.obra_id), leadServiceId: num(r.lead_service_id), contaCnpj: txt(r.empresa_cnpj) }));
 
   // 2) Recebimentos de regularização confirmados (itens de repasse nascem com motivo sugerido).
   await varrer("regularizacao_recebimento", "i.chave_padrao", (c, lim, f) => sql`
-    SELECT rr.id, i.chave_padrao AS subtipo, rr.data::text AS data, g.lead_id, g.lead_service_id, l.cliente_id
+    SELECT rr.id, i.chave_padrao AS subtipo, rr.data::text AS data, g.lead_id, g.lead_service_id, l.cliente_id, ba.empresa_cnpj
     FROM regularizacao_recebimentos rr
     JOIN regularizacoes g ON g.id = rr.regularizacao_id
     LEFT JOIN regularizacao_itens_financeiros i ON i.id = rr.item_id
     LEFT JOIN bpo_lancamentos l ON l.id = rr.bpo_lancamento_id
+    LEFT JOIN bank_transactions bt ON bt.id = l.bank_transaction_id
+    LEFT JOIN bank_accounts ba ON ba.id = bt.account_id
     WHERE rr.id > ${c} AND rr.status = 'confirmado' AND rr.data >= ${inicioData}::date
       AND ${semNota("regularizacao_recebimento", "rr.id")} AND ${lancamentoJaTemNota("rr.bpo_lancamento_id")} AND ${f}
     ORDER BY rr.id LIMIT ${lim}`,
   r => ({ origemTipo: "regularizacao_recebimento", origemId: Number(r.id), subtipo: txt(r.subtipo), dataEvento: dataEmBrasilia(r.data),
-    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: null, leadServiceId: num(r.lead_service_id) }));
+    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: null, leadServiceId: num(r.lead_service_id), contaCnpj: txt(r.empresa_cnpj) }));
 
   // 3) Avaliações entregues com valor de serviço.
   await varrer("avaliacao", "a.tipo", (c, lim, f) => sql`
@@ -158,7 +164,7 @@ async function candidatos(
       AND ${semNota("avaliacao", "a.id")} AND ${f}
     ORDER BY a.id LIMIT ${lim}`,
   r => ({ origemTipo: "avaliacao", origemId: Number(r.id), subtipo: txt(r.subtipo), dataEvento: dataEmBrasilia(r.quando),
-    bpoClientId: null, leadId: num(r.lead_id), obraId: null, leadServiceId: num(r.lead_service_id) }));
+    bpoClientId: null, leadId: num(r.lead_id), obraId: null, leadServiceId: num(r.lead_service_id), contaCnpj: null }));
 
   // 4) Comissão da EMPRESA paga (comissão de corretor é despesa: não entra).
   await varrer("comissao_empresa", "c.business_type", (c, lim, f) => sql`
@@ -169,14 +175,16 @@ async function candidatos(
       AND ${semNota("comissao_empresa", "c.id")} AND ${f}
     ORDER BY c.id LIMIT ${lim}`,
   r => ({ origemTipo: "comissao_empresa", origemId: Number(r.id), subtipo: txt(r.subtipo), dataEvento: dataEmBrasilia(r.paid_at),
-    bpoClientId: null, leadId: num(r.lead_id), obraId: num(r.obra_id), leadServiceId: num(r.lead_service_id) }));
+    bpoClientId: null, leadId: num(r.lead_id), obraId: num(r.obra_id), leadServiceId: num(r.lead_service_id), contaCnpj: null }));
 
   // 5) Lançamentos do BPO recebidos (honorário, receita; reembolso com motivo sugerido), válidos e NÃO cobertos por
   //    recebimento de obra/regularização (esses já são a origem). Por último: o módulo tem prioridade na mesma passada.
   await varrer("bpo_lancamento", "l.tipo::text", (c, lim, f) => sql`
-    SELECT l.id, l.tipo::text AS subtipo, l.pago_em, l.cliente_id, bc.lead_id
+    SELECT l.id, l.tipo::text AS subtipo, l.pago_em, l.cliente_id, bc.lead_id, ba.empresa_cnpj
     FROM bpo_lancamentos l
     LEFT JOIN bpo_clients bc ON bc.id = l.cliente_id
+    LEFT JOIN bank_transactions bt ON bt.id = l.bank_transaction_id
+    LEFT JOIN bank_accounts ba ON ba.id = bt.account_id
     WHERE l.id > ${c} AND l.tipo IN ('honorario', 'receita', 'reembolso') AND l.pago = true AND l.a_classificar = false
       AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL AND l.pago_em >= ${instante}::timestamptz
       AND ${semNota("bpo_lancamento", "l.id")}
@@ -185,7 +193,7 @@ async function candidatos(
       AND ${f}
     ORDER BY l.id LIMIT ${lim}`,
   r => ({ origemTipo: "bpo_lancamento", origemId: Number(r.id), subtipo: txt(r.subtipo), dataEvento: dataEmBrasilia(r.pago_em),
-    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: null, leadServiceId: null }));
+    bpoClientId: num(r.cliente_id), leadId: num(r.lead_id), obraId: null, leadServiceId: null, contaCnpj: txt(r.empresa_cnpj) }));
   return { lista, parcial };
 }
 
@@ -232,8 +240,11 @@ export async function gerarRascunhos(
   }
 
   const tipos = await db.select().from(fiscalTiposServico).where(eq(fiscalTiposServico.ativo, true)).orderBy(fiscalTiposServico.id);
-  const emissores = await db.select({ id: fiscalEmissores.id }).from(fiscalEmissores).where(eq(fiscalEmissores.ativo, true));
+  const emissores = await db.select({ id: fiscalEmissores.id, cnpj: fiscalEmissores.cnpj }).from(fiscalEmissores).where(eq(fiscalEmissores.ativo, true));
   const emissorUnico = emissores.length === 1 ? emissores[0]!.id : null;
+  // EPIC-029 S-6: a empresa da CONTA em que o dinheiro entrou escolhe o emissor (resolve o "empresa a escolher" com vários emissores).
+  // Ordem: empresa da conta (se tiver o complemento fiscal ativo) → emissor do tipo de serviço → emissor único → nenhum (a escolher).
+  const emissorPorCnpj = new Map(emissores.map(e => [e.cnpj, e.id]));
 
   const novos: (typeof fiscalNotas.$inferInsert)[] = [];
   const achados = await candidatos(db, config.inicioEm, inicioDoDiaEmBrasilia(config.inicioEm), tipos, tempoAcabou);
@@ -251,7 +262,7 @@ export async function gerarRascunhos(
       obraId: c.obraId,
       leadServiceId: c.leadServiceId,
       tipoServicoId: tipo?.id ?? null,
-      emissorId: tipo?.emissorId ?? emissorUnico,
+      emissorId: (c.contaCnpj ? emissorPorCnpj.get(c.contaCnpj) : undefined) ?? tipo?.emissorId ?? emissorUnico,
       motivoSugerido: motivoSugerido(c.origemTipo, c.subtipo),
       status: "A_DECIDIR",
       alteradoVia: "sistema",
