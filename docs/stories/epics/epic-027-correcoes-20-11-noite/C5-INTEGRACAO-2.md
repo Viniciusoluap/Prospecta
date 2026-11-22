@@ -128,7 +128,7 @@ Nada corrigido (sem causa no código); fica registrado.
   as três ações recusadas pela porta, nada na fila/proposta/link/silêncio, a leitura da maquete executada (canal whatsapp) e o link no
   quadro + fecho; parecer de REURB por tarefa com o aviso da REURB e o fecho; proposta aberta segura a tarefa e o aviso; no cron, a ordem
   alerta → tarefa → aviso, cada um uma vez.
-- Suíte: NUMEROS_LONGA
+- Suíte em `eece74d` (vitest `--maxWorkers=2 --minWorkers=1`): `server/dolores/[a-e]*` **50 arquivos / 877 testes** e `server/dolores/[f-z]*` + `integracoes-anthropic` **29 / 574**, todos verdes. `npx tsc --noEmit` limpo; `npx vite build` ok. Prefixo re-medido: 17.283 (+500), piso 19.000 (folga ~1,2 mil).
 
 ## Pendências
 - Portão de QA de segurança (@qa) do pacote integrado antes da `main` (regra da Dolores de 16/11).
