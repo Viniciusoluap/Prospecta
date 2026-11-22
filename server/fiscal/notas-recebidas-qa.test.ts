@@ -183,19 +183,19 @@ describe("QA parser — XXE, tamanho, ambiente, tomador, textos", () => {
     expect(m.gravar && m.linha).toMatchObject({ emitenteDocumento: null, emitenteCnpjAlfa: null, situacao: "confira" });
   });
 
-  it.fails("ACHADO (médio): o NÚMERO da nota entra cru (sem numeroConferido das notas de grupo) — texto, HTML e conta bancária passam", () => {
+  it("CORRIGIDO (médio): o NÚMERO da nota entra cru (sem numeroConferido das notas de grupo) — texto, HTML e conta bancária passam", () => {
     const m = mapearNotaRecebida(ler(FIXTURE.replace("<nNFSe>123</nNFSe>", "<nNFSe>&lt;b&gt;Ag 1234 CC 56789-0</nNFSe>")), { tomadorCnpj: TOMADOR, nsu: 1, agora: AGORA, vinculo: SEM_VINCULO });
     if (!m.gravar) throw new Error("devia gravar");
     expect(m.linha.numero === null || /^[0-9A-Za-z./-]{1,30}$/.test(m.linha.numero)).toBe(true);
   });
 
-  it.fails("ACHADO (baixo): marcação HTML no nome/descrição não é retirada (só escapada na tela)", () => {
+  it("CORRIGIDO (baixo): marcação HTML no nome/descrição não é retirada (só escapada na tela)", () => {
     const m = mapearNotaRecebida(ler(FIXTURE.replace("Construtora Exemplo Ltda", "&lt;img src=x onerror=alert(1)&gt;")), { tomadorCnpj: TOMADOR, nsu: 1, agora: AGORA, vinculo: SEM_VINCULO });
     if (!m.gravar) throw new Error("devia gravar");
     expect(m.linha.emitenteNome ?? "").not.toMatch(/[<>]/);
   });
 
-  it.fails("ACHADO (baixo): XML sem tpAmb (ambiente desconhecido) é gravado como rascunho em vez de recusado", () => {
+  it("CORRIGIDO (baixo): XML sem tpAmb (ambiente desconhecido) é gravado como rascunho em vez de recusado", () => {
     const m = mapearNotaRecebida(ler(FIXTURE.replace("<tpAmb>1</tpAmb>", "")), { tomadorCnpj: TOMADOR, nsu: 1, agora: AGORA, vinculo: SEM_VINCULO });
     expect(m.gravar).toBe(false);
   });
@@ -262,7 +262,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
     expect((await q<{ n: number }>("SELECT count(*)::int n FROM obra_notas_adn"))[0].n).toBe(1);
   });
 
-  it.fails("ACHADO (médio): duas capturas simultâneas do mesmo CNPJ — a mais atrasada tenta voltar o NSU, o gatilho lança e a rodada termina em exceção", async () => {
+  it("CORRIGIDO (médio): duas capturas simultâneas do mesmo CNPJ — a mais atrasada tenta voltar o NSU, o gatilho lança e a rodada termina em exceção", async () => {
     await banco.pg.exec(MIGRACAO);
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     const rapido = clienteFalso(150);
@@ -279,7 +279,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
     expect((await q<{ n: number }>("SELECT count(*)::int n FROM obra_notas"))[0].n).toBe(150);
   });
 
-  it.fails("ACHADO (médio): cliente que ignora o AbortSignal estoura o prazo total (sem Promise.race / corte do lado de cá)", async () => {
+  it("CORRIGIDO (médio): cliente que ignora o AbortSignal estoura o prazo total (sem Promise.race / corte do lado de cá)", async () => {
     await banco.pg.exec(MIGRACAO);
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     const surdo: ClienteDistribuicaoAdn = { buscarDesde: () => new Promise(r => setTimeout(() => r({ documentos: [] }), 3_200)) };
@@ -288,7 +288,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
     expect(Date.now()).toBeLessThanOrEqual(prazoEm);
   }, 10_000);
 
-  it.fails("ACHADO (médio): documento ilegível avança o NSU e some sem rastro — a rodada fica 'ok'", async () => {
+  it("CORRIGIDO (médio): documento ilegível avança o NSU e some sem rastro — a rodada fica 'ok'", async () => {
     await banco.pg.exec(MIGRACAO);
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     let n = 0;
@@ -301,6 +301,8 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
     const [e] = await q<{ ultimo_nsu: number; ultimo_resultado: string }>("SELECT ultimo_nsu, ultimo_resultado FROM fiscal_distribuicao_estado");
     expect(Number(e.ultimo_nsu)).toBe(2); // avançou (aceitável para não travar), mas…
     expect(e.ultimo_resultado).not.toBe("ok"); // …devia ficar marcado para o dono conferir
+    expect(r).toMatchObject({ nsusIlegiveis: [1, 2] });
+    expect((await q<{ nsus_ilegiveis: number[] }>("SELECT nsus_ilegiveis FROM fiscal_distribuicao_estado"))[0].nsus_ilegiveis).toEqual([1, 2]);
   });
 
   it("api/index.ts: a captura roda depois dos rascunhos, com teto de 10 s, e o modelo padrão continua com orçamento até 55 s", () => {
@@ -327,7 +329,7 @@ describe("QA vínculo e conciliação", () => {
     expect((await q("SELECT obra_id, empreiteiro_user_id, categoria, situacao FROM obra_notas"))[0]).toEqual({ obra_id: null, empreiteiro_user_id: null, categoria: null, situacao: "confira" });
   });
 
-  it.fails("ACHADO (baixo): documento em dois usuários, mas só um com obra ativa → vincula a esse (a regra diz: dois usuários → nada)", async () => {
+  it("CORRIGIDO (baixo): documento em dois usuários, mas só um com obra ativa → vincula a esse (a regra diz: dois usuários → nada)", async () => {
     await banco.pg.exec(MIGRACAO);
     await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp2', 'Clone', 'empreiteiro', true, 'hash', '11222333000181');`);
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");

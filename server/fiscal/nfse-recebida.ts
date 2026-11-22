@@ -71,6 +71,18 @@ export function centavosDoXml(v: string | null): number | null {
   return c > 0 && c <= TETO_VALOR_NOTA_CENTAVOS ? c : null;
 }
 
+/** Número da NFS-e: só dígitos (1 a 15, leiaute nacional). Fora disso, null (vira dúvida, nunca é gravado cru). */
+export function numeroDaNfse(v: string | null): string | null {
+  return v && /^\d{1,15}$/.test(v) ? v : null;
+}
+
+/** QA S-5 (B1): tira marcação HTML/XML (e qualquer "<" ou ">" que sobrar) antes do filtro de texto das notas. */
+export function semMarcacao(v: string | null): string | null {
+  if (!v) return v;
+  const t = v.replace(/<[^>]*>/g, " ").replace(/[<>]/g, " ").replace(/\s+/g, " ").trim();
+  return t || null;
+}
+
 /** AAAA-MM-DD de "2026-11-10T09:00:00-03:00" ou "2026-11-10", só se for uma data de verdade. */
 export function dataDoXml(v: string | null): string | null {
   const m = v?.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -112,7 +124,8 @@ export function lerNfseRecebida(xml: string): LeituraNfse {
     ok: true,
     nota: {
       chave: m[1],
-      numero: texto(inf, "nNFSe")?.slice(0, 30) ?? null,
+      // QA S-5 (M1): o número da NFS-e é só dígitos no leiaute (1 a 15); qualquer outra coisa (texto, marcação, conta) → null
+      numero: numeroDaNfse(texto(inf, "nNFSe")),
       dataEmissao: dataDoXml(texto(dps, "dhEmi")) ?? dataDoXml(texto(inf, "dhProc")),
       competencia: dataDoXml(texto(dps, "dCompet")),
       ambiente: tpAmb === "1" ? "producao" : tpAmb === "2" ? "producao_restrita" : null,
@@ -137,13 +150,15 @@ export type Vinculo = { obraId: number | null; empreiteiroUserId: number | null;
  * Uma obra só → vinculada (obra e empreiteiro). Mesmo empreiteiro em mais de uma obra ativa → só o empreiteiro, sem obra
  * (o dono diz qual). Documento em mais de um usuário → nenhum vínculo. Nenhum → sem vínculo (fornecedor ou terceiro).
  */
-export function vincularPorDocumento(candidatos: readonly CandidatoVinculo[]): Vinculo {
+export function vincularPorDocumento(candidatos: readonly CandidatoVinculo[], usuariosComDocumento = 0): Vinculo {
   const obras = Array.from(new Set(candidatos.map(c => c.obraId)));
   const usuarios = Array.from(new Set(candidatos.map(c => c.empreiteiroUserId)));
-  if (!candidatos.length) return { obraId: null, empreiteiroUserId: null, duvida: null };
-  if (usuarios.length > 1) {
+  // QA S-5 (B3): `usuariosComDocumento` conta TODOS os empreiteiros ativos com esse documento, com ou sem obra ativa —
+  // documento em dois usuários nunca vincula, mesmo que só um deles tenha obra
+  if (usuarios.length > 1 || usuariosComDocumento > 1) {
     return { obraId: null, empreiteiroUserId: null, duvida: "o CPF/CNPJ do emitente está no cadastro de mais de um empreiteiro: confira o cadastro e diga a obra" };
   }
+  if (!candidatos.length) return { obraId: null, empreiteiroUserId: null, duvida: null };
   if (obras.length === 1) return { obraId: obras[0], empreiteiroUserId: usuarios[0], duvida: null };
   return { obraId: null, empreiteiroUserId: usuarios[0], duvida: `o empreiteiro desta nota tem ${obras.length} obras ativas: diga a qual obra ela pertence` };
 }
@@ -162,7 +177,7 @@ export type LinhaNotaRecebida = {
 
 export type MapeamentoNota =
   | { gravar: true; linha: LinhaNotaRecebida; documentoEmitente: string | null }
-  | { gravar: false; motivo: "outro_tomador" | "emitida_pela_empresa" | "producao_restrita" };
+  | { gravar: false; motivo: "outro_tomador" | "emitida_pela_empresa" | "producao_restrita" | "ambiente_desconhecido" };
 
 /**
  * Nota lida → linha de obra_notas (origem 'adn'). `tomadorCnpj` é o CNPJ do grupo cuja distribuição trouxe o documento: a
@@ -173,20 +188,21 @@ export function mapearNotaRecebida(nota: NfseRecebida, p: {
 }): MapeamentoNota {
   const tomador = normalizarDocumento(p.tomadorCnpj);
   if (nota.ambiente === "producao_restrita") return { gravar: false, motivo: "producao_restrita" };
+  // QA S-5 (B2): sem tpAmb não dá para saber se é nota de verdade ou de teste → não grava
+  if (nota.ambiente === null) return { gravar: false, motivo: "ambiente_desconhecido" };
   if (nota.emitente.documento?.valor === tomador) return { gravar: false, motivo: "emitida_pela_empresa" };
   if (nota.tomador.documento?.valor !== tomador) return { gravar: false, motivo: "outro_tomador" };
 
   const duvidas: string[] = [];
   const alertas: string[] = [];
   let bancario = false;
-  const lerTexto = (s: string | null, max: number) => { const r = textoLido(s, max); bancario ||= r.bancario; return r.texto; };
+  const lerTexto = (s: string | null, max: number) => { const r = textoLido(semMarcacao(s), max); bancario ||= r.bancario; return r.texto; };
   const doc = nota.emitente.documento;
   if (!doc) duvidas.push(nota.emitente.documentoLido ? "CPF/CNPJ do emitente no XML: o dígito verificador não confere — não gravado" : "o XML não traz o CPF/CNPJ do emitente");
-  if (!nota.numero) duvidas.push("o XML não traz o número da nota");
+  if (!nota.numero) duvidas.push("o XML não traz um número de nota válido (só dígitos)");
   if (!nota.dataEmissao) duvidas.push("data de emissão ausente ou inválida no XML");
   const valor = nota.valorServicoCentavos;
   if (valor === null) duvidas.push("valor do serviço ausente ou inválido no XML");
-  if (nota.ambiente === null) duvidas.push("o XML não diz o ambiente (produção ou teste): confira");
   if (valor !== null && nota.valorLiquidoCentavos !== null && nota.valorLiquidoCentavos !== valor) {
     alertas.push(`valor líquido da nota: ${(nota.valorLiquidoCentavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} (com retenções); o pagamento pode ser esse valor`);
   }

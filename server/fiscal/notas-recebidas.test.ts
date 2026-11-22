@@ -334,6 +334,15 @@ describe("captura por NSU — desligada, idempotente, com último NSU e espera d
     expect((await q("SELECT ultimo_nsu, ultimo_resultado, ultima_consulta_vazia_em FROM fiscal_distribuicao_estado"))[0]).toEqual({ ultimo_nsu: 0, ultimo_resultado: "erro", ultima_consulta_vazia_em: null });
   });
 
+  it("ilegíveis: a rodada fica 'parcial' e só os 20 NSUs mais recentes ficam guardados para o dono", async () => {
+    await aplicarMigracao();
+    await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
+    const cliente = clienteFalso(25, nsu => ({ nsu, xml: "<NFSe><infNFSe Id='lixo'/></NFSe>" }));
+    expect(await capturarNotasRecebidas(db, { cliente, prazoEm: Date.now() + 30_000, agora: AGORA })).toMatchObject({ ilegiveis: 25, gravadas: 0 });
+    const [e] = await q<{ ultimo_nsu: number; ultimo_resultado: string; nsus_ilegiveis: number[] }>("SELECT ultimo_nsu, ultimo_resultado, nsus_ilegiveis FROM fiscal_distribuicao_estado");
+    expect(e).toEqual({ ultimo_nsu: 25, ultimo_resultado: "parcial", nsus_ilegiveis: Array.from({ length: 20 }, (_, i) => i + 6) });
+  });
+
   it("prazo do cron: sem tempo, nada é chamado e o resultado fica 'parcial'", async () => {
     await aplicarMigracao();
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);

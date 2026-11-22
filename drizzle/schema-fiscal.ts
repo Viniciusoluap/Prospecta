@@ -122,5 +122,6 @@ export const fiscalDistribuicaoEstado = pgTable("fiscal_distribuicao_estado", {
   ultimaConsultaVaziaEm: timestamp("ultima_consulta_vazia_em", { withTimezone: true }),
   ultimoResultado: varchar("ultimo_resultado", { length: 12 }).$type<"ok" | "parcial" | "erro">(),
   documentosGravados: integer("documentos_gravados").default(0).notNull(),
+  nsusIlegiveis: jsonb("nsus_ilegiveis").$type<number[]>().default([]).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
 });

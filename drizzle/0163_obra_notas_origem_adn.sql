@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS "fiscal_distribuicao_estado" (
   "ultima_consulta_vazia_em" timestamp with time zone,
   "ultimo_resultado" varchar(12) CHECK ("ultimo_resultado" IS NULL OR "ultimo_resultado" IN ('ok', 'parcial', 'erro')),
   "documentos_gravados" integer NOT NULL DEFAULT 0 CHECK ("documentos_gravados" >= 0),
+  -- NSUs de documentos que não deram para ler (os 20 mais recentes), para o dono conferir; a rodada fica "parcial"
+  "nsus_ilegiveis" jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof("nsus_ilegiveis") = 'array' AND jsonb_array_length("nsus_ilegiveis") <= 20),
   "atualizado_em" timestamp with time zone NOT NULL DEFAULT now()
 );
 

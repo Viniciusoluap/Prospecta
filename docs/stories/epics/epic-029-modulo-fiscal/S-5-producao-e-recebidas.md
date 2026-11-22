@@ -129,3 +129,19 @@ continuam pendentes (dependem da S-4 e do dono). Nada foi aplicado em banco nenh
   `server/fiscal/notas-recebidas.test.ts` (novo)
 - `server/dolores/leitura/notas.ts`, `server/dolores/notas-router.ts`, `server/dolores/avisos.ts`, `server/dolores/rondas.ts`,
   `server/dolores/conciliacao.ts`, `server/dolores/notas-obra.ts`, `server/dolores/testes-banco.ts`, `api/index.ts`
+
+### Correções do portão de QA (CONCERNS, `server/fiscal/notas-recebidas-qa.test.ts`) — 22/11/2026
+- **M1** número da NFS-e só entra se for só dígitos (1 a 15, `numeroDaNfse`); senão null + dúvida.
+- **M2** prazo real: a chamada ao cliente corre contra o prazo (`Promise.race` + abort) mesmo que ele ignore o sinal; o prazo
+  também é conferido entre uma gravação e outra (o resto fica para a próxima rodada, "parcial").
+- **M3** duas capturas do mesmo CNPJ: o NSU é gravado com `GREATEST(ultimo_nsu, n)` e a rodada segue do maior — nada volta,
+  o gatilho nunca dispara, nenhuma exceção.
+- **M4** documento ilegível: a rodada fica "parcial" e o NSU é guardado em `fiscal_distribuicao_estado.nsus_ilegiveis` (jsonb,
+  os 20 mais recentes; coluna acrescentada na própria 0163, que ainda não foi aplicada em banco nenhum); o resultado da rotina
+  devolve `nsusIlegiveis`. XML sem `tpAmb` também conta como ilegível (não é gravado).
+- **B1** marcação HTML retirada de nome e descrição antes do filtro de texto. **B2** XML sem `tpAmb` → não grava.
+  **B3** documento em dois empreiteiros ativos (mesmo que só um tenha obra) → nenhum vínculo.
+- Os 7 `it.fails` do QA viraram `it` e passam. Merge da `origin/main` (conflito só em `api/index.ts`, cron diário: ficaram
+  a captura das recebidas e a retentativa do Jurídico). Testes: `server/fiscal/*` 98/98, `notas-obra` 42, `notas-regras` 23,
+  `c5-e4-proatividade` 28, `pci-gerador` 11, `juridico-modelos` 6; `pnpm check` e `vite build` verdes.
+- Atenção: a `main` já tem `drizzle/0161_juridico_validacao_assinaturas.sql` — o número 0161 reservado à S-3 colidiu.

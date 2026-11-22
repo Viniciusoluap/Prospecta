@@ -98,7 +98,8 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
   if (doc.chave && doc.chave.toUpperCase().replace(/[^0-9A-Z]/g, "") !== nota.chave) return "ilegivel";
   // a distribuição também traz as notas que a própria empresa emitiu e as de teste: essas não entram (sem tocar no banco)
   const previa = mapearNotaRecebida(nota, { tomadorCnpj: p.tomadorCnpj, nsu: doc.nsu, agora: p.agora, vinculo: { obraId: null, empreiteiroUserId: null, duvida: null } });
-  if (!previa.gravar) return "ignorada";
+  // sem ambiente no XML (QA S-5 B2) não é gravada, mas fica como ilegível para o dono conferir o NSU
+  if (!previa.gravar) return previa.motivo === "ambiente_desconhecido" ? "ilegivel" : "ignorada";
   const documento = previa.documentoEmitente;
   return db.transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${TRAVA_NOTAS})`);
@@ -110,6 +111,10 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
       .where(and(eq(users.active, true), eq(users.role, "empreiteiro"), notInArray(constructionProjects.status, [...STATUS_OBRA_ENCERRADA]),
         sql`regexp_replace(upper(coalesce(${users.cpf}, '')), '[^0-9A-Z]', '', 'g') = ${documento}`))
       .orderBy(asc(constructionProjects.id)).limit(20) : [];
+    // QA S-5 (B3): quantos empreiteiros ativos têm esse documento, com ou sem obra ativa (dois → nenhum vínculo)
+    const [{ usuarios }] = documento ? await tx.select({ usuarios: sql<number>`count(*)`.mapWith(Number) }).from(users)
+      .where(and(eq(users.active, true), eq(users.role, "empreiteiro"),
+        sql`regexp_replace(upper(coalesce(${users.cpf}, '')), '[^0-9A-Z]', '', 'g') = ${documento}`)) : [{ usuarios: 0 }];
     // duplicidade: mesma regra das notas de grupo (mesmo emitente + mesmo número), a nota MAIS ANTIGA
     const numero = numeroComparavel(nota.numero);
     const colunaDoc = documento && /[A-Z]/.test(documento) ? obraNotas.emitenteCnpjAlfa : obraNotas.emitenteDocumento;
@@ -118,7 +123,7 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
         sql`regexp_replace(regexp_replace(coalesce(${obraNotas.numero}, ''), '[^0-9]', '', 'g'), '^0+([0-9])', '\\1') = ${numero}`))
       .orderBy(asc(obraNotas.id)).limit(1) : [];
     const mapa = mapearNotaRecebida(nota, {
-      tomadorCnpj: p.tomadorCnpj, nsu: doc.nsu, agora: p.agora, vinculo: vincularPorDocumento(candidatos),
+      tomadorCnpj: p.tomadorCnpj, nsu: doc.nsu, agora: p.agora, vinculo: vincularPorDocumento(candidatos, usuarios),
       duplicadaDe: anterior ? { id: anterior.id, motivo: `mesmo número e mesmo emitente da nota ${anterior.id}` } : null,
     });
     if (!mapa.gravar) return "ignorada";
@@ -135,7 +140,21 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
 
 export type ResultadoCaptura =
   | { executou: false; motivo: "sem_cliente" | "nenhum_cnpj_ligado" }
-  | { executou: true; cnpjs: number; aguardando: number; gravadas: number; jaExistiam: number; ignoradas: number; ilegiveis: number; erros: number; parcial: boolean };
+  | { executou: true; cnpjs: number; aguardando: number; gravadas: number; jaExistiam: number; ignoradas: number; ilegiveis: number; erros: number; parcial: boolean;
+      /** QA S-5 (M4): NSUs dos documentos que não deram para ler (até 20), para o dono conferir. */
+      nsusIlegiveis: number[] };
+
+/** Quantos NSUs ilegíveis ficam guardados por CNPJ (os mais recentes). */
+export const MAX_NSUS_ILEGIVEIS = 20;
+
+/** QA S-5 (M2): a chamada ao cliente nunca passa do prazo, mesmo que ele ignore o AbortSignal. */
+class PrazoEsgotado extends Error { name = "PrazoEsgotado"; }
+function comPrazo<T>(promessa: Promise<T>, ms: number, aoEsgotar: () => void): Promise<T> {
+  let relogio: ReturnType<typeof setTimeout> | undefined;
+  const limite = new Promise<never>((_, rejeitar) => { relogio = setTimeout(() => { aoEsgotar(); rejeitar(new PrazoEsgotado()); }, Math.max(0, ms)); });
+  promessa.catch(() => undefined); // a resposta que chegar depois do prazo é descartada (sem rejeição solta)
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(relogio));
+}
 
 const PRAZO_POR_CHAMADA_MS = 20_000;
 const FOLGA_MS = 2_000;
@@ -148,58 +167,75 @@ export async function capturarNotasRecebidas(db: () => DrizzleDb, opcoes: {
   const conexao = db();
   const estados = await conexao.select().from(fiscalDistribuicaoEstado).where(eq(fiscalDistribuicaoEstado.ligada, true)).orderBy(asc(fiscalDistribuicaoEstado.cnpj));
   if (!estados.length) return { executou: false, motivo: "nenhum_cnpj_ligado" };
-  const r = { executou: true as const, cnpjs: estados.length, aguardando: 0, gravadas: 0, jaExistiam: 0, ignoradas: 0, ilegiveis: 0, erros: 0, parcial: false };
+  const r = { executou: true as const, cnpjs: estados.length, aguardando: 0, gravadas: 0, jaExistiam: 0, ignoradas: 0, ilegiveis: 0, erros: 0, parcial: false,
+    nsusIlegiveis: [] as number[] };
   const maxPaginas = opcoes.maxPaginas ?? 10;
   const agora = opcoes.agora ?? new Date();
+  const resta = () => opcoes.prazoEm - Date.now() - FOLGA_MS;
   for (const estado of estados) {
     // regra do ADN: depois de uma consulta sem documento novo, no mínimo 1 hora até a próxima (nada é chamado antes disso)
     if (estado.ultimaConsultaVaziaEm && agora.getTime() - estado.ultimaConsultaVaziaEm.getTime() < ESPERA_DEPOIS_DE_CONSULTA_VAZIA_MS) {
       r.aguardando++;
       continue;
     }
+    if (resta() <= 0) { r.parcial = true; break; }
     let vaziaEm: Date | null = null;
     let ultimo = estado.ultimoNsu;
     let gravadasAqui = 0;
+    const ilegiveisAqui: number[] = [];
     let resultado: "ok" | "parcial" | "erro" = "ok";
     for (let pagina = 0; ; pagina++) {
-      const resta = opcoes.prazoEm - Date.now() - FOLGA_MS;
-      if (pagina >= maxPaginas || resta <= 0) { resultado = "parcial"; r.parcial = true; break; }
+      if (pagina >= maxPaginas || resta() <= 0) { resultado = "parcial"; r.parcial = true; break; }
       const controle = new AbortController();
-      const relogio = setTimeout(() => controle.abort(), Math.min(PRAZO_POR_CHAMADA_MS, resta));
       let documentos: DocumentoDistribuido[];
       try {
-        documentos = (await opcoes.cliente.buscarDesde({ cnpj: estado.cnpj, ultimoNsu: ultimo, sinal: controle.signal })).documentos ?? [];
+        const prazo = Math.min(PRAZO_POR_CHAMADA_MS, resta());
+        documentos = (await comPrazo(opcoes.cliente.buscarDesde({ cnpj: estado.cnpj, ultimoNsu: ultimo, sinal: controle.signal }), prazo, () => controle.abort())).documentos ?? [];
       } catch (e) {
+        if (e instanceof PrazoEsgotado) { resultado = "parcial"; r.parcial = true; break; }
         console.error("[fiscal/distribuicao] falha ao consultar o ADN", e instanceof Error ? e.name : "falha");
         resultado = "erro"; r.erros++;
         break;
-      } finally {
-        clearTimeout(relogio);
       }
       const novos = documentos.filter(d => Number.isSafeInteger(d.nsu) && d.nsu > ultimo).sort((a, b) => a.nsu - b.nsu);
       if (!novos.length) { vaziaEm = agora; break; }
       let maior = ultimo;
+      let cortado = false;
       try {
         for (const d of novos) {
+          // QA S-5 (M2): o prazo é conferido também entre uma gravação e outra; o resto fica para a próxima vez
+          if (resta() <= 0) { cortado = true; break; }
           const s = await gravarNotaRecebida(conexao, d, { tomadorCnpj: estado.cnpj, agora });
-          if (s === "gravada") { r.gravadas++; gravadasAqui++; } else if (s === "ja_existia") r.jaExistiam++; else if (s === "ilegivel") r.ilegiveis++; else r.ignoradas++;
+          if (s === "gravada") { r.gravadas++; gravadasAqui++; } else if (s === "ja_existia") r.jaExistiam++;
+          else if (s === "ilegivel") { r.ilegiveis++; ilegiveisAqui.push(d.nsu); } else r.ignoradas++;
           maior = d.nsu;
         }
       } catch (e) {
         console.error("[fiscal/distribuicao] falha ao gravar nota recebida", e instanceof Error ? e.name : "falha");
         resultado = "erro"; r.erros++;
       }
-      // o NSU avança só até o último documento tratado (o resto é relido na próxima vez; a chave impede duplicar)
+      // o NSU avança só até o último documento tratado (o resto é relido na próxima vez; a chave impede duplicar).
+      // QA S-5 (M3): GREATEST — se outra captura do mesmo CNPJ já foi mais longe, nada volta e nada lança; segue do maior
       if (maior > ultimo) {
-        ultimo = maior;
-        await conexao.update(fiscalDistribuicaoEstado).set({ ultimoNsu: ultimo, atualizadoEm: new Date() }).where(eq(fiscalDistribuicaoEstado.cnpj, estado.cnpj));
+        const [g] = await conexao.update(fiscalDistribuicaoEstado)
+          .set({ ultimoNsu: sql`greatest(${fiscalDistribuicaoEstado.ultimoNsu}, ${maior})`, atualizadoEm: new Date() })
+          .where(eq(fiscalDistribuicaoEstado.cnpj, estado.cnpj)).returning({ ultimoNsu: fiscalDistribuicaoEstado.ultimoNsu });
+        ultimo = Math.max(maior, Number(g?.ultimoNsu ?? maior));
       }
       if (resultado === "erro") break;
+      if (cortado) { resultado = "parcial"; r.parcial = true; break; }
     }
+    // QA S-5 (M4): documento ilegível não some — a rodada fica "parcial" e o NSU fica guardado (lista curta) para o dono
+    if (ilegiveisAqui.length && resultado === "ok") resultado = "parcial";
+    r.nsusIlegiveis.push(...ilegiveisAqui);
+    const ilegiveisJson = JSON.stringify(ilegiveisAqui);
     await conexao.update(fiscalDistribuicaoEstado).set({
       ultimaConsultaEm: agora, ultimoResultado: resultado, atualizadoEm: new Date(),
       ...(vaziaEm ? { ultimaConsultaVaziaEm: vaziaEm } : {}),
       documentosGravados: sql`${fiscalDistribuicaoEstado.documentosGravados} + ${gravadasAqui}`,
+      ...(ilegiveisAqui.length ? {
+        nsusIlegiveis: sql`(SELECT coalesce(jsonb_agg(x ORDER BY (x)::bigint), '[]'::jsonb) FROM (SELECT x FROM jsonb_array_elements(${fiscalDistribuicaoEstado.nsusIlegiveis} || ${ilegiveisJson}::jsonb) AS t(x) ORDER BY (x)::bigint DESC LIMIT ${MAX_NSUS_ILEGIVEIS}) AS u)`,
+      } : {}),
     }).where(eq(fiscalDistribuicaoEstado.cnpj, estado.cnpj));
   }
   return r;
