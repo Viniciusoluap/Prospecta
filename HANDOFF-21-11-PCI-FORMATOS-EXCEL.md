@@ -31,3 +31,12 @@
 ## Paridade e próximo passo
 - Conferido `Grupo-Santa-Fe/web/src/lib/caixa/pci.ts`: ainda só distingue XLS/XLSB; portar a mesma regra de upload/leitura/MIME na frente responsável pela paridade. Nenhum arquivo Santa Fé alterado nesta entrega isolada.
 - Revisar PR, corrigir eventuais achados, confirmar preview, conferir main/conflitos e integrar somente este pedido. Publicação já autorizada; nenhuma migração DDL necessária.
+
+## Produção concluída — 21/11/2026
+- PR #284 integrado por squash: `c1bcfb6337b6be96a3728a5ddbe080d3fb2b3b02`. Diff conferido: somente os 8 arquivos deste pedido; main anterior continuava em `6ba284be0b4f88443a77e173846ac2f374753422`, sem conflitos nem edição de branches do Fabel.
+- Revisão automática concluída sem achados. Preview `dpl_3qUZYS2RvfoDzNLqUMntLEHcB5RM` READY no SHA `3040c9731c1cea7687a005589d8500fb83146b10`.
+- Produção `dpl_5YWkajP239Wre6J7CxXhCB3hHduM` READY, target `production`, SHA igual ao merge; domínios `www.prospectaconstrucoes.com`, `prospectaconstrucoes.com` e `site-prospecta.vercel.app` confirmados.
+- Smoke HTTP em https://www.prospectaconstrucoes.com: 200, título Prospecta Construções.
+- Validação adicional com a planilha XLSX real do caso (3.646.790 bytes): leitor encontrou 20 serviços, soma 99,99999999999997% (100% na precisão do Excel), identificação preenchida e 7 posições do cronograma. SHA-256 antes/depois idêntico. Nenhum dado pessoal nem a planilha real foi colocado no repositório.
+- Migração de banco dispensada; sem DDL, sem substituir/vincular automaticamente a PCI da cliente. O uso no iPad continua: atualizar a página, Trocar PCI, selecionar a planilha e Vincular PCI.
+- Registro final salvo na branch de trabalho, sem gerar nova publicação de produção apenas por documentação. A funcionalidade já está publicada; validação manual no dispositivo e paridade Santa Fé permanecem registradas acima.
