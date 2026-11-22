@@ -53,7 +53,7 @@ Termos de busca sugeridos: `PGDAS`, `Simples Nacional`, `DAS`, `DEFIS`, `extrato
 | D2 | **O formulário do sistema já vem com "Lucro Presumido" marcado** (`TaxAccountingPanel.tsx`, valor inicial `regime: "lucro_presumido"`) | Se alguém salvar sem trocar, o sistema fica **errado** (Presumido, quando o real é Simples). | Ao cadastrar, trocar para **Simples Nacional**. Sugestão ao @dev (fora deste escopo): deixar o campo vazio e obrigatório. |
 | D3 | **Porte ME × faturamento** | ME é quem fatura até R$ 360 mil por ano. Se a Prospecta faturou mais que isso em 2025, o porte deveria ser EPP (não muda o regime, mas indica cadastro desatualizado — e muda faixa do Simples). | Comparar o RBT12 do PGDAS-D com R$ 360 mil. [NÃO CONFIRMADO] |
 | D4 | **Anexo das obras** (risco mais caro) | Construção de imóveis e obras de engenharia ficam no **Anexo IV**, com o INSS patronal pago **fora** do DAS. Declarar obra no Anexo III (que já inclui o INSS) é erro comum e gera dívida de INSS com multa. | Ver no extrato do PGDAS-D em que anexo as receitas de obra estão; ver se há guia de INSS patronal. [NÃO CONFIRMADO] |
-| D5 | **Atividades misturadas** | A empresa tem CNAEs de 3 anexos diferentes: obras (IV), corretagem/gestão de imóveis (III), serviços de engenharia/projetos e software (V ou III pelo Fator R). Cada nota tem que ser declarada no anexo da sua atividade. | O módulo fiscal já separa por "tipo de serviço" (S-2): o contador deve dizer o anexo de cada tipo. |
+| D5 | **Atividades misturadas** | A empresa tem CNAEs de 3 anexos diferentes: obras (IV), corretagem (III), gestão/administração de imóveis e serviços de engenharia/projetos e software (V, ou III se o Fator R ≥ 28%). Cada nota tem que ser declarada no anexo da sua atividade. | O módulo fiscal já separa por "tipo de serviço" (S-2): o contador deve dizer o anexo de cada tipo. |
 | D6 | **Efficaz sem CNPJ conhecido** | Se a Efficaz tem CNPJ próprio, ela tem regime próprio e precisa de um segundo perfil tributário. Se fatura pelo CNPJ da Prospecta, a comissão de correspondente entra no Simples da Prospecta. | Confirmar no Drive/contador. [NÃO CONFIRMADO] |
 | D7 | **Venda de imóvel próprio** | Se em algum caso a Prospecta compra lote, constrói e **vende a casa como dona** (e não constrói para o cliente que já é dono do lote), isso é atividade imobiliária que pode **não ser permitida no Simples** e tem tributação própria. | Perguntar ao contador como os contratos são feitos hoje. [NÃO CONFIRMADO] |
 
@@ -72,12 +72,15 @@ que aparece numa linha à parte porque depende do tamanho da folha.
 | Como funciona | Uma guia (DAS) com quase tudo junto; a alíquota sobe com o faturamento. | O governo "presume" um lucro sobre o faturamento e cobra IR e CSLL sobre ele; ISS e PIS/COFINS (em 2027: CBS) à parte. | Imposto sobre o lucro de verdade (contabilidade completa). |
 | Obra **com todo o material** | Anexo IV | IR sobre 8% e CSLL sobre 12% do faturamento (≈ 2,3%) + ISS + PIS/COFINS 3,65% (até 2026) | 15% + adicional de IR e 9% de CSLL sobre o lucro real + PIS/COFINS não cumulativo |
 | Obra **só mão de obra** (ou material parcial) | Anexo IV | IR e CSLL sobre **32%** (≈ 7,7%) + ISS + PIS/COFINS | idem |
-| Corretagem / gestão de imóveis | Anexo III (INSS já incluído) | 32% (≈ 7,7%) + ISS + PIS/COFINS | idem |
+| Corretagem de imóveis | Anexo III (INSS já incluído) | 32% (≈ 7,7%) + ISS + PIS/COFINS | idem |
+| Gestão/administração de imóveis | **Anexo V**, ou III se o Fator R ≥ 28% (Perguntas e Respostas do Simples, Receita) | 32% (≈ 7,7%) + ISS + PIS/COFINS | idem |
 | Serviços de engenharia/projetos | Anexo V; cai para o III se a folha for ≥ 28% do faturamento (Fator R) | 32% | idem |
 | INSS patronal sobre a folha | **Obras (Anexo IV): pago à parte**, 20% + RAT (sem "terceiros"). Anexo III/V: já incluído no DAS. | 20% + RAT + terceiros (≈ 26% a 29%). Para construção, em 2027 pode haver a contribuição sobre a receita de transição (1,8% da receita + 15% da folha). | igual ao Presumido |
 | Trabalho de contabilidade | Baixo | Médio | Alto (caro) |
 
 ### Cenários (só a parte que incide sobre o faturamento)
+
+> **Atenção (base 2026):** as colunas do Presumido abaixo usam PIS/COFINS cumulativos (3,65%), que **acabam em 2027**, quando entram a CBS cheia e o IBS de teste (0,1%). Estes números servem para comparar o cenário de 2026; **não estabelecem sozinhos qual regime é mais barato em 2027**. Para 2027, o contador precisa simular o Presumido com CBS/IBS (e créditos), com os números reais. A recomendação de ficar no Simples em 2027 se apoia no fato de que, no Simples, CBS/IBS ficam dentro do DAS e o total praticamente não muda (fonte: https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/reforma-tributaria-do-consumo/entenda).
 
 | Faturamento em 12 meses | Simples Anexo IV (alíquota efetiva, já com ISS, IR, CSLL, PIS/COFINS) | Presumido, obra **com** todo material (IR+CSLL ≈ 2,3% + PIS/COFINS 3,65% + ISS 3%–5%) | Presumido, **só mão de obra** (≈ 7,7% + 3,65% + ISS 3%–5%) |
 |---|---|---|---|
@@ -188,7 +191,7 @@ Fazer **depois** de ter o extrato do PGDAS-D em mãos (ou logo, e ajustar a alí
 | **Regime** | **Simples Nacional** — atenção: a tela já vem com "Lucro Presumido" marcado; trocar. |
 | Alíquota estimada | A **alíquota efetiva** do último extrato do PGDAS-D (ex.: 6,3% se o faturamento de 12 meses for R$ 300 mil no Anexo IV). Sem extrato: deixar uma estimativa e anotar "provisória" nas premissas. |
 | Vigência inicial | 07/05/2021 (data da opção pelo Simples na Receita) |
-| Premissas/observações | "Simples Nacional desde 07/05/2021 (Receita). Obras no Anexo IV: INSS patronal (20% + RAT) pago fora do DAS e **não** incluído na alíquota estimada. Corretagem/gestão no Anexo III; engenharia no III ou V pelo Fator R. 2027: IBS/CBS dentro do DAS. Alíquota tirada do extrato PGDAS-D de <mês/ano>." |
+| Premissas/observações | "Simples Nacional desde 07/05/2021 (Receita). Obras no Anexo IV: INSS patronal (20% + RAT) pago fora do DAS e **não** incluído na alíquota estimada. Corretagem no Anexo III; gestão de imóveis e engenharia no V (ou III se o Fator R ≥ 28%). 2027: IBS/CBS dentro do DAS. Alíquota tirada do extrato PGDAS-D de <mês/ano>." |
 
 Depois, em **"Dados fiscais do perfil"** (S-2): município Imperatriz-MA, inscrição municipal (do alvará/cadastro da
 prefeitura), série e ambiente — e, em **"Tipos de serviço"**, marcar com o contador o anexo/alíquota de cada tipo.
