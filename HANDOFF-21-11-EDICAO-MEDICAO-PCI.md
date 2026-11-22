@@ -41,3 +41,12 @@
 - As incidências vinculadas ficam somente para leitura durante a edição; execuções continuam editáveis.
 - O servidor recusa incidências divergentes da versão exibida (BAD_REQUEST), preservando a medição e evitando salvar um progresso diferente do preview. A adoção automática no backend fica restrita ao cliente legado que não informou versão e ainda usava a PCI anterior.
 - Regressão adicional em banco confirma que alterar incidências em formulário da versão atual não grava nada. DOM confere incidências somente para leitura e execuções editáveis. 66 testes aprovados, além do DOM e do TypeScript estrito.
+
+## Produção concluída — 21/11/2026
+- PR #286 integrado: `e37e72deeaf27b4c444a869119b9d777ecafda04`. Conferido diff de somente 6 arquivos em relação à main `04f8e3b0f0d8af5168e66471cd292d56a1bd04d6`; frente Fabel/Dolores #285 preservada integralmente.
+- Achado da revisão corrigido e thread resolvido; 66 testes em 9 suítes, DOM e TypeScript estrito aprovados.
+- Preview final `dpl_FdwrCZZKZJ5ygwy3uoVN54ZSxE72` READY no SHA `09a63c22b107076947758802ea3e5f59598e9088`.
+- Produção `dpl_6ppxUwZZ2bg5RV7YgzqpgUTQuPEm` READY, target `production`, SHA igual ao merge; domínios `www.prospectaconstrucoes.com`, `prospectaconstrucoes.com` e `site-prospecta.vercel.app` confirmados.
+- Smoke HTTP em https://www.prospectaconstrucoes.com: 200, título Prospecta Construções.
+- Sem migração DDL nem edição automática de registros de clientes. Para corrigir a medição já salva no caso real: atualizar a página, reabrir Editar, conferir a PCI exibida, Salvar alterações da medição e baixar o PDF novamente. As demais medições continuam com suas versões históricas.
+- Este fechamento fica na branch de trabalho, evitando outro deploy de produção apenas por documentação. Código completo já publicado; validação manual no dispositivo e paridade Santa Fé continuam registradas acima.
