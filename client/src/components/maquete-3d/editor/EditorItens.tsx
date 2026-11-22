@@ -11,7 +11,7 @@ import { ambienteEm, cenaDaFonte, ehAuxiliar, pecasDaFonte, type PecaFonte } fro
 import type { TipoMovel } from "@shared/maquete-3d/mobilia";
 import {
   alterarItem, ambientesEditaveis, canonico, converterTipo, criarHistorico, desfazer, fecharGesto, girar, itensDoProblema, novoItem,
-  portasBloqueadas, posicaoArrastada, problemasDaEdicao, refazer, registrar, rotuloDoTipo, type Historico,
+  portasBloqueadas, posicaoArrastada, problemasDaEdicao, refazer, registrar, rotuloDoTipo, vistaDoAmbiente, type Historico,
 } from "@shared/maquete-3d/edicao";
 import { Planta2D } from "../planta2d/Planta2D";
 import VisualizadorFonte, { type Controles } from "../visualizador/VisualizadorFonte";
@@ -33,6 +33,18 @@ function usarPecas(fonte: FontePlanta, itens: ItemFonte[]): PecaFonte[] {
   }), [fonte, itens]);
 }
 
+/** Computador (o enquadramento no ambiente e a planta grande valem só aí; no celular, 3D e planta já ocupam a tela). */
+function usarComputador() {
+  const consulta = "(min-width: 768px)";
+  const [sim, setSim] = useState(() => typeof window !== "undefined" && window.matchMedia(consulta).matches);
+  useEffect(() => {
+    const m = window.matchMedia(consulta), mudou = () => setSim(m.matches);
+    m.addEventListener("change", mudou);
+    return () => m.removeEventListener("change", mudou);
+  }, []);
+  return sim;
+}
+
 const ehCampoDeTexto = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName));
 
 export default function EditorItens({ planta, conexao, aoSair }: { planta: string; conexao: ConexaoEditor; aoSair: (itens: ItemFonte[] | null) => void }) {
@@ -48,6 +60,10 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   const [ocupado, setOcupado] = useState<null | "salvar" | "publicar">(null);
   const [msg, setMsg] = useState<Mensagem | null>(null);
   const [pronto, setPronto] = useState(false);
+  /** Ambiente em que o 3D está enquadrado (computador); null = visão geral. */
+  const [foco, setFoco] = useState<string | null>(null);
+  const [plantaGrande, setPlantaGrande] = useState(false);
+  const computador = usarComputador();
 
   const abrir = useCallback(async () => {
     setErroAbrir(null);
@@ -63,7 +79,8 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   const base = dados?.fonte ?? null;
   const itens = h?.presente ?? [];
   const cena = useMemo(() => (base ? cenaDaFonte(base) : null), [base]);
-  const vista = cena?.vistas.find(v => v.tipo === "geral") ?? cena?.vistas[0] ?? null;
+  const geral = cena?.vistas.find(v => v.tipo === "geral") ?? cena?.vistas[0] ?? null;
+  const vista = useMemo(() => (base && geral && foco && computador ? vistaDoAmbiente(base, geral, foco) ?? geral : geral), [base, geral, foco, computador]);
   const fonte = useMemo(() => (base ? { ...base, itens } : null), [base, itens]);
   const pecas = usarPecas(base ?? ({ estrutura: { ambientes: [] } } as unknown as FontePlanta), base ? itens : []);
   const problemas = useMemo(() => (base ? problemasDaEdicao(base, itens) : []), [base, itens]);
@@ -76,6 +93,10 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
   const editaveis = useMemo(() => new Set(itens.filter(i => i.editavel).map(i => i.id)), [itens]);
   const sujo = useMemo(() => canonico(itens) !== canonico(salvos), [itens, salvos]);
   const item = itens.find(i => i.id === sel) ?? null;
+  const itensRef = useRef(itens);
+  itensRef.current = itens;
+  /** Enquadra o 3D no ambiente do item (o contorno amarelo fica visível); a câmera não volta sozinha ao desmarcar. */
+  const focar = useCallback((id: string) => { const i = itensRef.current.find(q => q.id === id); if (i) setFoco(i.ambiente); }, []);
 
   // ── Mudanças (todas passam pelo histórico) ──
   const mudar = useCallback((f: (lista: ItemFonte[]) => ItemFonte[], chave: string | null = null) => {
@@ -106,7 +127,13 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
       if (p) mover(p.id, p.x, p.z, `arrastar:${p.id}:${p.gesto}`);
     });
   }, [mover]);
-  const aoSoltar = useCallback(() => setH(x => (x ? fecharGesto(x) : x)), []);
+  const aoSoltar = useCallback(() => {
+    setH(x => (x ? fecharGesto(x) : x));
+    const id = focoPendente.current;
+    focoPendente.current = null;
+    // Depois do quadro: o item já está no ambiente para onde foi arrastado.
+    if (id) requestAnimationFrame(() => focar(id));
+  }, [focar]);
   useEffect(() => () => cancelAnimationFrame(quadro.current), []);
 
   const doItem = (m: Partial<ItemFonte>, campo: string) => {
@@ -122,10 +149,21 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
     mudar(lista => [...lista, novo]);
     setSel(novo.id);
   };
-  const selecionar = useCallback((id: string | null) => {
+  const selecionar = useCallback((id: string | null, enquadrar = true) => {
     setSel(id);
-    if (id) { const i = h?.presente.find(q => q.id === id); if (i && ambientes.includes(i.ambiente)) setAmbCat(i.ambiente); }
-  }, [h, ambientes]);
+    if (id) {
+      const i = h?.presente.find(q => q.id === id);
+      if (i && ambientes.includes(i.ambiente)) setAmbCat(i.ambiente);
+      if (enquadrar) focar(id);
+    }
+  }, [h, ambientes, focar]);
+  // No 3D o toque num item já pode virar arraste: a câmera só se move quando o dedo/mouse sobe (aoSoltar).
+  const focoPendente = useRef<string | null>(null);
+  const selecionar3d = useCallback((id: string | null) => {
+    selecionar(id, false);
+    if (id && itensRef.current.find(q => q.id === id)?.editavel) focoPendente.current = id;
+    else if (id) focar(id);
+  }, [selecionar, focar]);
   const restaurar = () => { if (!dados) return; mudar(() => dados.padrao); setSel(null); setMsg({ tipo: "ok", texto: "Itens padrão da planta de volta. Salve para gravar (ou desfaça)." }); };
   const desfazerUm = useCallback(() => setH(x => (x ? desfazer(x) : x)), []);
   const refazerUm = useCallback(() => setH(x => (x ? refazer(x) : x)), []);
@@ -240,10 +278,11 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
           </button>
         ))}
       </div>
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]">
-        <div className={`${aba === "3d" ? "block" : "hidden"} relative h-[46vh] min-h-[300px] overflow-hidden rounded-md bg-[#D8D8D4] md:block md:h-[min(68vh,640px)]`} data-teste="editor-3d" style={{ touchAction: "none" }}>
+      {/* Computador: 3D à esquerda e planta + painel à direita; "Ampliar planta" troca o 3D pela planta grande. */}
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(360px,460px)] md:grid-rows-[auto_1fr]">
+        <div className={`${aba === "3d" ? "block" : "hidden"} relative h-[46vh] min-h-[300px] overflow-hidden rounded-md bg-[#D8D8D4] md:row-span-2 md:h-[min(78vh,760px)] ${plantaGrande ? "md:hidden" : "md:block"}`} data-teste="editor-3d" style={{ touchAction: "none" }}>
           <VisualizadorFonte cena={cena} pecas={pecas} vista={vista} telhado={false} aoPronto={marcarPronto} grupoItens={grupoItens} controlesRef={controles} semRotulos>
-            <Interacao3D grupoItens={grupoItens} controles={controles} pecas={pecas} editaveis={editaveis} aoSelecionar={selecionar} aoArrastar={aoArrastar} aoSoltar={aoSoltar} />
+            <Interacao3D grupoItens={grupoItens} controles={controles} pecas={pecas} editaveis={editaveis} aoSelecionar={selecionar3d} aoArrastar={aoArrastar} aoSoltar={aoSoltar} />
             <ZonasBloqueadas zonas={zonas} y={0.4} />
             {pecas.filter(p => comErro.has(p.id) && p.id !== sel).map(p => <Contorno key={`e-${p.id}`} p={p} erro selecionado={false} />)}
             {selPeca && <Contorno p={selPeca} erro={comErro.has(selPeca.id)} selecionado />}
@@ -251,13 +290,21 @@ export default function EditorItens({ planta, conexao, aoSair }: { planta: strin
           <div className="pointer-events-none absolute left-2.5 top-2.5 max-w-[calc(100%-1.25rem)] rounded-[3px] bg-white/85 px-2 py-0.5 text-[13px] text-[#111]">
             Toque num item para selecionar · arraste o item para mover (encaixe de 5 cm e na parede) · fora dos itens, arraste para girar a vista
           </div>
+          {foco && computador && (
+            <button type="button" className={`${botao} absolute bottom-2.5 right-2.5 bg-white`} onClick={() => setFoco(null)} data-teste="ver-casa">Ver a casa toda</button>
+          )}
         </div>
-        <div className="grid content-start gap-3">
-          <div className={`${aba === "planta" ? "block" : "hidden"} rounded-md border border-[#E4E4E0] bg-white md:block`} data-teste="editor-planta">
-            <div className="mx-auto h-[46vh] min-h-[300px] w-full max-w-[560px] md:h-[min(40vh,400px)]">
-              <Planta2D fonte={fonte} edicao={{ selecionado: sel, comErro, zonas, aoApontarItem, aoApontarFundo: () => setSel(null), svgRef: svg }} />
-            </div>
+        <div className={`${aba === "planta" ? "block" : "hidden"} relative rounded-md border border-[#E4E4E0] bg-white md:block ${plantaGrande ? "md:col-start-1 md:row-span-2 md:row-start-1" : "md:col-start-2 md:row-start-1"}`} data-teste="editor-planta">
+          <div className={`mx-auto h-[46vh] min-h-[300px] w-full ${plantaGrande ? "md:h-[min(78vh,760px)] md:max-w-none" : "max-w-[560px] md:h-[min(52vh,520px)]"}`}>
+            <Planta2D fonte={fonte} edicao={{ selecionado: sel, comErro, zonas, aoApontarItem, aoApontarFundo: () => setSel(null), svgRef: svg }} />
           </div>
+          <div className="absolute right-2 top-2 hidden md:block">
+            <button type="button" className={botao} aria-pressed={plantaGrande} onClick={() => setPlantaGrande(v => !v)} data-teste="ampliar-planta">
+              {plantaGrande ? "Voltar ao 3D" : "Ampliar planta"}
+            </button>
+          </div>
+        </div>
+        <div className={`grid content-start gap-3 md:col-start-2 ${plantaGrande ? "md:row-span-2 md:row-start-1" : "md:row-start-2"}`}>
           {(erros.length > 0 || avisos.length > 0) && (
             <section aria-label="Avisos" className="grid gap-1.5" data-teste="avisos">
               {erros.map((p, k) => {

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { TIPOS_MOVEL, type TipoMovel } from "./mobilia.js";
 import { EPS_AREA, areaComum, contornoDoItem, eixoDaParede, ehOrtogonal, poligonoDoAmbiente, type AmbienteFonte, type FontePlanta, type ItemFonte } from "./fonte.js";
-import { ehAuxiliar } from "./fonte-cena.js";
+import { ehAuxiliar, type VistaCena } from "./fonte-cena.js";
 import { pontoInterno } from "./geometria3d.js";
 import { ROTULOS_MOVEL_FONTE } from "./rotulos-itens.js";
 import { temErro, validarFonte, zonasDaPorta, type ProblemaFonte } from "./validacao-fonte.js";
@@ -232,6 +232,25 @@ export function converterTipo(i: ItemFonte, novo: TipoMovel): ItemFonte {
 
 /** Ambientes onde se pode pôr item (sem as faixas auxiliares, como a divisa cozinha/sala). */
 export const ambientesEditaveis = (f: FontePlanta): AmbienteFonte[] => f.estrutura.ambientes.filter(a => !ehAuxiliar(a));
+
+/**
+ * Vista do editor (computador) enquadrada num ambiente: a mesma direção da visão geral, mais de cima e mais perto, para
+ * o contorno do item selecionado ficar bem visível. `null` se o ambiente não existe.
+ */
+export function vistaDoAmbiente(f: FontePlanta, geral: VistaCena, nome: string): VistaCena | null {
+  const a = f.estrutura.ambientes.find(x => x.nome === nome);
+  if (!a) return null;
+  const pts = poligonoDoAmbiente(a);
+  const xs = pts.map(q => q.x), zs = pts.map(q => q.y);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  const alvo: [number, number, number] = [r4((x0 + x1) / 2), a.piso, r4((z0 + z1) / 2)];
+  const d = [(geral.pos[0] - geral.alvo[0]) * 0.6, geral.pos[1] - geral.alvo[1], (geral.pos[2] - geral.alvo[2]) * 0.6];
+  const n = Math.hypot(d[0], d[1], d[2]) || 1, dist = Math.max(7.5, Math.hypot(x1 - x0, z1 - z0) * 2.4);
+  return {
+    ...geral, id: `foco-${a.nome}`, nome: a.nome, ambiente: a.nome,
+    pos: [r4(alvo[0] + (d[0] / n) * dist), r4(alvo[1] + (d[1] / n) * dist), r4(alvo[2] + (d[2] / n) * dist)], alvo,
+  };
+}
 
 /** Ponto de partida de um item novo num ambiente (ponto interno, no encaixe de 5 cm). */
 export function centroDoAmbiente(f: FontePlanta, nome: string) {

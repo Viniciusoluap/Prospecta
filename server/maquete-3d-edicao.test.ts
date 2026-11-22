@@ -6,11 +6,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lerFonte, type ItemFonte } from "../shared/maquete-3d/fonte.js";
 import {
-  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
+  CATALOGO_ITENS, MATERIAIS_ITEM, TIPOS_SUSPENSOS, alterarItem, comAlcanceDerivado, vistaDoAmbiente, ambientesEditaveis, bloqueiaSalvar, canonico, converterTipo, costasDoItem, criarHistorico,
   desfazer, encaixar, encaixeNaParede, fecharGesto, girar, itemEditadoSchema, itensDoProblema, itensEdicaoSchema, novoId, novoItem,
   posicaoArrastada, problemasDaEdicao, refazer, registrar, tiposDoGrupo, travadosAlterados,
 } from "../shared/maquete-3d/edicao.js";
 import { TIPOS_MOVEL } from "../shared/maquete-3d/mobilia.js";
+import { cenaDaFonte } from "../shared/maquete-3d/fonte-cena.js";
+import { planta2d } from "../shared/maquete-3d/planta2d.js";
 
 const FONTE = lerFonte(JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../data/plantas/lote4-qd18.json"), "utf8")));
 const ITENS = FONTE.itens;
@@ -230,5 +232,27 @@ describe("correções do portão de QA (E3)", () => {
     const d = comAlcanceDerivado(FONTE, com("sofa", { alcanca: ["Quarto 1"] }, com("balcao", { alcanca: ["Quarto 1", "Banheiro"] })));
     expect(d.find(i => i.id === "sofa")!.alcanca).toBeUndefined();
     expect(d.find(i => i.id === "balcao")!.alcanca).toEqual(item("balcao").alcanca);
+  });
+});
+
+describe("correções visuais do portão de QA (E3)", () => {
+  it("rótulos das portas na planta 2D não se sobrepõem (P3 do banheiro × P4 do quarto 2) e cada P3 fica junto do seu vão", () => {
+    const abs = planta2d(FONTE).aberturas;
+    for (let a = 0; a < abs.length; a++) for (let b = a + 1; b < abs.length; b++) {
+      const A = abs[a].rotulo, B = abs[b].rotulo;
+      expect(Math.abs(A.x - B.x) >= 0.26 || Math.abs(A.z - B.z) >= 0.17, `${abs[a].id} × ${abs[b].id}`).toBe(true);
+    }
+    for (const ab of abs.filter(x => x.codigo === "P3")) {
+      const cx = ab.vao.reduce((s, p) => s + p[0], 0) / ab.vao.length, cz = ab.vao.reduce((s, p) => s + p[1], 0) / ab.vao.length;
+      expect(Math.hypot(ab.rotulo.x - cx, ab.rotulo.z - cz), ab.id).toBeLessThan(0.6);
+    }
+  });
+  it("vista do editor enquadrada no ambiente: alvo no centro dele, mais perto que a visão geral", () => {
+    const geral = cenaDaFonte(FONTE).vistas.find(v => v.tipo === "geral")!;
+    const v = vistaDoAmbiente(FONTE, geral, "Cozinha")!;
+    expect(v.tipo).toBe("geral");
+    const dist = (x: typeof v) => Math.hypot(x.pos[0] - x.alvo[0], x.pos[1] - x.alvo[1], x.pos[2] - x.alvo[2]);
+    expect(dist(v)).toBeLessThan(dist(geral));
+    expect(vistaDoAmbiente(FONTE, geral, "Inexistente")).toBeNull();
   });
 });

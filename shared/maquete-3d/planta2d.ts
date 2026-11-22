@@ -169,7 +169,14 @@ export function planta2d(f: FontePlanta): Planta2D {
       return !internos.some(pol => dentroPol(q, pol));
     }) ?? 1;
     const sb = simbolo(w, ab, giro, fora);
-    if (dentroDaCaixa(sb.vao, caixa)) simbolos.push(sb);
+    if (!dentroDaCaixa(sb.vao, caixa)) continue;
+    // Rótulos de portas vizinhas (ex.: P3 do banheiro e P4 do quarto 2, no hall) não se sobrepõem: se o lugar padrão
+    // bate num rótulo já posto, o rótulo desliza ao longo do próprio vão e, em último caso, vai para o outro lado.
+    const lado = giro ? -giro : fora, e = w.esp / 2 + 0.22, s0 = ab.offset, s1 = ab.offset + ab.larg;
+    const candidatos: [number, number][] = [[sb.rotulo.x, sb.rotulo.z], ponto(w, s0 + 0.12, lado * e), ponto(w, s1 - 0.12, lado * e), ponto(w, (s0 + s1) / 2, -lado * e)];
+    const livre = candidatos.find(([x, z]) => !simbolos.some(o => Math.abs(o.rotulo.x - x) < 0.26 && Math.abs(o.rotulo.z - z) < 0.17));
+    if (livre) sb.rotulo = { ...sb.rotulo, x: livre[0], z: livre[1] };
+    simbolos.push(sb);
   }
 
   const itens: ItemPlanta[] = f.itens.map(i => {

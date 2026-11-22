@@ -121,6 +121,14 @@ async function editor(t, page) {
   await page.waitForTimeout(600);
   await capturar(page, `${t.nome}-editor-selecionado`);
   await capturar(page, `${t.nome}-editor-painel`, { elemento: "[data-teste=painel-item]" });
+  if (!celular) {
+    // Computador: a planta ampliada no lugar do 3D (e de volta).
+    await page.click("[data-teste=ampliar-planta]");
+    await page.waitForTimeout(400);
+    await capturar(page, `${t.nome}-editor-planta-ampliada`);
+    await page.click("[data-teste=ampliar-planta]");
+    await page.waitForTimeout(900);
+  }
 
   // 2) Arrastar a geladeira para a frente da P3: aviso vermelho, Salvar bloqueado.
   await verPlanta();
