@@ -4,7 +4,7 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deflateSync } from "node:zlib";
-import { PDF, P12Signer, PdfArray, PdfDict, PdfName, PdfNumber, PdfRef, PdfStream, PdfString } from "@libpdf/core";
+import { PDF, P12Signer, PdfArray, PdfBool, PdfDict, PdfName, PdfNumber, PdfRef, PdfStream, PdfString } from "@libpdf/core";
 import { criarPki, type Pki } from "./__fixtures__/juridico-pki-ca";
 import { gerarPdfModelo } from "../shared/contratos/pdf";
 import { mesmoConteudo } from "./juridico-workflow";
@@ -231,5 +231,27 @@ describe("vínculo com a origem — aparência visível de assinatura", () => {
     const pdf = await PDF.load(new Uint8Array(empresa));
     const retorno = Buffer.from((await pdf.sign({ signer })).bytes);
     expect(await mesmoConteudo(empresa, retorno)).toBe(true);
+  }, 120_000);
+});
+
+// Portão de QA de 23/11/2026 (5ª revisão): o catálogo ganha XFA (o leitor troca o documento inteiro) ou JavaScript de abertura.
+describe("vínculo com a origem — catálogo alterado no retorno", () => {
+  const XDP = `<?xml version="1.0"?><xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="f" layout="tb"><pageSet><pageArea name="p"><contentArea x="0.25in" y="0.25in" w="8in" h="10.5in"/><medium stock="a4"/></pageArea></pageSet><subform w="8in" h="2in"><draw name="t" w="8in" h="1in"><value><text>VALOR ALTERADO 999</text></value><font size="28pt"/></draw></subform></subform></template></xdp:xdp>`;
+  it.each(["xfa", "javascript"])("retorno que acrescenta %s ao catálogo: não conserva a revisão da empresa", async tipo => {
+    const { assinado: empresa } = await assinarComMarca(contrato(30), 0);
+    const pdf = await PDF.load(new Uint8Array(empresa)); const cat = pdf.getCatalog();
+    if (tipo === "xfa") {
+      const af0 = cat.get("AcroForm"); let af = (af0 instanceof PdfRef ? pdf.getObject(af0) : af0) as PdfDict | undefined;
+      if (!af) { af = PdfDict.of({ Fields: PdfArray.of() }); cat.set("AcroForm", af); }
+      af.set("XFA", pdf.register(PdfStream.fromDict({}, new TextEncoder().encode(XDP))));
+      cat.set("NeedsRendering", PdfBool.of(true));
+    } else {
+      const js = pdf.register(PdfDict.of({ S: PdfName.of("JavaScript"), JS: PdfString.fromString("this.addAnnot({page:1,type:'FreeText',rect:[40,380,560,460],contents:'VALOR ALTERADO 999'});") }));
+      cat.set("Names", PdfDict.of({ JavaScript: PdfDict.of({ Names: PdfArray.of(PdfString.fromString("qa"), js) }) }));
+    }
+    const passo = await PDF.load(await pdf.save({ incremental: true }));
+    const retorno = Buffer.from((await passo.sign({ signer })).bytes);
+    expect(retorno.subarray(0, empresa.length).equals(empresa)).toBe(true);
+    expect(await mesmoConteudo(empresa, retorno)).toBe(false);
   }, 120_000);
 });

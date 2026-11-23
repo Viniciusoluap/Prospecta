@@ -104,7 +104,35 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
       if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")||!invisivel(item)))return false;
     }
     // Páginas citadas pelo catálogo (ex.: OpenAction do jsPDF) são comparadas à parte, abaixo.
-    if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k),new Set(),true))!==JSON.stringify(serial(b,b.getCatalog().get(k),new Set(),true))))return false;
+    // Portão de QA de 23/11/2026 (5ª revisão): o catálogo inteiro precisa continuar igual (XFA, JavaScript de abertura e
+    // afins trocam o que o leitor mostra). Só pode mudar o que uma assinatura muda: os campos e o SigFlags do /AcroForm, e
+    // os dados de validação de longo prazo (/DSS, /Extensions). A árvore de páginas é comparada à parte.
+    const igual=(pa:PDF,va:unknown,pb:PDF,vb:unknown)=>JSON.stringify(serial(pa,va,new Set(),true))===JSON.stringify(serial(pb,vb,new Set(),true));
+    const chaves=(d:PdfDict|undefined|null)=>d?Array.from(d as unknown as Iterable<[unknown,unknown]>).map(([k])=>nome(k).replace(/^\//,"")):[];
+    const dic=(pdf:PDF,v:unknown)=>{const o=v instanceof PdfRef?pdf.getObject(v):v;return o instanceof PdfDict?o:null;};
+    const ca=a.getCatalog(),cb=b.getCatalog();
+    for(const k of Array.from(new Set([...chaves(ca),...chaves(cb)]))){
+      if(["Pages","AcroForm","DSS","Extensions"].includes(k))continue;
+      if(!igual(a,ca.get(k),b,cb.get(k)))return false;
+    }
+    const PADRAO14=new Set(["Helvetica","Helvetica-Bold","Helvetica-Oblique","Helvetica-BoldOblique","Times-Roman","Times-Bold","Times-Italic","Times-BoldItalic","Courier","Courier-Bold","Courier-Oblique","Courier-BoldOblique","ZapfDingbats","Symbol"]);
+    const drPadrao=(dr:PdfDict|null)=>{
+      if(!dr||chaves(dr).some(k=>k!=="Font"))return false;
+      const fontes=dic(b,dr.get("Font"));if(!fontes)return false;
+      return Array.from(fontes as unknown as Iterable<[unknown,unknown]>).every(([,v])=>{const f=dic(b,v);
+        return !!f&&chaves(f).every(k=>["Type","Subtype","BaseFont"].includes(k))&&f.getName("Subtype")?.value==="Type1"&&PADRAO14.has(f.getName("BaseFont")?.value||"");});
+    };
+    const fa=dic(a,ca.get("AcroForm")),fb=dic(b,cb.get("AcroForm"));
+    if(fa&&!fb||(ca.get("AcroForm")||cb.get("AcroForm"))&&!fb)return false;
+    for(const k of Array.from(new Set([...chaves(fa),...chaves(fb)]))){
+      if(k==="Fields"||k==="SigFlags")continue;
+      // O assinador, ao CRIAR o /AcroForm (a origem não tinha), põe o /DR padrão: só fontes Type1 padrão, sem mais nada.
+      if(!fa&&k==="DR"&&drPadrao(dic(b,fb?.get(k))))continue;
+      // …e o /DA padrão ("/Helv 0 Tf 0 g"), que só vale para campos de formulário; assinatura não tem aparência regerada.
+      if(!fa&&k==="DA"&&JSON.stringify(serial(b,fb?.get(k),new Set(),true))===JSON.stringify(Buffer.from("/Helv 0 Tf 0 g").toString("hex")))continue;
+      if(!fa&&k==="NeedAppearances"&&JSON.stringify(serial(b,fb?.get(k),new Set(),true))==="false")continue;
+      if(!igual(a,fa?.get(k),b,fb?.get(k)))return false;
+    }
     if(ap.some((p,i)=>!p.dict.get("Resources")||!bp[i].dict.get("Resources")))return false;
     const caixa=(p:typeof ap[number])=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation]);
     const iguais=ap.map((p,i)=>JSON.stringify([caixa(p),serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([caixa(bp[i]),serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
