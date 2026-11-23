@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "./compat/dynamic";
-import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, CopyPlus, PenTool, Satellite } from "lucide-react";
-import { formatCurrency, parseNumeroBR, formatArea } from "./compat/util";
+import { AlertTriangle, CheckCircle2, FolderOpen, Grid3x3, Loader2, Save, Send, Star, Trash2, Trophy, PenTool, Satellite } from "lucide-react";
+import { parseNumeroBR, formatArea } from "./compat/util";
 import {
   assinaturaEntradas, criarProjecao, estadoDoContornoApp, medirRestricoesNaGleba, validarParametrosMassa, viasEntornoDoOsm, ROTULO_ESTUDO_PRELIMINAR, TIPOLOGIAS_MASSA,
   type CenarioMassa, type EntradaGleba, type EstudoMassaGerado, type ParametrosMassa, type RestricaoGeometrica, type TipologiaMassa, type ViaEntorno,
@@ -46,7 +46,6 @@ const CAMPOS: { k: CampoNumerico; label: string }[] = [
   { k: "loteMinimoM2", label: "Lote mínimo (m²)" },
   { k: "larguraViaM", label: "Largura da via (m)" },
   { k: "comprimentoMaxQuadraM", label: "Quadra máx. (m)" },
-  { k: "precoM2Lote", label: "Preço lote (R$/m²)" },
   { k: "percentInstitucional", label: "% institucional (0-1)" },
   { k: "percentAreaVerde", label: "% área verde (0-1)" },
 ];
@@ -84,9 +83,8 @@ function parseJson<T>(json: string | null | undefined): T | null {
 }
 
 function paramsIniciais(estudo: EstudoData): ParametrosMassa {
-  // Defaults herdados do urbanístico e do mercado, quando existirem.
+  // Defaults herdados do urbanístico, quando existirem.
   const urb = parseJson<Record<string, number>>(estudo.parametrosJson);
-  const mercado = parseJson<Record<string, number>>(estudo.estudoMercadoJson);
   const salvo = parseJson<{ params?: ParametrosMassa }>(estudo.massaCenariosJson);
   const base: ParametrosMassa = salvo?.params ?? {
     larguraViaM: 12,
@@ -96,7 +94,7 @@ function paramsIniciais(estudo: EstudoData): ParametrosMassa {
     comprimentoMaxQuadraM: 120,
     percentInstitucional: urb?.percentInstitucional ?? 0.05,
     percentAreaVerde: urb?.percentAreaVerde ?? 0.1,
-    precoM2Lote: mercado?.precoM2Lote || 500,
+    precoM2Lote: 0,
   };
   return {
     tipologia: "grid",
@@ -341,7 +339,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
   async function usarNaViabilidade() {
     if (!selecionado) return;
     // salva (no estudo aberto ou como novo) e marca como principal: o espelho
-    // legado leva cenários, cenário escolhido e mix de produtos à Viabilidade.
+    // legado leva a geometria e o cenário escolhido à Viabilidade.
     const ok = await salvar(aberto ? "atualizar" : "novo", true);
     if (ok) window.location.reload();
   }
@@ -623,7 +621,6 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                   <p className="text-[11px] text-gray-500">
                     {formatArea(c.kpis.areaVendavelM2)} vendáveis · {(c.kpis.aproveitamento * 100).toFixed(0)}% aproveitamento
                   </p>
-                  <p className="text-sm font-bold text-green-600 mt-1">VGV {formatCurrency(c.kpis.vgv)}</p>
                   <p className="text-[10px] text-gray-600 mt-1">
                     lote {c.testadaLoteM.toLocaleString("pt-BR")} × {c.profundidadeLoteM.toLocaleString("pt-BR")} m · via {c.larguraViaM.toLocaleString("pt-BR")} m
                     {c.sistemaViario ? ` · viário ${formatArea(c.sistemaViario.areaGeometricaM2)}` : ""}
@@ -699,16 +696,10 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
               <Save size={13} /> Salvar alterações
             </button>
           )}
-          {aberto && (
-            <button onClick={() => salvar("nova_versao")} disabled={busy || cenarios.length === 0}
-              className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 border border-gray-200 text-[var(--brand-dark)] hover:border-[var(--brand-yellow)] disabled:opacity-50">
-              <CopyPlus size={13} /> Salvar nova versão
-            </button>
-          )}
-          <button onClick={() => salvar("novo")} disabled={busy || cenarios.length === 0}
-            className={`flex items-center gap-1.5 text-xs font-bold px-4 py-2 disabled:opacity-50 ${aberto ? "border border-gray-200 text-[var(--brand-dark)] hover:border-[var(--brand-yellow)]" : "bg-[var(--brand-yellow)] text-[var(--brand-dark)] hover:opacity-90"}`}>
-            <Save size={13} /> {aberto ? "Salvar como novo estudo" : "Salvar estudo"}
-          </button>
+          {!aberto && <button onClick={() => salvar("novo")} disabled={busy || cenarios.length === 0}
+            className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-[var(--brand-yellow)] text-[var(--brand-dark)] hover:opacity-90 disabled:opacity-50">
+            <Save size={13} /> Salvar estudo
+          </button>}
           <button onClick={usarNaViabilidade} disabled={busy || !selecionado}
             className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 border border-gray-200 text-[var(--brand-dark)] hover:border-[var(--brand-yellow)] disabled:opacity-50">
             <Send size={13} /> Usar cenário na Viabilidade (principal)
@@ -742,7 +733,7 @@ export function MassaTab({ estudo }: { estudo: EstudoData }) {
                     {aberto?.id === s.id && <span className="ml-2 text-[10px] font-bold uppercase text-gray-600">(aberto)</span>}
                   </p>
                   <p className="text-[11px] text-gray-600">
-                    {s.indicadores ? `${s.indicadores.lotesVendaveis} lotes · ${m2(s.indicadores.areaVendavelM2)} vendáveis · VGV ${formatCurrency(s.indicadores.vgv)} · ${ROTULO_TIPOLOGIA[s.indicadores.tipologia ?? "grid"] ?? s.indicadores.tipologia}` : "Sem indicadores"}
+                    {s.indicadores ? `${s.indicadores.lotesVendaveis} lotes · ${m2(s.indicadores.areaVendavelM2)} vendáveis · ${ROTULO_TIPOLOGIA[s.indicadores.tipologia ?? "grid"] ?? s.indicadores.tipologia}` : "Sem indicadores"}
                     {" · "}{s.autorNome ?? "autor não registrado"} · {new Date(s.atualizadoEm).toLocaleString("pt-BR")}
                   </p>
                 </div>
@@ -811,11 +802,10 @@ export function QuadroAreasMassaTabela({ quadro }: { quadro: QuadroAreasMassa | 
           </tbody>
         </table>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 text-xs">
         <Indicador rotulo="Nº de lotes" valor={quadro.nLotes.toLocaleString("pt-BR")} />
         <Indicador rotulo="Área média do lote" valor={m2(quadro.areaMediaLoteM2)} />
         <Indicador rotulo="Aproveitamento" valor={`${pct(quadro.aproveitamento)} da bruta · ${pct(quadro.aproveitamentoParcelavel)} da parcelável`} />
-        <Indicador rotulo="VGV" valor={formatCurrency(quadro.vgv)} />
       </div>
       {quadro.avisos.map((a) => <p key={a} role="alert" className="text-[11px] text-red-700 mt-2">{a}</p>)}
     </div>

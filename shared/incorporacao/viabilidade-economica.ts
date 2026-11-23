@@ -75,7 +75,11 @@ export interface PremissasLoteamento {
   pctAPP: number;
   pctFaixaServidao: number;
 
+  /** Área líquida apurada pela geometria, já descontadas as áreas sobrepostas. */
+  areaVendavelCenarioM2?: number;
   itensMix: ItemMixProduto[];
+  prazoRecursosPropriosMeses?: number;
+  jurosRecursosPropriosMensal?: number;
 
   duracaoVendasMeses: number;
   perfilVendas: PerfilVendas;
@@ -255,7 +259,7 @@ export function pesosCurvaVendas(meses: number, perfil: PerfilVendas): number[] 
 /** Distribuição de áreas a partir dos parâmetros urbanísticos (independe do produto). */
 export function calcularUrbanistico(p: Pick<
   PremissasLoteamento,
-  "areaBrutaM2" | "pctAreaPublica" | "pctAreaVerde" | "pctSistemaViario" | "pctAPP" | "pctFaixaServidao"
+  "areaBrutaM2" | "pctAreaPublica" | "pctAreaVerde" | "pctSistemaViario" | "pctAPP" | "pctFaixaServidao" | "areaVendavelCenarioM2"
 >) {
   const bruta = Math.max(0, p.areaBrutaM2);
   const areaPublicaM2 = bruta * p.pctAreaPublica;
@@ -263,7 +267,7 @@ export function calcularUrbanistico(p: Pick<
   const areaViarioM2 = bruta * p.pctSistemaViario;
   const areaAppM2 = bruta * p.pctAPP;
   const areaServidaoM2 = bruta * p.pctFaixaServidao;
-  const areaVendavelM2 = Math.max(
+  const areaVendavelM2 = p.areaVendavelCenarioM2 ?? Math.max(
     0,
     bruta - areaPublicaM2 - areaVerdeM2 - areaViarioM2 - areaAppM2 - areaServidaoM2
   );
@@ -389,13 +393,20 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
 
   const pesos = pesosCurvaVendas(p.duracaoVendasMeses, p.perfilVendas);
   const prazo = Math.max(0, Math.round(p.prazoParcelamentoMeses));
+  const vgvHabitacional = mix.itens.reduce((total, item) => item.casaPronta || item.apartamento ? total + item.vgv : total, 0);
+  const vgvLotes = vgvGross - vgvHabitacional;
+  const prazoInformado = p.prazoRecursosPropriosMeses ?? 0;
+  const jurosInformados = p.jurosRecursosPropriosMensal ?? 0;
+  const prazoRecursos = Number.isFinite(prazoInformado) ? Math.min(360, Math.max(0, Math.round(prazoInformado))) : 0;
+  const jurosRecursos = Number.isFinite(jurosInformados) ? Math.max(0, jurosInformados) : 0;
+  const prazoRecebimentos = Math.max(vgvLotes > 0 || vgvHabitacional === 0 ? prazo : 0, vgvHabitacional > 0 ? prazoRecursos : 0);
   const temObra = p.duracaoObraMeses > 0;
   const mesInicioProjeto = Math.max(0, Math.min(p.inicioObraMes, p.inicioVendasMes));
   const mesManutencao = p.inicioObraMes + p.duracaoObraMeses + 3;
   const taxaIncorpMesesN = taxaIncorporacao > 0 ? 12 : 0;
   const ultimoMes = Math.max(
     temObra ? p.inicioObraMes + p.duracaoObraMeses - 1 : 0,
-    p.inicioVendasMes + pesos.length - 1 + prazo,
+    p.inicioVendasMes + pesos.length - 1 + prazoRecebimentos,
     manutencao > 0 ? mesManutencao : 0,
     taxaIncorpMesesN > 0 ? mesInicioProjeto + taxaIncorpMesesN - 1 : 0,
     ...terreno.map((d) => d.mes),
@@ -411,8 +422,21 @@ export function calcularLoteamento(p: PremissasLoteamento): ResultadoLoteamento 
     const mesVenda = p.inicioVendasMes + i;
     const vgvCohort = vgvGross * pesos[i];
     if (mesVenda < horizonte) vendasVgv[mesVenda] += vgvCohort;
-    const vgvVista = vgvCohort * p.vendasAVistaPct;
-    const vgvFinanciado = vgvCohort - vgvVista;
+    // A construtora recebe 80% do banco no mês da venda. A taxa Price incide apenas nos 20% do cliente.
+    const vendaHabitacional = vgvHabitacional * pesos[i];
+    const recursosProprios = vendaHabitacional * 0.2;
+    if (mesVenda < horizonte) recebimento[mesVenda] += prazoRecursos > 0 ? vendaHabitacional * 0.8 : vendaHabitacional;
+    if (prazoRecursos > 0 && recursosProprios > 0) {
+      const parcela = jurosRecursos > 0
+        ? recursosProprios * jurosRecursos / -Math.expm1(-prazoRecursos * Math.log1p(jurosRecursos))
+        : recursosProprios / prazoRecursos;
+      for (let k = 1; k <= prazoRecursos && mesVenda + k < horizonte; k++) recebimento[mesVenda + k] += parcela;
+    }
+
+    if (vgvLotes <= 0) continue;
+    const vendaLotes = vgvLotes * pesos[i];
+    const vgvVista = vendaLotes * p.vendasAVistaPct;
+    const vgvFinanciado = vendaLotes - vgvVista;
 
     if (mesVenda < horizonte) recebimento[mesVenda] += vgvVista * (1 - p.descontoAVistaPct);
 
