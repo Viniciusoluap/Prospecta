@@ -184,32 +184,28 @@ export type AutorMarcacao = { userId: number | null; via: "ignorar" | "bancos" |
 
 /**
  * QA3 S-6 (Q3): grava a auditoria das movimentações marcadas como "Transferência interna" (quem, quando, por onde, valor; o lote dá
- * quantas e o valor somado). Só INSERT em bpo_transferencia_marcacoes (migração 0164). Sem a tabela (banco antigo) ou com falha, a
- * classificação segue (o log não leva dado pessoal) — a marcação sem par não tira mais receita do limite (teto.ts), então a auditoria
- * é rastro, não trava.
+ * quantas e o valor somado). Só INSERT em bpo_transferencia_marcacoes (migração 0164).
+ * QA4 S-6 (baixo): roda na MESMA transação da marcação (`db` = a transação): se a auditoria falhar, o erro sobe e a marcação é desfeita
+ * (marcação sem rastro não vale). Só sem a tabela (banco anterior à 0164) a marcação segue sem auditoria.
  */
-export async function registrarMarcacaoTransferencia(ids: number[], autor: AutorMarcacao): Promise<{ lote: string; quantidade: number; valorCentavos: number } | null> {
+export async function registrarMarcacaoTransferencia(
+  ids: number[], autor: AutorMarcacao, db: Pick<ReturnType<typeof getDb>, "execute"> = getDb(),
+): Promise<{ lote: string; quantidade: number; valorCentavos: number } | null> {
   if (!ids.length) return null;
-  try {
-    const db = getDb();
-    const existe = (await db.execute(sql`SELECT to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS ok`)) as { rows?: { ok: boolean }[] };
-    if (!existe.rows?.[0]?.ok) return null;
-    const lote = randomUUID();
-    let quantidade = 0;
-    let valorCentavos = 0;
-    for (let i = 0; i < ids.length; i += 500) {
-      const r = (await db.execute(sql`
-        INSERT INTO bpo_transferencia_marcacoes (lote, bank_transaction_id, usuario_id, via, valor)
-        SELECT ${lote}, bt.id, ${autor.userId}, ${autor.via}, abs(bt.valor) FROM bank_transactions bt
-        WHERE bt.id IN (${sql.join(ids.slice(i, i + 500).map(id => sql`${id}`), sql`, `)}) AND bt.categoria = ${TRANSFERENCIA_INTERNA}
-        RETURNING valor`)) as { rows?: { valor: string | number }[] };
-      for (const x of r.rows ?? []) { quantidade++; valorCentavos += Math.round(Number(x.valor) * 100); }
-    }
-    return { lote, quantidade, valorCentavos };
-  } catch (e) {
-    console.error("[bpo] auditoria da marcação de transferência interna falhou:", e instanceof Error ? e.name : "erro");
-    return null;
+  const existe = (await db.execute(sql`SELECT to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS ok`)) as { rows?: { ok: boolean }[] };
+  if (!existe.rows?.[0]?.ok) return null;
+  const lote = randomUUID();
+  let quantidade = 0;
+  let valorCentavos = 0;
+  for (let i = 0; i < ids.length; i += 500) {
+    const r = (await db.execute(sql`
+      INSERT INTO bpo_transferencia_marcacoes (lote, bank_transaction_id, usuario_id, via, valor)
+      SELECT ${lote}, bt.id, ${autor.userId}, ${autor.via}, abs(bt.valor) FROM bank_transactions bt
+      WHERE bt.id IN (${sql.join(ids.slice(i, i + 500).map(id => sql`${id}`), sql`, `)}) AND bt.categoria = ${TRANSFERENCIA_INTERNA}
+      RETURNING valor`)) as { rows?: { valor: string | number }[] };
+    for (const x of r.rows ?? []) { quantidade++; valorCentavos += Math.round(Number(x.valor) * 100); }
   }
+  return { lote, quantidade, valorCentavos };
 }
 
 /** Mensagem legível quando o lançamento já foi usado em obra/regularização (FK restrict). */
@@ -244,6 +240,19 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
   };
   const desejado = lancamentoDaMovimentacao({ ...t, ...novo });
 
+  // QA4 S-6 (baixo): marcar como Transferência interna — tirar o lançamento, gravar a movimentação e a auditoria numa transação só
+  if (mudanca.categoria === TRANSFERENCIA_INTERNA && t.categoria !== TRANSFERENCIA_INTERNA && !desejado) {
+    await db.transaction(async tx => {
+      if (existente && existente.exclusaoLoteBackupId == null) {
+        try { await tx.delete(bpoLancamentos).where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
+        catch (e) { throw erroLancamentoEmUso(e); }
+      }
+      await tx.update(bankTransactions).set({ ...novo, aClassificar: false }).where(eq(bankTransactions.id, id));
+      await registrarMarcacaoTransferencia([id], autor ?? { userId: null, via: "bancos" }, tx);
+    });
+    return { categoria: novo.categoria, bpoClienteId: novo.bpoClienteId ?? null, lancamento: "nenhum" as const };
+  }
+
   // Remove primeiro o lançamento (pode falhar se já estiver alocado) e só então grava a movimentação.
   if (!desejado && existente && existente.exclusaoLoteBackupId == null) {
     try { await db.delete(bpoLancamentos).where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
@@ -257,9 +266,6 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
       .where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId)));
   } else if (desejado && !existente) {
     await gerarLancamentosDoExtrato([{ ...t, ...novo }], "classificada");
-  }
-  if (mudanca.categoria === TRANSFERENCIA_INTERNA && t.categoria !== TRANSFERENCIA_INTERNA) {
-    await registrarMarcacaoTransferencia([id], autor ?? { userId: null, via: "bancos" });
   }
   return { categoria: novo.categoria, bpoClienteId: novo.bpoClienteId ?? null, lancamento: desejado ? "vinculado" : "nenhum" };
 }
@@ -360,12 +366,22 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
       ...(explicita ? { aClassificar: false } : {}),
     };
     const comLancamento = linhas.filter(l => l.lancamentoId != null).map(l => l.id);
-    if (mudanca.categoria === TRANSFERENCIA_INTERNA && comLancamento.length) {
-      try { await db.delete(bpoLancamentos).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
-      catch (e) { throw erroLancamentoEmUso(e); }
+    if (mudanca.categoria === TRANSFERENCIA_INTERNA) {
+      // QA4 S-6 (baixo): tirar os lançamentos, gravar as movimentações e a auditoria numa transação só (falhou a auditoria → nada vale)
+      await db.transaction(async tx => {
+        if (comLancamento.length) {
+          try { await tx.delete(bpoLancamentos).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
+          catch (e) { throw erroLancamentoEmUso(e); }
+        }
+        await tx.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
+        const novas = linhas.filter(l => l.categoria !== TRANSFERENCIA_INTERNA).map(l => l.id);
+        await registrarMarcacaoTransferencia(novas, autor ?? { userId: null, via: "lote" }, tx);
+      });
+      total += linhas.length;
+      continue;
     }
     await db.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
-    if (mudanca.categoria !== TRANSFERENCIA_INTERNA) {
+    {
       if (comLancamento.length) {
         await db.update(bpoLancamentos).set({
           ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
@@ -374,10 +390,6 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
       }
       const semLancamento = linhas.filter(l => l.lancamentoId == null && (explicita || !l.aClassificar));
       await gerarLancamentosDoExtrato(semLancamento.map(l => ({ ...l, ...set })), "classificada");
-    }
-    if (mudanca.categoria === TRANSFERENCIA_INTERNA) {
-      const novas = linhas.filter(l => l.categoria !== TRANSFERENCIA_INTERNA).map(l => l.id);
-      await registrarMarcacaoTransferencia(novas, autor ?? { userId: null, via: "lote" });
     }
     total += linhas.length;
   }

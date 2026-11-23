@@ -53,7 +53,7 @@ export function LimitesReceita() {
               <p className="text-xs text-gray-300">
                 {e.foraDaSoma.transferencias} entrada(s) ({dinheiro(e.foraDaSoma.transferenciasCentavos)}) fora da soma como transferência entre contas da
                 empresa (entrada e saída marcadas como "Transferência interna", mesmo valor, até 2 dias). Marcadas por:{" "}
-                {e.transferenciasPorQuem.map(x => `${x.quem} — ${x.entradas} (${dinheiro(x.centavos)})`).join("; ")}.
+                {e.transferenciasPorQuem.map(x => `${x.quem} — ${x.entradas} (${dinheiro(x.centavos)})${x.ultimaMarcacaoEm ? `, última marcação em ${x.ultimaMarcacaoEm}` : ""}`).join("; ")}.
               </p>
             )}
             {e.possiveisTransferencias.entradas > 0 && (
@@ -64,9 +64,21 @@ export function LimitesReceita() {
                 <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.
               </p>
             )}
+            {e.estornosParaConferir.entradas > 0 && (
+              <p className="text-xs text-amber-200">
+                Conferir: {e.estornosParaConferir.entradas} entrada(s) ({dinheiro(e.estornosParaConferir.centavos)}) descritas como estorno/devolução no
+                lançamento, mas o extrato do banco não diz estorno. Elas CONTAM na receita até o extrato confirmar.
+              </p>
+            )}
+            {e.diferencasDoExtrato.movimentos > 0 && (
+              <p className="text-xs text-amber-200">
+                Pendência: {e.diferencasDoExtrato.movimentos} entrada(s) em que o banco recebeu {dinheiro(e.diferencasDoExtrato.centavos)} a mais do que o
+                lançamento ligado registra (valor editado para baixo ou cobrança que voltou a "não paga"). A diferença entra na receita possível abaixo.
+              </p>
+            )}
             {e.aClassificar.movimentos > 0 && (
               <p className="text-xs text-amber-200">
-                Pendência: {e.aClassificar.movimentos} entrada(s) nas contas desta empresa ainda a classificar ({dinheiro(e.aClassificar.centavos)}) — fora da
+                Pendência: {e.aClassificar.movimentos} entrada(s) nas contas desta empresa ainda a classificar ou com diferença do extrato ({dinheiro(e.aClassificar.centavos)}) — fora da
                 soma até alguém classificar. Contando com elas, a receita pode chegar a {dinheiro(e.receitaPossivelCentavos)}
                 {e.limites.length ? ` (${e.limites.map(l => `${pct(l.percentualPossivel)} do ${l.rotulo}`).join("; ")})` : ""}. Classifique em{" "}
                 <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.

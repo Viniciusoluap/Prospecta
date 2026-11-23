@@ -264,7 +264,7 @@ describe("QA2 S-6 — correções (casos a mais)", () => {
     const { nomeSeguroDaConta } = await import("../../shared/fiscal/regimes.js");
     expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Cora 98765-4", conta: "1" })).toBe("Cora •••7654");
     expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Obras 2026", conta: "1" })).toBe("Obras 2026");
-    expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Ag 0001 CC 12.345.678-9", conta: "1" })).toBe("Ag 0001 CC •••6789");
+    expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Ag 0001 CC 12.345.678-9", conta: "1" })).toBe("Ag ••• CC •••"); // QA4: perto de ag/cc, nada de dígito
   });
 
   it("matriz × filial: o painel e o emissor usam a MESMA precedência (a filial segue a matriz)", async () => {

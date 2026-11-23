@@ -151,7 +151,8 @@ describe("QA3 S-6 — receita que deixa de ser somada (com banco)", () => {
     const p = await prospecta();
     expect(p.receitaCentavos).toBe(7_000_00);
     expect(p.foraDaSoma).toMatchObject({ transferencias: 1, transferenciasCentavos: 40_000_00 });
-    expect(p.transferenciasPorQuem).toEqual([{ quem: "Colaboradora Ana", entradas: 1, centavos: 40_000_00 }]);
+    expect(p.transferenciasPorQuem).toMatchObject([{ quem: "Colaboradora Ana", entradas: 1, centavos: 40_000_00 }]); // QA4 (R4): + ultimaMarcacaoEm
+    expect(p.transferenciasPorQuem[0]!.ultimaMarcacaoEm).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
     expect(p.possiveisTransferencias).toEqual({ centavos: 7_000_00, entradas: 1 });
   });
 

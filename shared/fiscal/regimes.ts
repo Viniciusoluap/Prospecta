@@ -124,6 +124,9 @@ export const percentualDe = (receitaCentavos: number, limiteCentavos: number) =>
 // ── Ano em Brasília e projeção ───────────────────────────────────────────────────────────────────────────────────────────────
 
 const dataBrasilia = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+/** "20/11/2026 12:00" em Brasília (QA4 S-6, R4: quando foi a marcação). */
+const dataHoraBrasilia = (d: Date) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d).replace(",", "");
 export const anoEmBrasilia = (agora: Date) => Number(dataBrasilia(agora).slice(0, 4));
 const bissexto = (a: number) => (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0;
 
@@ -224,6 +227,9 @@ export const finalDaConta = (conta: string | null | undefined) => {
   const d = (conta ?? "").replace(/\D/g, "");
   return d.length >= 4 ? `•••${d.slice(-4)}` : null;
 };
+/** Rótulo de agência/conta seguido do número (com qualquer separador que não seja letra). */
+const PERTO_DE_AGENCIA_OU_CONTA = new RegExp(
+  "(?<![\\p{L}\\p{Nd}])(ag[eê]ncia|ag|c/c|cc|conta|op)(?!\\p{L})([^\\p{L}\\p{Nd}]*)(\\p{Nd}(?:[^\\p{L}]*\\p{Nd})*)", "giu");
 /**
  * QA S-6 (A9): nome de conta que pode sair do cadastro (painel de limites, leitura e avisos da Dolores): o apelido, se houver; senão
  * o banco + o final mascarado. NUNCA o número inteiro nem a descrição livre (pode ter número digitado). Dado bancário sempre mascarado.
@@ -231,7 +237,9 @@ export const finalDaConta = (conta: string | null | undefined) => {
 export function nomeSeguroDaConta(c: { apelido?: string | null; banco: string; conta?: string | null }): string {
   // QA2 S-6 (N5): o apelido é texto livre — sequência de 5+ dígitos (com ou sem pontuação) vira •••final (os 4 últimos), nunca vai inteira
   // QA3 (Q4): NFKC antes (dígitos de largura total/Unicode viram 0-9) e QUALQUER separador que não seja letra junta os blocos de dígitos
-  const apelido = (c.apelido ?? "").normalize("NFKC").trim().replace(new RegExp("\\p{Nd}(?:[^\\p{L}]*\\p{Nd})?", "gu"), m => {
+  // QA4 S-6 (baixo): perto de "ag", "agência", "cc", "c/c", "conta" ou "op", 4+ dígitos são agência/conta — saem inteiros (sem final)
+  const apelido = (c.apelido ?? "").normalize("NFKC").trim().replace(PERTO_DE_AGENCIA_OU_CONTA, (m, rotulo: string, sep: string, num: string) =>
+    num.replace(new RegExp("[^\\p{Nd}]", "gu"), "").length >= 4 ? `${rotulo}${sep}•••` : m).replace(new RegExp("\\p{Nd}(?:[^\\p{L}]*\\p{Nd})?", "gu"), m => {
     const d = Array.from(m.replace(new RegExp("[^\\p{Nd}]", "gu"), ""));
     return d.length >= 5 ? `•••${d.slice(-4).join("")}` : m;
   });
@@ -247,6 +255,8 @@ export function nomeSeguroDaConta(c: { apelido?: string | null; banco: string; c
  * QA S-6 (A2): só vale quando o texto COMEÇA pela palavra (é como o banco/sistema escreve a linha: "ESTORNO PIX", "Pix devolvido"); a
  * palavra no meio ("PIX RECEBIDO JOAO - cheque devolvido…") é mensagem de quem pagou e não tira nada da soma. A apuração só passa o
  * texto do LANÇAMENTO (nunca a descrição da movimentação, onde vem a mensagem do pagador). Na dúvida, conta (lado seguro).
+ * QA4 S-6 (R3): na apuração, o estorno só sai da soma quando o texto do LANÇAMENTO **e** o do BANCO (movimentação) dizem estorno
+ * (`estornoConfirmado`): a descrição do lançamento é editável na tela e, sozinha, não tira receita.
  */
 export function ehEstorno(...textos: (string | null | undefined)[]): boolean {
   return textos.some(x => {
@@ -254,6 +264,12 @@ export function ehEstorno(...textos: (string | null | undefined)[]): boolean {
     return /^(estorno|estornad[oa]|estornos|devolucao|devolucoes|devolvid[oa]|chargeback|reembolso de pix|pix devolvido)\b/.test(t);
   });
 }
+
+/**
+ * QA4 S-6 (R3): estorno que sai da soma — o lançamento E o banco dizem estorno/devolução (os dois começando pela palavra). Lançamento sem
+ * movimentação (sem texto do banco) nunca é estorno confirmado: conta (lado seguro).
+ */
+export const estornoConfirmado = (r: { descricao: string | null; txDescricao?: string | null }) => ehEstorno(r.descricao) && ehEstorno(r.txDescricao);
 
 export type ContaParaSoma = { id: number; banco: string; apelido: string | null; descricao: string | null; conta: string | null; empresaCnpj: string | null; ativo: boolean };
 export type ReceitaParaSoma = {
@@ -266,6 +282,8 @@ export type ReceitaParaSoma = {
   marcadaTransferencia?: boolean;
   /** Quem marcou (auditoria da marcação; null = sem registro: marcação automática ou anterior à auditoria). Só para a tela. */
   marcadaPor?: string | null;
+  /** QA4 S-6 (R4): quando foi a marcação auditada (null = sem registro). Só para a tela. */
+  marcadaEm?: Date | null;
 };
 /** Rótulo de quem marcou quando não há registro da marcação. */
 export const MARCADA_SEM_REGISTRO = "sem registro (marcação automática da importação/regra, ou anterior à auditoria)";
@@ -273,11 +291,19 @@ export const MARCADA_SEM_REGISTRO = "sem registro (marcação automática da imp
  * Saída do extrato. `classificacao` (QA S-6, A1): "despesa" = tem lançamento de despesa no BPO (pagamento a fornecedor/empreiteiro: NUNCA
  * casa com uma entrada); "transferencia" = marcada como Transferência interna; null = sem lançamento (ainda não classificada).
  */
-export type DebitoParaSoma = { txId: number; contaId: number; valorCentavos: number; data: Date; classificacao?: "despesa" | "transferencia" | null };
+export type DebitoParaSoma = {
+  txId: number; contaId: number; valorCentavos: number; data: Date; classificacao?: "despesa" | "transferencia" | null;
+  /** QA4 S-6 (R4): quem marcou a SAÍDA como Transferência interna e quando (auditoria; null = sem registro). Só para a tela. */
+  marcadaPor?: string | null; marcadaEm?: Date | null;
+};
 // QA2 S-6 (N1): SÓ a saída MARCADA como Transferência interna tira a entrada da soma. Sem classificação ("a classificar", sem lançamento),
 // a entrada CONTA e aparece como "possível transferência" para o dono conferir; despesa nunca casa.
-/** Crédito do extrato ainda "a classificar" ou sem lançamento (QA S-6, A6): não some — vira pendência com valor e entra no total possível. */
-export type CreditoPendente = { txId: number; contaId: number; valorCentavos: number; data: Date };
+/**
+ * Crédito do extrato ainda "a classificar" ou sem lançamento (QA S-6, A6): não some — vira pendência com valor e entra no total possível.
+ * QA4 S-6 (R1/R2): `motivo` "diferenca" = o crédito TEM lançamento, mas o banco recebeu mais do que os lançamentos levam para a soma
+ * (lançamento editado para baixo, ou que voltou a "não pago"): a diferença é pendência, nunca some.
+ */
+export type CreditoPendente = { txId: number; contaId: number; valorCentavos: number; data: Date; motivo?: "a_classificar" | "diferenca" };
 
 /** Quantos créditos a classificar a apuração lista um a um (os maiores). */
 export const MAX_PENDENTES_LISTADOS = 20;
@@ -311,8 +337,18 @@ export type ApuracaoEmpresa = {
    * Transferência interna SEM par, ou entrada comum com uma saída de mesmo valor (sem classificação ou marcada sem par) em outra conta dela.
    */
   possiveisTransferencias: { centavos: number; entradas: number };
-  /** QA3 S-6 (Q3): entradas excluídas como transferência (par marcado × marcado), por quem marcou a ENTRADA. */
-  transferenciasPorQuem: { quem: string; entradas: number; centavos: number }[];
+  /**
+   * QA3 S-6 (Q3) / QA4 (R4): entradas excluídas como transferência (par marcado × marcado), por quem marcou a ENTRADA e a SAÍDA (um nome só
+   * quando é a mesma pessoa), com a última marcação do grupo (data e hora de Brasília; null = sem registro).
+   */
+  transferenciasPorQuem: { quem: string; entradas: number; centavos: number; ultimaMarcacaoEm: string | null }[];
+  /**
+   * QA4 S-6 (R3): entradas cujo LANÇAMENTO diz estorno/devolução mas o texto do BANCO não diz — CONTAM na receita (lado seguro) e ficam
+   * para o dono conferir.
+   */
+  estornosParaConferir: { centavos: number; entradas: number };
+  /** QA4 S-6 (R1/R2): créditos com lançamento em que o banco recebeu mais do que o lançamento leva (já somados em aClassificar). */
+  diferencasDoExtrato: { centavos: number; movimentos: number };
   projecaoCentavos: number; projecaoConfiavel: boolean;
   limites: ApuracaoLimite[];
 };
@@ -327,7 +363,8 @@ export type Apuracao = {
    * QA S-6 (A6): TODOS os créditos do ano ainda a classificar/sem lançamento (de qualquer conta), com os maiores um a um (valor e data;
    * sem descrição nem número de conta) — pendência visível na tela.
    */
-  aClassificar: { centavos: number; movimentos: number; maiores: { txId: number; contaId: number; raiz: string | null; valorCentavos: number; data: string }[] };
+  aClassificar: { centavos: number; movimentos: number;
+    maiores: { txId: number; contaId: number; raiz: string | null; valorCentavos: number; data: string; motivo: "a_classificar" | "diferenca" }[] };
   /** Receita do Financeiro ("Receita realizada": entradas e comissões pagas em financial_transactions) — sem conta, sem empresa: pendência. */
   financeiro: { receitaCentavos: number; lancamentos: number };
   aviso: string;
@@ -339,7 +376,8 @@ export const AVISO_APURACAO =
 /**
  * Soma a receita do ano por EMPRESA (todas as contas dela), aplica o limite do regime vigente hoje e calcula a projeção pelo ritmo do ano.
  * - Entra: lançamento pago que não é despesa (mesma base da "Receita realizada" da aba; reembolso entra e aparece à parte).
- * - Sai: estorno/devolução (pelo texto do LANÇAMENTO, começando pela palavra); entrada casada com uma saída de mesmo valor, em até 2 dias,
+ * - Sai: estorno/devolução (o texto do LANÇAMENTO e o do BANCO começando pela palavra — QA4 R3; só o lançamento dizendo, conta e fica
+ *   em "estornos para conferir"); entrada casada com uma saída de mesmo valor, em até 2 dias,
  *   de OUTRA conta da MESMA empresa, desde que a saída NÃO seja despesa lançada no BPO (transferência entre contas dela que não foi marcada
  *   como "Transferência interna" — a marcada nem vira lançamento). Saída com lançamento de despesa é pagamento: a entrada CONTA.
  * - Conta sem empresa, lançamento sem conta e a receita do Financeiro ficam à parte (pendências), nunca somados numa empresa por chute.
@@ -369,15 +407,17 @@ export function apurarReceitas(p: {
   }
   const usados = new Set<number>();
 
-  type Acumulado = { receita: number; reembolsos: number; n: number; trCent: number; tr: number; esCent: number; es: number; possCent: number; poss: number };
-  const zero = (): Acumulado => ({ receita: 0, reembolsos: 0, n: 0, trCent: 0, tr: 0, esCent: 0, es: 0, possCent: 0, poss: 0 });
+  type Acumulado = { receita: number; reembolsos: number; n: number; trCent: number; tr: number; esCent: number; es: number; possCent: number; poss: number;
+    confCent: number; conf: number };
+  const zero = (): Acumulado => ({ receita: 0, reembolsos: 0, n: 0, trCent: 0, tr: 0, esCent: 0, es: 0, possCent: 0, poss: 0, confCent: 0, conf: 0 });
   const porEmpresa = new Map<string, Acumulado>(cnpjs.map(c => [c, zero()]));
   let semEmpresaReceita = 0;
   let semContaReceita = 0;
   let semContaN = 0;
 
   const ordenadas = [...p.receitas].sort((a, b) => a.pagoEm.getTime() - b.pagoEm.getTime() || a.lancamentoId - b.lancamentoId);
-  const porQuem = new Map<string, Map<string, { entradas: number; centavos: number }>>();
+  type PorQuem = { entradas: number; centavos: number; ultima: number | null };
+  const porQuem = new Map<string, Map<string, PorQuem>>();
   const casa = (r: ReceitaParaSoma, d: DebitoParaSoma) => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
     && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS;
   const contar = (acc: Acumulado, r: ReceitaParaSoma) => {
@@ -392,22 +432,27 @@ export function apurarReceitas(p: {
   for (const r of ordenadas) {
     if (r.tipo === "despesa" || !(r.valorCentavos > 0)) continue;
     if (r.contaId == null) {
-      if (!ehEstorno(r.descricao)) { semContaReceita += r.valorCentavos; semContaN++; }
+      if (!estornoConfirmado(r)) { semContaReceita += r.valorCentavos; semContaN++; }
       continue;
     }
     const e = empresaDaConta(r.contaId);
-    // QA S-6 (A2): só o texto do lançamento (r.descricao); r.txDescricao traz a mensagem de quem pagou e não decide nada
-    if (!e) { if (!ehEstorno(r.descricao)) semEmpresaReceita += r.valorCentavos; continue; }
+    // QA S-6 (A2) / QA4 (R3): estorno só com o lançamento E o banco dizendo (começando pela palavra); só o lançamento → conta e fica para conferir
+    if (!e) { if (!estornoConfirmado(r)) semEmpresaReceita += r.valorCentavos; continue; }
     const acc = porEmpresa.get(e)!;
-    if (ehEstorno(r.descricao)) { acc.esCent += r.valorCentavos; acc.es++; continue; }
+    if (estornoConfirmado(r)) { acc.esCent += r.valorCentavos; acc.es++; continue; }
+    if (ehEstorno(r.descricao)) { acc.confCent += r.valorCentavos; acc.conf++; }
     if (marcada(r)) {
       const par = (debitosPorEmpresa.get(e) ?? []).find(d => d.classificacao === "transferencia" && casa(r, d));
       if (par) {
         usados.add(par.txId); acc.trCent += r.valorCentavos; acc.tr++;
-        const quem = r.marcadaPor || MARCADA_SEM_REGISTRO;
+        // QA4 S-6 (R4): quem marcou a entrada E a saída (um nome só quando é a mesma pessoa)
+        const qe = r.marcadaPor || MARCADA_SEM_REGISTRO;
+        const qs = par.marcadaPor || MARCADA_SEM_REGISTRO;
+        const quem = qe === qs ? qe : `entrada: ${qe}; saída: ${qs}`;
         const m = porQuem.get(e) ?? porQuem.set(e, new Map()).get(e)!;
-        const x = m.get(quem) ?? m.set(quem, { entradas: 0, centavos: 0 }).get(quem)!;
+        const x = m.get(quem) ?? m.set(quem, { entradas: 0, centavos: 0, ultima: null }).get(quem)!;
         x.entradas++; x.centavos += r.valorCentavos;
+        for (const t of [r.marcadaEm, par.marcadaEm]) if (t && (x.ultima == null || t.getTime() > x.ultima)) x.ultima = t.getTime();
         continue;
       }
       // Q1: marcada SEM par numa conta da mesma empresa → CONTA (lado seguro) e fica para o dono conferir
@@ -426,14 +471,15 @@ export function apurarReceitas(p: {
   }
 
   // QA S-6 (A6): créditos a classificar/sem lançamento — nunca somem (pendência por empresa; sem empresa, na pendência geral)
-  const aClassificar = new Map<string, { centavos: number; n: number }>();
+  const aClassificar = new Map<string, { centavos: number; n: number; difCent: number; dif: number }>();
   let semEmpresaAClassificar = 0;
   const pendentesDoAno = (p.pendentes ?? []).filter(c => c.valorCentavos > 0 && anoEmBrasilia(c.data) === ano);
   for (const c of pendentesDoAno) {
     const e = empresaDaConta(c.contaId);
     if (!e) { semEmpresaAClassificar += c.valorCentavos; continue; }
-    const x = aClassificar.get(e) ?? aClassificar.set(e, { centavos: 0, n: 0 }).get(e)!;
+    const x = aClassificar.get(e) ?? aClassificar.set(e, { centavos: 0, n: 0, difCent: 0, dif: 0 }).get(e)!;
     x.centavos += c.valorCentavos; x.n++;
+    if (c.motivo === "diferenca") { x.difCent += c.valorCentavos; x.dif++; }
   }
 
   const empresas: ApuracaoEmpresa[] = cnpjs.map(raiz => {
@@ -447,7 +493,7 @@ export function apurarReceitas(p: {
     const regime = vigente?.regime ?? "a_confirmar";
     const regra = limitesDoRegime(regime);
     const acc = porEmpresa.get(raiz)!;
-    const pend = aClassificar.get(raiz) ?? { centavos: 0, n: 0 };
+    const pend = aClassificar.get(raiz) ?? { centavos: 0, n: 0, difCent: 0, dif: 0 };
     const possivel = acc.receita + pend.centavos;
     const proj = projecaoAnual(acc.receita, p.agora);
     return {
@@ -458,8 +504,11 @@ export function apurarReceitas(p: {
       aClassificar: { centavos: pend.centavos, movimentos: pend.n }, receitaPossivelCentavos: possivel,
       foraDaSoma: { transferenciasCentavos: acc.trCent, transferencias: acc.tr, estornosCentavos: acc.esCent, estornos: acc.es },
       possiveisTransferencias: { centavos: acc.possCent, entradas: acc.poss },
-      transferenciasPorQuem: Array.from((porQuem.get(raiz) ?? new Map<string, { entradas: number; centavos: number }>()).entries())
-        .map(([quem, x]) => ({ quem, ...x })).sort((a, b) => b.centavos - a.centavos || a.quem.localeCompare(b.quem)),
+      transferenciasPorQuem: Array.from((porQuem.get(raiz) ?? new Map<string, PorQuem>()).entries())
+        .map(([quem, x]) => ({ quem, entradas: x.entradas, centavos: x.centavos, ultimaMarcacaoEm: x.ultima == null ? null : dataHoraBrasilia(new Date(x.ultima)) }))
+        .sort((a, b) => b.centavos - a.centavos || a.quem.localeCompare(b.quem)),
+      estornosParaConferir: { centavos: acc.confCent, entradas: acc.conf },
+      diferencasDoExtrato: { centavos: pend.difCent, movimentos: pend.dif },
       projecaoCentavos: proj.centavos, projecaoConfiavel: proj.confiavel,
       limites: limitesAcompanhados(regime).map(l => ({ ...l, percentual: percentualDe(acc.receita, l.valorCentavos), faixa: faixaDoLimite(acc.receita, l.valorCentavos, l.faixas),
         faltaCentavos: Math.max(0, l.valorCentavos - acc.receita), projecaoPercentual: percentualDe(proj.centavos, l.valorCentavos),
@@ -475,7 +524,8 @@ export function apurarReceitas(p: {
     semConta: { receitaCentavos: semContaReceita, lancamentos: semContaN },
     aClassificar: { centavos: pendentesDoAno.reduce((t, c) => t + c.valorCentavos, 0), movimentos: pendentesDoAno.length,
       maiores: [...pendentesDoAno].sort((a, b) => b.valorCentavos - a.valorCentavos || a.txId - b.txId).slice(0, MAX_PENDENTES_LISTADOS)
-        .map(c => ({ txId: c.txId, contaId: c.contaId, raiz: empresaDaConta(c.contaId), valorCentavos: c.valorCentavos, data: dataBrasilia(c.data) })) },
+        .map(c => ({ txId: c.txId, contaId: c.contaId, raiz: empresaDaConta(c.contaId), valorCentavos: c.valorCentavos, data: dataBrasilia(c.data),
+          motivo: c.motivo ?? "a_classificar" as const })) },
     financeiro: { receitaCentavos: Math.max(0, p.financeiro?.receitaCentavos ?? 0), lancamentos: Math.max(0, p.financeiro?.lancamentos ?? 0) },
     aviso: AVISO_APURACAO,
   };

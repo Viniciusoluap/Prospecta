@@ -236,7 +236,7 @@ describe("QA S-6 — correções (regras puras)", () => {
     expect([teto.faixa, teto.faixaPossivel]).toEqual([0, 70]);
     expect(a.semEmpresa.aClassificarCentavos).toBe(50_00);
     expect(a.aClassificar).toMatchObject({ centavos: 1_000_050_00, movimentos: 2 });
-    expect(a.aClassificar.maiores[0]).toEqual({ txId: 7, contaId: 1, raiz: "41865900", valorCentavos: 1_000_000_00, data: "2026-10-10" });
+    expect(a.aClassificar.maiores[0]).toEqual({ txId: 7, contaId: 1, raiz: "41865900", valorCentavos: 1_000_000_00, data: "2026-10-10", motivo: "a_classificar" });
   });
 
   it("A9: nome seguro da conta — apelido, ou banco + 4 últimos dígitos mascarados; nunca descrição nem número inteiro", () => {
