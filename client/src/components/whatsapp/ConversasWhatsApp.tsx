@@ -207,6 +207,10 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
   );
 }
 
+function identificadorParaExclusao(conversa: { numero: string; registroId: number }) {
+  return conversa.numero || `tentativa:${conversa.registroId}`;
+}
+
 function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
   const [numero, setNumero] = useState<string | null>(numeroInicial ?? null);
@@ -257,7 +261,8 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
   const excluirLote = trpc.whatsapp.excluirConversas.useMutation({
     onSuccess: (r, v) => {
       toast.success(`${r.conversas} conversa(s) excluída(s) (${r.apagadas} mensagem(ns)).`);
-      if (numero && v.numeros.some(n => chaveDaConversa(n) === chaveDaConversa(numero))) setNumero(null);
+      if (numero && v.numeros.some(n => !n.startsWith("tentativa:") && chaveDaConversa(n) === chaveDaConversa(numero))) setNumero(null);
+      if (registroSemDestino && v.numeros.includes(`tentativa:${registroSemDestino}`)) setRegistroSemDestino(null);
       setSelecionadas([]); setConfirmarLote(false);
       utils.whatsapp.conversas.invalidate();
     },
@@ -281,11 +286,11 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
   const atual = (conversas.data ?? []).find(c => numero && mesmaConversa(c.numero, numero));
   const semNumero = Boolean(numero && ehConversaSemNumero(numero));
   const tentativa = conversas.data?.find(c => !c.numero && c.registroId === registroSemDestino);
-  const visiveis = lista.map(c => c.numero).filter(Boolean);
+  const visiveis = lista.map(identificadorParaExclusao);
   const todasVisiveis = visiveis.length > 0 && visiveis.every(n => selecionadas.includes(n));
   // Conversa que sumiu (excluída em outra aba, por exemplo) sai da seleção.
   useEffect(() => {
-    if (conversas.data) setSelecionadas(s => podarSelecao(s, conversas.data.map(c => c.numero)));
+    if (conversas.data) setSelecionadas(s => podarSelecao(s, conversas.data.map(identificadorParaExclusao)));
   }, [conversas.data]);
 
   return (
@@ -311,8 +316,8 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
           {lista.map(c => (
             <div key={c.numero || c.registroId} className={`flex items-stretch border-b border-white/5 ${numero && mesmaConversa(c.numero, numero) ? "bg-[#C9A961]/10" : ""}`}>
               <label className="flex items-center pl-3">
-                <input type="checkbox" className="accent-[#C9A961]" disabled={!c.numero} checked={selecionadas.includes(c.numero)}
-                  onChange={() => setSelecionadas(s => alternarItem(s, c.numero))} aria-label={`Selecionar conversa com ${c.nome ?? formatar(c.numero)}`} />
+                <input type="checkbox" className="accent-[#C9A961]" checked={selecionadas.includes(identificadorParaExclusao(c))}
+                  onChange={() => setSelecionadas(s => alternarItem(s, identificadorParaExclusao(c)))} aria-label={`Selecionar conversa com ${c.nome ?? formatar(c.numero)}`} />
               </label>
               <button type="button" aria-pressed={c.numero ? numero === c.numero : registroSemDestino === c.registroId} onClick={() => { setRegistroSemDestino(c.numero ? null : c.registroId); setNumero(c.numero || null); setTexto(""); }} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
                 <div className="flex items-center justify-between gap-2">
@@ -322,8 +327,14 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
                 <p className="text-xs text-gray-300 truncate">{c.ultima}</p>
                 <p className="text-[11px] text-gray-400">{hora(c.quando)}</p>
               </button>
-              <button type="button" title="Excluir conversa" aria-label={`Excluir conversa com ${c.nome ?? formatar(c.numero)}`} disabled={!c.numero || excluir.isPending}
-                onClick={() => confirmarExclusao(c.numero, c.nome)} className="px-3 text-gray-400 hover:text-red-400">
+              <button type="button" title="Excluir conversa" aria-label={`Excluir conversa com ${c.nome ?? formatar(c.numero)}`} disabled={excluir.isPending || excluirLote.isPending}
+                onClick={() => {
+                  if (c.numero) {
+                    confirmarExclusao(c.numero, c.nome);
+                  } else if (window.confirm(`Excluir esta tentativa de envio para ${c.nome ?? "o cliente"}?`)) {
+                    excluirLote.mutate({ numeros: [identificadorParaExclusao(c)] });
+                  }
+                }} className="px-3 text-gray-400 hover:text-red-400">
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
