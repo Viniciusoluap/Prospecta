@@ -9,8 +9,9 @@ import type { FiscalEmissor } from "../../drizzle/schema-fiscal.js";
 import {
   CODIGOS_ATIVIDADE_SIMPLES, FIN_NFSE_REGULAR, NAMESPACE_NFSE, OP_SIMPLES, PADRAO_ID_DPS, PADRAO_NUMERO_DPS, SERIE_MAX_API, SERIE_MIN_API, TIPO_INSCRICAO_ID, TP_AMB,
   TP_EMIT_PRESTADOR, VARIANTE_DO_AMBIENTE, VERSAO_APLICATIVO, VERSAO_LEIAUTE_DPS,
-  type EntradaDps, type ParametrosContador, type VarianteLeiaute,
+  type AliquotaSimplesDps, type EntradaDps, type ParametrosContador, type VarianteLeiaute,
 } from "../../shared/fiscal/dps-campos.js";
+import { aliquotaTextoParaDps } from "../../shared/fiscal/simples.js";
 import type { NotaDetalhada } from "./notas.js";
 
 export class ErroDps extends Error {
@@ -108,6 +109,16 @@ export function faltasDps(e: EntradaDps): string[] {
   if (simples && !(CODIGOS_ATIVIDADE_SIMPLES as readonly string[]).includes(atv ?? "")) {
     f.push("código da atividade do Simples (cAtvSN: 7, 9, 12 ou 13) no tipo de serviço — contador");
   }
+  // S-8: alíquota do Simples calculada pelo sistema (não o número fixo do tipo). Sem cálculo, a DPS do Simples não sai.
+  if (simples) {
+    const a = e.aliquotaSimples;
+    if (!a) f.push("alíquota do Simples calculada pelo sistema (RBT12 × anexo do tipo de serviço)");
+    else {
+      if (a.falta) f.push(a.falta);
+      if (e.ambiente === "producao" && !a.receitaCompleta) f.push("receita dos 12 meses completa para o RBT12 (contas bancárias por empresa — S-6)");
+      if (e.ambiente === "producao" && a.inicioAtividadeInformado !== true) f.push("data de início de atividade da empresa (Dados fiscais do perfil › Folha e início)");
+    }
+  }
   // 7.02/7.05 (construção): ISS no local da obra e grupo "obra" obrigatório (Anexo I, MUN.INCID INFO.SERV.). Hoje o
   // sistema informa a obra pelo CNO; CIB ou endereço da obra ficam para quando houver onde guardá-los.
   if (exigeGrupoObra(e) && vazio(e.servico.cno)) f.push("CNO da obra (grupo \"obra\" obrigatório para os itens 7.02 e 7.05)");
@@ -135,6 +146,12 @@ export function exigeGrupoObra(e: Pick<EntradaDps, "servico">): boolean {
  * prest/regTrib, logo depois do regApTribSN. Ajustar só aqui quando conferido no XSD da produção restrita.
  */
 const CATVSN_EM_REGTRIB = true;
+
+/** pAliq: emissor do Simples usa a alíquota calculada (S-8); os outros regimes, a alíquota do tipo de serviço. */
+export function aliquotaDaDps(e: Pick<EntradaDps, "regimeTributario" | "aliquotaIss" | "aliquotaSimples">): string | null {
+  // QA S-8 (baixo): 2 casas no pAliq (CASAS_PALIQ, shared/fiscal/simples.ts), nos dois casos.
+  return aliquotaTextoParaDps(e.regimeTributario === "simples_nacional" ? e.aliquotaSimples?.aliquotaIss ?? null : e.aliquotaIss);
+}
 
 const tag = (nome: string, valor: string | null | undefined) => (vazio(valor) ? "" : `<${nome}>${escaparXml(String(valor).trim())}</${nome}>`);
 
@@ -181,7 +198,7 @@ export function serializarDps(e: EntradaDps, id: string, variante: VarianteLeiau
     `<valores>`,
     `<vServPrest>`, tag("vServ", valorDecimal(e.valorCentavos)), `</vServPrest>`,
     `<trib>`,
-    `<tribMun>`, tag("tribISSQN", p.tribIssqn), tag("tpRetISSQN", p.tpRetIssqn), tag("pAliq", e.aliquotaIss), `</tribMun>`,
+    `<tribMun>`, tag("tribISSQN", p.tribIssqn), tag("tpRetISSQN", p.tpRetIssqn), tag("pAliq", aliquotaDaDps(e)), `</tribMun>`,
     `<totTrib>`, tag("indTotTrib", p.indTotTrib), `</totTrib>`,
     `</trib>`,
     `</valores>`,
@@ -206,6 +223,8 @@ export function montarDps(e: EntradaDps): { id: string; xml: string; variante: V
  */
 export function entradaDaNota(nota: NotaDetalhada, emissor: FiscalEmissor, o: {
   numero: number | null; emitidoEm: Date; parametros: ParametrosContador; cno?: string | null;
+  /** S-8: resultado de `paraDps(aliquotaSimplesDaNota(...))` (server/fiscal/simples.ts). */
+  aliquotaSimples?: AliquotaSimplesDps | null;
 }): EntradaDps {
   return {
     ambiente: emissor.ambiente,
@@ -227,6 +246,7 @@ export function entradaDaNota(nota: NotaDetalhada, emissor: FiscalEmissor, o: {
     valorCentavos: nota.valorCentavos,
     regimeTributario: nota.emissor?.regime ?? null,
     aliquotaIss: nota.tipoServico?.aliquotaIss ?? null,
+    aliquotaSimples: o.aliquotaSimples ?? null,
     parametros: o.parametros,
   };
 }

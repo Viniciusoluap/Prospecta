@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { FileText, History, RefreshCw } from "lucide-react";
+import { Calculator, FileText, History, RefreshCw } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { AliquotaSimples } from "./AliquotaSimples";
 import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota } from "@shared/fiscal/motivos";
 import { ALERTA_TOMADOR_MUDOU } from "@shared/fiscal/origens";
 import { AVISO_EMISSAO_INDISPONIVEL, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
@@ -86,6 +87,8 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
   const [depois, setDepois] = useState<{ nota: Nota; ate: string } | null>(null);
   const [edicao, setEdicao] = useState<{ nota: Nota; valor: number; descricao: string; municipioNome: string; municipioUf: string; emissorId: string; tipoServicoId: string } | null>(null);
   const [historico, setHistorico] = useState<Nota | null>(null);
+  // S-8: "Alíquota do Simples — como foi calculada" (só para emissor do Simples).
+  const [simples, setSimples] = useState<Nota | null>(null);
   const hist = trpc.fiscal.notas.historico.useQuery({ id: historico?.id ?? 0 }, { enabled: Boolean(historico) });
 
   const naoEmitir = trpc.fiscal.notas.naoEmitir.useMutation({ onSuccess: () => { setSemNota(null); toast.success("Marcada como sem nota."); invalidar(); }, onError: erro });
@@ -218,6 +221,9 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                   <div className="flex flex-wrap gap-1">
                     <Button size="sm" variant="outline" onClick={() => void previa(n)}><FileText className="mr-1 h-4 w-4" /> Prévia</Button>
                     <Button size="sm" variant="outline" onClick={() => setHistorico(n)}><History className="mr-1 h-4 w-4" /> Histórico</Button>
+                    {n.emissor?.regime === "simples_nacional" && (
+                      <Button size="sm" variant="outline" onClick={() => setSimples(n)}><Calculator className="mr-1 h-4 w-4" /> Alíquota do Simples</Button>
+                    )}
                     {podeDecidir && (n.status === "A_DECIDIR" || n.status === "ADIADA") && (
                       <>
                         <Button size="sm" disabled title={AVISO_EMISSAO_INDISPONIVEL}>Emitir (disponível após homologação)</Button>
@@ -357,6 +363,13 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                 }}>Salvar ajustes</Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(simples)} onOpenChange={o => !o && setSimples(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Alíquota do Simples — {simples?.emissor?.razaoSocial ?? "empresa"}</DialogTitle></DialogHeader>
+          <div className="max-h-[70vh] overflow-y-auto">{simples && <AliquotaSimples notaId={simples.id} />}</div>
         </DialogContent>
       </Dialog>
 

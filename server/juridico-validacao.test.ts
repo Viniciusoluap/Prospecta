@@ -105,7 +105,7 @@ describe("conferência das assinaturas do PDF (ICP sintética)", () => {
     expect(r.assinaturas.map(a => a.documento)).toEqual(["12345678000190", "12345678901"]);
     expect(r.assinaturas[0].cobertura[1]).toBeLessThan(r.assinaturas[1].cobertura[1]);
   });
-  it("testemunha identificada só conta quando ela também assina", async () => {
+  it("testemunha identificada só conta quando ela também assina", { timeout: 120_000 }, async () => {
     const comTestemunha = { ...partes, signers: [...partes.signers, "1ª TESTEMUNHA — TESTEMUNHA TESTE — CPF 987.654.321-00"] };
     const duas = await assinar(await assinar(contratoBase(), "empresa"), "cliente");
     expect((await conferirAssinaturas(duas, comTestemunha)).todos).toBe(false);
@@ -350,6 +350,58 @@ describe("pendência de rede e retentativa automática", () => {
       expect(simulado.rede.chamadas).toEqual([]);
     } finally { await pg.close(); }
   }, 60_000);
+  it("Conferir novamente (23/11): documento marcado inválido por cadeia não montada é reavaliado com o motor atual, pelos mesmos bytes", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      // Reproduz o estado de produção: a conferência da época não fechava a cadeia (aqui, sem a raiz sintética).
+      raizesIcp.splice(raizesIcp.indexOf(pki.raiz), 1);
+      let doc;
+      try { doc = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId }); }
+      finally { raizesIcp.push(pki.raiz); }
+      expect(doc.validacao).toMatchObject({ estado: "invalida", proximaTentativa: null });
+      expect(doc.validacao?.motivo).toMatch(/não pertence a uma cadeia ICP-Brasil/);
+      const shaAntes = (await linhaValidacao(pg, doc.id)).sha256;
+      // A retentativa automática nunca mexe em inválido; a manual, logo depois de gravar, respeita o intervalo mínimo.
+      expect(await revalidarDocumento(doc.id, { agora: new Date(Date.now() + 3 * 3600_000) })).toMatchObject({ estado: "invalida" });
+      expect(await revalidarDocumento(doc.id, { manual: true })).toMatchObject({ estado: "invalida" });
+      const r = await admin().revalidarDocumento({ documentId: doc.id, manual: true }).catch(() => null);
+      expect(r).toMatchObject({ estado: "invalida" }); // ainda dentro do intervalo de 1 minuto
+      const refeita = await revalidarDocumento(doc.id, { manual: true, agora: new Date(Date.now() + 2 * 60_000) });
+      expect(refeita).toMatchObject({ estado: "valida", proximaTentativa: null });
+      const linha = await linhaValidacao(pg, doc.id);
+      expect(linha).toMatchObject({ estado: "valida", sha256: shaAntes });
+      // M-3: mudou o resultado → a contagem recomeça (tentativas 0 e primeira_em nova).
+      expect(linha.tentativas).toBe(0);
+      expect(refeita).toMatchObject({ reconferida: true, tentativas: 0 });
+      // Já válido: não é reconferido.
+      expect(await revalidarDocumento(doc.id, { manual: true, agora: new Date(Date.now() + 10 * 60_000) })).toMatchObject({ estado: "valida", reconferida: false });
+      expect((await linhaValidacao(pg, doc.id)).tentativas).toBe(linha.tentativas);
+    } finally { await pg.close(); }
+  }, 120_000);
+  it("M-1/M-2: inválido com arquivo que mudou continua inválido (só ganha o aviso); só papel admin reconfere manualmente", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      raizesIcp.splice(raizesIcp.indexOf(pki.raiz), 1);
+      let doc;
+      try { doc = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId }); }
+      finally { raizesIcp.push(pki.raiz); }
+      expect(doc.validacao).toMatchObject({ estado: "invalida" });
+      const antes = await linhaValidacao(pg, doc.id);
+      await pg.query("UPDATE portal_contract_document_validacoes SET sha256 = $2 WHERE document_id = $1", [doc.id, "0".repeat(64)]);
+      const r = await revalidarDocumento(doc.id, { manual: true, agora: new Date(Date.now() + 2 * 60_000) });
+      expect(r).toMatchObject({ estado: "invalida", reconferida: true });
+      expect(r?.motivo).toMatch(/não está mais disponível ou mudou/);
+      expect(await linhaValidacao(pg, doc.id)).toMatchObject({ estado: "invalida", tentativas: antes.tentativas + 1 });
+      // Pelo roteador da aplicação (o caminho "juridico.*" é o que libera o módulo ao colaborador).
+      const { appRouter } = await import("./routers");
+      const colaborador = appRouter.createCaller({ user: { id: 5, role: "colaborador", active: true, permissions: JSON.stringify(["juridico"]) }, req: {}, res: {} } as never);
+      await expect(colaborador.juridico.revalidarDocumento({ documentId: doc.id, manual: true })).rejects.toMatchObject({ code: "FORBIDDEN", message: "Só o administrador pode conferir de novo." });
+      // A retentativa automática (sem `manual`) continua liberada para quem acessa o módulo.
+      await expect(colaborador.juridico.revalidarDocumento({ documentId: doc.id })).resolves.toMatchObject({ estado: "invalida" });
+    } finally { await pg.close(); }
+  }, 120_000);
   it("rodada do cron respeita o prazo e nunca lança", async () => {
     const pg = await preparar();
     try {

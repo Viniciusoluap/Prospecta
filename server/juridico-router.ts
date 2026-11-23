@@ -221,8 +221,16 @@ export const juridicoRouter = router({
     cadeia: z.array(z.string().min(100).max(16_384)).max(5).default([]),
   })).mutation(({ ctx, input }) => montarCadeiaPublica(ctx.user.id, input.certificado, input.cadeia)),
 
-  /** Retentativa automática (chamada pela tela ao abrir o contrato): só confere de novo pendência de rede cuja vez chegou. */
-  revalidarDocumento: adminProcedure.input(z.object({ documentId: z.number().int().positive() })).mutation(({ input }) => revalidarDocumento(input.documentId)),
+  /**
+   * Retentativa automática (chamada pela tela ao abrir o contrato): só confere de novo pendência de rede cuja vez chegou.
+   * Com `manual` ("Conferir novamente"): confere de novo documento pendente ou inválido, no máximo 1 vez por minuto, e
+   * SÓ para quem tem papel admin (decisão do dono: "só admin"; colaborador com permissão do painel não reconfere).
+   */
+  revalidarDocumento: adminProcedure.input(z.object({ documentId: z.number().int().positive(), manual: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => {
+      if (input.manual && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador pode conferir de novo." });
+      return revalidarDocumento(input.documentId, { manual: input.manual === true });
+    }),
 
   documentContent: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
     const [document] = await getDb().select().from(portalContractDocuments).where(eq(portalContractDocuments.id, input.id)).limit(1);
