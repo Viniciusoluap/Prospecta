@@ -41,7 +41,7 @@ const TABELAS = [
   "financialTransactions", "taxProfiles", "taxObligations", "retProjects",
 ];
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
-const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql");
+const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql"), M0171 = ler("0171_fiscal_historico_sem_xml.sql");
 
 const pasta = pastaDeTeste();
 let ddl = "";
@@ -189,9 +189,15 @@ const nota = async (id: number) => (await q<Record<string, unknown>>(`SELECT * F
 const posts = () => recebidos.filter(r => r.metodo === "POST" && r.caminho === "/nfse");
 const autor = { usuarioId: 1, via: "tela" as const };
 
-import { lerRetornoEmissao } from "./retorno.js";
-import { aliquotaUnica } from "./parametros-municipais.js";
-import { entradaEmitirAprovado, executarCancelarAprovado, executarEmitirAprovado } from "../dolores/acoes/fiscal.js";
+import { lerRetornoEmissao, lerRetornoEvento } from "./retorno.js";
+import { aliquotaMunicipalVigente, aliquotaUnica } from "./parametros-municipais.js";
+import { entradaEmitirAprovado, executarCancelarAprovado, executarEmitirAprovado, FRASE_EMISSAO_MUDOU } from "../dolores/acoes/fiscal.js";
+import { FRASE_AMBIENTE_MUDOU, FRASE_CANCELAMENTO_DESLIGADO, marcarVerificarManualmente, ORCAMENTO_EMISSAO_MS } from "./emissao.js";
+import { semValidadeJuridica } from "./danfse.js";
+import { ARQUIVOS_DO_VALIDADOR, ErroLeiaute, pastaRealDoValidador } from "./leiaute.js";
+import { existsSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { RESERVA_MINIMA_ENTRADA } from "../dolores/cerebro.js";
 
 const app = router({ fiscal: fiscalRouter });
@@ -239,10 +245,10 @@ describe("QA S-7 — travas (nada sai com qualquer uma fechada)", () => {
   });
   it("Dolores: emitir/cancelar fora do WhatsApp (tela/ponte) recusam antes de qualquer coisa; com EMISSAO_DISPONIVEL false, recusam sem rede", async () => {
     const ctxTela = { agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "tela" } as never;
-    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1 }, ctxTela, { emissaoDisponivel: true })).rejects.toThrow(/WhatsApp/);
+    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita", liberada: true }, ctxTela, { emissaoDisponivel: true })).rejects.toThrow(/WhatsApp/);
     await expect(executarCancelarAprovado({ notaFiscalId: 1, versao: 1, motivo: 1, justificativa: "Justificativa de teste longa" }, ctxTela, { emissaoDisponivel: true })).rejects.toThrow(/WhatsApp/);
     const ctxWa = { agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "whatsapp" } as never;
-    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1 }, ctxWa)).rejects.toThrow(/ativa/);
+    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita", liberada: true }, ctxWa)).rejects.toThrow(/ativa/);
     expect(recebidos).toHaveLength(0);
   });
 });
@@ -289,13 +295,35 @@ describe("QA S-7 — idempotência e segredo no retorno", () => {
 
   // ACHADO M2 (médio): a NFS-e devolvida é aceita como "desta DPS" mesmo SEM o grupo DPS/infDPS dentro (o Id só é conferido se existir)
   // e sem conferir o CNPJ do emitente nem o tpAmb. Resposta 2xx com outra NFS-e qualquer viraria EMITIDA com chave/número errados.
-  it.fails("ACHADO M2: NFS-e devolvida sem o grupo da DPS (ou de outro emitente) deve ser INCERTA, nunca autorizada", () => {
+  it("ACHADO M2 (corrigido): NFS-e devolvida sem o grupo da DPS (ou de outro emitente) deve ser INCERTA, nunca autorizada", () => {
     const chave = chaveDe("DPS210530221122233300018100001000000000000001", 1);
     const xml = `<?xml version="1.0" encoding="UTF-8"?><NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS${chave}"><nNFSe>1</nNFSe>`
       + `<emit><CNPJ>99888777000166</CNPJ><xNome>OUTRA EMPRESA</xNome></emit></infNFSe></NFSe>`;
     expect(chave).toHaveLength(50);
     const r = lerRetornoEmissao(201, JSON.stringify({ nfseXmlGZipB64: compactarXml(xml) }), "DPS210530221122233300018100001000000000000001");
     expect(r.tipo).toBe("incerta");
+    expect(lerRetornoEmissao(201, JSON.stringify({ nfseXmlGZipB64: compactarXml(xml) }), "DPS210530221122233300018100001000000000000001", { ambiente: "producao_restrita", cnpj: "11222333000181" }).tipo).toBe("incerta");
+  });
+  it("M2: com a DPS certa, só é autorizada com tpAmb e CNPJ do emitente conferidos; Id divergente, outro ambiente ou outro CNPJ → incerta", () => {
+    const dpsId = "DPS210530221122233300018100001000000000000001";
+    const chave = chaveDe(dpsId, 1);
+    const xml = (o: { id?: string; tpAmb?: string; cnpj?: string } = {}) => nfseDe(`<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${o.id ?? dpsId}"><tpAmb>${o.tpAmb ?? "2"}</tpAmb></infDPS></DPS>`, chave, 1)
+      .replace("<emit><CNPJ>11222333000181</CNPJ>", `<emit><CNPJ>${o.cnpj ?? "11222333000181"}</CNPJ>`);
+    const ler = (x: string, esperado?: { ambiente: "producao_restrita" | "producao"; cnpj: string }) => lerRetornoEmissao(201, JSON.stringify({ nfseXmlGZipB64: compactarXml(x) }), dpsId, esperado).tipo;
+    const certo = { ambiente: "producao_restrita" as const, cnpj: "11222333000181" };
+    expect(ler(xml(), certo)).toBe("autorizada");
+    expect(ler(xml())).toBe("incerta"); // sem o esperado: nunca autorizada
+    expect(ler(xml({ id: "DPS210530221122233300018100001000000000000002" }), certo)).toBe("incerta");
+    expect(ler(xml({ tpAmb: "1" }), certo)).toBe("incerta");
+    expect(ler(xml(), { ...certo, ambiente: "producao" })).toBe("incerta");
+    expect(ler(xml({ cnpj: "99888777000166" }), certo)).toBe("incerta");
+  });
+  it("B2: 408 e 429 são INCERTAS (consultar antes), não rejeição — na emissão e no evento", () => {
+    for (const st of [408, 429]) {
+      expect(lerRetornoEmissao(st, JSON.stringify({ erros: [{ codigo: "E0120" }] }), "DPS210530221122233300018100001000000000000001").tipo).toBe("incerta");
+      expect(lerRetornoEvento(st, "{}", "1".repeat(50)).tipo).toBe("incerto");
+    }
+    expect(lerRetornoEmissao(400, JSON.stringify({ erros: [{ codigo: "E0120" }] }), "DPS210530221122233300018100001000000000000001").tipo).toBe("rejeitada");
   });
 });
 
@@ -340,7 +368,7 @@ describe("QA S-7 — alíquota oficial", () => {
 
   // ACHADO I2 (importante): aliquotaMunicipalVigente ignora o AMBIENTE da consulta. Uma alíquota lida na PRODUÇÃO RESTRITA (base de
   // testes da Sefin) e aceita vale na DPS de PRODUÇÃO (nota com valor fiscal).
-  it.fails("ACHADO I2: alíquota consultada na produção restrita não pode valer numa DPS de produção", async () => {
+  it("ACHADO I2 (corrigido): alíquota consultada na produção restrita não pode valer numa DPS de produção", async () => {
     await pg.exec(PARAMS_PRODUCAO);
     await pg.exec(`INSERT INTO fiscal_parametros_municipais (emissor_id, consulta, municipio_ibge, codigo_servico, ambiente, http_status, aliquota, aliquota_digitada, situacao)
       VALUES (1, 'aliquota', '2105302', '171901', 'producao_restrita', 200, 2, NULL, 'aceita')`);
@@ -352,7 +380,7 @@ describe("QA S-7 — alíquota oficial", () => {
 
   // ACHADO M1 (médio): a consulta mais recente vale, mesmo que tenha FALHADO (HTTP 500 → "sem_valor"). Uma falha passageira troca, em
   // silêncio, a alíquota oficial já aceita pela digitada no tipo de serviço — contra "nunca sobrescrever em silêncio".
-  it.fails("ACHADO M1: consulta que falhou (HTTP 500, sem_valor) não pode derrubar em silêncio a alíquota oficial já aceita", async () => {
+  it("ACHADO M1 (corrigido): consulta que falhou (HTTP 500, sem_valor) não pode derrubar em silêncio a alíquota oficial já aceita", async () => {
     await pg.exec(`INSERT INTO fiscal_parametros_municipais (emissor_id, consulta, municipio_ibge, codigo_servico, ambiente, http_status, aliquota, aliquota_digitada, situacao)
       VALUES (1, 'aliquota', '2105302', '171901', 'producao_restrita', 200, 2, NULL, 'aceita'),
              (1, 'aliquota', '2105302', '171901', 'producao_restrita', 500, NULL, 5, 'sem_valor')`);
@@ -361,6 +389,24 @@ describe("QA S-7 — alíquota oficial", () => {
     try { await emitirNota(getDb(), { ...n, ...autor }, deps()); enviouADigitada = posts().length > 0 && dpsEnviada().includes("<pAliq>5.00</pAliq>"); }
     catch { /* recusar pedindo nova consulta/escolha também é aceitável */ }
     expect(enviouADigitada).toBe(false);
+    // e a oficial aceita (2%) é a que vale
+    expect(dpsEnviada()).toContain("<pAliq>2.00</pAliq>");
+  });
+  it("M1: resolverAliquotaIss nunca troca a oficial pela digitada em silêncio — sem_valor recusa pedindo nova consulta", async () => {
+    const ctx = { emissorCnpj: "11222333000181", competencia: "2026-11-01", municipioIncidenciaIbge: "2105302", tipoServico: { id: 1, itemLc116: "17.19", codigoAtividadeSimples: null, aliquotaIss: "5" } };
+    expect(await resolverAliquotaIss("lucro_presumido", { ...ctx, municipal: { aliquota: null, aliquotaDigitada: "5", situacao: "sem_valor" } })).toMatchObject({ aliquota: null, falta: expect.stringMatching(/busque as alíquotas oficiais de novo/) });
+    expect(await resolverAliquotaIss("lucro_presumido", { ...ctx, municipal: { aliquota: null, aliquotaDigitada: "5", situacao: "aceita" } })).toMatchObject({ aliquota: null });
+    expect(await resolverAliquotaIss("lucro_presumido", { ...ctx, municipal: { aliquota: "2", aliquotaDigitada: "5", situacao: "recusada" } })).toEqual({ aliquota: "5", fonte: "tipo_servico" });
+  });
+  it("I2/M1: a vigente filtra o ambiente e ignora as falhas (só falhas → nenhuma vigente)", async () => {
+    await pg.exec(`INSERT INTO fiscal_parametros_municipais (emissor_id, consulta, municipio_ibge, codigo_servico, ambiente, http_status, aliquota, aliquota_digitada, situacao)
+      VALUES (1, 'aliquota', '2105302', '171901', 'producao', 200, 3, NULL, 'aceita'),
+             (1, 'aliquota', '2105302', '171901', 'producao_restrita', 200, 2, NULL, 'aceita'),
+             (1, 'aliquota', '2105302', '171901', 'producao_restrita', 500, NULL, 5, 'sem_valor'),
+             (1, 'aliquota', '2105302', '171901', 'producao', 200, NULL, 5, 'sem_valor')`);
+    expect((await aliquotaMunicipalVigente(getDb(), "2105302", "171901", "producao_restrita"))).toMatchObject({ situacao: "aceita", aliquota: "2.0000" });
+    expect((await aliquotaMunicipalVigente(getDb(), "2105302", "171901", "producao"))).toMatchObject({ situacao: "aceita", aliquota: "3.0000" });
+    expect(await aliquotaMunicipalVigente(getDb(), "2105302", "999999", "producao")).toBeNull();
   });
 });
 
@@ -369,8 +415,132 @@ describe("QA S-7 — Dolores: a confirmação amarra o que foi mostrado", () => 
   // ambiente lido NA PREPARAÇÃO ("AMBIENTE DE TESTES, sem valor fiscal"); se o admin trocar o emissor para produção antes do "confirmo"
   // (a fila vale horas), a execução emite em PRODUÇÃO sem conferir — nota com valor fiscal que o dono não confirmou. A versão da NOTA não
   // muda quando o ambiente do EMISSOR muda.
-  it.fails("ACHADO I1: o item aprovado de emitir carrega o ambiente mostrado (e a execução recusa se mudou)", () => {
+  it("ACHADO I1 (corrigido): o item aprovado de emitir carrega o ambiente mostrado (e a execução recusa se mudou)", () => {
     expect(entradaEmitirAprovado.safeParse({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita" }).success).toBe(true);
+    expect(entradaEmitirAprovado.safeParse({ notaFiscalId: 1, versao: 1 }).success).toBe(false);
+    expect(entradaEmitirAprovado.parse({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita" }).liberada).toBe(false);
+  });
+  const ctxWa = () => ({ agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "whatsapp" }) as never;
+  it("I1: aprovado em produção restrita e o emissor virou produção antes do \"confirmo\" → recusa sem rede, nota intacta", async () => {
+    const n = await rascunho();
+    await pg.exec(`UPDATE fiscal_emissores SET ambiente = 'producao'`);
+    const antes = await nota(n.id);
+    await expect(executarEmitirAprovado({ notaFiscalId: n.id, versao: n.versao, ambiente: "producao_restrita", liberada: true }, ctxWa(), { emissaoDisponivel: true })).rejects.toThrow(FRASE_EMISSAO_MUDOU);
+    expect(await nota(n.id)).toMatchObject({ status: antes.status, versao: antes.versao, numero_dps: null });
+    expect(recebidos).toHaveLength(0);
+  });
+  it("I1: aprovado com a emissão NÃO liberada (\"nada sai\") e depois liberada → recusa; interruptor desligado depois do aprovado → recusa", async () => {
+    const n = await rascunho();
+    await expect(executarEmitirAprovado({ notaFiscalId: n.id, versao: n.versao, ambiente: "producao_restrita", liberada: false }, ctxWa(), { emissaoDisponivel: true })).rejects.toThrow(FRASE_EMISSAO_MUDOU);
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false`);
+    await expect(executarEmitirAprovado({ notaFiscalId: n.id, versao: n.versao, ambiente: "producao_restrita", liberada: true }, ctxWa(), { emissaoDisponivel: true })).rejects.toThrow(FRASE_EMISSAO_MUDOU);
+    expect(recebidos).toHaveLength(0);
+  });
+  it("I1: emitirNota com ambienteEsperado diferente do emissor recusa antes de reservar (corrida fechada também na reserva)", async () => {
+    const n = await rascunho();
+    await expect(emitirNota(getDb(), { ...n, ...autor, ambienteEsperado: "producao" }, deps())).rejects.toThrow(FRASE_AMBIENTE_MUDOU);
+    expect((await nota(n.id)).numero_dps).toBeNull();
+    expect(recebidos).toHaveLength(0);
+    expect((await emitirNota(getDb(), { ...n, ...autor, ambienteEsperado: "producao_restrita" }, deps())).situacao).toBe("emitida");
+  });
+});
+
+describe("QA S-7 — baixos (B1, B3, B4, B5, B6, B7, B8)", () => {
+  it("B1: nota presa em EMITINDO → admin marca \"verificar manualmente\": ERRO manual, emissor liberado, histórico, nada apagado; nova tentativa consulta antes", async () => {
+    const n = await rascunho();
+    modo = "pendurar";
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("incerta");
+    const presa = await nota(n.id);
+    expect(presa.status).toBe("EMITINDO");
+    // colaborador não pode; trava recente recusa
+    await expect(como("colaborador").fiscal.notas.verificarManualmente({ id: n.id, versao: Number(presa.versao) })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(marcarVerificarManualmente(getDb(), { id: n.id, versao: Number(presa.versao), ...autor }, { agoraFn: () => agora })).rejects.toThrow(/sendo emitida/);
+    agora = new Date(agora.getTime() + TRAVA_EMITINDO_MS + 1_000);
+    // emissor não troca de ambiente com nota EMITINDO
+    await expect(como("admin").fiscal.emissores.ambiente({ emissorId: 1, ambiente: "desligado" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const r = await marcarVerificarManualmente(getDb(), { id: n.id, versao: Number(presa.versao), ...autor }, { agoraFn: () => agora });
+    expect(r.mensagem).toMatch(/nada foi enviado nem apagado/);
+    const marcada = await nota(n.id);
+    expect(marcada).toMatchObject({ status: "ERRO", dps_id: presa.dps_id, numero_dps: presa.numero_dps });
+    expect((marcada.ultimo_erro as { manual?: boolean }).manual).toBe(true);
+    const hist = await q<{ acao: string; usuario_id: number }>(`SELECT acao, usuario_id FROM fiscal_notas_historico WHERE nota_id = $1 ORDER BY id DESC LIMIT 1`, [n.id]);
+    expect(hist[0]).toMatchObject({ acao: "erro", usuario_id: 1 });
+    // a Sefin TINHA gerado a nota: tentar de novo consulta e recupera, sem segundo POST
+    modo = "sucesso";
+    const postsAntes = posts().length;
+    expect((await emitirNota(getDb(), { id: n.id, versao: Number(marcada.versao), ...autor }, deps())).situacao).toBe("emitida");
+    expect(posts().length).toBe(postsAntes);
+    expect(geradas.size).toBe(1);
+  });
+  it("B3: orçamento total — sem tempo restante a chamada nem sai (resultado incerto, nota segue EMITINDO, nenhum POST)", async () => {
+    expect(ORCAMENTO_EMISSAO_MS).toBeLessThan(55_000);
+    const n = await rascunho();
+    const r = await emitirNota(getDb(), { ...n, ...autor }, { ...deps(), prazoFinalMs: Date.now() + 500 });
+    expect(r.situacao).toBe("incerta");
+    expect((await nota(n.id)).status).toBe("EMITINDO");
+    expect(posts()).toHaveLength(0);
+  });
+  it("B4: DANFSe com XML sem tpAmb legível ainda leva \"SEM VALIDADE JURÍDICA\" quando a nota foi emitida em produção restrita", () => {
+    expect(semValidadeJuridica(null, "producao_restrita")).toBe(true);
+    expect(semValidadeJuridica("1", "producao_restrita")).toBe(true);
+    expect(semValidadeJuridica("2", null)).toBe(true);
+    expect(semValidadeJuridica("1", "producao")).toBe(false);
+  });
+  it("B5: DANFSe pela Dolores segue DOLORES_MASCARAR_DADOS_PESSOAIS (como a prévia): ligado → documento do tomador mascarado; desligado → completo", async () => {
+    const n = await rascunho();
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("emitida");
+    const xml = String((await nota(n.id)).xml_nfse);
+    const descritor = Object.getOwnPropertyDescriptor(Array.prototype, "random");
+    if (descritor?.enumerable) Object.defineProperty(Array.prototype, "random", { ...descritor, enumerable: false });
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const { campoPessoal } = await import("../dolores/dados-pessoais.js");
+    const textoDe = async (pdf: Uint8Array) => String((await extractText(await getDocumentProxy(pdf), { mergePages: true })).text).replace(/\s+/g, " ");
+    const opcoes = { campo: (v: string, tipo: "cpf" | "cnpj" | "telefone" | "email") => campoPessoal(v, tipo, "whatsapp"), texto: (t: string) => t };
+    const antes = process.env.DOLORES_MASCARAR_DADOS_PESSOAIS;
+    try {
+      process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = "1";
+      const mascarado = await textoDe(gerarDanfsePdf(xml, { ambienteEmissao: "producao_restrita", dadosPessoais: opcoes }));
+      expect(mascarado).not.toContain("55.444.333/0001-22");
+      expect(mascarado).toContain("11.222.333/0001-81"); // o prestador (a própria empresa) não é dado pessoal de terceiro
+      process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = "0";
+      expect(await textoDe(gerarDanfsePdf(xml, { ambienteEmissao: "producao_restrita", dadosPessoais: opcoes }))).toContain("55.444.333/0001-22");
+    } finally {
+      if (antes === undefined) delete process.env.DOLORES_MASCARAR_DADOS_PESSOAIS; else process.env.DOLORES_MASCARAR_DADOS_PESSOAIS = antes;
+    }
+  });
+  it("B6: o histórico não copia xml_dps nem xml_nfse (0171)", async () => {
+    await pg.exec(M0171);
+    const n = await rascunho();
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("emitida");
+    const hist = await q<{ antes: Record<string, unknown> | null; depois: Record<string, unknown> }>(`SELECT antes, depois FROM fiscal_notas_historico WHERE nota_id = $1`, [n.id]);
+    expect(hist.length).toBeGreaterThan(1);
+    for (const h of hist) { expect(h.depois).not.toHaveProperty("xml_dps"); expect(h.depois).not.toHaveProperty("xml_nfse"); if (h.antes) expect(h.antes).not.toHaveProperty("xml_nfse"); }
+    expect(JSON.stringify(hist)).not.toMatch(/<DPS|<NFSe/);
+    await pg.exec(M0171); // idempotente
+  });
+  it("B7: validador — arquivos no caminho REAL, vercel.json inclui esse caminho, e a falta do pacote falha FECHADA", async () => {
+    const real = pastaRealDoValidador();
+    for (const f of ARQUIVOS_DO_VALIDADOR) expect(existsSync(join(real, f))).toBe(true);
+    const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")) as { functions: Record<string, { includeFiles: string }> };
+    const inc = vercel.functions["api/index.ts"]!.includeFiles;
+    expect(inc).toContain("node_modules/.pnpm/xmllint-wasm@*/node_modules/xmllint-wasm/**");
+    const raiz = fileURLToPath(new URL("../../", import.meta.url));
+    expect(relative(raiz, real).split(sep).join("/")).toMatch(/^node_modules\/(\.pnpm\/xmllint-wasm@[^/]+\/node_modules\/)?xmllint-wasm$/);
+    await expect(validarLeiaute("<a/>", "dps", "producao_restrita", { pastaValidador: pasta.dir })).rejects.toThrow(ErroLeiaute);
+    await expect(validarLeiaute("<a/>", "dps", "producao_restrita", { carregar: async () => { throw new Error("Cannot find module"); } })).rejects.toThrow(/validador indisponível/);
+  });
+  it("B8: cancelamento com o emissor desligado (ambiente ou interruptor) recusa sem rede", async () => {
+    const n = await rascunho();
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("emitida");
+    const e = await nota(n.id);
+    const antes = recebidos.length;
+    const pedido = { id: Number(e.id), versao: Number(e.versao), motivo: 1, justificativa: "Valor digitado errado na nota", ...autor };
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false`);
+    await expect(cancelarNota(getDb(), pedido, deps())).rejects.toThrow(FRASE_CANCELAMENTO_DESLIGADO);
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = true, ambiente = 'desligado'`);
+    await expect(cancelarNota(getDb(), pedido, deps())).rejects.toThrow(FRASE_CANCELAMENTO_DESLIGADO);
+    expect(recebidos.length).toBe(antes);
+    expect((await nota(n.id)).status).toBe("EMITIDA");
   });
 });
 

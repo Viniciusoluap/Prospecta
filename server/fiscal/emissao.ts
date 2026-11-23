@@ -30,6 +30,11 @@ import { caminhoDe, CAMPOS_JSON, compactarXml, ErroSefin, sessaoDoEmissor, type 
 export const FRASE_PRODUCAO = "EMITIR EM PRODUÇÃO";
 /** Uma emissão iniciada há menos que isto trava o rascunho (outra aba, outro clique, a Dolores ao mesmo tempo). */
 export const TRAVA_EMITINDO_MS = 90_000;
+/**
+ * QA S-7 (B3): orçamento de tempo TOTAL de uma emissão/cancelamento (a função da Vercel tem 60 s). O prazo de cada chamada à
+ * Sefin sai do tempo que resta (sefin.ts#criarClienteSefin), para a função nunca ser cortada no meio da gravação do retorno.
+ */
+export const ORCAMENTO_EMISSAO_MS = 50_000;
 
 export class ErroEmissao extends Error {
   constructor(message: string, readonly tipo: "trava" | "dados" | "rejeitada" | "conflito" = "dados") { super(message); this.name = "ErroEmissao"; }
@@ -52,6 +57,9 @@ export type DepsEmissao = DepsSefin & {
   pastaXsd?: URL;
 };
 
+/** Prazo final (relógio real, não o `agoraFn` dos testes) desta emissão: o que vier nos deps ou agora + o orçamento. */
+const comPrazo = (d: DepsEmissao): DepsEmissao => ({ ...d, prazoFinalMs: d.prazoFinalMs ?? Date.now() + ORCAMENTO_EMISSAO_MS });
+
 const linhas = (r: unknown) => (r as { rows?: Record<string, unknown>[] }).rows ?? [];
 const agoraDe = (d: DepsEmissao) => (d.agoraFn ? d.agoraFn() : new Date());
 const AMBIENTES_EMISSAO = ["producao_restrita", "producao"] as const;
@@ -59,6 +67,8 @@ type AmbienteEmissao = (typeof AMBIENTES_EMISSAO)[number];
 const ehAmbienteEmissao = (a: string | null | undefined): a is AmbienteEmissao => a === "producao_restrita" || a === "producao";
 
 export const FRASE_EMISSOR_DESLIGADO = "A emissão desta empresa emissora não está liberada (ambiente desligado ou interruptor de emissão desligado). Nada foi enviado.";
+export const FRASE_AMBIENTE_MUDOU = "O ambiente da empresa emissora mudou depois da confirmação. Nada foi enviado: prepare a emissão de novo.";
+export const FRASE_CANCELAMENTO_DESLIGADO = "A empresa emissora desta nota está com a emissão desligada (ambiente desligado ou interruptor de emissão desligado): enquanto estiver assim, nada é enviado à Sefin, nem cancelamento. Religue a emissão da empresa e tente de novo. Nada foi enviado.";
 export const FRASE_INCERTA = "A Sefin não respondeu a tempo (resultado incerto). A nota ficou \"Emitindo\": tente de novo em alguns minutos — antes de reenviar, o sistema consulta se ela já foi gerada, para nunca emitir duas vezes.";
 
 /** Erros conhecidos viram frase para a tela; o resto sobe (a rota transforma em frase genérica, sem detalhe). */
@@ -115,7 +125,7 @@ async function concluirEmitida(db: DrizzleDb, notaId: number, r: { chave: string
 }
 
 /** Consulta a DPS e, se a NFS-e existir, busca o XML e conclui. "nao_gerada" → pode (re)enviar; "incerta" → não mexe. */
-async function consultarERecuperar(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao | "nao_gerada" | "incerta"> {
+async function consultarERecuperar(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string; cnpj: string }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao | "nao_gerada" | "incerta"> {
   let r;
   try { r = await sessao.cliente.requisitar("GET", caminhoDe("consultarDps", { id: nota.dpsId })); }
   catch { return "incerta"; }
@@ -127,20 +137,20 @@ async function consultarERecuperar(db: DrizzleDb, sessao: Sessao, nota: { id: nu
   catch { return "incerta"; }
   const xml = lerConsultaNfse(x.status, x.corpo);
   if (!xml) return "incerta";
-  const conferida = conferirNfse(xml, nota.dpsId, c.chave, null);
+  const conferida = conferirNfse(xml, nota.dpsId, c.chave, null, { ambiente, cnpj: nota.cnpj });
   if (conferida.tipo !== "autorizada") return "incerta";
   return concluirEmitida(db, nota.id, conferida, ambiente, autor, x.status, "consulta_dps", agora);
 }
 
 /** Envia a DPS assinada (já gravada) e trata o retorno. */
-async function enviarDps(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string; xmlAssinado: string }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao> {
+async function enviarDps(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string; xmlAssinado: string; cnpj: string }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao> {
   let resposta;
   try { resposta = await sessao.cliente.requisitar("POST", caminhoDe("emitir"), { [CAMPOS_JSON.dps]: compactarXml(nota.xmlAssinado) }); }
   catch {
     await registrarEvento(db, { notaId: nota.id, tipo: "emissao", situacao: "incerta", ambiente, ...autor });
     return { situacao: "incerta", notaId: nota.id, mensagem: FRASE_INCERTA };
   }
-  const r = lerRetornoEmissao(resposta.status, resposta.corpo, nota.dpsId);
+  const r = lerRetornoEmissao(resposta.status, resposta.corpo, nota.dpsId, { ambiente, cnpj: nota.cnpj });
   if (r.tipo === "autorizada") return concluirEmitida(db, nota.id, r, ambiente, autor, resposta.status, "emissao", agora);
   if (r.tipo === "incerta") {
     await registrarEvento(db, { notaId: nota.id, tipo: "emissao", situacao: "incerta", ambiente, httpStatus: resposta.status, ...autor });
@@ -165,16 +175,22 @@ async function enviarDps(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsI
  * Emite um rascunho (A_DECIDIR, ADIADA ou ERRO) ou retoma um EMITINDO. Devolve a situação; lança ErroEmissao/ErroDps/
  * ErroLeiaute/ErroCertificado quando nada foi enviado.
  */
-export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number } & Autor, d: DepsEmissao = {}): Promise<ResultadoEmissao> {
+export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number; ambienteEsperado?: string } & Autor, dEntrada: DepsEmissao = {}): Promise<ResultadoEmissao> {
+  const d = comPrazo(dEntrada);
   const autor: Autor = { usuarioId: e.usuarioId, via: e.via };
   const [atual] = await db.select().from(fiscalNotas).where(eq(fiscalNotas.id, e.id)).limit(1);
   if (!atual) throw new ErroEmissao("Rascunho de nota não encontrado.");
   if (atual.status === "EMITIDA") return { situacao: "ja_emitida", notaId: atual.id, chave: atual.chaveAcesso ?? undefined, numero: atual.numeroNfse ?? undefined, mensagem: `Esta nota já foi emitida (NFS-e nº ${atual.numeroNfse}).` };
   if (!["A_DECIDIR", "ADIADA", "ERRO", "EMITINDO"].includes(atual.status)) throw new ErroEmissao(`Uma nota "${atual.status}" não pode ser emitida.`);
   const emissor = await emissorLiberado(db, atual.emissorId, d);
+  // QA S-7 (I1): a Dolores manda o ambiente que o dono confirmou; se o emissor mudou desde então, nada sai.
+  if (e.ambienteEsperado !== undefined && e.ambienteEsperado !== emissor.ambiente) throw new ErroEmissao(FRASE_AMBIENTE_MUDOU, "conflito");
   const agora = agoraDe(d);
 
-  if (atual.status === "EMITINDO") return retomar(db, atual, emissor, autor, d, agora);
+  if (atual.status === "EMITINDO") {
+    if (e.ambienteEsperado !== undefined && ehAmbienteEmissao(atual.ambienteEmissao) && atual.ambienteEmissao !== e.ambienteEsperado) throw new ErroEmissao(FRASE_AMBIENTE_MUDOU, "conflito");
+    return retomar(db, atual, emissor, autor, d, agora);
+  }
   if (atual.versao !== e.versao) throw new ErroEmissao("Este rascunho foi alterado por outra pessoa. Atualize a tela e tente de novo.", "conflito");
 
   // Tudo o que pode recusar SEM rede e SEM gravar vem antes da reserva do número.
@@ -186,7 +202,8 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number 
   const ibgeIncidencia = nota.municipioIncidenciaIbge ?? (nota.municipio.fonte === "emissor" ? emissor.municipioIbge : ibgeDoMunicipio(nota.municipio.nome, nota.municipio.uf));
   const aliq = await resolverAliquotaIss(nota.emissor?.regime ?? null, {
     emissorCnpj: emissor.cnpj, competencia: nota.dataEvento, municipioIncidenciaIbge: ibgeIncidencia,
-    municipal: await aliquotaMunicipalVigente(db, ibgeIncidencia, nota.tipoServico?.codigoTributacaoNacional ?? null),
+    // QA S-7 (I2): só a alíquota lida no MESMO ambiente da emissão (a da produção restrita nunca vale em produção, e vice-versa).
+    municipal: await aliquotaMunicipalVigente(db, ibgeIncidencia, nota.tipoServico?.codigoTributacaoNacional ?? null, emissor.ambiente),
     tipoServico: nota.tipoServico ? { id: nota.tipoServico.id, itemLc116: nota.tipoServico.itemLc116, codigoAtividadeSimples: nota.tipoServico.codigoAtividadeSimples, aliquotaIss: nota.tipoServico.aliquotaIss } : null,
   }, d.fontesAliquota ?? FONTES_ALIQUOTA);
   // Série: a do emissor; sem série cadastrada, a padrão do aplicativo próprio ("1" = 00001, faixa 1–49999, regra E0010),
@@ -207,6 +224,7 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number 
     const [n] = linhas(await t.execute(sql`SELECT status, versao, numero_dps, dps_id, emitindo_desde FROM fiscal_notas WHERE id = ${atual.id} FOR UPDATE`));
     if (!em || !n) throw new ErroEmissao("Rascunho de nota não encontrado.");
     if (em.ambiente !== emissor.ambiente || em.emissao_liberada !== true) throw new ErroEmissao(FRASE_EMISSOR_DESLIGADO);
+    if (e.ambienteEsperado !== undefined && em.ambiente !== e.ambienteEsperado) throw new ErroEmissao(FRASE_AMBIENTE_MUDOU, "conflito");
     if (em.serie_dps != null && em.serie_dps !== serie) throw new ErroEmissao("A série da DPS da empresa emissora mudou. Atualize a tela e tente de novo.", "conflito");
     if (em.serie_dps == null) await t.execute(sql`UPDATE fiscal_emissores SET serie_dps = ${serie} WHERE id = ${emissor.id} AND serie_dps IS NULL`);
     if (n.status === "EMITINDO") throw new ErroEmissao("Esta nota já está sendo emitida. Aguarde um instante e atualize a tela.", "trava");
@@ -227,8 +245,15 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number 
       status: "EMITINDO", dpsId: id, numeroDps: numero, xmlDps: assinado, ambienteEmissao: emissor.ambiente, emitindoDesde: agora, congelado,
       versao: sql`${fiscalNotas.versao} + 1`, atualizadoPor: autor.usuarioId, alteradoVia: autor.via,
     }).where(eq(fiscalNotas.id, atual.id));
-    return { id: atual.id, dpsId: id, xmlAssinado: assinado };
+    return { id: atual.id, dpsId: id, xmlAssinado: assinado, cnpj: emissor.cnpj, jaReservada: n.dps_id != null };
   });
+  // Rascunho que já tinha a DPS reservada (voltou de ERRO — inclusive "verificar manualmente"): CONSULTA antes de reenviar, para
+  // nunca emitir duas vezes a mesma DPS.
+  if (reservada.jaReservada) {
+    const consulta = await consultarERecuperar(db, sessao, reservada, emissor.ambiente, autor, agora);
+    if (typeof consulta === "object") return consulta;
+    if (consulta === "incerta") return { situacao: "incerta", notaId: reservada.id, mensagem: FRASE_INCERTA };
+  }
   return enviarDps(db, sessao, reservada, emissor.ambiente, autor, agora);
 }
 
@@ -245,7 +270,7 @@ async function retomar(db: DrizzleDb, atual: typeof fiscalNotas.$inferSelect, em
     .returning({ id: fiscalNotas.id });
   if (!dono) throw new ErroEmissao("Esta nota está sendo emitida agora. Aguarde um instante e atualize a tela.", "trava");
   const sessao = await sessaoDoEmissor(db, { id: emissor.id, ambiente }, d);
-  const nota = { id: atual.id, dpsId: atual.dpsId, xmlAssinado: atual.xmlDps };
+  const nota = { id: atual.id, dpsId: atual.dpsId, xmlAssinado: atual.xmlDps, cnpj: emissor.cnpj };
   const consulta = await consultarERecuperar(db, sessao, nota, ambiente, autor, agora);
   if (typeof consulta === "object") return consulta;
   if (consulta === "incerta") return { situacao: "incerta", notaId: atual.id, mensagem: FRASE_INCERTA };
@@ -253,12 +278,40 @@ async function retomar(db: DrizzleDb, atual: typeof fiscalNotas.$inferSelect, em
   return enviarDps(db, sessao, nota, ambiente, autor, agora);
 }
 
+export const FRASE_VERIFICAR_MANUAL = "Marcada para verificar manualmente: o resultado do envio à Sefin ficou incerto. Antes de emitir de novo, confira no Emissor Nacional / consulta pública se a NFS-e desta DPS existe — ao tentar de novo, o sistema CONSULTA a DPS antes de reenviar.";
+
+/**
+ * QA S-7 (B1) — caminho do ADMIN para uma nota presa em EMITINDO (resultado incerto que não se resolve: Sefin fora do ar, A1
+ * vencido no meio, emissor que precisa trocar de ambiente). Não envia nada e não apaga nada: troca EMITINDO → ERRO com
+ * `ultimo_erro.manual = true` (o gatilho da 0154 grava a mudança no histórico imutável, com quem e quando), o que libera o emissor
+ * (troca de ambiente) sem emitir de novo. O Id e o número da DPS ficam reservados para sempre; uma nova tentativa de emitir
+ * CONSULTA `GET /dps/{id}` antes de qualquer reenvio (emitirNota). Recusa com a trava recente (outro envio pode estar no ar).
+ */
+export async function marcarVerificarManualmente(db: DrizzleDb, e: { id: number; versao: number } & Autor, d: Pick<DepsEmissao, "agoraFn"> = {}): Promise<{ notaId: number; mensagem: string }> {
+  const agora = d.agoraFn ? d.agoraFn() : new Date();
+  const [n] = await db.select().from(fiscalNotas).where(eq(fiscalNotas.id, e.id)).limit(1);
+  if (!n) throw new ErroEmissao("Nota não encontrada.");
+  if (n.status !== "EMITINDO") throw new ErroEmissao("Só uma nota presa em \"Emitindo\" pode ser marcada para verificar manualmente.");
+  if (n.versao !== e.versao) throw new ErroEmissao("Esta nota foi alterada por outra pessoa. Atualize a tela e tente de novo.", "conflito");
+  if (n.emitindoDesde && agora.getTime() - new Date(n.emitindoDesde).getTime() < TRAVA_EMITINDO_MS) {
+    throw new ErroEmissao("Esta nota está sendo emitida agora. Aguarde alguns minutos antes de marcar para verificar manualmente.", "trava");
+  }
+  const [salva] = await db.update(fiscalNotas).set({
+    status: "ERRO", emitindoDesde: null, ultimoErro: { codigos: [], frase: FRASE_VERIFICAR_MANUAL, quando: agora.toISOString(), manual: true },
+    versao: sql`${fiscalNotas.versao} + 1`, atualizadoPor: e.usuarioId, alteradoVia: e.via,
+  }).where(and(eq(fiscalNotas.id, n.id), eq(fiscalNotas.status, "EMITINDO"), eq(fiscalNotas.versao, n.versao))).returning({ id: fiscalNotas.id });
+  if (!salva) throw new ErroEmissao("A nota mudou enquanto era marcada. Atualize a tela.", "conflito");
+  return { notaId: n.id, mensagem: "Nota marcada para verificar manualmente. A empresa emissora está liberada; nada foi enviado nem apagado." };
+}
+
 /**
  * Cancelamento (e101101). Só nota EMITIDA; motivo 1/2/9 e justificativa 15–255; prazo local de 730 dias (o município pode
  * ter prazo menor: a recusa E0822 volta em frase própria). Vai ao MESMO ambiente em que a nota foi emitida.
- * Trava: só `EMISSAO_DISPONIVEL` (o interruptor por emissor desliga emissões NOVAS; cancelar o que já saiu continua possível).
+ * Travas: `EMISSAO_DISPONIVEL` E o emissor com ambiente de emissão e `emissao_liberada` (QA S-7, B8: com a emissão da empresa
+ * desligada, nada sai — nem cancelamento; a tela avisa com FRASE_CANCELAMENTO_DESLIGADO).
  */
-export async function cancelarNota(db: DrizzleDb, e: { id: number; versao: number; motivo: number; justificativa: string } & Autor, d: DepsEmissao = {}): Promise<ResultadoCancelamento> {
+export async function cancelarNota(db: DrizzleDb, e: { id: number; versao: number; motivo: number; justificativa: string } & Autor, dEntrada: DepsEmissao = {}): Promise<ResultadoCancelamento> {
+  const d = comPrazo(dEntrada);
   const autor: Autor = { usuarioId: e.usuarioId, via: e.via };
   if (!(d.emissaoDisponivel ?? EMISSAO_DISPONIVEL)) throw new ErroEmissao(AVISO_EMISSAO_INDISPONIVEL);
   const [n] = await db.select().from(fiscalNotas).where(eq(fiscalNotas.id, e.id)).limit(1);
@@ -273,6 +326,9 @@ export async function cancelarNota(db: DrizzleDb, e: { id: number; versao: numbe
   if (!dentroDoPrazo(new Date(n.emitidaEm), agora)) throw new ErroEmissao(`A nota foi emitida há mais de ${PRAZO_MAXIMO_CANCELAMENTO_DIAS} dias (2 anos): o cancelamento só pela análise fiscal da prefeitura.`);
   const [em] = await db.select().from(fiscalEmissores).where(eq(fiscalEmissores.id, n.emissorId)).limit(1);
   if (!em) throw new ErroEmissao("Empresa emissora não encontrada.");
+  // QA S-7 (B8), o mais seguro: emissor "desligado" ou com o interruptor de emissão desligado não manda NADA à Sefin — nem
+  // cancelamento. O cancelamento vai ao ambiente em que a nota foi emitida (pode ser diferente do atual do emissor).
+  if (!ehAmbienteEmissao(em.ambiente) || !em.emissaoLiberada) throw new ErroEmissao(FRASE_CANCELAMENTO_DESLIGADO);
   const ambiente = n.ambienteEmissao;
   const { xml } = montarPedidoCancelamento({ chave: n.chaveAcesso, cnpjAutor: em.cnpj, ambiente, motivo: e.motivo, justificativa: e.justificativa, quando: agora });
   const sessao = await sessaoDoEmissor(db, { id: em.id, ambiente }, d);

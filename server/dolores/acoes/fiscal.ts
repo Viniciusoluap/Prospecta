@@ -59,7 +59,16 @@ export const entradaEditarAprovado = z.object({
 }).strict();
 
 export const entradaEmitirNotaFiscal = z.object({ notaFiscalId: id32.describe("notaFiscalId de listar_notas_fiscais / ver_nota_fiscal.") }).strict();
-export const entradaEmitirAprovado = z.object({ notaFiscalId: id32, versao: z.number().int().positive() }).strict();
+/**
+ * QA S-7 (I1): o item aprovado amarra o que o dono viu no resumo — o AMBIENTE do emissor e se a emissão estava liberada
+ * (`EMISSAO_DISPONIVEL` E `emissao_liberada`) na preparação. A versão da NOTA não muda quando o EMISSOR muda; por isso a execução
+ * confere os dois de novo e recusa se mudaram ("prepare de novo"). Ausente = "não liberada" (o lado seguro).
+ */
+export const entradaEmitirAprovado = z.object({
+  notaFiscalId: id32, versao: z.number().int().positive(),
+  ambiente: z.enum(["desligado", "producao_restrita", "producao"]),
+  liberada: z.boolean().default(false),
+}).strict();
 
 export const FRASE_FISCAL_SO_DO_DONO = "Mudanças nas notas fiscais pela conversa só valem com o seu pedido direto (sem texto colado, sem anexo). Nada foi mudado.";
 const FRASE_SO_PELO_WHATSAPP = "As decisões das notas fiscais pela Dolores valem só com a sua resposta no WhatsApp; pela tela, use BPO › Contabilidade › Notas a decidir. Nada mudou.";
@@ -208,23 +217,38 @@ export async function executarEditarAprovado(args: z.infer<typeof entradaEditarA
 // mesmas travas (EMISSAO_DISPONIVEL, interruptor do emissor, ambiente). Fora da transação de escrita da Dolores DE PROPÓSITO: o
 // envio à Sefin não pode ser desfeito por um rollback (o registro EMITINDO e o retorno ficam gravados sempre). ──
 
-/** Nota que pode ir para emissão: a decidir, adiada, com erro ou com emissão em andamento (retomada consulta antes). */
-async function notaParaEmitir(id: number): Promise<NotaDetalhada> {
+/** A nota (qualquer situação), lida numa transação só de leitura. */
+async function notaLida(id: number): Promise<NotaDetalhada> {
   const n = await emTransacaoSomenteLeitura(async () => {
     const linhas = await bancoDaLeitura().select().from(fiscalNotas).where(eq(fiscalNotas.id, id)).limit(1);
     return (await detalhar(bancoDaLeitura(), linhas))[0] ?? null;
   }).catch(() => { throw new RecusaAcao("Não consegui ler as notas agora. Nada foi mudado."); });
   if (!n) throw new RecusaAcao(`Não achei a nota ${id}. Nada foi mudado.`);
+  return n;
+}
+
+/** Nota que pode ir para emissão: a decidir, adiada, com erro ou com emissão em andamento (retomada consulta antes). */
+async function notaParaEmitir(id: number): Promise<NotaDetalhada> {
+  const n = await notaLida(id);
   if (!["A_DECIDIR", "ADIADA", "ERRO", "EMITINDO"].includes(n.status)) throw new RecusaAcao(`Essa nota não pode ser emitida (situação: ${n.status.toLowerCase()}). Nada foi mudado.`);
   return n;
 }
+
+type AmbienteMostrado = z.infer<typeof entradaEmitirAprovado>["ambiente"];
+/** O que o resumo mostrou: ambiente do emissor (o que não for de emissão conta como "desligado") e se a emissão estava liberada. */
+function estadoDaEmissao(n: Pick<NotaDetalhada, "emissor">, disponivel: boolean): { ambiente: AmbienteMostrado; liberada: boolean } {
+  const a = n.emissor?.ambiente;
+  const ambiente: AmbienteMostrado = a === "producao" || a === "producao_restrita" ? a : "desligado";
+  return { ambiente, liberada: disponivel && n.emissor?.emissaoLiberada === true && ambiente !== "desligado" };
+}
+export const FRASE_EMISSAO_MUDOU = "A situação da emissão mudou depois da proposta (ambiente da empresa emissora ou liberação da emissão). Nada foi enviado. Peça de novo para eu preparar com a situação atual.";
 
 export async function prepararEmitirNotaFiscal(args: z.infer<typeof entradaEmitirNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
   pedidoDoDono(ctx);
   const n = await notaParaEmitir(args.notaFiscalId);
   const ambiente = n.emissor?.ambiente === "producao" ? "a nota sai pela API Nacional, COM VALOR FISCAL" : n.emissor?.ambiente === "producao_restrita" ? "a nota sai no AMBIENTE DE TESTES, sem valor fiscal" : "a emissão desta empresa está desligada";
   const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${EMISSAO_DISPONIVEL ? ambiente : "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"}`);
-  return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao } }], recusados: [] };
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao, ...estadoDaEmissao(n, EMISSAO_DISPONIVEL) } }], recusados: [] };
 }
 
 export async function executarEmitirAprovado(args: z.infer<typeof entradaEmitirAprovado>, ctx: ContextoAcao, deps: { emissaoDisponivel?: boolean } = {}): Promise<ResultadoAcao> {
@@ -234,9 +258,16 @@ export async function executarEmitirAprovado(args: z.infer<typeof entradaEmitirA
     const frase = FRASE_EMISSAO_INATIVA.charAt(0).toUpperCase() + FRASE_EMISSAO_INATIVA.slice(1);
     throw new RecusaAcao(`${frase}.`);
   }
+  // I1: o que foi mostrado (ambiente + liberada) tem de ser o de agora; senão recusa sem rede e pede nova preparação.
+  // (Nota já emitida segue para emitirNota, que devolve "já emitida" sem rede.)
+  const n = await notaLida(args.notaFiscalId);
+  const atual = estadoDaEmissao(n, deps.emissaoDisponivel ?? EMISSAO_DISPONIVEL);
+  if (n.status !== "EMITIDA" && (atual.ambiente !== args.ambiente || atual.liberada !== args.liberada)) throw new RecusaAcao(FRASE_EMISSAO_MUDOU);
+  const ambienteEsperado = args.ambiente;
   const { emitirNota, fraseDeErroConhecido } = await import("../../fiscal/emissao.js");
   let r;
-  try { r = await emitirNota(getDb(), { id: args.notaFiscalId, versao: args.versao, usuarioId: ctx.autorId, via: "whatsapp" }, { emissaoDisponivel: deps.emissaoDisponivel }); }
+  // O ambiente aprovado vai junto: emitirNota confere de novo dentro da reserva (FOR UPDATE), fechando a corrida até o envio.
+  try { r = await emitirNota(getDb(), { id: args.notaFiscalId, versao: args.versao, usuarioId: ctx.autorId, via: "whatsapp", ambienteEsperado }, { emissaoDisponivel: deps.emissaoDisponivel }); }
   catch (e) {
     const frase = fraseDeErroConhecido(e);
     if (frase) throw new RecusaAcao(frase);

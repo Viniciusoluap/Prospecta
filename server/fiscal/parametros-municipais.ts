@@ -5,7 +5,7 @@
 // UMA alíquota sem ambiguidade (todos os campos "aliq…" numéricos do retorno com o mesmo valor); senão grava "sem_valor".
 // Regra do coordenador/dono: nunca sobrescrever em silêncio a alíquota digitada no tipo de serviço — se a oficial for
 // diferente, a linha fica "pendente" e a tela mostra as duas para o admin escolher.
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { fiscalEmissores, fiscalParametrosMunicipais, fiscalTiposServico, type SituacaoParametroMunicipal } from "../../drizzle/schema-fiscal.js";
 import { MUNICIPIOS_CONHECIDOS } from "../../shared/fiscal/municipios.js";
 import type { DrizzleDb } from "../db.js";
@@ -81,7 +81,8 @@ export async function buscarAliquotasOficiais(db: DrizzleDb, e: { emissorId: num
       });
       resultados.push({ municipioIbge: ibge, consulta: "aliquota", situacao, aliquota: aliq, aliquotaDigitada: digitada,
         mensagem: situacao === "aceita" ? `Alíquota oficial ${aliq}% gravada.` : situacao === "pendente" ? `A alíquota oficial (${aliq}%) é diferente da digitada (${digitada}%): escolha qual vale.`
-          : ok ? "A Sefin respondeu, mas sem uma alíquota única para este serviço: confira com o contador." : `A Sefin não trouxe a alíquota (HTTP ${r.status}).` });
+          : ok ? "A Sefin respondeu, mas sem uma alíquota única para este serviço: confira com o contador. A alíquota oficial já aceita (se houver) continua valendo."
+            : `A Sefin não trouxe a alíquota (HTTP ${r.status}). A alíquota oficial já aceita (se houver) continua valendo.` });
     } catch {
       resultados.push({ municipioIbge: ibge, consulta: "aliquota", situacao: "falhou", aliquota: null, aliquotaDigitada: digitada, mensagem: "Não foi possível consultar agora." });
     }
@@ -109,11 +110,17 @@ export async function escolherAliquota(db: DrizzleDb, e: { id: number; escolha: 
   return salva;
 }
 
-/** A consulta mais recente de alíquota para o município e o serviço (o que vale na DPS). */
-export async function aliquotaMunicipalVigente(db: DrizzleDb, municipioIbge: string | null, codigoServico: string | null) {
+/**
+ * A consulta de alíquota que vale na DPS para o município e o serviço: a mais recente QUE DEU CERTO, no MESMO ambiente da emissão.
+ * QA S-7 (I2): a alíquota lida na produção restrita (base de testes da Sefin) nunca vale numa DPS de produção, e vice-versa.
+ * QA S-7 (M1): consulta que falhou (HTTP fora de 2xx ou "sem_valor") é só histórico — nunca derruba a oficial já aceita.
+ */
+export async function aliquotaMunicipalVigente(db: DrizzleDb, municipioIbge: string | null, codigoServico: string | null, ambiente: "producao_restrita" | "producao") {
   if (!municipioIbge || !codigoServico) return null;
   const [r] = await db.select().from(fiscalParametrosMunicipais)
-    .where(and(eq(fiscalParametrosMunicipais.consulta, "aliquota"), eq(fiscalParametrosMunicipais.municipioIbge, municipioIbge), eq(fiscalParametrosMunicipais.codigoServico, codigoServico)))
+    .where(and(eq(fiscalParametrosMunicipais.consulta, "aliquota"), eq(fiscalParametrosMunicipais.municipioIbge, municipioIbge), eq(fiscalParametrosMunicipais.codigoServico, codigoServico),
+      eq(fiscalParametrosMunicipais.ambiente, ambiente), inArray(fiscalParametrosMunicipais.situacao, ["aceita", "pendente", "recusada"]),
+      gte(fiscalParametrosMunicipais.httpStatus, 200), lt(fiscalParametrosMunicipais.httpStatus, 300)))
     .orderBy(desc(fiscalParametrosMunicipais.id)).limit(1);
   return r ? { id: r.id, aliquota: r.aliquota, aliquotaDigitada: r.aliquotaDigitada, situacao: r.situacao, consultadoEm: r.consultadoEm } : null;
 }

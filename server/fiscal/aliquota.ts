@@ -30,6 +30,7 @@ export function registrarFonteSimples(fonte: FonteAliquotaSimples | null): void 
 
 export const FALTA_ALIQUOTA_SIMPLES = "alíquota do ISS no Simples Nacional (calculada pelo RBT12 e pelo anexo da atividade) — a tabela ainda não está no sistema";
 export const FALTA_ALIQUOTA_TIPO = "alíquota do ISS do tipo de serviço — contador";
+export const FALTA_CONSULTA_FALHOU = "alíquota oficial do município: a última consulta à Sefin não trouxe um valor — busque as alíquotas oficiais de novo (Tipos de serviço › Alíquotas oficiais) antes de emitir";
 export const FALTA_REGIME = "regime tributário confirmado no perfil da empresa emissora (hoje está a confirmar ou desconhecido)";
 
 export type AliquotaResolvida = { aliquota: string; fonte: "simples" | "sefin" | "tipo_servico" } | { aliquota: null; falta: string };
@@ -42,6 +43,10 @@ export async function resolverAliquotaIss(regime: string | null | undefined, c: 
   }
   const m = c.municipal;
   if (m?.situacao === "aceita" && m.aliquota != null) return { aliquota: String(m.aliquota), fonte: "sefin" };
+  // QA S-7 (M1): uma consulta oficial que não trouxe valor (ou "aceita" sem número) nunca vira, em silêncio, a digitada.
+  if (m && (m.situacao === "sem_valor" || (m.situacao === "aceita" && m.aliquota == null) || !["aceita", "pendente", "recusada"].includes(m.situacao))) {
+    return { aliquota: null, falta: FALTA_CONSULTA_FALHOU };
+  }
   if (m?.situacao === "pendente") {
     return { aliquota: null, falta: `escolha entre a alíquota oficial do município (${Number(m.aliquota)}%) e a digitada no tipo de serviço (${Number(m.aliquotaDigitada)}%) — Tipos de serviço › Alíquotas oficiais` };
   }

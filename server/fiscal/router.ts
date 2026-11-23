@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { ensureTaxSchema } from "../tax-router.js";
 import { carregarConfigFiscal, gerarRascunhos } from "./gerador.js";
 import { gerarDanfsePdf } from "./danfse.js";
-import { cancelarNota, emitirNota, ErroEmissao, eventosDaNota, FRASE_PRODUCAO, fraseDeErroConhecido } from "./emissao.js";
+import { cancelarNota, emitirNota, ErroEmissao, eventosDaNota, FRASE_PRODUCAO, fraseDeErroConhecido, marcarVerificarManualmente } from "./emissao.js";
 import { buscarAliquotasOficiais, ErroParametros, escolherAliquota, listarParametros } from "./parametros-municipais.js";
 import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import {
@@ -310,13 +310,19 @@ export const fiscalRouter = router({
     cancelar: adminPorPapel
       .input(z.object({ id, versao: z.number().int().positive(), motivo: z.union([z.literal(1), z.literal(2), z.literal(9)]), justificativa: z.string().trim().min(15).max(255) }).strict())
       .mutation(({ input, ctx }) => comFrase(() => cancelarNota(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
+    /**
+     * QA S-7 (B1): nota presa em "Emitindo" → "verificar manualmente" (só admin). Não envia, não apaga; libera o emissor e fica no
+     * histórico. Nova tentativa de emitir consulta a DPS antes de reenviar.
+     */
+    verificarManualmente: adminPorPapel.input(z.object({ id, versao: z.number().int().positive() }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => marcarVerificarManualmente(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
     /** S-7: eventos da emissão (sem XML). */
     eventos: fiscalProcedure.input(z.object({ id })).query(({ input }) => eventosDaNota(getDb(), input.id)),
     /** S-7: DANFSe do XML AUTORIZADO (só admin; nunca do rascunho). */
     danfse: adminPorPapel.input(z.object({ id })).query(async ({ input }) => {
-      const [n] = await getDb().select({ status: fiscalNotas.status, xml: fiscalNotas.xmlNfse, numero: fiscalNotas.numeroNfse }).from(fiscalNotas).where(eq(fiscalNotas.id, input.id)).limit(1);
+      const [n] = await getDb().select({ status: fiscalNotas.status, xml: fiscalNotas.xmlNfse, numero: fiscalNotas.numeroNfse, ambienteEmissao: fiscalNotas.ambienteEmissao }).from(fiscalNotas).where(eq(fiscalNotas.id, input.id)).limit(1);
       if (!n || !n.xml || (n.status !== "EMITIDA" && n.status !== "CANCELADA")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O DANFSe só existe para nota emitida (o rascunho tem a prévia)." });
-      return { nomeArquivo: `danfse-${n.numero ?? input.id}.pdf`, base64: Buffer.from(gerarDanfsePdf(n.xml, { cancelada: n.status === "CANCELADA" })).toString("base64") };
+      return { nomeArquivo: `danfse-${n.numero ?? input.id}.pdf`, base64: Buffer.from(gerarDanfsePdf(n.xml, { cancelada: n.status === "CANCELADA", ambienteEmissao: n.ambienteEmissao })).toString("base64") };
     }),
     /** S-7: XML autorizado (só admin). */
     xml: adminPorPapel.input(z.object({ id })).query(async ({ input }) => {

@@ -164,9 +164,18 @@ export type RetornoEmissao =
   | { tipo: "rejeitada"; codigos: string[] }
   | { tipo: "incerta"; motivo: string };
 
-/** Resposta do POST /nfse. 2xx sem campo legível → INCERTA (consultar a DPS); 4xx → rejeitada; 5xx → incerta. */
-export function lerRetornoEmissao(status: number, corpo: string, dpsIdEsperado: string): RetornoEmissao {
-  if (status >= 500 || status === 0) return { tipo: "incerta", motivo: `HTTP ${status}` };
+/** O que a NFS-e devolvida tem de confirmar além do Id da DPS: o ambiente (tpAmb) e o CNPJ do emitente (o emissor). */
+export type EsperadoNfse = { ambiente: "producao_restrita" | "producao"; cnpj: string };
+const TP_AMB: Record<EsperadoNfse["ambiente"], string> = { producao: "1", producao_restrita: "2" };
+const soDocumento = (d: string | null | undefined) => (d ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+
+/**
+ * Resposta do POST /nfse. 2xx sem campo legível → INCERTA (consultar a DPS); 4xx → rejeitada; 5xx → incerta.
+ * QA S-7 (B2): 408 (tempo esgotado no servidor) e 429 (limite de requisições) NÃO dizem que a DPS foi recusada — são INCERTAS
+ * (a próxima tentativa consulta antes de reenviar), nunca "rejeitada".
+ */
+export function lerRetornoEmissao(status: number, corpo: string, dpsIdEsperado: string, esperado?: EsperadoNfse): RetornoEmissao {
+  if (status >= 500 || status === 0 || status === 408 || status === 429) return { tipo: "incerta", motivo: `HTTP ${status}` };
   if (status >= 400) return { tipo: "rejeitada", codigos: codigosDaResposta(corpo) };
   if (status < 200 || status >= 300) return { tipo: "incerta", motivo: `HTTP ${status}` };
   const o = json(corpo);
@@ -174,14 +183,22 @@ export function lerRetornoEmissao(status: number, corpo: string, dpsIdEsperado: 
   if (!b64) return { tipo: "incerta", motivo: "resposta sem o XML da NFS-e" };
   let xml: string;
   try { xml = descompactarXml(b64); } catch { return { tipo: "incerta", motivo: "XML da NFS-e ilegível" }; }
-  return conferirNfse(xml, dpsIdEsperado, campoJson(o, CAMPOS_JSON.chave), campoJson(o, "protocolo"));
+  return conferirNfse(xml, dpsIdEsperado, campoJson(o, CAMPOS_JSON.chave), campoJson(o, "protocolo"), esperado);
 }
 
-/** Confere o XML autorizado contra a DPS enviada (mesmo Id) e a chave informada; protocolo = o do JSON ou o nDFSe do XML. */
-export function conferirNfse(xml: string, dpsIdEsperado: string, chaveInformada: string | null, protocolo: string | null): RetornoEmissao {
+/**
+ * Confere o XML autorizado contra a DPS enviada e a chave informada; protocolo = o do JSON ou o nDFSe do XML.
+ * QA S-7 (M2): só é "autorizada" com PROVA POSITIVA — o grupo DPS/infDPS presente com o MESMO Id, o tpAmb do ambiente da emissão
+ * e o CNPJ do emitente igual ao do emissor. Faltou qualquer um (ou `esperado` não veio) → INCERTA (consultar antes), nunca autorizada.
+ */
+export function conferirNfse(xml: string, dpsIdEsperado: string, chaveInformada: string | null, protocolo: string | null, esperado?: EsperadoNfse): RetornoEmissao {
   const nfse = lerNfse(xml);
   if (!nfse) return { tipo: "incerta", motivo: "XML da NFS-e ilegível" };
-  if (nfse.dps.id && nfse.dps.id !== dpsIdEsperado) return { tipo: "incerta", motivo: "a NFS-e devolvida não é desta DPS" };
+  if (!nfse.dps.id) return { tipo: "incerta", motivo: "a NFS-e devolvida não traz a DPS" };
+  if (nfse.dps.id !== dpsIdEsperado) return { tipo: "incerta", motivo: "a NFS-e devolvida não é desta DPS" };
+  if (!esperado) return { tipo: "incerta", motivo: "ambiente e emitente esperados não informados" };
+  if (nfse.tpAmb !== TP_AMB[esperado.ambiente]) return { tipo: "incerta", motivo: "a NFS-e devolvida é de outro ambiente" };
+  if (!soDocumento(esperado.cnpj) || soDocumento(nfse.emitente?.documento) !== soDocumento(esperado.cnpj)) return { tipo: "incerta", motivo: "a NFS-e devolvida é de outro emitente" };
   if (chaveInformada && chaveInformada !== nfse.chave) return { tipo: "incerta", motivo: "chave diferente da do XML" };
   const prot = (protocolo ?? nfse.nDFSe ?? "").replace(/[^0-9A-Za-z\-]/g, "").slice(0, 60) || null;
   return { tipo: "autorizada", chave: nfse.chave, xml, nfse, protocolo: prot };
@@ -207,7 +224,7 @@ export type RetornoEvento = { tipo: "registrado"; xml: string; protocolo: string
 
 /** POST /nfse/{chave}/eventos. O evento registrado tem de citar a chave e o código 101101. */
 export function lerRetornoEvento(status: number, corpo: string, chave: string): RetornoEvento {
-  if (status >= 500 || status === 0) return { tipo: "incerto", motivo: `HTTP ${status}` };
+  if (status >= 500 || status === 0 || status === 408 || status === 429) return { tipo: "incerto", motivo: `HTTP ${status}` };
   if (status >= 400) return { tipo: "rejeitado", codigos: codigosDaResposta(corpo) };
   const b64 = campoJson(json(corpo), CAMPOS_JSON.evento);
   if (!b64) return { tipo: "incerto", motivo: "resposta sem o XML do evento" };

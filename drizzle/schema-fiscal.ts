@@ -111,7 +111,7 @@ export const fiscalNotas = pgTable("fiscal_notas", {
   numeroNfse: varchar("numero_nfse", { length: 15 }),
   ambienteEmissao: varchar("ambiente_emissao", { length: 20 }).$type<"producao_restrita" | "producao">(),
   emitindoDesde: timestamp("emitindo_desde", { withTimezone: true }),
-  ultimoErro: jsonb("ultimo_erro").$type<{ codigos: string[]; frase: string; quando: string } | null>(),
+  ultimoErro: jsonb("ultimo_erro").$type<{ codigos: string[]; frase: string; quando: string; manual?: boolean } | null>(),
   cancelamentoMotivo: integer("cancelamento_motivo"),
   cancelamentoJustificativa: varchar("cancelamento_justificativa", { length: 255 }),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),

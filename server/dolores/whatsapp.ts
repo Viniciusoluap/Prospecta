@@ -719,7 +719,10 @@ async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, 
       // EPIC-029 S-7: nota EMITIDA/CANCELADA → o DANFSe do XML AUTORIZADO (nunca do rascunho); rascunho → a prévia de sempre.
       const emitida = (nota.status === "EMITIDA" || nota.status === "CANCELADA") && Boolean(nota.xmlNfse);
       const pdf = emitida
-        ? (await import("../fiscal/danfse.js")).gerarDanfsePdf(nota.xmlNfse!, { cancelada: nota.status === "CANCELADA" })
+        // QA S-7 (B4/B5): aviso "sem validade" também pelo ambiente gravado; CPF/CNPJ/telefone/e-mail do tomador e textos livres
+        // pelo MESMO interruptor da prévia (DOLORES_MASCARAR_DADOS_PESSOAIS).
+        ? (await import("../fiscal/danfse.js")).gerarDanfsePdf(nota.xmlNfse!, { cancelada: nota.status === "CANCELADA", ambienteEmissao: nota.ambienteEmissao,
+          dadosPessoais: { campo: (v, tipo) => campoPessoal(v, tipo, "whatsapp"), texto: t => sanitizarTexto(t, filtroDaSaida("whatsapp")) } })
         : gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
       // QA S-3 (B2): teto explícito do arquivo antes do envio
       if (pdf.byteLength > MAX_BYTES_PREVIA) { await auditar("erro", "prévia acima do tamanho máximo", { notaFiscalId: id, bytes: pdf.byteLength }); falhou = true; break; }

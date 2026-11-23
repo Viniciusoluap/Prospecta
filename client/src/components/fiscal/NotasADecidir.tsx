@@ -115,6 +115,11 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
     onSuccess: r => { setCancelar(null); (r.situacao === "incerta" ? toast.warning : toast.success)(r.mensagem); invalidar(); },
     onError: e => { erro(e); invalidar(); },
   });
+  // QA S-7 (B1): nota presa em "Emitindo" → verificar manualmente (só admin; não envia nem apaga; fica no histórico).
+  const verificarManual = trpc.fiscal.notas.verificarManualmente.useMutation({
+    onSuccess: r => { toast.success(r.mensagem); invalidar(); },
+    onError: e => { erro(e); invalidar(); },
+  });
   const danfse = async (n: Nota) => {
     try {
       const r = await utils.fiscal.notas.danfse.fetch({ id: n.id });
@@ -265,11 +270,23 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                         {bloqueio ? `Emitir (${bloqueio === AVISO_EMISSAO_INDISPONIVEL ? "disponível após homologação" : "indisponível"})` : n.status === "EMITINDO" ? "Conferir emissão" : n.status === "ERRO" ? "Tentar emitir de novo" : "Emitir"}
                       </Button>;
                     })()}
+                    {podeDecidir && n.status === "EMITINDO" && (
+                      <Button size="sm" variant="outline" disabled={verificarManual.isPending}
+                        title="Não envia nada e não apaga nada: libera a empresa emissora e registra no histórico. Ao tentar emitir de novo, o sistema consulta a DPS antes de reenviar."
+                        onClick={() => { if (window.confirm("Marcar esta nota para verificar manualmente? Nada é enviado nem apagado; confira no Emissor Nacional se a NFS-e desta DPS existe antes de emitir de novo.")) verificarManual.mutate({ id: n.id, versao: n.versao }); }}>
+                        Marcar como verificar manualmente
+                      </Button>
+                    )}
                     {podeDecidir && (n.status === "EMITIDA" || n.status === "CANCELADA") && (
                       <>
                         <Button size="sm" variant="outline" onClick={() => void danfse(n)}><FileText className="mr-1 h-4 w-4" /> DANFSe</Button>
                         <Button size="sm" variant="outline" onClick={() => void xml(n)}>XML</Button>
-                        {n.status === "EMITIDA" && <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" onClick={() => setCancelar({ nota: n, motivo: 0, justificativa: "" })}>Cancelar nota</Button>}
+                        {n.status === "EMITIDA" && (() => {
+                          // QA S-7 (B8): com a emissão da empresa desligada, nada sai à Sefin — nem cancelamento (o servidor também recusa).
+                          const bloqueio = bloqueioDeEmissao(n);
+                          return <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" disabled={Boolean(bloqueio)} title={bloqueio ? `Cancelamento indisponível: ${bloqueio}` : undefined}
+                            onClick={() => setCancelar({ nota: n, motivo: 0, justificativa: "" })}>{bloqueio ? "Cancelar nota (emissão desligada)" : "Cancelar nota"}</Button>;
+                        })()}
                       </>
                     )}
                     {podeDecidir && (n.status === "A_DECIDIR" || n.status === "ADIADA") && (

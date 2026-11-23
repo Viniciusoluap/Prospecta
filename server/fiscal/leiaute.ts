@@ -6,8 +6,29 @@
 // - FALHA FECHADA: validador indisponível, XSD ausente ou erro inesperado → ErroLeiaute ("nada foi enviado");
 // - as mensagens devolvidas citam só o NOME do campo e o tipo do problema — nunca o valor (CPF, nome, descrição…);
 // - nada é logado.
-import { readFileSync } from "node:fs";
-import { validateXML } from "xmllint-wasm";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
+// QA S-7 (B7): o validador é carregado SOB DEMANDA (import dinâmico dentro do try). Se o pacote não entrar na função da Vercel
+// (pnpm guarda o pacote em node_modules/.pnpm/… e node_modules/xmllint-wasm é só um link), só a validação falha — FECHADA, com
+// ErroLeiaute —, sem derrubar o carregamento do servidor inteiro. Os arquivos que o pacote lê por __dirname (o .wasm e o
+// worker) são conferidos no caminho REAL antes de validar; `vercel.json` inclui esse caminho real (glob de node_modules/.pnpm).
+type ValidateXml = typeof import("xmllint-wasm").validateXML;
+export const ARQUIVOS_DO_VALIDADOR = ["xmllint.wasm", "xmllint-node.js", "index-node.js"] as const;
+
+/** Pasta REAL (links resolvidos) do pacote xmllint-wasm. Lança se não achar. */
+export function pastaRealDoValidador(): string {
+  return dirname(realpathSync(createRequire(import.meta.url).resolve("xmllint-wasm")));
+}
+
+/** Confere que os arquivos do validador existem na pasta; `pasta` só para teste. Lança ErroLeiaute (falha fechada). */
+export function conferirArquivosDoValidador(pasta?: string): void {
+  let dir: string;
+  try { dir = pasta ?? pastaRealDoValidador(); } catch { throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL); }
+  for (const f of ARQUIVOS_DO_VALIDADOR) if (!existsSync(join(dir, f))) throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
+}
+export const FRASE_VALIDADOR_INDISPONIVEL = "Não foi possível conferir o leiaute agora (validador indisponível). Nada foi enviado.";
 
 export type DocumentoLeiaute = "dps" | "pedRegEvento";
 export type AmbienteLeiaute = "producao" | "producao_restrita";
@@ -72,17 +93,20 @@ export function fraseDoErro(mensagem: string): string {
  * Valida o XML (assinado ou não — a assinatura é opcional no XSD) contra o XSD do ambiente. Devolve `valido` e a lista de
  * frases sem valores. Lança ErroLeiaute só quando NÃO conseguiu validar (falha fechada para quem chama).
  */
-export async function validarLeiaute(xml: string, documento: DocumentoLeiaute, ambiente: AmbienteLeiaute | string, o: { pastaBase?: URL } = {}): Promise<ResultadoLeiaute> {
+export async function validarLeiaute(xml: string, documento: DocumentoLeiaute, ambiente: AmbienteLeiaute | string, o: { pastaBase?: URL; pastaValidador?: string; carregar?: () => Promise<ValidateXml> } = {}): Promise<ResultadoLeiaute> {
   if (ambiente !== "producao" && ambiente !== "producao_restrita") throw new ErroLeiaute("Ambiente sem leiaute para validar. Nada foi enviado.");
   if (!xml || xml.length > TAMANHO_MAXIMO_XML) throw new ErroLeiaute("Documento vazio ou grande demais para validar. Nada foi enviado.");
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) return { valido: false, erros: ["documento: DOCTYPE/ENTITY não é aceito"] };
-  let r: Awaited<ReturnType<typeof validateXML>>;
+  let r: Awaited<ReturnType<ValidateXml>>;
   try {
+    conferirArquivosDoValidador(o.pastaValidador);
+    const validateXML = o.carregar ? await o.carregar() : (await import("xmllint-wasm")).validateXML;
+    if (typeof validateXML !== "function") throw new Error("validador");
     const todos = esquemas(ambiente, o.pastaBase);
     const raiz = todos.find(f => f.fileName === RAIZ[documento])!;
     r = await validateXML({ xml: [{ fileName: "documento.xml", contents: xml }], schema: [raiz], preload: todos.filter(f => f !== raiz) });
   } catch {
-    throw new ErroLeiaute("Não foi possível conferir o leiaute agora (validador indisponível). Nada foi enviado.");
+    throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
   }
   if (r.valid) return { valido: true, erros: [] };
   const erros = Array.from(new Set(r.errors.map(e => fraseDoErro(e.message)))).slice(0, 20);
@@ -90,7 +114,7 @@ export async function validarLeiaute(xml: string, documento: DocumentoLeiaute, a
 }
 
 /** Atalho: valida e lança ErroLeiaute com a lista quando inválido. */
-export async function exigirLeiaute(xml: string, documento: DocumentoLeiaute, ambiente: AmbienteLeiaute | string, o: { pastaBase?: URL } = {}): Promise<void> {
+export async function exigirLeiaute(xml: string, documento: DocumentoLeiaute, ambiente: AmbienteLeiaute | string, o: { pastaBase?: URL; pastaValidador?: string; carregar?: () => Promise<ValidateXml> } = {}): Promise<void> {
   const r = await validarLeiaute(xml, documento, ambiente, o);
   if (!r.valido) {
     throw new ErroLeiaute(`O ${documento === "dps" ? "documento da nota (DPS)" : "pedido de cancelamento"} não confere com o leiaute oficial: ${r.erros.slice(0, 5).join("; ")}. Nada foi enviado.`, r.erros);

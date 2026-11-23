@@ -1,7 +1,7 @@
 # S-7 — Fechar a emissão: envio da DPS, cancelamento, DANFSe e validação do leiaute
 
 **Status:** InReview · **Epic:** EPIC-029 · **Etapa:** 7 (fecha a S-4 do lado do código) · **Tamanho:** XL ·
-**Migração:** `drizzle/0167_fiscal_emissao.sql` (aditiva, idempotente; **NÃO aplicada** em banco nenhum)
+**Migração:** `drizzle/0167_fiscal_emissao.sql` e `drizzle/0171_fiscal_historico_sem_xml.sql` (aditivas, idempotentes; **NÃO aplicadas** em banco nenhum)
 **Depende de:** S-4 (cofre do A1, DPS, assinatura, cliente mTLS) e S-5 parte 1. **Branch:** `epic029-s7`.
 
 ## Por quê
@@ -111,7 +111,7 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 
 ### Não feito / depende de outros
 - Ligar qualquer coisa (por ordem): `EMISSAO_DISPONIVEL`, `emissao_liberada` do emissor, ambiente — nada foi ligado.
-- **Migração 0167 NÃO aplicada** em banco nenhum. A publicação desta branch exige aplicar a 0167 ANTES (o schema lê as colunas novas).
+- **Migrações 0167 e 0171 NÃO aplicadas** em banco nenhum. A publicação desta branch exige aplicar a 0167 ANTES (o schema lê as colunas novas); a 0171 depois da 0167.
 - Nomes dos campos JSON da Sefin e dos parâmetros municipais continuam [TERCEIROS/NÃO CONFIRMADO] (Swagger só com o A1): a leitura
   trata o que não reconhece como INCERTO (consulta antes de reenviar), nunca como sucesso.
 - CNO da obra (7.02/7.05): não há onde guardá-lo; a DPS desses itens continua recusada com a frase.
@@ -122,6 +122,36 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 - Vercel: `vercel.json` inclui `shared/fiscal/xsd/**` e `node_modules/xmllint-wasm/**` no pacote da função; conferir no primeiro
   deploy que o validador carrega (se não carregar, a emissão recusa — falha fechada).
 
+### Correções do portão de QA (23/11/2026, @dev Dex — veredito CONCERNS; `server/fiscal/s7-qa.test.ts`, os 4 `it.fails` viraram `it`)
+- **I1** (`server/dolores/acoes/fiscal.ts`): o item aprovado de `emitir_nota_fiscal` agora leva `ambiente` (o do emissor na preparação)
+  e `liberada` (`EMISSAO_DISPONIVEL` E `emissao_liberada` na preparação; ausente = false). Na execução, a nota é relida: ambiente ou
+  liberação diferentes → recusa `FRASE_EMISSAO_MUDOU` ("prepare de novo"), sem rede. O ambiente aprovado vai a `emitirNota`
+  (`ambienteEsperado`), que confere de novo antes e DENTRO da reserva (`FOR UPDATE`) e na retomada — a corrida fica fechada.
+- **I2** (`parametros-municipais.ts#aliquotaMunicipalVigente`): exige o ambiente; só vale a alíquota lida no MESMO ambiente da emissão.
+- **M1**: a vigente ignora consultas falhas (HTTP fora de 2xx ou `sem_valor`); `resolverAliquotaIss` recusa (`FALTA_CONSULTA_FALHOU`,
+  "busque as alíquotas oficiais de novo") se receber uma consulta sem valor — nunca cai em silêncio na digitada. `recusada` (o admin
+  escolheu a digitada) continua valendo a digitada. A mensagem da busca que falhou diz que a oficial já aceita continua valendo.
+- **M2** (`retorno.ts#conferirNfse`): só "autorizada" com prova positiva — grupo DPS/infDPS presente com o mesmo Id, `tpAmb` do ambiente
+  da emissão e CNPJ do `emit` igual ao do emissor; faltou qualquer um (ou o esperado não veio) → INCERTA.
+- **B1**: `fiscal.notas.verificarManualmente` (só admin) / `emissao.ts#marcarVerificarManualmente` + botão "Marcar como verificar
+  manualmente" na nota EMITINDO: EMITINDO → ERRO com `ultimo_erro.manual = true`, sem rede e sem apagar (histórico da 0154 grava quem e
+  quando); libera o emissor (troca de ambiente). Recusa com a trava recente (90 s). Nova tentativa de emitir um rascunho que já tem DPS
+  reservada (volta de ERRO) **consulta `GET /dps/{id}` antes de reenviar**.
+- **B2**: 408 e 429 = incertas (emissão e evento), não rejeição.
+- **B3**: orçamento total `ORCAMENTO_EMISSAO_MS` = 50 s por emissão/cancelamento (função de 60 s); o prazo de cada chamada é o menor
+  entre 25 s e o que resta; com menos de 2 s restando a chamada nem sai (resultado incerto, nada enviado).
+- **B4**: DANFSe recebe `ambienteEmissao` como reserva do aviso "NFS-e SEM VALIDADE JURÍDICA" (tpAmb 2 OU nota emitida em produção restrita).
+- **B5**: DANFSe pela Dolores passa pelo mesmo interruptor da prévia (`DOLORES_MASCARAR_DADOS_PESSOAIS`): CPF/CNPJ, telefone e e-mail do
+  tomador por `campoPessoal`, textos livres por `sanitizarTexto`. A tela (admin) baixa o documento como autorizado.
+- **B6**: migração NOVA `0171_fiscal_historico_sem_xml.sql` (CREATE OR REPLACE da função do histórico, que omite `xml_dps`/`xml_nfse`);
+  a 0154 e a 0167 não foram editadas; linhas antigas do histórico ficam como estão (imutável).
+- **B7**: `xmllint-wasm` carregado sob demanda (import dinâmico dentro do try) — se faltar no pacote, só a validação falha, FECHADA,
+  sem derrubar o servidor; antes de validar, confere `xmllint.wasm`/`xmllint-node.js`/`index-node.js` no caminho REAL (links do pnpm
+  resolvidos). `vercel.json` passou a incluir também `node_modules/.pnpm/xmllint-wasm@*/node_modules/xmllint-wasm/**`.
+- **B8** [AUTO-DECISION: cancelar com emissor desligado → recusa (razão: o mais seguro; "desligado" quer dizer que nada sai à Sefin)]:
+  `cancelarNota` exige também o emissor com ambiente de emissão e `emissao_liberada`; a tela mostra o botão desabilitado com o motivo
+  (`FRASE_CANCELAMENTO_DESLIGADO` no servidor). O cancelamento continua indo ao ambiente em que a nota foi emitida.
+
 ### Testes
 - Automáticos: `server/fiscal/emissao-s7.test.ts` (28: Sefin simulada com mTLS local — sucesso, rejeição, queda depois/antes de
   gerar, 5xx, concorrência, produção; gatilho; cancelamento; DANFSe pelo texto do PDF; XSD válido/inválido; alíquota; parâmetros
@@ -129,7 +159,7 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 - Manuais: nenhum (nada ligado). Pendente em produção: homologação com o A1 do dono.
 
 ## File List
-- Novos: `drizzle/0167_fiscal_emissao.sql`; `server/fiscal/{leiaute,retorno,evento,emissao,danfse,aliquota,parametros-municipais}.ts`;
+- Novos: `drizzle/0167_fiscal_emissao.sql`; `drizzle/0171_fiscal_historico_sem_xml.sql` (QA B6); `server/fiscal/s7-qa.test.ts` (portão de QA); `server/fiscal/{leiaute,retorno,evento,emissao,danfse,aliquota,parametros-municipais}.ts`;
   `server/fiscal/emissao-s7.test.ts`; `shared/fiscal/municipios.ts`; `shared/fiscal/xsd/**` (XSD oficiais + README);
   `client/src/components/fiscal/AliquotasOficiais.tsx`; esta story.
 - Alterados: `drizzle/schema-fiscal.ts`; `server/fiscal/{dps,sefin,certificado,certificado-router,notas,router}.ts`;
@@ -140,4 +170,5 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 
 ## Change Log
 - 22/11/2026 — @dev: story criada (Draft→InProgress) e implementada; InProgress → InReview (aguarda portão de QA).
+- 23/11/2026 — @dev: correções do portão de QA (CONCERNS): I1, I2, M1, M2 e B1–B8 (ver "Correções do portão de QA"); merge da main.
 - 23/11/2026 — @dev: cadeia do A1 completada por `completarCadeiaIcp` do Jurídico (cherry-pick 981ea52), sem recusar o .pfx sem intermediários.

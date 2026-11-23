@@ -39,13 +39,42 @@ const pct = (v: string | null | undefined) => (v == null || v === "" ? "—" : `
 const corta = (t: string, max: number) => (Array.from(t).length > max ? `${Array.from(t).slice(0, max - 3).join("")}...` : t);
 
 /** Gera o DANFSe (1 página) do XML AUTORIZADO. Lança ErroDanfse se o XML não for uma NFS-e legível. */
-export function gerarDanfsePdf(xmlAutorizado: string, o: { cancelada?: boolean } = {}): Uint8Array {
+/**
+ * QA S-7 (B4): `ambienteEmissao` (o gravado na nota) é a RESERVA do aviso "SEM VALIDADE JURÍDICA": sai quando o XML diz tpAmb 2
+ * OU quando a nota foi emitida em produção restrita (XML sem tpAmb legível, ou contraditório: na dúvida, o aviso aparece).
+ */
+export type OpcoesDanfse = {
+  cancelada?: boolean; ambienteEmissao?: string | null;
+  /**
+   * QA S-7 (B5): pela Dolores o DANFSe segue o MESMO interruptor da prévia (DOLORES_MASCARAR_DADOS_PESSOAIS): `campo` decide o
+   * CPF/CNPJ, telefone e e-mail do TOMADOR, e `texto` filtra os textos livres (descrição, informações complementares). A tela
+   * (admin) não passa nada: o documento sai como autorizado.
+   */
+  dadosPessoais?: { campo: (v: string, tipo: "cpf" | "cnpj" | "telefone" | "email") => string | null | undefined; texto: (t: string) => string };
+};
+export const semValidadeJuridica = (tpAmb: string | null | undefined, ambienteEmissao?: string | null) => tpAmb === "2" || ambienteEmissao === "producao_restrita";
+
+/** Aplica o filtro de dados pessoais ao que o DANFSe desenha do tomador e aos textos livres. */
+function filtrarDadosPessoais(n: NfseLida, f: NonNullable<OpcoesDanfse["dadosPessoais"]>): NfseLida {
+  const t = (v: string | null) => (v == null ? v : f.texto(v));
+  const c = (v: string | null, tipo: "cpf" | "cnpj" | "telefone" | "email") => (v == null ? v : f.campo(v, tipo) ?? null);
+  const tom = n.tomador;
+  const docTipo = (d: string) => (d.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj");
+  return {
+    ...n,
+    tomador: tom ? { ...tom, documento: tom.documento ? c(tom.documento, docTipo(tom.documento)) : null, fone: c(tom.fone, "telefone"), email: c(tom.email, "email"),
+      nome: t(tom.nome), endereco: t(tom.endereco) } : null,
+    servico: { ...n.servico, descricao: t(n.servico.descricao) },
+    xOutInf: t(n.xOutInf),
+  };
+}
+export function gerarDanfsePdf(xmlAutorizado: string, o: OpcoesDanfse = {}): Uint8Array {
   const n = lerNfse(xmlAutorizado);
   if (!n) throw new ErroDanfse("O XML autorizado da nota não pôde ser lido: o DANFSe não foi gerado.");
-  return desenhar(n, o);
+  return desenhar(o.dadosPessoais ? filtrarDadosPessoais(n, o.dadosPessoais) : n, o);
 }
 
-function desenhar(n: NfseLida, o: { cancelada?: boolean }): Uint8Array {
+function desenhar(n: NfseLida, o: OpcoesDanfse): Uint8Array {
   const pdf = new jsPDF({ unit: "mm", format: "a4" });
   const L = 210, M = 3, W = L - 2 * M; // margens de 0,2 cm (NT 008 §2.2.2: 0,15 a 0,20 cm)
   let y = M;
@@ -77,7 +106,7 @@ function desenhar(n: NfseLida, o: { cancelada?: boolean }): Uint8Array {
   pdf.setTextColor(0, 0, 0); pdf.setFontSize(9);
   pdf.text("DANFSe v2.0", L / 2, y + 4, { align: "center" });
   pdf.text("Documento Auxiliar da NFS-e", L / 2, y + 7.5, { align: "center" });
-  if (n.tpAmb === "2") { pdf.setTextColor(230, 0, 0); pdf.text(FRASE_SEM_VALIDADE, L / 2, y + 10.8, { align: "center" }); pdf.setTextColor(0, 0, 0); }
+  if (semValidadeJuridica(n.tpAmb, o.ambienteEmissao)) { pdf.setTextColor(230, 0, 0); pdf.text(FRASE_SEM_VALIDADE, L / 2, y + 10.8, { align: "center" }); pdf.setTextColor(0, 0, 0); }
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(8);
   if (!(n.servico.cTribNac ?? "").startsWith("99")) pdf.text(`Município: ${n.xLocEmi ?? "—"}${n.emitente.uf ? ` / ${n.emitente.uf}` : ""}`, L - M - 1.5, y + 4, { align: "right" });
   pdf.setFontSize(6);
