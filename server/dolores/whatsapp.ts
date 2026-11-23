@@ -39,7 +39,7 @@ import { registrarEvento } from "./operacao.js";
 import { decidir, feitosDoPedido, itensAguardandoDoPedido } from "./aprovacoes.js";
 import { tratarMensagemDeGrupo } from "./grupos.js";
 import { entrarNoGrupo, tratarEventoDeGrupo } from "./grupos-entrada.js";
-import { decidirGrupo, decidirPelaOpcao } from "./grupos-decisao.js";
+import { decidirGrupo, decidirPelaOpcao, decidirPeloNome } from "./grupos-decisao.js";
 import { lerDecisaoDeGrupo, lerRespostaNumerada } from "../../shared/dolores/grupos-tipo.js";
 import { MINIMO_PARA_CLASSIFICAR_MS } from "./classificacao.js";
 import { aprenderLidDaPropriaMensagem, aprenderLidDoAvisoDeGrupo, identidadeDaDolores, lerConfigMarcacoes, tratarMarcacao, type CredencialGrupo } from "./marcacao.js";
@@ -60,8 +60,9 @@ import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito } from "../../shared/dolores/ordem-direta.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
-import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao } from "./pendencia.js";
+import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao, tratarConfirmacaoNomeada } from "./pendencia.js";
 import { FRASE_SEM_TAREFA, criarTarefaDemorada, fraseVouLevantar, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
 
 /** O item do aviso é de grupo (remoteJid termina em @g.us)? */
@@ -581,6 +582,30 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       return `confirmacao:${r.situacao}`;
     }
   }
+  // EPIC-025 E11 — a resposta que NOMEIA o que ele confirma ("o grupo da Emily pode", "pode todos"), por CÓDIGO: só os itens que
+  // esperam a resposta dele e cuja pergunta ele já recebeu; o nome aponta UM item (empate → segue o caminho comum). Não chama a IA.
+  const nomeada = msg.temMidia ? null : lerConfirmacaoNomeada(msg.texto);
+  if (nomeada) {
+    const r = await tratarConfirmacaoNomeada(nomeada, { mensagemId: msg.id, enviadaEm: msg.enviadaEm, agora: deps.agora(), autor, prazoFinal: prazoFinal - FOLGA_FINAL_MS, relogio: deps.ms })
+      .catch(e => { console.error("[dolores/whatsapp] falha na confirmação nomeada", erroCurto(e)); return null; });
+    if (r) {
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { confirmacaoNomeada: nomeada.tipo, todos: nomeada.todos, situacao: r.situacao }, prazoFinal, pendenciaId: r.pendenciaId, memoria: { codigos: r.codigos } });
+      await atualizarMensagem(msg.id, { situacao: r.situacao === "erro" ? "erro" : "respondida", motivo: `resposta nomeada à proposta: ${r.situacao}`, respondidaEm: deps.agora() });
+      return `confirmacao-nomeada:${r.situacao}`;
+    }
+  }
+  // EPIC-025 E11 — a resposta só com o NOME do cliente ("Maria dayane", "1 Emily") à pergunta "de qual cliente é?" de UM grupo que
+  // espera o tipo (pergunta dos últimos 30 min): o servidor acha UM cliente ativo por essas palavras e liga; senão segue o caminho comum.
+  const nomeDoCliente = msg.temMidia ? null : lerNomeDeCliente(msg.texto);
+  if (nomeDoCliente) {
+    const r = await decidirPeloNome(nomeDoCliente, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
+      .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pelo nome", erroCurto(e)); return null; });
+    if (r) {
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: nomeDoCliente.tipo, peloNome: true, ok: r.ok }, prazoFinal, memoria: {} });
+      await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo pelo nome do cliente${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
+      return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
+    }
+  }
   // Etapa 6 — "relatório" (a mensagem inteira), reconhecido por CÓDIGO: ronda + relatório de modelo fixo, sem IA (nem gasto).
   // Mesma porta da pausa geral e do interruptor do relatório; o texto vai ao número do dono pelo envio do sistema.
   if (!msg.temMidia && ehComandoRelatorio(msg.texto)) {
@@ -627,13 +652,17 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const r = await executarComando({
       comando: msg.texto, mensagemId: msg.id, apiKey: estado.apiKey, modelo: estado.modelo, mes, prazoFinal, relogio: deps.ms,
       limites: { entrada: cfg.limiteMensalTokensEntrada, saida: cfg.limiteMensalTokensSaida }, historico,
-      memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia,
+      memoriaLonga: memoriaLonga?.bloco ?? null, comMidia: msg.temMidia, agora: deps.agora(),
       // EPIC-027 C5 (tarefa demorada): SÓ aqui (conversa direta do número do dono) o pedido de leitura que não cabe vira tarefa
       virarTarefa: msg.temMidia ? undefined : virarTarefa,
     });
     // EPIC-027 C5 (E1): a voz — o texto do MODELO perde nome de ferramenta, id e código antes dos filtros de segurança
     const voz = vozDaDolores(r.texto);
     let texto = voz.texto;
+    // EPIC-025 E11: o que foi feito na hora por ordem direta vai numa linha do SISTEMA ("Feito: …", com como desfazer); sem texto do
+    // modelo, a linha é a resposta inteira
+    let linhaFeito = linhaDoFeito(r.feitosNaHora ?? []);
+    if (linhaFeito && !texto.trim()) { texto = linhaFeito; linhaFeito = null; }
     // QA r2 N3: barrado só pela reserva de outro pedido em andamento — frase própria, sem gastar o aviso do mês.
     if (r.parou === "outro_pedido" && r.voltas === 0) texto = FRASE_OUTRO_PEDIDO;
     // EPIC-027 C5-E5: só a parte da conversa acabou — frase própria (os grupos e os documentos seguem)
@@ -651,9 +680,9 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       : null;
     const quadrosDoPedido = pendencia ? pendencia.pergunta : await montarQuadros(msg.id, r.codigosNaFila);
     // EPIC-027 C5-COM: link da maquete e rascunho ao cliente, montados pelo sistema, vão intactos num quadro (nunca cortado), antes da pergunta
-    const quadros = [...(r.anexos ?? []), ...(quadrosDoPedido ? [quadrosDoPedido] : [])].join("\n\n") || null;
+    const quadros = [...(linhaFeito ? [linhaFeito] : []), ...(r.anexos ?? []), ...(quadrosDoPedido ? [quadrosDoPedido] : [])].join("\n\n") || null;
     const envio = { enviadas: 0 };
-    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia ? { nota: pendencia.memoria } : {}) } });
+    const ok = await responderAoDono(cfg, msg.numero, texto, { mensagemId: msg.id, autor, resumo: { voltas: r.voltas, consultas: r.consultas.length, parou: r.parou, tokensEntrada: r.tokens.entrada, tokensSaida: r.tokens.saida, historico: historico.itens.length, ...(memoriaLonga ? { memoriaLonga: memoriaLonga.usadas } : {}), ...(voz.correcoes ? { vozCorrigida: voz.correcoes } : {}), ...(pendencia ? { proposta: pendencia.itens, nivel: pendencia.nivel } : {}) }, prazoFinal, quadros, pendenciaId: pendencia?.id ?? null, envio, memoria: { referencias: r.referencias, ...(pendencia || linhaFeito ? { nota: [linhaFeito ? `(O sistema mostrou ao dono: ${linhaFeito})` : "", pendencia?.memoria ?? ""].filter(Boolean).join("\n") } : {}) } });
     // a pergunta vai na 1ª mensagem: se nem ela saiu, a proposta não vale (nada espera um "pode" que ele não viu)
     if (pendencia && !envio.enviadas) await cancelarPendencia(pendencia.id, deps.agora());
     // S-3b (revisão, item 1): a mensagem é marcada ANTES das prévias — se a função morrer gerando o PDF, a resposta já saiu e

@@ -26,7 +26,9 @@ import { MAX_ACOES_POR_COMANDO, type MotivoContaminacao } from "../../shared/dol
 import { VALIDADE_ITEM_CONFIRMAVEL_MS } from "../../shared/dolores/confirmacao.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
-import { acoesDoPedido, porNaFila } from "./aprovacoes.js";
+import { acoesDoPedido, decidir, porNaFila } from "./aprovacoes.js";
+import { podeExecutarPorOrdemDireta } from "../../shared/dolores/ordem-direta.js";
+import { provarAlvosDoDono } from "./ordem-direta.js";
 import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
@@ -214,6 +216,15 @@ export type OpcoesExecucao = {
   pedidoDeMesa?: ContextoAcao["pedidoDeMesa"];
   /** EPIC-029 S-3: o assunto fiscal está aberto na mensagem direta do DONO, por código (cerebro.ts). Ausente: as ações fiscais recusam. */
   pedidoFiscal?: ContextoAcao["pedidoFiscal"];
+  /**
+   * EPIC-025 E11 (ordem direta = confirmação): as PALAVRAS que o dono digitou (a mensagem direta dele, sem colagem, sem anexo, não
+   * encaminhada — montado por cerebro.ts, por código). Com isto, a ação REVERSÍVEL da lista fechada (shared/dolores/ordem-direta.ts)
+   * cujos alvos saíram dessas palavras (server/dolores/ordem-direta.ts) executa NA HORA, pelo mesmo item da fila (resumo + hash +
+   * revalidação + auditoria de `decidir`), sem o "pode". Ausente, ou alvo que não saiu das palavras dele → a confirmação de sempre.
+   */
+  ordemDireta?: { texto: string } | null;
+  /** EPIC-025 E11: recebe a frase (montada pelo sistema) de cada ação feita na hora por ordem direta — para a linha "Feito: …". */
+  aoExecutar?: (frases: string[]) => void;
 };
 
 /**
@@ -312,7 +323,8 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
   if (acao) return executarAcao(acao, args.data, { agora, autor: autor!, mensagemId: opcoes.mensagemId!, pedidoId, registrar, responder,
     contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
     exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null,
-    pedidoDeMesa: opcoes.pedidoDeMesa ?? null, pedidoFiscal: opcoes.pedidoFiscal ?? null });
+    pedidoDeMesa: opcoes.pedidoDeMesa ?? null, pedidoFiscal: opcoes.pedidoFiscal ?? null,
+    ordemDireta: opcoes.canal === "whatsapp" && typeof opcoes.ordemDireta?.texto === "string" && opcoes.ordemDireta.texto.trim() ? opcoes.ordemDireta : null, aoExecutar: opcoes.aoExecutar });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal, ...(leitura!.soConversaDoDono ? { pedidoDoDono: opcoes.pedidoDoDono ?? null } : {}) })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
@@ -343,10 +355,15 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
   exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null; pedidoDeMesa: ContextoAcao["pedidoDeMesa"];
   pedidoFiscal: ContextoAcao["pedidoFiscal"];
+  ordemDireta?: { texto: string } | null; aoExecutar?: (frases: string[]) => void;
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
+  // EPIC-025 E11: ordem direta do dono — a ação reversível da lista fechada cujos ALVOS saíram das palavras dele (conferência no
+  // servidor, por código). Provado, o resumo não leva o aviso de "pedido surgido durante a leitura" (o alvo não veio da leitura).
+  const ordemDireta = !!c.ordemDireta && podeExecutarPorOrdemDireta(funcao, args)
+    && (await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" }))).ok;
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
-    motivoContaminacao: c.contaminado ? (c.motivoContaminacao ?? "leitura") : null,
+    motivoContaminacao: c.contaminado && !ordemDireta ? (c.motivoContaminacao ?? "leitura") : null,
     ...(c.confirmacaoNatural ? { validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS } : {}),
     ...(c.pedidoDeMemoria ? { pedidoDeMemoria: c.pedidoDeMemoria } : {}),
     ...(c.pedidoDeMesa ? { pedidoDeMesa: c.pedidoDeMesa } : {}),
@@ -393,6 +410,28 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     const cabem = preparo.itens.slice(0, vagas);
     const recusados = [...preparo.recusados, ...preparo.itens.slice(vagas).map(i => ({ alvo: i.alvo, motivo: `limite de ${MAX_ACOES_POR_COMANDO} ações por comando` }))];
     const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
+    // EPIC-025 E11: ordem direta → o item que o sistema acabou de montar (resumo exato + hash) é decidido NA HORA pela mesma porta da
+    // fila (`decidir`: pausa, usuária, revalidação, conferência, auditoria). Só os itens cujos argumentos PREPARADOS continuam na lista
+    // fechada (ex.: classificar com tipo simples; desligar, nunca ligar). O resto continua esperando a resposta do dono.
+    if (ordemDireta) {
+      const diretos = criados.filter((x, i) => podeExecutarPorOrdemDireta(funcao, cabem[i]?.argumentos)).map(x => x.codigo);
+      const inicio = Date.now();
+      const resultados = diretos.length ? await decidir(diretos, "aprovar", { via: "whatsapp", userId: null, agora: c.agora, mensagemId: c.mensagemId,
+        prazoFinal: inicio + c.prazoMs, relogio: () => Date.now(), confirmado: true, motivo: "ordem direta do dono" }) : [];
+      const feitos = resultados.filter(r => r.ok).map(r => String(r.natural ?? r.texto));
+      const naoFeitos = resultados.filter(r => !r.ok && r.situacao !== "aguardando").map(r => String(r.natural ?? r.texto));
+      const esperando = new Set(resultados.filter(r => r.situacao === "aguardando").map(r => r.codigo));
+      const resto = criados.filter(x => !diretos.includes(x.codigo) || esperando.has(x.codigo));
+      c.aoPorNaFila?.(resto.map(x => x.codigo));
+      if (feitos.length) c.aoExecutar?.(feitos);
+      await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
+        resumo: { nivel: "ordem_direta", feitos: feitos.length, naoFeitos: naoFeitos.length, esperando: resto.length, recusados: recusados.length } });
+      const { valor } = limitarResposta(sanitizarResposta({ feito: feitos, naoFeito: naoFeitos, naoPreparados: recusados, ficouEsperando: resto.length }, filtroDaSaida("whatsapp")));
+      return { contamina: true, ...responder(200, { ok: true, nivel: feitos.length ? "feito" : "fila", avisoSeguranca: AVISO_SEGURANCA,
+        aviso: feitos.length
+          ? "FEITO agora, por ordem direta do dono. O sistema já mostra a ele a linha \"Feito: …\" com o que foi feito: não repita isso, não peça confirmação e não diga que o sistema vai mostrar algo. Se não houver mais nada a dizer, não escreva nada."
+          : "NADA foi feito ainda (veja naoFeito). Diga em uma frase curta o motivo, sem pedir \"pode\" você mesma e sem dizer que o sistema vai mostrar algo.", dados: valor }) };
+    }
     c.aoPorNaFila?.(criados.map(x => x.codigo));
     await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
       resumo: { nivel: "fila", contaminado: acao.nivel === "direto" && c.contaminado, confirmacaoNatural: c.confirmacaoNatural, naFila: criados.filter(x => !x.jaAguardava).length, jaAguardavam: criados.filter(x => x.jaAguardava).length, recusados: recusados.length } });
@@ -406,7 +445,8 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     // o resumo dos itens cita nomes do cadastro: contamina (QA R2 N2)
     return { contamina: true, ...responder(200, { ok: true, nivel: "fila", avisoSeguranca: AVISO_SEGURANCA,
       aviso: c.confirmacaoNatural
-        ? "NADA foi feito ainda: logo abaixo da sua resposta o sistema mostra ao dono o resumo exato e pergunta se pode fazer. Diga em uma frase o que vai fazer e pare; não pergunte você mesma, não diga que fez e não fale em fila nem em código."
+        // EPIC-025 E11: uma pergunta só (a do sistema) — ela não pede "pode" e não anuncia que o sistema vai mostrar nada
+        ? "NADA foi feito ainda: o sistema pergunta ao dono, junto com a sua resposta, se pode fazer. Diga só o que vai fazer, em uma frase curta; não peça \"pode\" nem confirmação você mesma, não diga que o sistema vai mostrar algo, não diga que fez e não fale em fila nem em código."
         : acao.nivel === "direto"
         ? "NADA foi feito: como esta conversa já leu dados do sistema, o registro ficou esperando a confirmação do dono (regra fixa). O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código."
         : "NADA foi feito ainda: os itens ficaram esperando a confirmação do dono. O sistema mostra a ele, abaixo da sua resposta, o resumo e como confirmar; diga só que ficou esperando a confirmação dele, sem falar em fila nem em código.", dados: valor }) };

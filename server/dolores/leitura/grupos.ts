@@ -39,6 +39,9 @@ export async function listarGrupos(args: z.infer<typeof entradaListarGrupos>): P
   const grupos = await db().select({
     id: doloresGrupos.id, nome: doloresGrupos.nome, ativo: doloresGrupos.ativo, leadId: doloresGrupos.leadId, obraId: doloresGrupos.obraId,
     cliente: leads.name, obra: constructionProjects.title, tipo: doloresGrupos.tipo, situacao: doloresGrupos.situacaoConfirmacao,
+    // EPIC-025 E11: o código curto que o SISTEMA mandou ao dono nos avisos ("grupo AA7W aceitar") e o nome do WhatsApp — para ela achar o
+    // grupo que ele cita, e nunca dizer "não encontrei o código" de um código que o sistema acabou de enviar
+    codigo: doloresGrupos.codigo, nomeWhatsapp: doloresGrupos.nomeWhatsapp,
     responde: doloresMarcacoesGrupo.responderLigado,
     // revisão automática (B): sem linha própria do interruptor, vale o MESMO padrão da marcação (ligadoPorPadrao)
     origem: doloresGrupos.origem, adicionadoPor: doloresGrupos.adicionadoPor, provaAdicao: doloresGrupos.provaAdicao,
@@ -55,14 +58,14 @@ export async function listarGrupos(args: z.infer<typeof entradaListarGrupos>): P
     const soma = (...s: string[]) => c.filter(x => s.includes(x.situacao)).reduce((a, x) => a + Number(x.n), 0);
     const ultima = c.map(x => x.ultima).filter(Boolean).sort().at(-1) ?? null;
     return {
-      grupoId: g.id, nome: truncar(g.nome, 120), ativo: g.ativo, vinculo: vinculoDe(g),
+      grupoId: g.id, codigo: g.codigo ?? null, nome: truncar(g.nomeWhatsapp ?? g.nome, 120), ativo: g.ativo, vinculo: vinculoDe(g),
       tipo: ROTULO_TIPO_GRUPO[tipoEfetivo(g)], situacao: SITUACAO_DO_GRUPO[g.situacao] ?? g.situacao, respondeQuandoMarcada: g.responde == null ? ligadoPorPadrao({ ...g, situacaoConfirmacao: g.situacao }) : g.responde === true,
       mensagens: c.reduce((a, x) => a + Number(x.n), 0), ultimaMensagemEm: isoFortaleza(ultima),
       documentos: { aClassificar: soma("a_classificar", "classificando", "erro"), classificados: soma("classificado"), confira: soma("confira"), salvosNoCard: soma("salvo"), naoBaixados: soma("grande_demais", "formato") },
     };
   });
   const pagina = paginar(lista, args.pagina, args.limite);
-  return { dados: { observacao: "Grupos em que a Dolores está. Ela só responde num grupo quando é marcada nele (com a resposta daquele grupo ligada) e só dentro do que o tipo permite; fora isso, só lê.", ...pagina }, resumo: { grupos: lista.length, devolvidos: pagina.itens.length } };
+  return { dados: { observacao: "Grupos em que a Dolores está; \"codigo\" é o código de 4 caracteres que o sistema manda ao dono nos avisos (ele pode citá-lo). Ela só responde num grupo quando é marcada nele (com a resposta daquele grupo ligada) e só dentro do que o tipo permite; fora isso, só lê.", ...pagina }, resumo: { grupos: lista.length, devolvidos: pagina.itens.length } };
 }
 
 export async function lerGrupoCliente(args: z.infer<typeof entradaLerGrupoCliente>, ctx: { agora: Date }): Promise<Resultado> {

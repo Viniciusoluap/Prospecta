@@ -205,7 +205,31 @@ export type ResultadoComando = {
   previasFiscais: number[];
   /** S-3b (item 3): prévias que o modelo pediu na retomada em segundo plano (somenteLeitura) e que NÃO foram mandadas. */
   previasRecusadas?: number[];
+  /**
+   * EPIC-025 E11: frases (montadas pelo SISTEMA) do que foi feito NA HORA por ordem direta do dono — vão ao dono numa linha
+   * "Feito: …" (whatsapp.ts), nunca pelo texto do modelo. Vazio = nada foi feito sem confirmação.
+   */
+  feitosNaHora: string[];
 };
+
+/** EPIC-025 E11: quanto tempo vale a mensagem anterior DO DONO como "as palavras dele" quando ele só responde "sim"/"pode". */
+export const JANELA_PALAVRAS_ANTERIORES_MS = 15 * 60_000;
+/** EPIC-025 E11: quantas mensagens anteriores dele entram (as mais recentes). */
+export const MAX_MENSAGENS_ANTERIORES = 3;
+
+/**
+ * EPIC-025 E11 — as PALAVRAS DO DONO para a ordem direta: a mensagem dele (direta, sem colagem e sem anexo) e, quando ela é só um
+ * "sim"/"pode" (resposta à pergunta da conversa), as últimas mensagens que ELE digitou na conversa direta nos últimos 15 minutos
+ * (origem "mensagem": nunca encaminhada, anexo, aviso, resposta da Dolores nem texto de consulta). Por código.
+ */
+export function palavrasDoDonoParaOrdem(comando: string, historico: Historico, agora: Date): string {
+  const c = lerConfirmacao(comando);
+  if (c?.tipo !== "sim" && c?.tipo !== "confirmo") return comando;
+  const anteriores = historico.itens
+    .filter(i => i.papel === "dono" && i.origem === "mensagem" && agora.getTime() - i.criadoEm.getTime() <= JANELA_PALAVRAS_ANTERIORES_MS && i.criadoEm.getTime() <= agora.getTime())
+    .slice(-MAX_MENSAGENS_ANTERIORES).map(i => i.texto);
+  return [...anteriores, comando].join("\n");
+}
 
 export type PedidoComando = {
   comando: string; mensagemId: number; apiKey: string; modelo: string; limites: Limites; mes: string;
@@ -238,6 +262,8 @@ export type PedidoComando = {
   somenteLeitura?: boolean;
   /** Voltas deste pedido (padrão MAX_VOLTAS; a retomada usa MAX_VOLTAS_TAREFA). */
   maxVoltas?: number;
+  /** EPIC-025 E11: a hora do aviso (a janela das mensagens anteriores do dono); padrão: agora. */
+  agora?: Date;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -359,6 +385,11 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const pedidoDeMesa = abreMesa ? { texto: comando, tipos: tiposMesa } : null;
   // EPIC-029 S-3: o texto da mensagem do dono, para as ações fiscais conferirem que o texto livre gravado saiu das palavras dele
   const pedidoFiscal = acoesFiscais ? { texto: comando } : null;
+  // EPIC-025 E11: ordem direta = confirmação para o reversível — só a conversa direta do dono, com intenção de ação por código, sem
+  // texto colado, sem anexo e fora da retomada em segundo plano. Quem confere os alvos contra estas palavras é o servidor (ponte.ts).
+  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura
+    ? { texto: palavrasDoDonoParaOrdem(comando, historico, p.agora ?? new Date()) } : null;
+  const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
   const previasRecusadas = new Set<number>();
   const tokens = { entrada: 0, saida: 0 };
@@ -463,7 +494,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
           contaminado, motivoContaminacao, semAcoes: !(comAcoes || (acoesFiscais && ACOES_FISCAIS_SET.has(String(u.name)))), aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal,
+          ordemDireta, aoExecutar: fs => feitosNaHora.push(...fs) },
       );
       // EPIC-027 C5-COM: só das leituras da conversa do dono (texto montado pelo sistema, já pelo filtro da porta)
       if (resp.body.ok === true && leituraPorNome(String(u.name))?.soConversaDoDono) {
@@ -523,7 +555,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const sobreAcoes = `${ferramentaCortada ? ` ${AVISO_FERRAMENTA_CORTADA}` : ""} ${fezAcao ? CONFIRA_O_QUADRO : NADA_ALTERADO}`;
   let texto: string;
   if (!parou) {
-    texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
+    // EPIC-025 E11: feito por ordem direta e o modelo não acrescentou nada → só a linha "Feito: …" do sistema (whatsapp.ts)
+    texto = corpo || (feitosNaHora.length ? "" : "Dolores: não tenho o que responder a esse pedido com os dados do sistema.");
     // resumo depois de um corte com pedido de ferramenta: o texto veio sem a consulta/ação — o dono fica sabendo
     if (ferramentaCortada) texto = `${texto}\n\n(${sobreAcoes.trim()})`;
   } else if (parou === "max_tokens" && corpo) {
@@ -539,5 +572,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
   // EPIC-027 C5 (REURB): o aviso fixo no fim da resposta, por código, quando a análise deu caso analisável
   texto = comAvisoReurb(texto, analisouReurb);
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais), previasRecusadas: Array.from(previasRecusadas) };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais), previasRecusadas: Array.from(previasRecusadas), feitosNaHora };
 }

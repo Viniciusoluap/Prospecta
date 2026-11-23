@@ -144,7 +144,30 @@ const POS = new Set(["pos", "posvenda", "posatendimento"]);
 const PALAVRAS_POS = new Set(["pos", "posvenda", "posatendimento", "venda", "vendas", "atendimento"]);
 
 export type ClienteParaTipo = { id: number; nome: string | null };
-export type TipoDescoberto = { tipo: TipoGrupo; leadId: number | null; motivo: string };
+export type TipoDescoberto = { tipo: TipoGrupo; leadId: number | null; motivo: string;
+  /** EPIC-025 E11: quando o nome bate com MAIS de um cliente, quais (para a Dolores oferecer os nomes, nunca pedir o nº do CRM). */
+  candidatos?: number[] };
+
+/** Partículas de nome ("Maria DE Jesus") que não contam no par nome + sobrenome. */
+const PARTICULAS = new Set(["de", "da", "do", "das", "dos", "e"]);
+const semParticulas = (n: string) => palavras(n).filter(p => !PARTICULAS.has(p));
+
+/**
+ * EPIC-025 E11 — segundo nível da comparação (só quando o nome INTEIRO de nenhum cliente está no nome do grupo): o grupo traz o
+ * NOME e o primeiro SOBRENOME de um cliente, juntos e nessa ordem ("MARIA DAYANE OBRA PROSPECTA IMP" → cliente "Maria Dayane Silva
+ * Sousa"). Vale só para cliente com 3+ palavras (o de 2 palavras já foi comparado inteiro) e cada palavra do par com 3+ letras.
+ * Devolve os ids que casam (quem chama só liga com UM).
+ */
+export function clientesPeloNomeESobrenome(nucleo: string, clientes: readonly ClienteParaTipo[]): number[] {
+  const g = semParticulas(nucleo);
+  const casados = new Set<number>();
+  for (const c of clientes) {
+    const pc = semParticulas(normalizarNome(c.nome));
+    if (pc.length < 3 || pc[0].length < 3 || pc[1].length < 3 || !nomeLigavel(`${pc[0]} ${pc[1]}`)) continue;
+    for (let i = 0; i + 1 < g.length; i++) if (g[i] === pc[0] && g[i + 1] === pc[1]) { casados.add(c.id); break; }
+  }
+  return Array.from(casados);
+}
 
 /**
  * Descobre o tipo do grupo pelo NOME do WhatsApp. Puro e determinístico. `clientes` = clientes ATIVOS do CRM (id e nome).
@@ -168,8 +191,16 @@ export function descobrirTipoDoGrupo(nomeDoGrupo: string | null | undefined, cli
     if (!nc || !nomeLigavel(nc)) continue;
     if (nucleo === nc || comEspaco.includes(` ${nc} `)) casados.add(c.id);
   }
-  if (casados.size > 1) return { tipo: "indefinido", leadId: null, motivo: "o nome bate com mais de um cliente do CRM" };
-  if (casados.size === 0) return { tipo: "indefinido", leadId: null, motivo: "o nome não bate com nenhum cliente do CRM nem com um tipo interno" };
+  if (casados.size > 1) return { tipo: "indefinido", leadId: null, motivo: "o nome bate com mais de um cliente do CRM", candidatos: Array.from(casados) };
+  if (casados.size === 0) {
+    // EPIC-025 E11: nenhum nome inteiro — o par nome + sobrenome de UM cliente (mais de um → indefinido, com os candidatos)
+    const parciais = clientesPeloNomeESobrenome(nucleo, clientes);
+    if (parciais.length > 1) return { tipo: "indefinido", leadId: null, motivo: "o nome bate com mais de um cliente do CRM", candidatos: parciais };
+    if (parciais.length === 1) {
+      return { tipo: pos ? "pos_atendimento" : "cliente", leadId: parciais[0], motivo: pos ? "nome e sobrenome de um único cliente, com pós-atendimento" : "nome e sobrenome de um único cliente do CRM" };
+    }
+    return { tipo: "indefinido", leadId: null, motivo: "o nome não bate com nenhum cliente do CRM nem com um tipo interno" };
+  }
   const [leadId] = Array.from(casados);
   return { tipo: pos ? "pos_atendimento" : "cliente", leadId, motivo: pos ? "nome de um único cliente, com pós-atendimento" : "nome de um único cliente do CRM" };
 }
@@ -205,7 +236,7 @@ const COMANDO = /^grupo ([a-z0-9]{4}) (cliente|pos atendimento|pos venda|posvend
 
 /**
  * "grupo K7QM cliente 456", "grupo K7QM pós 456", "grupo K7QM jurídico", "grupo K7QM engenharia 12" (obra nº 12, opcional),
- * "grupo K7QM ignorar". Só a mensagem inteira; cliente e pós exigem o nº do cliente; jurídico, administrativo, parceiros e
+ * "grupo K7QM ignorar". Só a mensagem inteira; cliente e pós aceitam o nº do cliente (sem ele, E11: o servidor acha pelo nome do grupo); jurídico, administrativo, parceiros e
  * ignorar não aceitam número. Qualquer outra coisa → null (a mensagem segue o caminho normal).
  */
 export function lerDecisaoDeGrupo(texto: string | null | undefined): DecisaoDeGrupo | null {
@@ -219,8 +250,8 @@ export function lerDecisaoDeGrupo(texto: string | null | undefined): DecisaoDeGr
   const tipo = TIPO_DO_COMANDO[m[2]] ?? TIPO_DA_OPCAO[m[2]];
   const numero = m[3] ? Number(m[3]) : null;
   if (numero !== null && (!Number.isSafeInteger(numero) || numero <= 0 || numero > 2_147_483_647)) return null;
-  if (tipo === "cliente" || tipo === "pos_atendimento") return numero ? { codigo, tipo, numero } : null;
-  if (tipo === "engenharia") return { codigo, tipo, numero };
+  // EPIC-025 E11: cliente/pós SEM o nº vale — o servidor acha o cliente pelo nome do grupo (um só) ou oferece os nomes
+  if (tipo === "cliente" || tipo === "pos_atendimento" || tipo === "engenharia") return { codigo, tipo, numero };
   if (numero !== null) return null;
   return { codigo, tipo, numero: null };
 }
@@ -248,8 +279,8 @@ export function lerRespostaNumerada(texto: string | null | undefined): RespostaN
   if (numero !== null && (!Number.isSafeInteger(numero) || numero <= 0 || numero > 2_147_483_647)) return null;
   const c = categoriaDoTipo(tipo)!;
   if (sim && !pedeConfirmacao(tipo)) return null;
-  if (c.vinculo === "cliente") return numero ? { tipo, numero, confirmado: true } : null;
-  if (c.vinculo === "obra") return { tipo, numero, confirmado: true };
+  // EPIC-025 E11: "1" sozinho vale (o servidor acha o cliente pelo nome do grupo, ou oferece os nomes — nunca pede o nº do CRM)
+  if (c.vinculo === "cliente" || c.vinculo === "obra") return { tipo, numero, confirmado: true };
   if (numero !== null) return null;
   return { tipo, numero: null, confirmado: pedeConfirmacao(tipo) ? sim : true };
 }
@@ -274,7 +305,7 @@ export function textoDoAvisoDeClassificacaoPelaTela(p: { nomeDoGrupo: string | n
 
 /** As opções numeradas, uma por linha, com a explicação (o texto do sistema; nada de terceiro). */
 export function textoDasOpcoes(codigo: string, o: { soComNumero?: boolean } = {}): string {
-  const linhas = CATEGORIAS_GRUPO.map(c => `${c.opcao}. ${c.rotulo} — ${c.explica}${c.vinculo === "cliente" ? ` (responda «${c.opcao} <nº do cliente no CRM>»)` : c.vinculo === "obra" ? ` (nº da obra opcional: «${c.opcao} <nº da obra>»)` : o.soComNumero && pedeConfirmacao(c.tipo) ? ` (responda «${c.opcao} sim»)` : ""}`);
+  const linhas = CATEGORIAS_GRUPO.map(c => `${c.opcao}. ${c.rotulo} — ${c.explica}${c.vinculo === "cliente" ? ` (responda «${c.opcao}»: eu acho o cliente pelo nome do grupo; se não for ele, me diga o nome)` : c.vinculo === "obra" ? ` (nº da obra opcional: «${c.opcao} <nº da obra>»)` : o.soComNumero && pedeConfirmacao(c.tipo) ? ` (responda «${c.opcao} sim»)` : ""}`);
   const como = o.soComNumero
     ? `Responda só com o número da opção, em até 30 minutos. Se houver mais de um grupo esperando, use «grupo ${codigo} <número>».`
     : `Responda «grupo ${codigo} <número da opção>».`;

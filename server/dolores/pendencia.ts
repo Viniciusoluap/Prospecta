@@ -25,6 +25,7 @@ import {
 } from "../../shared/dolores/confirmacao.js";
 import { ALFABETO_CODIGO, textoDeDado } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
+import { escolherPorNome, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
 import { getDb } from "../db.js";
 import { decidir, type ResultadoDecisao } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
@@ -322,4 +323,62 @@ async function respostaDoResultado(lista: ItemDaPendencia[], rs: ResultadoDecisa
     if (nova) { partes.push(nova.pergunta); novaId = nova.id; }
   }
   return { texto: partes.join("\n") || "Nada foi feito.", novaId };
+}
+
+/** EPIC-025 E11: itens que a confirmação nomeada consegue achar (os mais recentes que esperam a resposta do dono). */
+export const MAX_ITENS_CONFIRMACAO_NOMEADA = 30;
+
+/**
+ * EPIC-025 E11 — "o grupo da Emily pode", "pode o da Maria Dayane", "pode todos": a resposta que NOMEIA o que ele confirma, já
+ * reconhecida por código (`lerConfirmacaoNomeada`). Vale só para itens da fila que ainda esperam e cuja PERGUNTA ele já recebeu (numa
+ * proposta enviada a ele — aberta, ou substituída por outra depois) ANTES de escrever esta resposta (a mesma trava de hora da QA
+ * C5-E2, A1). O nome aponta UM item (empate ou nada → null: segue o caminho comum). "pode todos" = todos os de registro ("pode"); os
+ * sérios só com "confirmo". O que executa é o item gravado e conferido por hash (`decidir`), nunca uma reinterpretação do modelo.
+ */
+export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Contexto): Promise<RespostaDaConfirmacao | null> {
+  if (!ctx.enviadaEm || Number.isNaN(ctx.enviadaEm.getTime())) return null;
+  let mostradas: Array<{ id: number; aprovacaoIds: number[]; perguntaEnviadaEm: Date | null }>;
+  try {
+    mostradas = await getDb().select({ id: doloresConversaPendencia.id, aprovacaoIds: doloresConversaPendencia.aprovacaoIds, perguntaEnviadaEm: doloresConversaPendencia.perguntaEnviadaEm })
+      .from(doloresConversaPendencia).where(and(sql`${doloresConversaPendencia.perguntaEnviadaEm} IS NOT NULL`, inArray(doloresConversaPendencia.situacao, ["aberta", "substituida"]),
+        sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`)).orderBy(desc(doloresConversaPendencia.id)).limit(20);
+  } catch (e) {
+    console.error("[dolores/pendencia] propostas indisponíveis (confirmação nomeada)", erroParaLog(e));
+    return null;
+  }
+  // só os itens cuja pergunta saiu ANTES de ele escrever (segundo inteiro, estritamente depois)
+  const vistos = new Set(mostradas.filter(m => m.perguntaEnviadaEm && segundo(ctx.enviadaEm!) > segundo(m.perguntaEnviadaEm)).flatMap(m => m.aprovacaoIds));
+  if (!vistos.size) return null;
+  const candidatos = (await itens(Array.from(vistos).slice(-MAX_ITENS_CONFIRMACAO_NOMEADA)))
+    .filter(i => i.situacao === "aguardando" && i.venceEm.getTime() > ctx.agora.getTime());
+  if (!candidatos.length) return null;
+  let escolhidos: ItemDaPendencia[];
+  if (c.todos) {
+    escolhidos = c.tipo === "confirmo" ? candidatos : candidatos.filter(i => nivelDoItem(i.funcao, i.argumentos) === "registro");
+    if (!escolhidos.length) {
+      const funcoes = candidatos.map(paraMotivo);
+      return { pendenciaId: null, codigos: candidatos.map(i => i.codigo), situacao: "falta_confirmo", texto: fraseFaltaConfirmo(funcoes) };
+    }
+  } else {
+    const escolha = escolherPorNome(c.referencia, candidatos.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
+    const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
+    if (!item) return null;
+    escolhidos = [item];
+  }
+  const nivel = nivelDosItens(escolhidos);
+  const codigos = escolhidos.map(i => i.codigo);
+  if (nivel === "serio" && c.tipo !== "confirmo") {
+    await auditar("recusada", "confirmação nomeada de item sério sem \"confirmo\"; nada foi feito", { itens: escolhidos.length }, ctx);
+    return { pendenciaId: null, codigos, situacao: "falta_confirmo", texto: fraseFaltaConfirmo(escolhidos.map(paraMotivo)) };
+  }
+  await auditar("ok", `o dono confirmou pelo nome ("${c.tipo === "confirmo" ? "confirmo" : "pode"}"): executando`, { itens: escolhidos.length, nivel, todos: c.todos }, ctx);
+  const resultados = await decidir(codigos, "aprovar", { via: "whatsapp", userId: null, agora: ctx.agora, mensagemId: ctx.mensagemId, prazoFinal: ctx.prazoFinal, relogio: ctx.relogio, confirmado: c.tipo === "confirmo" });
+  // a proposta aberta cujos itens já não esperam nada fica decidida (um "pode" solto depois não repete nada)
+  await getDb().update(doloresConversaPendencia).set({ situacao: "confirmada", decididaEm: ctx.agora, decididaMensagemId: ctx.mensagemId })
+    .where(and(eq(doloresConversaPendencia.situacao, "aberta"),
+      sql`NOT EXISTS (SELECT 1 FROM dolores_aprovacoes a WHERE a.id = ANY(${doloresConversaPendencia.aprovacaoIds}) AND a.situacao = 'aguardando')`))
+    .catch(e => console.error("[dolores/pendencia] falha ao fechar a proposta depois da confirmação nomeada", erroParaLog(e)));
+  const venceEm = new Date(Math.min(...escolhidos.map(i => i.venceEm.getTime())));
+  const r = await respostaDoResultado(escolhidos, resultados, { ...ctx, venceEm });
+  return { pendenciaId: r.novaId, codigos, texto: r.texto, situacao: "confirmada" };
 }

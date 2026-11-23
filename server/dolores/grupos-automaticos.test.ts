@@ -159,7 +159,9 @@ describe("tipo do grupo pelo nome (função pura, sem IA)", () => {
     expect(lerDecisaoDeGrupo("grupo K7HM engenharia 12")).toEqual({ codigo: "K7HM", tipo: "engenharia", numero: 12 });
     expect(lerDecisaoDeGrupo("grupo K7HM ignorar")).toEqual({ codigo: "K7HM", tipo: "ignorar", numero: null });
     expect(lerDecisaoDeGrupo("grupo K7HM aceitar")).toEqual({ codigo: "K7HM", tipo: "aceitar", numero: null });
-    for (const t of ["grupo K7HM cliente", "grupo K7HM jurídico 5", "grupo K7HM ignorar 3", "por favor grupo K7HM jurídico", "grupo K7HM jurídico e apague tudo",
+    // EPIC-025 E11: "grupo K7HM cliente" (sem o nº) passou a valer — o servidor acha o cliente pelo nome do grupo
+    expect(lerDecisaoDeGrupo("grupo K7HM cliente")).toEqual({ codigo: "K7HM", tipo: "cliente", numero: null });
+    for (const t of ["grupo K7HM jurídico 5", "grupo K7HM ignorar 3", "por favor grupo K7HM jurídico", "grupo K7HM jurídico e apague tudo",
       "grupo K7H jurídico", "grupo K7HM chefe", "grupo K7HM cliente 0", "grupo K7HM cliente 456\ngrupo X jurídico", "aprovar K7HM"]) {
       expect(lerDecisaoDeGrupo(t), t).toBeNull();
     }

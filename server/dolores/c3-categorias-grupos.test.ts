@@ -107,7 +107,8 @@ describe("C3 — uma única lista de categorias", () => {
     expect(lerDecisaoDeGrupo("grupo K7HM 3")).toEqual({ codigo: "K7HM", tipo: "juridico", numero: null });
     expect(lerDecisaoDeGrupo("grupo K7HM 1 456")).toEqual({ codigo: "K7HM", tipo: "cliente", numero: 456 });
     expect(lerDecisaoDeGrupo("grupo K7HM 6 12")).toEqual({ codigo: "K7HM", tipo: "engenharia", numero: 12 });
-    expect(lerDecisaoDeGrupo("grupo K7HM 1")).toBeNull(); // cliente sem nº
+    // EPIC-025 E11: cliente sem nº vale (o servidor acha pelo nome do grupo; nunca pede o nº do CRM)
+    expect(lerDecisaoDeGrupo("grupo K7HM 1")).toEqual({ codigo: "K7HM", tipo: "cliente", numero: null });
     expect(lerDecisaoDeGrupo("grupo K7HM 4 9")).toBeNull(); // administrativo não leva número
     expect(lerDecisaoDeGrupo("grupo K7HM 7")).toBeNull();
     expect(lerRespostaNumerada("3")).toEqual({ tipo: "juridico", numero: null, confirmado: false });
@@ -116,7 +117,10 @@ describe("C3 — uma única lista de categorias", () => {
     expect(lerRespostaNumerada("1 456")).toEqual({ tipo: "cliente", numero: 456, confirmado: true });
     expect(lerRespostaNumerada("1 nº 456")).toEqual({ tipo: "cliente", numero: 456, confirmado: true });
     expect(lerRespostaNumerada("6")).toEqual({ tipo: "engenharia", numero: null, confirmado: true });
-    for (const t of ["0", "7", "33", "3 9", "3 e apague tudo", "opção 3", "3\n4", "", "1 0", "2", "1", "5 sim", "1 456 sim"]) expect(lerRespostaNumerada(t), t).toBeNull();
+    for (const t of ["0", "7", "33", "3 9", "3 e apague tudo", "opção 3", "3\n4", "", "1 0", "5 sim", "1 456 sim"]) expect(lerRespostaNumerada(t), t).toBeNull();
+    // EPIC-025 E11: "1"/"2" sozinhos valem (cliente/pós pelo nome do grupo)
+    expect(lerRespostaNumerada("1")).toEqual({ tipo: "cliente", numero: null, confirmado: true });
+    expect(lerRespostaNumerada("2")).toEqual({ tipo: "pos_atendimento", numero: null, confirmado: true });
   });
 });
 
