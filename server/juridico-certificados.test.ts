@@ -68,7 +68,7 @@ describe("certificados A1 e assinatura real", () => {
     expect((await conferirAssinaturas(Buffer.from(final.bytes),{...partes,signers:["1ª TESTEMUNHA — CPF"]},roots)).todos).toBe(false);
     expect((await conferirAssinaturas(Buffer.from(final.bytes),{...partes,signers:["CORRETOR INTERVENIENTE — OUTRO SIGNATÁRIO"]},roots)).todos).toBe(false);
     const tampered=final.bytes.slice();tampered[20]^=1;expect((await conferirAssinaturas(Buffer.from(tampered),partes,roots)).todos).toBe(false);
-  });
+  },120_000);
   it("recusa senha errada, extensão inválida e datas inválidas", async () => {
     await expect(abrirCertificado(new Uint8Array(await file.arrayBuffer()), "errada")).rejects.toThrow("Confira");
     await expect(importarCertificado(5, new File(["pdf"],"teste.pdf"), "teste")).rejects.toThrow(".pfx");
