@@ -783,3 +783,22 @@ não for liberada e o ambiente não for de emissão (servidor, Dolores e gatilho
 (c) pendente em produção — aplicar a 0172 no Neon, publicar, e a primeira liberação/emissão em produção restrita.
 **Próximo passo exato:** PR do ramo → portão de QA → aplicar `drizzle/0172_fiscal_emissores_historico.sql` no Neon → merge →
 conferir Vercel READY → pendência 1 acima (ambiente "producao_restrita" + liberar + emitir um rascunho de teste).
+
+## Atualização de 23/11/2026 ~15:40 UTC — Jurídico: "Assinatura inválida" em contrato de várias páginas (ramo `claude/juridico-vinculo-origem`)
+
+**Defeito (produção, contrato da Maylanne, documentos 10 e 11):** depois da correção da cadeia ICP (#319) a conferência passou a dizer
+"O PDF assinado não corresponde ao documento de origem". Causa: o jsPDF usa UM dicionário de recursos para todas as páginas; a marca
+visível da assinatura acrescenta a fonte nesse dicionário e todas as páginas "mudavam". Os testes só tinham contrato de 1 página.
+**Correção (`server/juridico-workflow.ts` `mesmoConteudo`, `server/juridico-marca-conferencia.ts`):** só a página da marca muda de conteúdo;
+as demais só podem ganhar a Helvetica da marca, sem uso. **Portão de QA: 6 revisões**, todas as brechas fechadas no mesmo PR:
+referência adormecida à fonte nova (conteúdo, XObject, padrão, Type3, aparência; `#xx`), `/Filter` indireto (decodificação estrita),
+preditor fora de imagem, imagem só pulada quando chamada por `Do`, carimbo de assinatura VISÍVEL (vai para conferência humana),
+catálogo inteiro igual (XFA, JavaScript, `/AcroForm` só ganha campos), dicionário da página e nós `/Pages` iguais (`/CropBox`, `/Rotate`, `/AA`).
+**Testes:** (a) automáticos — `server/juridico-vinculo-multipagina.test.ts` 26/26; `server/juridico*` + `server/portal*` 177/177; tsc limpo;
+(b) manuais — nenhum; (c) pendente em produção — dono clicar "Conferir novamente" no contrato da Maylanne (deve virar "Assinatura válida").
+**Mudança de comportamento:** retorno do cliente assinado com carimbo visível (gov.br, Adobe) não conclui sozinho; o responsável confere.
+**Dívidas:** seção "Dívida de segurança registrada — Jurídico" no ROADMAP. Paridade Santa Fé: a validação automática do Jurídico foi
+cancelada lá por decisão do dono (22/11), nada a portar.
+**Em andamento em paralelo:** ramo `claude/epic029-liberar-emissao` (commit local f5551da, worktree `epic029-liberar`): botão "Liberar emissão
+desta empresa" + `EMISSAO_DISPONIVEL = true`; no portão de QA; sem push ainda.
+**Próximo passo exato:** PR do Jurídico → Codex + prévia → merge → produção READY; receber o portão do "liberar emissão" → corrigir → PR.

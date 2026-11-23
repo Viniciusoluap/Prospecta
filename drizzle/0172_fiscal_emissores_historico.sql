@@ -51,3 +51,8 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS "fiscal_emissores_historico_guarda_trg" ON "fiscal_emissores_historico";
 CREATE TRIGGER "fiscal_emissores_historico_guarda_trg" BEFORE UPDATE OR DELETE ON "fiscal_emissores_historico"
   FOR EACH ROW EXECUTE FUNCTION fiscal_emissores_historico_guarda();
+
+-- TRUNCATE também é recusado (mesmo cuidado do histórico dos certificados, 0162).
+DROP TRIGGER IF EXISTS "fiscal_emissores_historico_truncate_trg" ON "fiscal_emissores_historico";
+CREATE TRIGGER "fiscal_emissores_historico_truncate_trg" BEFORE TRUNCATE ON "fiscal_emissores_historico"
+  FOR EACH STATEMENT EXECUTE FUNCTION fiscal_emissores_historico_guarda();
