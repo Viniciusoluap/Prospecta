@@ -14,7 +14,11 @@ const ROTULO: Record<Estado, { texto: string; classe: string }> = {
 };
 const quando = (iso: string) => new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Fortaleza", dateStyle: "short", timeStyle: "short" });
 
-export default function ValidacaoAssinatura({ v }: { v: ResumoValidacaoTela }) {
+/**
+ * `onConferirNovamente`: botão "Conferir novamente" (só quando não está válida). O servidor confere de novo os MESMOS bytes
+ * gravados, com o motor atual — nada é alterado à mão (ex.: documentos marcados inválidos antes da correção de 23/11).
+ */
+export default function ValidacaoAssinatura({ v, onConferirNovamente, conferindo = false }: { v: ResumoValidacaoTela; onConferirNovamente?: () => void; conferindo?: boolean }) {
   const r = ROTULO[v.estado];
   return <div className={`w-full space-y-1 rounded border p-2 text-xs ${r.classe}`} data-estado={v.estado}>
     <p className="font-semibold">{r.texto}</p>
@@ -22,5 +26,6 @@ export default function ValidacaoAssinatura({ v }: { v: ResumoValidacaoTela }) {
     {v.estado !== "valida" && <p>{v.motivo}</p>}
     <p className="opacity-80">Conferido em {quando(v.verificadoEm)}{v.estado === "pendente" && v.transitoria && v.proximaTentativa ? ` · nova tentativa automática a partir de ${quando(v.proximaTentativa)}` : ""}</p>
     <p className="opacity-70">Conferência técnica do próprio sistema (integridade, cadeia ICP-Brasil e LCR). Não é o relatório oficial do VALIDAR/ITI.</p>
+    {v.estado !== "valida" && onConferirNovamente && <button type="button" className="rounded border border-current px-2 py-0.5 font-semibold disabled:opacity-50" disabled={conferindo} onClick={onConferirNovamente}>{conferindo ? "Conferindo…" : "Conferir novamente"}</button>}
   </div>;
 }

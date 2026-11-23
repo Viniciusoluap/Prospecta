@@ -9,9 +9,16 @@
 //                  desconhecida, limite de caminho) ou o certificado consta como revogado.
 // É uma conferência técnica do próprio sistema, na data da consulta: não é o relatório oficial do VALIDAR/ITI e não é
 // validação histórica com carimbo de tempo.
+//
+// Montagem da cadeia (correção de 23/11/2026): as AC de 1º e 2º nível da ICP-Brasil (ex.: AC Secretaria da Receita
+// Federal do Brasil v4, AC SAFEWEB RFB v5) NÃO trazem AIA; só a folha aponta (por http) para um .p7b/.p7c com a
+// cadeia. Por isso cada salto procura o emissor, nesta ordem: raízes fixas → certificados do PDF/A1 → intermediárias
+// oficiais embarcadas (server/certificados/icp-intermediarias.json, conferidas por assinatura até as raízes) → AIA
+// (DER, PEM ou PKCS#7; TODOS os certificados do pacote ficam disponíveis para os saltos seguintes).
 import { createHash } from "node:crypto";
 import { Certificate, CertificateChainValidationEngine, CertificateRevocationList, ContentInfo, SignedData, type DistributionPoint } from "pkijs";
 import raizes from "./certificados/icp-raizes.json" with { type: "json" };
+import intermediarias from "./certificados/icp-intermediarias.json" with { type: "json" };
 import { ErroRedePki, EnderecoRecusadoPki, SessaoPki } from "./juridico-pki-download.js";
 
 export type EstadoPki = "valida" | "pendente" | "invalida";
@@ -34,6 +41,19 @@ export const raizesIcp: Certificate[] = raizes.map(item => Certificate.fromBER(d
 const OFICIAIS = new Set(raizesIcp.map(c => createHash("sha256").update(Buffer.from(c.toSchema().toBER(false))).digest("hex")));
 
 export function derCertificado(cert: Certificate): Buffer { return Buffer.from(cert.toSchema().toBER(false)); }
+/**
+ * Intermediárias oficiais ICP-Brasil embarcadas (só certificados PÚBLICOS de AC). Não são âncora de confiança: cada uma
+ * só serve se a assinatura dela conferir, salto a salto, até uma raiz de icp-raizes.json. Item cujo SHA-256 não bate
+ * com o registrado no arquivo é descartado no carregamento.
+ */
+export const intermediariasIcp: Certificate[] = intermediarias.flatMap(item => {
+  try {
+    const der = Buffer.from(item.der, "base64");
+    if (createHash("sha256").update(der).digest("hex") !== item.sha256) return [];
+    const cert = Certificate.fromBER(Uint8Array.from(der).buffer);
+    return derCertificado(cert).equals(der) ? [cert] : [];
+  } catch { return []; }
+});
 const idCert = (cert: Certificate) => createHash("sha256").update(derCertificado(cert)).digest("hex");
 const mesmo = (a: Certificate, b: Certificate) => idCert(a) === idCert(b);
 const ehRaiz = (cert: Certificate, roots: Certificate[]) => roots.some(r => mesmo(r, cert));
@@ -64,14 +84,30 @@ export function urlsEmissor(cert: Certificate): string[] {
     .filter((item: { accessMethod: string; accessLocation: { type: number } }) => item.accessMethod === OID.caIssuers && item.accessLocation.type === 6)
     .map((item: { accessLocation: { value: string } }) => String(item.accessLocation.value)).slice(0, 2);
 }
-/** Lê certificado DER/PEM ou "certs-only" PKCS#7 (formato comum do AIA). Nunca lança. */
-export function certificadosPublicos(bytes: Buffer): Certificate[] {
-  try { return [Certificate.fromBER(derDe(bytes))]; } catch { /* tenta PKCS#7 */ }
+const MAX_CERTS_PACOTE = 10;
+function certificadosDer(der: Buffer): Certificate[] {
+  const buffer = Uint8Array.from(der).buffer;
+  try { return [Certificate.fromBER(buffer)]; } catch { /* tenta PKCS#7 */ }
   try {
-    const cms = ContentInfo.fromBER(derDe(bytes));
+    const cms = ContentInfo.fromBER(buffer);
     if (cms.contentType !== "1.2.840.113549.1.7.2") return [];
-    return (new SignedData({ schema: cms.content }).certificates || []).filter((c): c is Certificate => c instanceof Certificate).slice(0, 10);
+    return (new SignedData({ schema: cms.content }).certificates || []).filter((c): c is Certificate => c instanceof Certificate).slice(0, MAX_CERTS_PACOTE);
   } catch { return []; }
+}
+/**
+ * Lê o que o AIA devolve: certificado DER ou PEM, pacote PKCS#7 "certs-only" (.p7b/.p7c) em DER ou PEM, ou vários
+ * blocos PEM no mesmo arquivo. No máximo 10 certificados. Nunca lança (conteúdo ilegível = lista vazia).
+ */
+export function certificadosPublicos(bytes: Buffer): Certificate[] {
+  const inicio = bytes.subarray(0, 256).toString("latin1");
+  if (!inicio.includes("-----BEGIN")) return certificadosDer(bytes);
+  const certs: Certificate[] = [];
+  for (const bloco of Array.from(bytes.toString("latin1").matchAll(/-----BEGIN ([A-Z0-9 #]+)-----([\s\S]*?)-----END \1-----/g))) {
+    if (!/^(?:X509 |TRUSTED )?CERTIFICATE$|^PKCS ?#?7$|^CMS$/.test(bloco[1])) continue;
+    certs.push(...certificadosDer(Buffer.from(bloco[2].replace(/\s/g, ""), "base64")));
+    if (certs.length >= MAX_CERTS_PACOTE) break;
+  }
+  return certs.slice(0, MAX_CERTS_PACOTE);
 }
 /** Algoritmo/curva que o WebCrypto do servidor não confere (ex.: ECDSA secp256k1): não é prova de assinatura inválida. */
 export function algoritmoNaoSuportado(e: unknown): boolean {
@@ -160,43 +196,68 @@ function regrasExtras(caminho: Certificate[]): string | null {
 }
 function ehAutoassinado(cert: Certificate) { return cert.subject.isEqual(cert.issuer); }
 
-/** Monta e confere a cadeia: certificados fornecidos (do PDF/navegador), raízes fixas e AIA (download limitado). */
-export async function montarCadeia(cert: Certificate, fornecidos: Certificate[], roots: Certificate[] = raizesIcp, sessao: Baixador = new SessaoPki(), agora = new Date()): Promise<Cadeia> {
+export type CaminhoEncontrado = {
+  /** true quando o último elemento de `caminho` é uma das raízes confiáveis. */
+  chegou: boolean; transitoria: boolean;
+  /** Folha primeiro; se chegou, termina na raiz. Sem chegar, é o trecho encontrado até onde deu. */
+  caminho: Certificate[];
+};
+const MAX_POOL = 20;
+
+/**
+ * Só a busca do caminho (sem as regras do PKIjs): para cada salto procura o emissor nas raízes, nos certificados
+ * fornecidos, nas intermediárias embarcadas e, por último, no AIA. Cada emissor é conferido POR ASSINATURA.
+ * Pode lançar NaoSuportado (algoritmo que o WebCrypto do servidor não confere).
+ */
+export async function encontrarCaminho(cert: Certificate, fornecidos: Certificate[], roots: Certificate[] = raizesIcp, sessao: Baixador = new SessaoPki(), embarcados: Certificate[] = intermediariasIcp): Promise<CaminhoEncontrado> {
+  const caminho = [cert];
+  if (ehRaiz(cert, roots)) return { chegou: true, transitoria: false, caminho };
+  const pool = new Map<string, Certificate>();
+  for (const item of fornecidos.slice(0, 10)) if (!mesmo(item, cert) && !ehRaiz(item, roots)) pool.set(idCert(item), item);
+  const noCaminho = (c: Certificate) => caminho.some(x => mesmo(x, c));
+  let transitoria = false, atual = cert;
+  const procurar = async (lista: Iterable<Certificate>) => {
+    for (const candidato of Array.from(lista)) if (!noCaminho(candidato) && await assinadoPor(atual, candidato)) return candidato;
+    return undefined;
+  };
+  for (let nivel = 0; nivel < 6; nivel++) {
+    let emissor = await procurar(roots) ?? await procurar(pool.values()) ?? await procurar(embarcados);
+    if (!emissor && emissorDaHierarquia(atual, roots)) {
+      for (const url of urlsEmissor(atual)) {
+        try {
+          const baixados = certificadosPublicos(await sessao.baixar(url));
+          // O .p7b da certificadora costuma trazer a cadeia inteira: todos ficam disponíveis para os próximos saltos.
+          for (const c of baixados) if (pool.size < MAX_POOL && !ehRaiz(c, roots) && !mesmo(c, cert)) pool.set(idCert(c), c);
+          emissor = await procurar(baixados);
+        } catch (e) { if (e instanceof NaoSuportado) throw e; if (!(e instanceof EnderecoRecusadoPki)) transitoria = true; }
+        if (emissor) break;
+      }
+    }
+    if (!emissor) break;
+    caminho.push(emissor);
+    if (ehRaiz(emissor, roots)) return { chegou: true, transitoria: false, caminho };
+    if (ehAutoassinado(emissor)) break; // raiz que não é ICP-Brasil
+    atual = emissor;
+  }
+  return { chegou: false, transitoria, caminho };
+}
+
+/** Monta e confere a cadeia: certificados fornecidos (do PDF/navegador), raízes fixas, intermediárias embarcadas e AIA. */
+export async function montarCadeia(cert: Certificate, fornecidos: Certificate[], roots: Certificate[] = raizesIcp, sessao: Baixador = new SessaoPki(), agora = new Date(), embarcados: Certificate[] = intermediariasIcp): Promise<Cadeia> {
   // Âncora de confiança assinando diretamente: confiável por configuração (não há emissor nem LCR acima dela).
   if (ehRaiz(cert, roots)) {
     if (agora < cert.notBefore.value || agora > cert.notAfter.value) return { estado: "invalida", transitoria: false, motivo: "Certificado fora da validade na data da conferência.", caminho: [cert], intermediarios: [] };
     return { estado: "valida", transitoria: false, motivo: "", caminho: [cert], intermediarios: [] };
   }
-  const pool = new Map<string, Certificate>();
-  for (const item of fornecidos.slice(0, 10)) if (!mesmo(item, cert) && !ehRaiz(item, roots)) pool.set(idCert(item), item);
-  let transitoria = false, atual = cert, chegou = false;
-  try {
-  for (let nivel = 0; nivel < 6; nivel++) {
-    let emissor: Certificate | undefined;
-    for (const root of roots) if (await assinadoPor(atual, root)) { emissor = root; break; }
-    if (!emissor) for (const candidato of Array.from(pool.values())) if (!mesmo(candidato, atual) && await assinadoPor(atual, candidato)) { emissor = candidato; break; }
-    if (!emissor && emissorDaHierarquia(atual, roots)) {
-      for (const url of urlsEmissor(atual)) {
-        try {
-          for (const candidato of certificadosPublicos(await sessao.baixar(url))) {
-            if (await assinadoPor(atual, candidato)) { emissor = candidato; if (!ehRaiz(candidato, roots)) pool.set(idCert(candidato), candidato); break; }
-          }
-        } catch (e) { if (!(e instanceof EnderecoRecusadoPki)) transitoria = true; }
-        if (emissor) break;
-      }
-    }
-    if (!emissor) break;
-    if (ehRaiz(emissor, roots)) { chegou = true; break; }
-    if (ehAutoassinado(emissor)) break; // raiz que não é ICP-Brasil
-    atual = emissor;
-  }
-  } catch (e) {
-    if (e instanceof NaoSuportado) return { estado: "pendente", transitoria: false, motivo: "Algoritmo de assinatura do certificado não suportado pela conferência automática. Confira manualmente.", caminho: [], intermediarios: Array.from(pool.values()) };
+  let busca: CaminhoEncontrado;
+  try { busca = await encontrarCaminho(cert, fornecidos, roots, sessao, embarcados); }
+  catch (e) {
+    if (e instanceof NaoSuportado) return { estado: "pendente", transitoria: false, motivo: "Algoritmo de assinatura do certificado não suportado pela conferência automática. Confira manualmente.", caminho: [], intermediarios: [] };
     throw e;
   }
-  const intermediarios = Array.from(pool.values());
-  if (!chegou) {
-    return transitoria
+  const intermediarios = busca.caminho.slice(1).filter(c => !ehRaiz(c, roots));
+  if (!busca.chegou) {
+    return busca.transitoria
       ? { estado: "pendente", transitoria: true, motivo: "Não foi possível baixar a cadeia da certificadora agora. O sistema tentará novamente.", caminho: [], intermediarios }
       : { estado: "invalida", transitoria: false, motivo: "O certificado não pertence a uma cadeia ICP-Brasil reconhecida.", caminho: [], intermediarios };
   }
@@ -305,9 +366,9 @@ export async function conferirRevogacao(cert: Certificate, emissor: Certificate,
 }
 
 /** Cadeia + revogação de cada certificado não raiz do caminho. Nunca lança: erro inesperado vira pendência. */
-export async function validarCertificado(cert: Certificate, fornecidos: Certificate[], roots: Certificate[] = raizesIcp, sessao: Baixador = new SessaoPki(), agora = new Date()): Promise<ConsultaPki> {
+export async function validarCertificado(cert: Certificate, fornecidos: Certificate[], roots: Certificate[] = raizesIcp, sessao: Baixador = new SessaoPki(), agora = new Date(), embarcados: Certificate[] = intermediariasIcp): Promise<ConsultaPki> {
   try {
-    const cadeia = await montarCadeia(cert, fornecidos, roots, sessao, agora);
+    const cadeia = await montarCadeia(cert, fornecidos, roots, sessao, agora, embarcados);
     const certificados = cadeia.intermediarios.map(c => derCertificado(c).toString("base64"));
     if (cadeia.estado !== "valida") return { cadeia: cadeia.estado, revogacao: "pendente", estado: cadeia.estado, transitoria: cadeia.transitoria, motivo: cadeia.motivo, certificados };
     // Folha primeiro, raiz por último: cada certificado é conferido na LCR do seguinte.
@@ -328,4 +389,44 @@ export async function validarCertificado(cert: Certificate, fornecidos: Certific
 }
 function i18nRevogado(indice: number) {
   return indice === 0 ? "Certificado do signatário revogado pela autoridade certificadora." : "Há certificado de autoridade revogado na cadeia de assinatura.";
+}
+
+// ── Função reutilizável (cofre fiscal e demais módulos) ─────────────────────────────────────────────────────────────
+
+export type CadeiaCompletada = {
+  estado: EstadoPki; transitoria: boolean; motivo: string;
+  /** Intermediários em DER, na ordem folha → raiz, sem a folha e sem a raiz (o que falta para o .pfx/CMS ficar completo). */
+  intermediarios: Buffer[];
+  /** Raiz ICP-Brasil em DER, quando a cadeia fechou. */
+  raiz: Buffer | null;
+};
+type CertificadoEntrada = Certificate | Uint8Array;
+const comoCertificado = (c: CertificadoEntrada): Certificate | null => c instanceof Certificate ? c : certificadosPublicos(Buffer.from(c))[0] ?? null;
+/** Baixador que nunca vai à rede: o que depender de AIA fica pendente (transitório), nunca inválido por isso. */
+const SEM_REDE: Baixador = { baixar: async () => { throw new ErroRedePki("Consulta à certificadora desligada nesta conferência."); } };
+
+/**
+ * Completa e confere a cadeia ICP-Brasil de um certificado PÚBLICO: usa os certificados fornecidos (do .pfx, do PDF),
+ * as intermediárias oficiais embarcadas e, se `semRede` não for pedido, o AIA (com as travas de juridico-pki-download).
+ * Aceita pkijs.Certificate ou bytes DER/PEM. Só recebe certificado público: nunca .pfx, senha ou chave. Nunca lança.
+ * Não consulta LCR (a revogação é de validarCertificado).
+ */
+export async function completarCadeiaIcp(folha: CertificadoEntrada, fornecidos: CertificadoEntrada[] = [], opcoes: { sessao?: Baixador; semRede?: boolean; agora?: Date; roots?: Certificate[] } = {}): Promise<CadeiaCompletada> {
+  try {
+    const cert = comoCertificado(folha);
+    if (!cert) return { estado: "invalida", transitoria: false, motivo: "Certificado ilegível.", intermediarios: [], raiz: null };
+    const extras = fornecidos.slice(0, 10).map(comoCertificado).filter((c): c is Certificate => !!c);
+    const roots = opcoes.roots ?? raizesIcp;
+    const sessao = opcoes.semRede ? SEM_REDE : opcoes.sessao ?? new SessaoPki({ prazoMs: 15_000 });
+    const r = await montarCadeia(cert, extras, roots, sessao, opcoes.agora ?? new Date());
+    const topo = r.caminho[r.caminho.length - 1];
+    return {
+      estado: r.estado, transitoria: r.transitoria,
+      motivo: r.estado === "valida" ? "Cadeia ICP-Brasil completa e conferida (sem consulta de revogação)." : r.motivo,
+      intermediarios: r.intermediarios.map(derCertificado),
+      raiz: r.estado === "valida" && topo && ehRaiz(topo, roots) && r.caminho.length > 1 ? derCertificado(topo) : null,
+    };
+  } catch {
+    return { estado: "pendente", transitoria: true, motivo: "A conferência da cadeia falhou inesperadamente.", intermediarios: [], raiz: null };
+  }
 }

@@ -20,6 +20,8 @@ import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
 import { SessaoPki } from "./juridico-pki-download.js";
 
 export type OpcoesRevalidacao = OpcoesConferencia & { roots?: Certificate[] };
+/** "Conferir novamente" (admin): no máximo uma vez por minuto por documento; serve também à reserva entre rodadas. */
+export const INTERVALO_MANUAL_MS = 60_000;
 type Linha = { relatorio: RelatorioValidacao | string; tentativas: number; primeira_em: string | Date; sha256: string; origem: RelatorioValidacao["origem"] };
 const linhas = <T,>(res: unknown) => (res as { rows: T[] }).rows;
 
@@ -30,18 +32,34 @@ async function bytesDoDocumento(id: number | null | undefined, contractId: numbe
   return doc && bytes ? { id: doc.id, bytes } : null;
 }
 
-/** Confere de novo UM documento pendente cuja vez chegou. Devolve o resumo atual (ou null sem relatório). */
-export async function revalidarDocumento(documentId: number, opcoes: OpcoesRevalidacao = {}): Promise<ResumoValidacao | null> {
+/**
+ * Confere de novo UM documento pendente cuja vez chegou. Devolve o resumo atual (ou null sem relatório).
+ * `manual` ("Conferir novamente", só admin): confere de novo um documento PENDENTE ou INVÁLIDO a qualquer momento,
+ * pelos mesmos bytes gravados (o SHA-256 precisa bater) e pelo mesmo motor — é assim que um documento marcado
+ * "inválido" por uma falha da própria conferência (ex.: cadeia ICP-Brasil que o sistema não soube completar, 23/11)
+ * é reavaliado. Nada é alterado à mão: o novo relatório substitui o anterior. Documento já válido não é reconferido.
+ */
+export async function revalidarDocumento(documentId: number, opcoes: OpcoesRevalidacao & { manual?: boolean } = {}): Promise<ResumoValidacao | null> {
   if (!(await tabelaValidacoes())) return null;
   const db = getDb(), agora = opcoes.agora ?? new Date(), token = randomUUID();
   const limitePrazo = new Date(agora.getTime() - RETENTATIVA.prazoMs).toISOString();
+  const reservaAte = new Date(agora.getTime() + RETENTATIVA.reservaMs).toISOString();
   // Achado M3: o teto (tentativas e 7 dias) vale na própria reserva; quem passou do teto fica pendente para conferência manual.
-  const reserva = await db.execute(sql`UPDATE portal_contract_document_validacoes
-    SET execucao = ${token}, tentativas = tentativas + 1, proxima_tentativa = ${new Date(agora.getTime() + RETENTATIVA.reservaMs).toISOString()}::timestamptz, atualizado_em = now()
-    WHERE document_id = ${documentId} AND estado = 'pendente' AND proxima_tentativa IS NOT NULL AND proxima_tentativa <= ${agora.toISOString()}::timestamptz
-      AND tentativas < ${RETENTATIVA.maxTentativas} AND primeira_em > ${limitePrazo}::timestamptz
-    RETURNING relatorio, tentativas, primeira_em, sha256, origem`);
+  // Na conferência manual, o intervalo mínimo desde a última gravação faz o papel de reserva (duas chamadas seguidas
+  // não conferem juntas) e de limite de uso.
+  const reserva = opcoes.manual
+    ? await db.execute(sql`UPDATE portal_contract_document_validacoes
+      SET execucao = ${token}, tentativas = tentativas + 1, proxima_tentativa = ${reservaAte}::timestamptz, atualizado_em = now()
+      WHERE document_id = ${documentId} AND estado IN ('pendente', 'invalida')
+        AND atualizado_em <= ${new Date(agora.getTime() - INTERVALO_MANUAL_MS).toISOString()}::timestamptz
+      RETURNING relatorio, tentativas, primeira_em, sha256, origem`)
+    : await db.execute(sql`UPDATE portal_contract_document_validacoes
+      SET execucao = ${token}, tentativas = tentativas + 1, proxima_tentativa = ${reservaAte}::timestamptz, atualizado_em = now()
+      WHERE document_id = ${documentId} AND estado = 'pendente' AND proxima_tentativa IS NOT NULL AND proxima_tentativa <= ${agora.toISOString()}::timestamptz
+        AND tentativas < ${RETENTATIVA.maxTentativas} AND primeira_em > ${limitePrazo}::timestamptz
+      RETURNING relatorio, tentativas, primeira_em, sha256, origem`);
   const linha = linhas<Linha>(reserva)[0];
+  if (!linha && opcoes.manual) return (await listarValidacoes([documentId]))[0] ?? null;
   if (!linha) {
     await db.execute(sql`UPDATE portal_contract_document_validacoes
       SET proxima_tentativa = NULL, versao = versao + 1, atualizado_em = now(),
