@@ -142,3 +142,8 @@ por outras frentes). NÃO aplicada no banco por esta etapa.
   sexta 20/11 passou para a sexta 27/11.
 - B2 — pedido de documentos: ao bater no registro único do dia (tentativa anterior que falhou soltou a vaga), a vaga do cliente
   é solta de novo — no dia seguinte ele volta a ser elegível (antes ficava 3 dias preso).
+- Verificação depois das correções e do merge da `origin/main` (23/11): `pnpm install --frozen-lockfile` ok; `npx tsc --noEmit`
+  ok; `npx vite build` ok. Testes em lotes (`--maxWorkers=2 --minWorkers=1`): e10-cobrancas + e10-qa 2 arquivos 59/59;
+  c5-e4-proatividade + e9 (4) 5 arquivos 97/97; ponte + leitura-somente + operacao (4) 6 arquivos 94/94; c2 (3) +
+  whatsapp-lote3 + whatsapp-filtro-etapa (regressão da M3 na Central) 5 arquivos 70/70 — total 18 arquivos, 320/320.
+  Conflito do merge só em `server/dolores/testes-banco.ts` (resolvido por união: 0169 + 0166/0170).
