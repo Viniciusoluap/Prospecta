@@ -140,14 +140,30 @@ contagem como único retorno ao modelo.
 
 **Roteiros que passaram a pedir "pode" por causa da regra nova (não afrouxado):**
 - tarefa em que o modelo reescreve o título ("Cobrar certidão no cartório" a partir de "cobrar a certidão do João no cartório");
-- com ditado, o modelo que resume o ditado ("cria tarefa pro João: ligar pro cartório amanhã" → título "Ligar pro cartório"): só vai
-  direto se o título for o ditado inteiro ("ligar pro cartório amanhã");
+- (resolvido no ajuste antes da 4ª revisão) com ditado, o modelo que resume o ditado agora vai direto, gravando o ditado;
 - mensagem com hora e outro ":", aspas, apóstrofo ("d'água"), travessão, "?", "não/nada" em qualquer ponto antes do ":";
 - prazo/prioridade que o código não consegue tirar da mensagem.
 - O título gravado agora tem a caixa do dono ("ligar para o João", minúsculo como ele escreveu).
 
 Testes: e11 com 71 (8 da 3ª rodada, com as frases exatas, e a propriedade "o que foi gravado é substring exata do que o dono escreveu"
 verificada no banco).
+
+
+## Ajuste de usabilidade antes da 4ª revisão — com ditado, grava-se SEMPRE o ditado
+
+- Com ":" válido e função de registro de texto (`criar_tarefa`, `registrar_acompanhamento`, `guardar_memoria`, `corrigir_memoria`),
+  o texto principal gravado (título / anotação / lembrança / texto novo) é SEMPRE o ditado do dono, aparado (`textoGravadoDoDono`); o
+  texto do modelo é descartado nesse campo — resumo, reescrita ou conteúdo injetado nunca chegam ao banco. Evita o "pode" quando o
+  modelo resume ("Ligar pro cartório" para o ditado "ligar pro cartório amanhã").
+- Descrição da tarefa, com ditado: descartada (fica vazia) no caminho direto; não leva à confirmação.
+- B-b: duas chamadas da mesma função para o mesmo alvo no mesmo pedido passam a ter os mesmos argumentos (o ditado) → uma só.
+- Sem ":" nada muda (trecho contínuo). Porta de caracteres, negação, prazo/prioridade pelo código e o teto de 200 caracteres do ditado
+  continuam.
+- prompt.ts: "Texto a gravar (tarefa, anotação, lembrança): as palavras exatas dele, sem resumir nem reescrever" (o texto do sistema
+  continua abaixo de 6.500 caracteres; a linha das contas foi encurtada).
+- Testes: os do portão 3 que esperavam "pode" com ditado alterado agora conferem o invariante "o gravado é exatamente o ditado";
+  novos: ditado + título resumido → feito na hora; título com texto em chinês → grava-se o ditado; descrição do modelo descartada.
+  e11: 72 testes.
 
 ## Critérios de aceite
 
@@ -194,7 +210,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Testes
 
-- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":"; 71 com o portão 3).
+- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":"; 71 com o portão 3; 72 com o ajuste antes da 4ª revisão).
 - Ajustados (mudança de regra autorizada): `grupos-automaticos.test.ts` e `c3-categorias-grupos.test.ts` — "grupo K7HM cliente"
   e "1" sem o nº passaram a valer; `c5-e1-voz.test.ts` — a trava do texto do sistema agora exige as frases da E11 (e continua < 6.500
   caracteres).
@@ -220,6 +236,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 23/11/2026 — @dev (Dex): ajuste antes da 4ª revisão — com ditado, grava-se sempre o ditado; descrição descartada; linha no prompt.
 - 23/11/2026 — @dev (Dex): portão de segurança E11, 3ª rodada — regra estrutural (porta de caracteres, ':' ASCII, negação por token, texto do dono, prazo pelo código).
 - 23/11/2026 — @dev (Dex): ajuste antes da 3ª revisão — ditado depois de ":" como conteúdo de registro.
 - 23/11/2026 — @dev (Dex): portão de segurança E11, 2ª rodada (I-A, I-B, M-A–M-D, B-a, B-b, B-d) corrigido; regressões no e11.

@@ -151,7 +151,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       const titulo = texto("titulo", "o título da tarefa não é o texto do dono");
       if (!titulo.ok) return titulo.p;
       let descricao: string | undefined;
-      if (a.descricao) { const d = texto("descricao", "a descrição não é o texto do dono"); if (!d.ok) return d.p; descricao = d.valor; }
+      // com ditado, a descrição do modelo é DESCARTADA (fica vazia); sem ditado, segue a regra do trecho contínuo
+      if (a.descricao && partes.depois === null) { const d = texto("descricao", "a descrição não é o texto do dono"); if (!d.ok) return d.p; descricao = d.valor; }
       if (!prazoConfere(a.prazo, partes.mensagem, hojeIso)) return nao("prazo que o código não tirou da mensagem do dono");
       if (!prioridadeConfere(a.prioridade, partes.mensagem)) return nao("prioridade que o dono não disse");
       const quem = await provarResponsavel(a.responsavel, palavras);
@@ -159,7 +160,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
       const vinc = !v ? SIM : v.tipo === "cliente" ? await provarCliente(v.id, antes, palavras) : v.tipo === "obra" ? await provarObra(v.id, antes, palavras) : nao("vínculo inválido");
       if (!vinc.ok) return vinc;
-      return { ok: true, argumentos: { ...a, titulo: titulo.valor, ...(descricao !== undefined ? { descricao } : {}) } };
+      const { descricao: _descartada, ...semDescricao } = a;
+      return { ok: true, argumentos: { ...semDescricao, titulo: titulo.valor, ...(descricao !== undefined ? { descricao } : {}) } };
     }
     case "registrar_acompanhamento": {
       const t = texto("texto", "a anotação não é o texto do dono");

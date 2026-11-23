@@ -322,15 +322,16 @@ const comparavel = (t: string) => t.toLowerCase().replace(/\s+/g, " ").replace(P
 
 /**
  * (4) TEXTO GRAVADO = TEXTO DO DONO. Devolve o texto a gravar (sempre um pedaço do que ELE escreveu) ou null (→ confirmação).
- * - Com ditado: o texto do modelo (normalizado só em caixa, espaços e pontuação nas pontas) tem de ser IGUAL ao ditado inteiro; grava-se
- *   o ditado do dono, aparado.
+ * - Com ditado: grava-se SEMPRE o ditado do dono, aparado; o texto do modelo é descartado (ajuste antes da 4ª revisão).
  * - Sem ":": o texto do modelo tem de ser um trecho CONTÍNUO da mensagem dele (mesma normalização; comparação caractere a caractere,
  *   começando e terminando em fronteira de palavra); grava-se o trecho do próprio dono.
  */
 export function textoGravadoDoDono(textoDoModelo: string | null | undefined, partes: PartesDaOrdem): string | null {
+  // Ajuste antes da 4ª revisão: com ditado, o texto gravado é SEMPRE o ditado do dono, aparado — o do modelo é descartado (resumo,
+  // reescrita ou conteúdo injetado nunca chegam ao banco)
+  if (partes.depois !== null) return partes.depois.replace(PONTAS, "") || null;
   const alvo = comparavel(String(textoDoModelo ?? ""));
   if (!alvo) return null;
-  if (partes.depois !== null) return comparavel(partes.depois) === alvo ? partes.depois.replace(PONTAS, "") : null;
   // mapa: posição na forma comparável → posição na mensagem (a mensagem já tem espaços simples e só caracteres permitidos)
   const m = partes.mensagem;
   const minus = m.toLowerCase();

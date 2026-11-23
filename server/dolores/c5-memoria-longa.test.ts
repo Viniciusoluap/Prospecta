@@ -218,7 +218,8 @@ describe("o dono pede → proposta → \"pode\" grava UMA vez", () => {
     await proporGuardar();
     await dono("não");
     expect(await memorias()).toEqual([]);
-    await proporGuardar("guarda isso: eu prefiro o resumo das obras às segundas");
+    // (sem ":": com ditado, o ditado seria gravado na hora — ajuste antes da 4ª revisão)
+    await proporGuardar("guarda isso eu prefiro o resumo das obras às segundas");
     agora = new Date(agora.getTime() + 16 * 60_000);
     await dono("pode");
     expect(await memorias()).toEqual([]);
