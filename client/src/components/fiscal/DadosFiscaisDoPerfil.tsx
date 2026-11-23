@@ -2,6 +2,13 @@
 // Empresa, CNPJ e regime NÃO se digitam aqui: vêm do perfil (mudou? "Configurar tributação"). Só o que o perfil não tem:
 // município do emissor, inscrição municipal e série. S-7: troca do ambiente (produção só com a frase "EMITIR EM PRODUÇÃO",
 // conferida no servidor) e os códigos da empresa para a nota (opSimpNac, regApTribSN, regEspTrib).
+// 23/11/2026: "Liberar emissão desta empresa" (só admin; frase "LIBERAR EMISSÃO" digitada, conferida no servidor) e
+// "Desligar emissão" (um clique com confirmação simples). QA 23/11: trocar o ambiente desliga a emissão; liberar em produção
+// pede também "EMITIR EM PRODUÇÃO"; o diálogo mostra as últimas mudanças (quem/quando) do histórico imutável (0172).
+const CAMPO_HIST: Record<string, string> = { emissao_liberada: "emissão", ambiente: "ambiente", ativo: "ativa" };
+const valorHist = (campo: string, v: string | null) =>
+  campo === "ambiente" ? (AMBIENTE_CURTO[v ?? ""] ?? v ?? "—") : v === "true" ? (campo === "ativo" ? "sim" : "liberada") : v === "false" ? (campo === "ativo" ? "não" : "desligada") : "—";
+const AMBIENTE_CURTO: Record<string, string> = { desligado: "desligado", producao_restrita: "produção restrita", producao: "produção" };
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -13,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { formatCurrency } from "@/lib/format";
 import { SEDE } from "@shared/empresa";
+import { FRASE_LIBERAR_EMISSAO, FRASE_PRODUCAO, fraseConfere } from "@shared/fiscal/status";
 
 const REGIMES: Record<string, string> = {
   simples_nacional: "Simples Nacional", lucro_presumido: "Lucro Presumido", lucro_real: "Lucro Real", ret: "RET", outro: "Outro",
@@ -32,8 +40,15 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
   const [form, setForm] = useState<{ cnpj: string; titulo: string; municipioNome: string; municipioUf: string; municipioIbge: string; inscricaoMunicipal: string; serieDps: string } | null>(null);
   const [amb, setAmb] = useState<{ emissorId: number; titulo: string; ambiente: "desligado" | "producao_restrita" | "producao"; frase: string } | null>(null);
   const [cod, setCod] = useState<{ emissorId: number; titulo: string; opSimpNac: string; regApTribSN: string; regEspTrib: string } | null>(null);
-  const invalidarTudo = () => { void utils.fiscal.emissores.listar.invalidate(); void utils.fiscal.emissoresComPerfil.invalidate(); void utils.fiscal.notas.listar.invalidate(); };
-  const trocarAmbiente = trpc.fiscal.emissores.ambiente.useMutation({ onSuccess: () => { toast.success("Ambiente trocado."); setAmb(null); invalidarTudo(); }, onError: e => toast.error(e.message) });
+  const invalidarTudo = () => { void utils.fiscal.emissores.listar.invalidate(); void utils.fiscal.emissoresComPerfil.invalidate(); void utils.fiscal.notas.listar.invalidate(); void utils.fiscal.emissores.historico.invalidate(); };
+  const trocarAmbiente = trpc.fiscal.emissores.ambiente.useMutation({ onSuccess: () => { toast.success("Ambiente trocado. A emissão desta empresa foi desligada: libere de novo para emitir."); setAmb(null); invalidarTudo(); }, onError: e => toast.error(e.message) });
+  // Interruptor da emissão da empresa (2ª trava). Ligar pede a frase; desligar, só a confirmação.
+  const [liberar, setLiberar] = useState<{ emissorId: number; titulo: string; ambiente: string; frase: string; fraseProducao: string } | null>(null);
+  const historico = trpc.fiscal.emissores.historico.useQuery({ emissorId: liberar?.emissorId ?? 0 }, { enabled: Boolean(liberar) });
+  const liberarEmissao = trpc.fiscal.emissores.liberarEmissao.useMutation({
+    onSuccess: r => { toast.success(r.emissaoLiberada ? "Emissão desta empresa liberada." : "Emissão desta empresa desligada."); setLiberar(null); invalidarTudo(); },
+    onError: e => toast.error(e.message),
+  });
   const salvarCod = trpc.fiscal.emissores.parametros.useMutation({ onSuccess: () => { toast.success("Códigos salvos."); setCod(null); invalidarTudo(); }, onError: e => toast.error(e.message) });
   const salvar = trpc.fiscal.emissores.salvar.useMutation({
     onSuccess: () => {
@@ -82,6 +97,17 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
             {podeEditar && p.emissor && (
               <div className="flex flex-wrap gap-1">
                 <Button size="sm" variant="outline" onClick={() => setAmb({ emissorId: p.emissor!.id, titulo: p.razaoSocial, ambiente: p.emissor!.ambiente, frase: "" })}>Ambiente</Button>
+                {p.emissor.emissaoLiberada ? (
+                  <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" disabled={liberarEmissao.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Desligar a emissão de notas de ${p.razaoSocial}? Envios já em andamento terminam; depois disso, enquanto estiver desligada, nenhuma nota desta empresa é emitida nem cancelada.`)) {
+                        liberarEmissao.mutate({ emissorId: p.emissor!.id, liberar: false });
+                      }
+                    }}>Desligar emissão</Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="border-[#C9A961]/40 text-[#C9A961]"
+                    onClick={() => setLiberar({ emissorId: p.emissor!.id, titulo: p.razaoSocial, ambiente: p.emissor!.ambiente, frase: "", fraseProducao: "" })}>Liberar emissão desta empresa</Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => {
                   const c = (p.emissor!.parametrosDps ?? {}) as Record<string, string | null>;
                   setCod({ emissorId: p.emissor!.id, titulo: p.razaoSocial, opSimpNac: c.opSimpNac ?? "", regApTribSN: c.regApTribSN ?? "", regEspTrib: c.regEspTrib ?? "" });
@@ -158,9 +184,51 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
                   <Input aria-label="Frase de confirmação" value={amb.frase} onChange={e => setAmb({ ...amb, frase: e.target.value })} className="mt-2 bg-[#2C3E50]" />
                 </div>
               )}
-              <p className="text-xs text-gray-400">Trocar o ambiente não libera a emissão sozinho: a liberação da empresa é um passo separado.</p>
-              <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={trocarAmbiente.isPending || (amb.ambiente === "producao" && amb.frase.trim() !== "EMITIR EM PRODUÇÃO")}
+              <p role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">Ao trocar o ambiente, a emissão desta empresa é desligada; libere de novo depois ("Liberar emissão desta empresa").</p>
+              <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={trocarAmbiente.isPending || (amb.ambiente === "producao" && !fraseConfere(amb.frase, FRASE_PRODUCAO))}
                 onClick={() => trocarAmbiente.mutate({ emissorId: amb.emissorId, ambiente: amb.ambiente, ...(amb.ambiente === "producao" ? { frase: amb.frase.trim() } : {}) })}>Salvar ambiente</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(liberar)} onOpenChange={o => !o && setLiberar(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Liberar emissão — {liberar?.titulo}</DialogTitle></DialogHeader>
+          {liberar && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-200">Com a emissão liberada, o botão "Emitir" das notas desta empresa passa a enviar a nota para a Sefin Nacional.</p>
+              <p className="text-xs text-gray-400">
+                Ambiente desta empresa agora: <b>{AMBIENTE[liberar.ambiente] ?? liberar.ambiente}</b>.
+                {liberar.ambiente === "desligado" ? " Enquanto o ambiente estiver desligado, nada sai, mesmo com a emissão liberada." : liberar.ambiente === "producao" ? " Em produção as notas valem de verdade (têm valor fiscal)." : " Em produção restrita as notas são de teste, sem valor fiscal."}
+              </p>
+              <div>
+                <p role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">Para confirmar, digite: <b>{FRASE_LIBERAR_EMISSAO}</b></p>
+                <Input aria-label="Frase para liberar a emissão" value={liberar.frase} onChange={e => setLiberar({ ...liberar, frase: e.target.value })} className="mt-2 bg-[#2C3E50]" />
+              </div>
+              {liberar.ambiente === "producao" && (
+                <div>
+                  <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-100">Esta empresa está em PRODUÇÃO: as notas saem COM VALOR FISCAL. Para confirmar, digite também: <b>{FRASE_PRODUCAO}</b></p>
+                  <Input aria-label="Frase de produção" value={liberar.fraseProducao} onChange={e => setLiberar({ ...liberar, fraseProducao: e.target.value })} className="mt-2 bg-[#2C3E50]" />
+                </div>
+              )}
+              <p className="text-xs text-gray-400">Para parar depois, use "Desligar emissão" (não pede frase). Trocar o ambiente também desliga a emissão: aí é preciso liberar de novo.</p>
+              <Button className="w-full bg-[#C9A961] text-[#1A2332]"
+                disabled={liberarEmissao.isPending || !fraseConfere(liberar.frase, FRASE_LIBERAR_EMISSAO) || (liberar.ambiente === "producao" && !fraseConfere(liberar.fraseProducao, FRASE_PRODUCAO))}
+                onClick={() => liberarEmissao.mutate({
+                  emissorId: liberar.emissorId, liberar: true, frase: liberar.frase.trim(),
+                  ...(liberar.ambiente === "producao" ? { fraseProducao: liberar.fraseProducao.trim() } : {}),
+                })}>Liberar emissão desta empresa</Button>
+              {Boolean(historico.data?.length) && (
+                <div className="border-t border-gray-700 pt-2">
+                  <p className="text-xs font-medium text-gray-300">Últimas mudanças</p>
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-400">
+                    {historico.data!.map(h => (
+                      <li key={h.id}>{new Date(h.criadoEm).toLocaleString("pt-BR")} — {h.quem ?? "sistema"}: {CAMPO_HIST[h.campo] ?? h.campo} {valorHist(h.campo, h.de)} → {valorHist(h.campo, h.para)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

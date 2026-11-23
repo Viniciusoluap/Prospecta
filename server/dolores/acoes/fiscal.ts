@@ -9,7 +9,8 @@
 // - motivo de "sem nota" da lista fechada (shared/fiscal/motivos.ts); texto livre só no motivo "outro", e saído das palavras dele;
 // - a gravação usa as MESMAS funções da tela (server/fiscal/notas.ts: transição, versão lida, histórico imutável com via "whatsapp");
 // - emitir/cancelar (S-7): enquanto EMISSAO_DISPONIVEL for false a execução RECUSA ("a emissão ainda não está ativa") — nenhuma
-//   chamada de rede, status intacto. Ligada, roda server/fiscal/emissao.ts (mesmas travas da tela + gatilho da 0167).
+//   chamada de rede, status intacto. Ligada (23/11/2026), roda server/fiscal/emissao.ts (mesmas travas da tela + gatilho da
+//   0167): com a empresa não liberada ou o ambiente desligado, recusa sem rede.
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -246,9 +247,14 @@ export const FRASE_EMISSAO_MUDOU = "A situação da emissão mudou depois da pro
 export async function prepararEmitirNotaFiscal(args: z.infer<typeof entradaEmitirNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
   pedidoDoDono(ctx);
   const n = await notaParaEmitir(args.notaFiscalId);
-  const ambiente = n.emissor?.ambiente === "producao" ? "a nota sai pela API Nacional, COM VALOR FISCAL" : n.emissor?.ambiente === "producao_restrita" ? "a nota sai no AMBIENTE DE TESTES, sem valor fiscal" : "a emissão desta empresa está desligada";
-  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${EMISSAO_DISPONIVEL ? ambiente : "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"}`);
-  return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao, ...estadoDaEmissao(n, EMISSAO_DISPONIVEL) } }], recusados: [] };
+  const estado = estadoDaEmissao(n, EMISSAO_DISPONIVEL);
+  // O resumo diz o motivo REAL de nada sair (sistema desligado, ambiente desligado ou empresa não liberada): nunca promete envio
+  // com uma trava fechada. A execução confere tudo de novo (I1 + emissao.ts).
+  const atencao = !EMISSAO_DISPONIVEL ? "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"
+    : !estado.liberada ? `${estado.ambiente === "desligado" ? "o ambiente de emissão desta empresa está desligado" : "a emissão desta empresa ainda não foi liberada pelo administrador"}; com a sua confirmação eu só confiro, nada sai do sistema`
+      : estado.ambiente === "producao" ? "a nota sai pela API Nacional, COM VALOR FISCAL" : "a nota sai no AMBIENTE DE TESTES, sem valor fiscal";
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${atencao}`);
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao, ...estado } }], recusados: [] };
 }
 
 export async function executarEmitirAprovado(args: z.infer<typeof entradaEmitirAprovado>, ctx: ContextoAcao, deps: { emissaoDisponivel?: boolean } = {}): Promise<ResultadoAcao> {

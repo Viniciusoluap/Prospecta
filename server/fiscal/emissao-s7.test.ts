@@ -23,7 +23,7 @@ import { gerarRascunhos } from "./gerador.js";
 import { abrirPfx, credencialDoEmissor, FRASE_EMISSOR_INATIVO, FRASE_ENVIO_SIMULTANEO, FRASE_SEM_CADEIA_ICP, FRASE_VARIOS_EMISSORES, guardarCertificado, type CredencialA1 } from "./certificado.js";
 import { gerarCertificado, pastaDeTeste, SENHA_TESTE } from "./certificados-teste.helper.js";
 import { verificarAssinaturaXml } from "./assinatura.js";
-import { cancelarNota, emitirNota, FRASE_EMISSOR_DESLIGADO, FRASE_PRODUCAO, TRAVA_EMITINDO_MS, type DepsEmissao } from "./emissao.js";
+import { cancelarNota, emitirNota, FRASE_CANCELAMENTO_DESLIGADO, FRASE_EMISSOR_DESLIGADO, FRASE_PRODUCAO, TRAVA_EMITINDO_MS, type DepsEmissao } from "./emissao.js";
 import { ajustarAncoras, fraseDoErro, validarLeiaute } from "./leiaute.js";
 import { montarPedidoCancelamento, PADRAO_ID_PEDIDO } from "./evento.js";
 import { ErroDanfse, gerarDanfsePdf, URL_CONSULTA_PUBLICA } from "./danfse.js";
@@ -31,7 +31,7 @@ import { FRASES_ERRO, lerNfse } from "./retorno.js";
 import { FALTA_ALIQUOTA_SIMPLES, FALTA_REGIME, resolverAliquotaIss } from "./aliquota.js";
 import { compactarXml, descompactarXml, ENDERECOS, type MapaEnderecos } from "./sefin.js";
 import { montarDps, MAX_NOME } from "./dps.js";
-import { AVISO_EMISSAO_INDISPONIVEL, EMISSAO_DISPONIVEL } from "../../shared/fiscal/status.js";
+import { AVISO_EMISSAO_INDISPONIVEL, EMISSAO_DISPONIVEL, FRASE_LIBERAR_EMISSAO } from "../../shared/fiscal/status.js";
 import { ibgeDoMunicipio } from "../../shared/fiscal/municipios.js";
 import { SERIE_PADRAO_API } from "../../shared/fiscal/dps-campos.js";
 import { motivoDoSerio, nivelDoItem } from "../../shared/dolores/confirmacao.js";
@@ -42,7 +42,7 @@ const TABELAS = [
   "financialTransactions", "taxProfiles", "taxObligations", "retProjects",
 ];
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
-const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql");
+const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql"), M0172 = ler("0172_fiscal_emissores_historico.sql");
 
 const pasta = pastaDeTeste();
 let ddl = "";
@@ -191,10 +191,11 @@ const posts = () => recebidos.filter(r => r.metodo === "POST" && r.caminho === "
 const autor = { usuarioId: 1, via: "tela" as const };
 
 describe("travas — nada sai com qualquer uma fechada", () => {
-  it("EMISSAO_DISPONIVEL do código continua false; sem a liberação do emissor ou com ambiente desligado, recusa sem rede", async () => {
-    expect(EMISSAO_DISPONIVEL).toBe(false);
+  it("EMISSAO_DISPONIVEL ligado (23/11) com a 1ª trava fechada (desvio de teste) recusa; sem a liberação do emissor ou com ambiente desligado, recusa sem rede", async () => {
+    expect(EMISSAO_DISPONIVEL).toBe(true);
     const n = await rascunho();
-    await expect(emitirNota(getDb(), { ...n, ...autor }, deps({ emissaoDisponivel: undefined }))).rejects.toThrow(AVISO_EMISSAO_INDISPONIVEL);
+    // A trava do código continua funcionando: com ela fechada, nada sai (mesmo com o emissor liberado).
+    await expect(emitirNota(getDb(), { ...n, ...autor }, deps({ emissaoDisponivel: false }))).rejects.toThrow(AVISO_EMISSAO_INDISPONIVEL);
     await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false`);
     await expect(emitirNota(getDb(), { ...n, ...autor }, deps())).rejects.toThrow(FRASE_EMISSOR_DESLIGADO);
     await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = true, ambiente = 'desligado'`);
@@ -202,12 +203,16 @@ describe("travas — nada sai com qualquer uma fechada", () => {
     expect(recebidos).toHaveLength(0);
     expect(await nota(n.id)).toMatchObject({ status: "A_DECIDIR", dps_id: null, numero_dps: null });
   });
-  it("a rota da tela (sem o desvio de teste) recusa com a frase da homologação", async () => {
+  it("a rota da tela (sem o desvio de teste, EMISSAO_DISPONIVEL true): empresa não liberada ou ambiente desligado recusa sem rede", async () => {
     const n = await rascunho();
     const app = router({ fiscal: fiscalRouter });
     const admin = app.createCaller({ user: { id: 1, role: "admin", active: true, permissions: "[]" }, req: { headers: {} }, res: {} } as never);
-    await expect(admin.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: AVISO_EMISSAO_INDISPONIVEL });
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false, ambiente = 'producao_restrita'`);
+    await expect(admin.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: FRASE_EMISSOR_DESLIGADO });
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = true, ambiente = 'desligado'`);
+    await expect(admin.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: FRASE_EMISSOR_DESLIGADO });
     expect(recebidos).toHaveLength(0);
+    expect(await nota(n.id)).toMatchObject({ status: "A_DECIDIR", dps_id: null, numero_dps: null });
   });
   it("gatilho da 0167: EMITINDO só com emissor liberado; EMITIDA só de EMITINDO com chave/XML; Id da DPS não muda; emitida não muda", async () => {
     const n = await rascunho();
@@ -329,6 +334,139 @@ describe("emissão com a Sefin simulada (mTLS local)", () => {
     await expect(como("admin").fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao", frase: "emitir em producao" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(como("colaborador").fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao", frase: FRASE_PRODUCAO })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await como("admin").fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao", frase: FRASE_PRODUCAO })).toMatchObject({ ambiente: "producao", emissaoLiberada: false });
+  });
+
+  it("liberarEmissao: ligar só com a frase exata (servidor); desligar sem frase; não-admin recusa; nota emitindo bloqueia ligar", async () => {
+    const app = router({ fiscal: fiscalRouter });
+    const como = (role: string) => app.createCaller({ user: { id: role === "admin" ? 1 : 2, role, active: true, permissions: '["bpo"]' }, req: { headers: {} }, res: {} } as never);
+    const liberada = async () => (await q<{ l: boolean; por: number | null }>(`SELECT emissao_liberada AS l, atualizado_por AS por FROM fiscal_emissores WHERE id = 1`))[0]!;
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false, atualizado_por = NULL`);
+    // frase ausente, errada, parecida, com caixa trocada ou sem acento → BAD_REQUEST, nada muda
+    await expect(como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    for (const frase of ["", "liberar emissão", "LIBERAR EMISSAO", "LIBERAR  EMISSÃO", "LIBERAR EMISSÃO!", "EMITIR EM PRODUÇÃO"]) {
+      await expect(como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect((await liberada()).l).toBe(false);
+    // não-admin (colaborador com BPO) não liga nem desliga
+    await expect(como("colaborador").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(como("colaborador").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await liberada()).l).toBe(false);
+    // campo a mais é recusado (.strict())
+    await expect(como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO, ambiente: "producao" } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // emissor inexistente
+    await expect(como("admin").fiscal.emissores.liberarEmissao({ emissorId: 999, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // frase certa (com espaços nas pontas) liga e grava quem; o ambiente não muda junto
+    expect(await como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: `  ${FRASE_LIBERAR_EMISSAO} ` })).toMatchObject({ emissaoLiberada: true, ambiente: "producao_restrita", atualizadoPor: 1 });
+    // desligar não pede frase
+    expect(await como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: false })).toMatchObject({ emissaoLiberada: false });
+    // com nota da empresa em "Emitindo", ligar recusa (desligar continua permitido)
+    const n = await rascunho();
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = true`);
+    await pg.query(`UPDATE fiscal_notas SET status='EMITINDO', dps_id='DPS210530221122233300018100001000000000000001', numero_dps=1, ambiente_emissao='producao_restrita', emitindo_desde=now() WHERE id=$1`, [n.id]);
+    expect(await como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: false })).toMatchObject({ emissaoLiberada: false });
+    await expect(como("admin").fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect((await liberada()).l).toBe(false);
+    expect(recebidos).toHaveLength(0);
+    // log da ação: só números internos, nunca CNPJ
+    expect(logs.join("\n")).toMatch(/emissão da empresa liberada emissor=1 usuario=1/);
+    expect(logs.join("\n")).not.toMatch(/11222333000181|11\.222\.333/);
+  });
+
+  it("M1: trocar o ambiente desliga a liberação; liberar em produção exige também a frase de produção; com ambiente desligado, ligar é permitido (nada sai)", async () => {
+    const app = router({ fiscal: fiscalRouter });
+    const admin = app.createCaller({ user: { id: 1, role: "admin", active: true, permissions: '["bpo"]' }, req: { headers: {} }, res: {} } as never);
+    const em = async () => (await q<{ a: string; l: boolean }>(`SELECT ambiente AS a, emissao_liberada AS l FROM fiscal_emissores WHERE id = 1`))[0]!;
+    // (a) qualquer troca de ambiente grava emissao_liberada = false
+    expect((await em()).l).toBe(true);
+    expect(await admin.fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao", frase: FRASE_PRODUCAO })).toMatchObject({ ambiente: "producao", emissaoLiberada: false });
+    // (b) em produção: só a frase de liberar não basta; frase de produção errada também não
+    await expect(admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).rejects.toMatchObject({ code: "BAD_REQUEST", message: /COM VALOR FISCAL/ });
+    for (const fraseProducao of ["emitir em produção", "EMITIR EM PRODUCAO", "LIBERAR EMISSÃO"]) {
+      await expect(admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO, fraseProducao })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect((await em()).l).toBe(false);
+    // B4: a frase com o "Ã" decomposto (NFD, como alguns teclados mandam) vale igual
+    expect(await admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO.normalize("NFD"), fraseProducao: FRASE_PRODUCAO.normalize("NFD") }))
+      .toMatchObject({ emissaoLiberada: true, ambiente: "producao" });
+    // volta para produção restrita: desligada de novo; ali basta a frase de liberar
+    expect(await admin.fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao_restrita" })).toMatchObject({ emissaoLiberada: false });
+    expect(await admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).toMatchObject({ emissaoLiberada: true });
+    // (c) ambiente desligado: ligar é permitido, e mesmo assim nada sai
+    expect(await admin.fiscal.emissores.ambiente({ emissorId: 1, ambiente: "desligado" })).toMatchObject({ emissaoLiberada: false });
+    expect(await admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO })).toMatchObject({ emissaoLiberada: true, ambiente: "desligado" });
+    const n = await rascunho();
+    await expect(admin.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: FRASE_EMISSOR_DESLIGADO });
+    expect(recebidos).toHaveLength(0);
+  });
+
+  it("M2 (0172): histórico imutável das travas do emissor — uma linha por campo alterado, com quem; UPDATE/DELETE recusados; roda duas vezes", async () => {
+    await pg.exec(M0172);
+    await pg.exec(M0172); // idempotente
+    const app = router({ fiscal: fiscalRouter });
+    const como = (role: string) => app.createCaller({ user: { id: role === "admin" ? 1 : 2, role, active: true, permissions: '["bpo"]' }, req: { headers: {} }, res: {} } as never);
+    const admin = como("admin");
+    const hist = () => q<{ campo: string; de: string | null; para: string | null; usuario_id: number | null }>(`SELECT campo, de, para, usuario_id FROM fiscal_emissores_historico WHERE emissor_id = 1 ORDER BY id`);
+    // desligar e ligar: uma linha cada
+    await admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: false });
+    await admin.fiscal.emissores.liberarEmissao({ emissorId: 1, liberar: true, frase: FRASE_LIBERAR_EMISSAO });
+    expect(await hist()).toEqual([
+      { campo: "emissao_liberada", de: "true", para: "false", usuario_id: 1 },
+      { campo: "emissao_liberada", de: "false", para: "true", usuario_id: 1 },
+    ]);
+    // troca de ambiente com a emissão ligada: grava 'ambiente' e 'emissao_liberada' (desligada junto)
+    await admin.fiscal.emissores.ambiente({ emissorId: 1, ambiente: "desligado" });
+    expect((await hist()).slice(2)).toEqual([
+      { campo: "emissao_liberada", de: "true", para: "false", usuario_id: 1 },
+      { campo: "ambiente", de: "producao_restrita", para: "desligado", usuario_id: 1 },
+    ]);
+    // troca de ambiente com a emissão já desligada: só 'ambiente'; UPDATE que não muda as travas não grava nada
+    await admin.fiscal.emissores.ambiente({ emissorId: 1, ambiente: "producao_restrita" });
+    await pg.exec(`UPDATE fiscal_emissores SET proximo_numero_dps = proximo_numero_dps + 1 WHERE id = 1`);
+    expect((await hist()).slice(4)).toEqual([{ campo: "ambiente", de: "desligado", para: "producao_restrita", usuario_id: 1 }]);
+    // 'ativo' também é registrado
+    await pg.exec(`UPDATE fiscal_emissores SET ativo = false, atualizado_por = 1 WHERE id = 1`);
+    expect((await hist()).at(-1)).toEqual({ campo: "ativo", de: "true", para: "false", usuario_id: 1 });
+    // imutável
+    await expect(pg.exec(`UPDATE fiscal_emissores_historico SET para = 'x'`)).rejects.toThrow(/FISCAL_HISTORICO_IMUTAVEL/);
+    await expect(pg.exec(`DELETE FROM fiscal_emissores_historico`)).rejects.toThrow(/FISCAL_HISTORICO_IMUTAVEL/);
+    await expect(pg.exec(`INSERT INTO fiscal_emissores_historico (emissor_id, campo) VALUES (1, 'cnpj')`)).rejects.toThrow(/check/i);
+    // leitura para a tela (só admin): quem e quando, mais recente primeiro
+    const lista = await admin.fiscal.emissores.historico({ emissorId: 1 });
+    expect(lista).toHaveLength(6);
+    expect(lista[0]).toMatchObject({ campo: "ativo", quem: "Dono" });
+    await expect(como("colaborador").fiscal.emissores.historico({ emissorId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(JSON.stringify(lista)).not.toMatch(/11222333000181/);
+  });
+
+  it("M2: sem a 0172 aplicada, o histórico da tela volta vazio (sem erro)", async () => {
+    const app = router({ fiscal: fiscalRouter });
+    const admin = app.createCaller({ user: { id: 1, role: "admin", active: true, permissions: '["bpo"]' }, req: { headers: {} }, res: {} } as never);
+    expect(await admin.fiscal.emissores.historico({ emissorId: 1 })).toEqual([]);
+  });
+
+  it("B1: a retomada relê a liberação logo antes do POST — desligada no meio, o reenvio não sai (nota segue Emitindo)", async () => {
+    const n = await rascunho();
+    modo = "pendurar_sem_gerar";
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("incerta");
+    expect(posts()).toHaveLength(1);
+    modo = "sucesso";
+    agora = new Date(agora.getTime() + TRAVA_EMITINDO_MS + 1_000);
+    // o admin desliga a emissão enquanto a retomada abre o certificado (depois das conferências iniciais)
+    const desligaNoMeio = deps({ credencial: async () => { await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false`); return cred; } });
+    await expect(emitirNota(getDb(), { ...n, ...autor }, desligaNoMeio)).rejects.toThrow(FRASE_EMISSOR_DESLIGADO);
+    expect(posts()).toHaveLength(1); // a consulta (GET) pode sair; o POST, não
+    expect((await nota(n.id)).status).toBe("EMITINDO");
+  });
+
+  it("B1: o cancelamento relê a liberação logo antes do POST do evento — desligada no meio, nada sai", async () => {
+    const n = await rascunho();
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("emitida");
+    const e = await nota(n.id);
+    const desligaNoMeio = deps({ credencial: async () => { await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false`); return cred; } });
+    await expect(cancelarNota(getDb(), { id: Number(e.id), versao: Number(e.versao), motivo: 1, justificativa: "Valor digitado errado na nota", ...autor }, desligaNoMeio))
+      .rejects.toThrow(FRASE_CANCELAMENTO_DESLIGADO);
+    expect(recebidos.filter(r => r.metodo === "POST" && r.caminho.endsWith("/eventos"))).toHaveLength(0);
+    expect((await nota(n.id)).status).toBe("EMITIDA");
   });
 
   it("produção usa o leiaute de produção (09/02/2026): tpAmb 1, cIndOp exigido, XSD de produção", async () => {

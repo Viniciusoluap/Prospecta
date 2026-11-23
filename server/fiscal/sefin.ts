@@ -215,8 +215,9 @@ export function criarClienteSefin(o: {
 export type ResultadoTeste = { ok: boolean; mensagem: string; ambiente: string };
 
 /**
- * "Testar conexão" do cartão. Desligado → recusa sem rede. Produção → bloqueado. Produção restrita (base confirmada) → com
- * certificado ativo, faz só o GET de leitura do convênio do município sede e devolve só o status HTTP.
+ * "Testar conexão" do cartão. Desligado → recusa sem rede. Produção restrita ou produção (endereço e base confirmados em
+ * ENDERECOS; desde a S-7 a produção não é mais recusada aqui) → com certificado ativo, faz só o GET de leitura do convênio do
+ * município sede e devolve só o status HTTP. Nunca emite: não depende de `emissao_liberada`.
  */
 export async function testarConexaoSefin(
   db: DrizzleDb, emissor: { id: number; ambiente: string; municipioIbge?: string | null },

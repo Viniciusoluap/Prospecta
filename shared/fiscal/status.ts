@@ -34,9 +34,46 @@ export function transicaoValida(de: StatusNota, para: StatusNota): boolean {
   return TRANSICOES[de]?.includes(para) ?? false;
 }
 
-/** Emissão só depois da homologação (S-4). Usado pelo servidor e pela tela (botão desabilitado). */
-export const EMISSAO_DISPONIVEL = false;
-export const AVISO_EMISSAO_INDISPONIVEL = "Emissão disponível após a homologação.";
+/**
+ * Trava geral da emissão no código (1ª das três). Ligada pelo dono em 23/11/2026: mesmo assim NADA sai enquanto a empresa
+ * emissora não for liberada (`fiscal_emissores.emissao_liberada`, rota `emissores.liberarEmissao`, com a frase digitada) E o
+ * ambiente dela não for "producao_restrita"/"producao" (rota `emissores.ambiente`). O gatilho da 0167 confere as duas no banco.
+ * Usado pelo servidor (emissao.ts), pela Dolores (acoes/fiscal.ts) e pela tela. Voltar para `false` desliga tudo de uma vez.
+ */
+export const EMISSAO_DISPONIVEL = true;
+export const AVISO_EMISSAO_INDISPONIVEL = "A emissão de notas está desligada no sistema.";
+
+/** Frase que o admin digita para LIGAR a emissão de uma empresa emissora. Conferida no servidor (trim, comparação exata). */
+export const FRASE_LIBERAR_EMISSAO = "LIBERAR EMISSÃO";
+/** Frase para emitir em PRODUÇÃO (notas com valor fiscal): trocar o ambiente para produção e liberar a emissão nele. */
+export const FRASE_PRODUCAO = "EMITIR EM PRODUÇÃO";
+
+/**
+ * Confere a frase digitada: forma NFC nos dois lados (o "Ã" composto ou decomposto, conforme o teclado, vale igual), sem espaço
+ * nas pontas, e comparação EXATA (caixa, acento e espaço do meio contam). Mesma função no servidor e no botão da tela.
+ */
+export function fraseConfere(digitada: string | null | undefined, esperada: string): boolean {
+  return (digitada ?? "").normalize("NFC").trim() === esperada.normalize("NFC");
+}
+
+/**
+ * Por que esta empresa não emite agora (null = as três travas abertas). Mesma regra do servidor (emissao.ts#emissorLiberado),
+ * só para mostrar o motivo real na tela e no resumo da Dolores — quem decide se algo sai é sempre o servidor.
+ */
+export function motivoSemEmissao(
+  emissor: { ambiente: string | null | undefined; emissaoLiberada: boolean | null | undefined } | null | undefined,
+  disponivel: boolean = EMISSAO_DISPONIVEL,
+): { rotulo: string; frase: string } | null {
+  if (!disponivel) return { rotulo: "desligada no sistema", frase: AVISO_EMISSAO_INDISPONIVEL };
+  if (!emissor) return { rotulo: "sem empresa emissora", frase: "Escolha a empresa emissora (Editar)." };
+  if (emissor.ambiente !== "producao_restrita" && emissor.ambiente !== "producao") {
+    return { rotulo: "ambiente desligado", frase: "O ambiente de emissão desta empresa está desligado (Dados fiscais do perfil › Ambiente)." };
+  }
+  if (emissor.emissaoLiberada !== true) {
+    return { rotulo: "empresa não liberada", frase: "A emissão desta empresa ainda não foi liberada pelo administrador (Dados fiscais do perfil › Liberar emissão desta empresa)." };
+  }
+  return null;
+}
 
 /** Só a emissão real (S-4) grava estas situações; o servidor desta etapa recusa todas. */
 export function exigeEmissao(para: StatusNota): boolean {

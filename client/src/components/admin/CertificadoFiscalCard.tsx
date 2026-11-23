@@ -62,7 +62,7 @@ export function CertificadoFiscalCard() {
     <Card className="border-[#C9A961]/20 bg-[#2C3E50] text-gray-100">
       <CardHeader><CardTitle className="text-[#C9A961]">Certificado A1 — emissão de NFS-e</CardTitle></CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p className="flex items-start gap-2 text-gray-300"><Info className="mt-0.5 h-4 w-4 shrink-0" /> Use o certificado que já está no Jurídico: em <Link href="/admin/juridico?aba=certificados" className="underline text-[#C9A961]">Jurídico › Certificados digitais</Link>, no cartão do certificado, clique em "Usar também para emitir notas fiscais". Ele fica guardado cifrado no servidor; aqui aparece só o resumo. A emissão continua desligada até a homologação.</p>
+        <p className="flex items-start gap-2 text-gray-300"><Info className="mt-0.5 h-4 w-4 shrink-0" /> Use o certificado que já está no Jurídico: em <Link href="/admin/juridico?aba=certificados" className="underline text-[#C9A961]">Jurídico › Certificados digitais</Link>, no cartão do certificado, clique em "Usar também para emitir notas fiscais". Ele fica guardado cifrado no servidor; aqui aparece só o resumo. O certificado não emite nada sozinho: a nota só sai depois que o administrador liberar a emissão da empresa e ligar o ambiente (Dados fiscais do perfil).</p>
         {status.isLoading && <p className="text-gray-300">Carregando…</p>}
         {status.error && <p className="text-red-300">Erro: {status.error.message}</p>}
         {!status.isLoading && !emissores.length && <p className="text-gray-300">Nenhuma empresa emissora cadastrada ainda (BPO › Contabilidade › Notas fiscais).</p>}

@@ -358,6 +358,9 @@ describe("QA 8 — A4: \"aprovar CÓDIGO\" (quadro antigo) em ação séria de g
     expect(lerDecisaoDoDono("aprovar K7M3P")).toEqual({ decisao: "aprovar", codigos: ["K7M3P"] });
     for (const t of ["confirmo", "confirmo sim", "confirmo pode", "eu confirmo K7M3P"]) expect(lerDecisaoDoDono(t), t).toBeNull();
     expect(exigeConfirmoNoCodigo("aceitar_grupo", {})).toBe(true);
+    // EPIC-029 S-7: nota fiscal (emitir e cancelar) também exige o "confirmo CÓDIGO" no comando antigo
+    expect(exigeConfirmoNoCodigo("emitir_nota_fiscal", { notaFiscalId: 1 })).toBe(true);
+    expect(exigeConfirmoNoCodigo("cancelar_nota_fiscal", { notaFiscalId: 1, motivo: 1 })).toBe(true);
     expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "juridico", troca: false })).toBe(true);
     expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "cliente", troca: true })).toBe(true);
     expect(exigeConfirmoNoCodigo("classificar_grupo", { tipo: "cliente", troca: false })).toBe(false);

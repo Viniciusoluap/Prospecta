@@ -138,7 +138,7 @@ export default function CertificadosJuridico({ owner, documento, fechar, conclui
         <p className="break-words font-semibold">{fiscal.titular}{fiscal.documento ? ` · CNPJ ${fiscal.documento}` : ""}</p>
         <p>O que acontece: uma cópia deste certificado A1 e da senha passa a ficar <strong>guardada no servidor, cifrada</strong>, para a emissão de NFS-e da empresa deste CNPJ (Sistema Nacional NFS-e). O servidor confere se o CNPJ do certificado é o da empresa emissora cadastrada em BPO › Contabilidade.</p>
         <p>O arquivo e a senha nunca voltam para a tela: em Integrações aparecem só titular, CNPJ, validade e impressão digital. Para deixar de usar, desative lá (nada é apagado). A cópia deste navegador continua igual, para assinar PDFs.</p>
-        <p className="text-amber-200">Nenhuma nota é emitida agora: a emissão continua desligada até a homologação.</p>
+        <p className="text-amber-200">Usar o certificado não emite nada sozinho: a nota só sai depois que o administrador liberar a emissão da empresa e ligar o ambiente (BPO › Contabilidade › Dados fiscais do perfil).</p>
         {erroFiscal && <p role="alert" className="text-red-300">{erroFiscal}</p>}
         {senhaFiscalSalva ? <p className="text-green-300">Será usada a senha salva neste aparelho.</p>
           : <><Label htmlFor="senha-fiscal">Senha do certificado</Label><Input id="senha-fiscal" type="password" autoComplete="off" value={senhaFiscal} disabled={ocupado} onChange={e => setSenhaFiscal(e.target.value)} /></>}
