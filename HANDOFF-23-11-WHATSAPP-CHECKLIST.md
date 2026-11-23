@@ -5,3 +5,9 @@
 - Testes (a): regressões de aceite da Evolution e persistência da conclusão durante a atualização de anexos.
 - Testes (b): conferência do código com os prints. Nenhuma mensagem de teste foi enviada a clientes.
 - Testes (c): após revisão do PR, confirmar produção e API. A validação autenticada do histórico de uma conversa e de um projeto real fica pendente.
+
+## Produção
+
+- Checagem de tipos bem-sucedida e 48 testes passaram.
+- PR #327 revisado sem pendências, preview pronto e merge 8455a5d publicado. API respondeu HTTP 200 e confirmou o banco conectado. Sem migração.
+- Para conferência autenticada, observar um envio individual autorizado e reabrir um projeto após salvar o item Realizado. Nenhuma conversa ou projeto real foi alterado nos testes.
