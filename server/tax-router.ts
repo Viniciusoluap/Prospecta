@@ -9,6 +9,7 @@ import {
 } from "../drizzle/schema.js";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, router } from "./_core/trpc.js";
+import { REGIMES_TRIBUTARIOS, regimeAConfirmar } from "../shared/fiscal/regimes.js";
 import { getDb } from "./db.js";
 
 let schemaInitialization: Promise<void> | undefined;
@@ -80,13 +81,8 @@ export async function ensureTaxSchema() {
   return schemaInitialization;
 }
 
-const regime = z.enum([
-  "simples_nacional",
-  "lucro_presumido",
-  "lucro_real",
-  "ret",
-  "outro",
-]);
+// EPIC-029 S-6: "a_confirmar" = o contador ainda não disse (sem estimativa de tributo e sem limite de receita).
+const regime = z.enum(REGIMES_TRIBUTARIOS);
 
 /**
  * Receita realizada da Contabilidade: transações financeiras pagas (venda/comissão) +
@@ -198,10 +194,14 @@ export const taxRouter = router({
       const rate = Number(profile?.estimatedRate || 0);
       // QA S-2 (M3): a receita do BPO não indica a empresa — com o filtro ligado, aplicar a alíquota de UMA empresa sobre a
       // receita de TODAS daria um número errado. Então a estimativa por empresa fica indisponível (null), com o motivo.
-      const estimatedTax = cnpjFiltro ? null : revenue * (rate / 100);
-      const estimativaIndisponivel = cnpjFiltro
-        ? "Estimativa indisponível por empresa (a receita do BPO não indica a empresa)."
-        : null;
+      // EPIC-029 S-6: regime "a confirmar" não estima tributo (o número pareceria oficial sem o contador ter dito o regime).
+      const aConfirmar = Boolean(profile) && regimeAConfirmar(profile?.regime);
+      const estimatedTax = cnpjFiltro || aConfirmar ? null : revenue * (rate / 100);
+      const estimativaIndisponivel = aConfirmar
+        ? "Estimativa indisponível: regime a confirmar com o contador."
+        : cnpjFiltro
+          ? "Estimativa indisponível por empresa (a receita do BPO não indica a empresa)."
+          : null;
       const overdue = obligations.filter(
         item => item.status === "pending" && new Date(item.dueDate) < new Date()
       );
@@ -264,6 +264,11 @@ export const taxRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // QA S-6 (A5): o regime decide o limite de receita e o aviso da Dolores — trocar de regime (versão nova) é só do administrador
+        // por papel, como o desativar (colaborador com o módulo BPO vê, mas não troca).
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador cadastra ou troca o perfil tributário (regime) da empresa." });
+        }
         await ensureTaxSchema();
         const database = getDb();
         // EPIC-029 S-2 (multi-CNPJ): a versão nova desativa só os perfis da MESMA empresa (mesmo CNPJ; sem CNPJ, os sem

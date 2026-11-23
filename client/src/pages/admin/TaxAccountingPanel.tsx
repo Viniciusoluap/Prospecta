@@ -38,6 +38,7 @@ import { NotasADecidir } from "@/components/fiscal/NotasADecidir";
 import { DadosFiscaisDoPerfil } from "@/components/fiscal/DadosFiscaisDoPerfil";
 import { TiposServico } from "@/components/fiscal/TiposServico";
 import { NotasReceitaMes } from "@/components/fiscal/NotasReceitaMes";
+import { LimitesReceita } from "@/components/fiscal/LimitesReceita";
 
 const regimes = {
   simples_nacional: "Simples Nacional",
@@ -45,6 +46,8 @@ const regimes = {
   lucro_real: "Lucro Real",
   ret: "RET",
   outro: "Outro",
+  // EPIC-029 S-6: o contador ainda não disse o regime (sem estimativa de tributo e sem limite de receita)
+  a_confirmar: "A confirmar com o contador",
 } as const;
 
 function money(value: number | string | null | undefined) {
@@ -250,6 +253,8 @@ export default function TaxAccountingPanel() {
           </CardContent>
         </Card>
       </div>
+
+      <LimitesReceita />
 
       <div className="flex flex-wrap gap-2">
         <Dialog open={profileOpen} onOpenChange={setProfileOpen}>

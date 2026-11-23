@@ -28,10 +28,10 @@ export const entradaCobrancaAprovada = z.object({
 
 const dataBr = (d: Date | null) => (d ? diaFortaleza(d)!.split("-").reverse().join("/") : null);
 
-type Situacao = { lead: { id: number; name: string; lgpdConsent: boolean | null }; documentos: string[]; ultimoContato: Date | null };
+export type Situacao = { lead: { id: number; name: string; lgpdConsent: boolean | null }; documentos: string[]; ultimoContato: Date | null };
 
 /** Situação atual do cliente (dentro de uma transação SOMENTE LEITURA): cadastro, pendências e último contato. */
-async function situacaoDoCliente(leadId: number, agora: Date): Promise<Situacao | null> {
+export async function situacaoDoCliente(leadId: number, agora: Date): Promise<Situacao | null> {
   const db = bancoDaLeitura();
   const [lead] = await db.select({ id: leads.id, name: leads.name, lgpdConsent: leads.lgpdConsent }).from(leads)
     .where(and(eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);

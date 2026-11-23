@@ -36,6 +36,8 @@ const MIGRACAO_0162 = readFileSync(new URL("../../drizzle/0162_fiscal_certificad
 const MIGRACAO_0167 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const MIGRACAO_0161 = readFileSync(new URL("../../drizzle/0165_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
+// EPIC-029 S-6 (junção): em produção a 0164 vem DEPOIS da 0165 (lista completa: os 8 + nota_fiscal + limite_receita, e as colunas da conta)
+const MIGRACAO_0164 = readFileSync(new URL("../../drizzle/0164_contas_empresa_limite_receita.sql", import.meta.url), "utf8");
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
@@ -75,13 +77,14 @@ beforeEach(async () => {
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
   await banco.pg.exec(`
-    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01');
+    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01', effective_to timestamp);
     CREATE TABLE IF NOT EXISTS operational_commissions (id serial PRIMARY KEY, construction_project_id integer, amount numeric, business_type text, property text);`);
   await banco.pg.exec(MIGRACAO_0154);
   await banco.pg.exec(MIGRACAO_0162); // S-7: o schema lê as colunas da 0162 e da 0167
   await banco.pg.exec(MIGRACAO_0167);
   await banco.pg.exec(MIGRACAO_0161);
   await banco.pg.exec(MIGRACAO_0161); // idempotente
+  await banco.pg.exec(MIGRACAO_0164);
   await banco.pg.exec(`
     INSERT INTO tax_profiles (cnpj, company_name, regime) VALUES ('11222333000181', 'Prospecta Construções', 'simples_nacional');
     INSERT INTO fiscal_emissores (cnpj, municipio_nome, municipio_uf) VALUES ('11222333000181', 'Imperatriz', 'MA');
@@ -168,8 +171,9 @@ describe("regras puras — conversa natural, sem palavra-comando", () => {
     expect(temPalavraComando("Chegou o rascunho do João, R$ 1.200,00. Quer que eu te mostre a prévia?")).toBe(false);
   });
   it("o tipo novo é o último da mensagem e nasce silenciado", () => {
-    expect(TIPOS_AVISO.at(-1)).toBe("nota_fiscal");
-    expect(SILENCIADOS_POR_PADRAO).toEqual(["nota_fiscal"]);
+    // EPIC-029 S-6 (junção): depois dele vem o limite_receita, também silenciado por padrão
+    expect(TIPOS_AVISO.slice(-2)).toEqual(["nota_fiscal", "limite_receita"]);
+    expect(SILENCIADOS_POR_PADRAO).toEqual(["nota_fiscal", "limite_receita"]);
   });
 });
 
@@ -447,7 +451,9 @@ describe("custo e migração", () => {
     const sql = MIGRACAO_0161.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
     expect(sql).not.toMatch(/\b(UPDATE|DELETE|TRUNCATE|RENAME)\b|DROP\s+TABLE|DROP\s+COLUMN|ALTER\s+COLUMN/i);
     expect(sql).toMatch(/DROP CONSTRAINT IF EXISTS "dolores_avisos_tipos_tipo_check"/);
-    for (const t of TIPOS_AVISO) expect(sql, t).toContain(`'${t}'`);
+    // EPIC-029 S-6 (junção): 'limite_receita' vem na 0164 (aplicada depois, com a lista completa)
+    for (const t of TIPOS_AVISO.filter(x => x !== "limite_receita")) expect(sql, t).toContain(`'${t}'`);
+    for (const t of TIPOS_AVISO) expect(MIGRACAO_0164, t).toContain(`'${t}'`);
   });
   it("com a 0161, o banco aceita silenciar/religar o tipo novo e recusa tipo inventado", async () => {
     await definirSilencio({ tipo: "nota_fiscal", silenciado: false, porUserId: null, via: "tela" });

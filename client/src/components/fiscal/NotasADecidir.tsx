@@ -258,6 +258,7 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                       <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{ALERTA_TOMADOR_MUDOU}</p>
                     )}
                     {n.alerta && <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{n.alerta}</p>}
+                    {n.motivoSemEmissor && <p className="mt-1 text-xs text-amber-200">{n.motivoSemEmissor}</p>}
                     {n.status === "ERRO" && n.ultimoErro && <p role="alert" className="mt-1 rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-100">{n.ultimoErro.frase}</p>}
                     {(n.status === "EMITIDA" || n.status === "CANCELADA") && (
                       <p className="mt-1 text-xs text-gray-300">NFS-e nº {n.numeroNfse} • chave {n.chaveAcesso}

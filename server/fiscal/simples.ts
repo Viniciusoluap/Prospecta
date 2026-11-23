@@ -2,13 +2,16 @@
 // da nota, Fator R com a folha informada pelo admin e o anexo do tipo de serviço. A conta é pura (shared/fiscal/simples.ts);
 // aqui só se LÊ o banco. Nada sai do sistema e nenhum dado pessoal é devolvido (só valores da empresa).
 //
-// Receita: `receitaDoPeriodo(raiz, de, ate)` é a interface. A implementação daqui é MÍNIMA e provisória:
-//   (a) notas fiscais EMITIDAS de emissores da mesma raiz, pela data do evento (competência);
-//   (b) receitas pagas do BPO lançadas em contas bancárias da empresa — só quando o banco tiver a conta por empresa
-//       (`bank_accounts.empresa_cnpj`, migração 0164 da S-6). Sem a coluna, o BPO não entra e o resultado sai INCOMPLETO.
-//   Um lançamento do BPO que já está numa nota emitida não é somado duas vezes.
-// A S-6 (server/fiscal/teto.ts, apuração de receitas por empresa, com transferências entre contas) SUBSTITUI esta
-// implementação quando chegar à main: basta trocar `fonteReceitaMinima` por uma FonteReceita que use a apuração dela.
+// Receita: `receitaDoPeriodo(raiz, de, ate)` é a interface. A implementação é a APURAÇÃO DA S-6 (server/fiscal/teto.ts#apurarPeriodo) na
+// janela pedida (12 meses, um mês ou o ano-calendário), somada às notas fiscais EMITIDAS da mesma raiz (fonteReceitaDaApuracao):
+//   (a) notas EMITIDAS de emissores da mesma raiz, pela data do evento (competência);
+//   (b) do BPO, o que a S-6 soma nas contas da empresa (lançamentos pagos e baixas da divisão de pagamentos; sem transferência entre
+//       contas dela nem estorno confirmado pelo banco) — só honorário e receita (QA S-8, M1: reembolso não é receita bruta) — mais os
+//       créditos ainda a classificar ou com diferença do extrato (QA4 S-6, R1/R2: lado seguro, com aviso);
+//   (M5) só se deduplica com VÍNCULO EXPLÍCITO: lançamento ligado a uma nota emitida (origem.bpoLancamentoId) sai do BPO (fica o MAIOR dos
+//       dois valores). Nota sem vínculo × entrada de MESMO valor em até 45 dias é só SUGESTÃO ("possível mesma receita — confira"): as
+//       DUAS contam (revisão do PR #323, Codex P1: coincidência de valor e data nunca tira receita — na dúvida, contar a mais).
+// Sem a conta por empresa (0164), o BPO não entra e o resultado sai INCOMPLETO.
 import { sql } from "drizzle-orm";
 import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import {
@@ -18,6 +21,7 @@ import {
 import type { AliquotaSimplesDps } from "../../shared/fiscal/dps-campos.js";
 import type { DrizzleDb } from "../db.js";
 import { cnpjLimpo, detalhar, type NotaDetalhada } from "./notas.js";
+import { apurarPeriodo, temContaPorEmpresa } from "./teto.js";
 
 type Linha = Record<string, unknown>;
 type Conexao = Pick<DrizzleDb, "execute">;
@@ -61,14 +65,13 @@ function diaSeguinte(dia: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function temColuna(db: Conexao, tabela: string, coluna: string): Promise<boolean> {
-  const [r] = linhas(await db.execute(sql`
-    SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = ${tabela} AND column_name = ${coluna}) AS existe`));
-  return Boolean(r?.existe);
-}
+/** QA S-8 (M5): nota sem lançamento do BPO e entrada de mesmo valor até este tanto de dias da data do evento → aviso (as duas contam). */
+export const JANELA_NOTA_X_RECEBIMENTO_DIAS = 45;
 
-/** Implementação mínima (ver o cabeçalho). A S-6 substitui. */
-export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
+const reaisAviso = (c: number) => `R$ ${(c / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Fonte de receita do RBT12: a apuração da S-6 na janela + as notas emitidas, sem contar duas vezes (ver o cabeçalho). */
+export function fonteReceitaDaApuracao(db: DrizzleDb): FonteReceita {
   return {
     async receitaDoPeriodo(raiz, de, ate) {
       // (a) Notas EMITIDAS da mesma raiz, pela data do evento. O valor é o da nota (ajustado ou o da origem — `detalhar`).
@@ -77,36 +80,66 @@ export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
         AND ${fiscalNotas.emissorId} IN (SELECT id FROM fiscal_emissores WHERE left(cnpj, 8) = ${raiz})`);
       const detalhadas = await detalhar(db, emitidas);
       const notasEmitidas = detalhadas.reduce((a, n) => a + n.valorCentavos, 0);
-      const jaNaNota = Array.from(new Set(detalhadas.map(n => n.origem?.bpoLancamentoId).filter((x): x is number => x != null)));
-
-      // (b) BPO nas contas da empresa — só com a conta por empresa (S-6, 0164). QA S-8 (M1): só receita de verdade
-      //     (honorário e receita); reembolso de despesa do cliente não é receita bruta (LC 123, art. 3º §1º).
-      if (!(await temColuna(db, "bank_accounts", "empresa_cnpj"))) {
+      if (!(await temContaPorEmpresa(db))) {
         return { centavos: notasEmitidas, fontes: { notasEmitidas, bpo: null }, completo: false, avisos: [AVISO_BPO_SEM_CONTA_POR_EMPRESA] };
       }
-      const fora = jaNaNota.length ? sql`AND l.id NOT IN (${sql.join(jaNaNota.map(i => sql`${i}`), sql`, `)})` : sql``;
-      const daEmpresa = sql`left(upper(regexp_replace(coalesce(ba.empresa_cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz}`;
-      const valido = sql`l.tipo IN ('honorario', 'receita') AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL`;
-      const inicio = meiaNoiteBrasilia(de);
-      const fim = meiaNoiteBrasilia(diaSeguinte(ate));
-      // (b1) Lançamento pago com a PRÓPRIA movimentação do banco, na data do pagamento.
-      const diretos = linhas(await db.execute(sql`
-        SELECT l.id, l.valor FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
-        WHERE ${valido} AND l.pago = true AND ${daEmpresa}
-          AND l.pago_em >= ${inicio}::timestamp AND l.pago_em < ${fim}::timestamp ${fora}`));
-      // (b2) Revisão do PR #321 (Codex, P2 1): baixa pela "divisão de pagamentos" (darBaixaComMovimentacao) — o banco fica em
-      //      bpo_recebimentos.bank_transaction_id e o lançamento fica SEM movimentação própria. Cada alocação entra uma vez, pela
-      //      conta e na data do CRÉDITO. Lançamento com movimentação própria não entra aqui (já está em b1); o de nota emitida, também não.
-      const temRecebimentos = linhas(await db.execute(sql`SELECT to_regclass('bpo_recebimentos') IS NOT NULL AS ok`))[0]?.ok;
-      const divididos = temRecebimentos ? linhas(await db.execute(sql`
-        SELECT r.lancamento_id AS id, r.valor FROM bpo_recebimentos r
-        JOIN bpo_lancamentos l ON l.id = r.lancamento_id
-        JOIN bank_transactions bt ON bt.id = r.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
-        WHERE ${valido} AND l.bank_transaction_id IS NULL AND bt.tipo = 'credito' AND ${daEmpresa}
-          AND bt.data >= ${inicio}::timestamp AND bt.data < ${fim}::timestamp ${fora}`)) : [];
-      const bpo = [...diretos, ...divididos].reduce((a, x) => a + centavos(x.valor), 0);
-      const lancamentosBpo = Array.from(new Set([...diretos, ...divididos].map(x => Number(x.id))));
-      return { centavos: notasEmitidas + bpo, fontes: { notasEmitidas, bpo }, completo: true, avisos: [], lancamentosBpo };
+
+      // (b) A apuração da S-6 na janela [de, ate] de Brasília.
+      const fimDia = diaSeguinte(ate);
+      const { apuracao, somadas, pendentes } = await apurarPeriodo(db, meiaNoiteBrasilia(de), meiaNoiteBrasilia(fimDia), new Date(`${fimDia}T02:59:59Z`));
+      // QA S-8 (M1): só honorário e receita (a entrada marcada como Transferência interna sem par entra como "receita": lado seguro)
+      const entradas = (somadas.get(raiz) ?? []).filter(r => r.tipo === "honorario" || r.tipo === "receita");
+      const pend = pendentes.get(raiz) ?? [];
+      const lancamentosBpo = Array.from(new Set(entradas.map(r => r.lancamentoId).filter(id => id > 0)));
+
+      // (M5-a) lançamento ligado a uma nota emitida: sai do BPO; se o BPO tiver MAIS que a nota, a diferença continua (lado seguro)
+      const notaPorLancamento = new Map<number, number>();
+      for (const n of detalhadas) {
+        const id = n.origem?.bpoLancamentoId;
+        if (id != null) notaPorLancamento.set(id, (notaPorLancamento.get(id) ?? 0) + n.valorCentavos);
+      }
+      const porLancamento = new Map<number, number>();
+      for (const r of entradas) if (notaPorLancamento.has(r.lancamentoId)) porLancamento.set(r.lancamentoId, (porLancamento.get(r.lancamentoId) ?? 0) + r.valorCentavos);
+      let bpo = entradas.filter(r => !notaPorLancamento.has(r.lancamentoId)).reduce((a, r) => a + r.valorCentavos, 0);
+      for (const [id, noBpo] of Array.from(porLancamento)) bpo += Math.max(0, noBpo - (notaPorLancamento.get(id) ?? 0));
+
+      // Créditos pendentes (a classificar / diferença do extrato) — entram (lado seguro), com aviso
+      let pendentesCent = pend.reduce((a, c) => a + c.valorCentavos, 0);
+
+      // (M5-b) nota SEM vínculo com o BPO: uma entrada (ou crédito pendente) de mesmo valor em até 45 dias é só SUGESTÃO — nada é
+      // descontado (PR #323, Codex P1); o aviso pede para conferir e, se for a mesma receita, vincular a nota ao lançamento.
+      type Candidato = { valor: number; quando: number; tipo: "entrada" | "pendente"; usado: boolean };
+      const candidatos: Candidato[] = [
+        ...entradas.filter(r => !notaPorLancamento.has(r.lancamentoId)).map(r => ({ valor: r.valorCentavos, quando: r.pagoEm.getTime(), tipo: "entrada" as const, usado: false })),
+        ...pend.map(c => ({ valor: c.valorCentavos, quando: c.data.getTime(), tipo: "pendente" as const, usado: false })),
+      ];
+      let casadas = 0;
+      for (const n of detalhadas) {
+        if (n.origem?.bpoLancamentoId != null || !(n.valorCentavos > 0)) continue;
+        const evento = new Date(`${n.dataEvento.slice(0, 10)}T15:00:00Z`).getTime();
+        const par = candidatos.filter(c => !c.usado && c.valor === n.valorCentavos && Math.abs(c.quando - evento) <= JANELA_NOTA_X_RECEBIMENTO_DIAS * 86_400_000)
+          .sort((a, b) => Math.abs(a.quando - evento) - Math.abs(b.quando - evento))[0];
+        if (!par) continue;
+        par.usado = true; casadas++;
+      }
+
+      const avisos: string[] = [];
+      if (pendentesCent > 0) {
+        avisos.push(`Inclui ${reaisAviso(pendentesCent)} de entradas nas contas da empresa ainda a classificar ou com diferença entre o extrato e o lançamento `
+          + "(lado seguro: na dúvida, conta). Classifique em BPO › A classificar para o RBT12 ficar exato.");
+      }
+      // Sem conta ou sem empresa: a S-6 não diz de que empresa é — fica de fora, mas a tela avisa (o RBT12 pode estar abaixo do real)
+      const semDono = apuracao.semConta.receitaCentavos + apuracao.semEmpresa.receitaCentavos + apuracao.semEmpresa.aClassificarCentavos;
+      if (semDono > 0) {
+        avisos.push(`${reaisAviso(semDono)} recebidos no período sem conta bancária ou em conta sem empresa definida não entram em empresa nenhuma — `
+          + "vincule a conta à empresa em BPO › Bancos (o RBT12 pode estar abaixo do real).");
+      }
+      if (casadas) {
+        avisos.push(`Possível mesma receita — confira: ${casadas} nota(s) emitida(s) sem vínculo com o BPO têm um recebimento de mesmo valor em até `
+          + `${JANELA_NOTA_X_RECEBIMENTO_DIAS} dias. As duas CONTAM no RBT12 (lado seguro); se for o mesmo dinheiro, gere a nota a partir do lançamento do BPO.`);
+      }
+      bpo += pendentesCent;
+      return { centavos: notasEmitidas + bpo, fontes: { notasEmitidas, bpo }, completo: true, avisos, lancamentosBpo };
     },
   };
 }
@@ -193,7 +226,7 @@ function somar(a: ReceitaApurada, b: ReceitaApurada): ReceitaApurada {
  * Competência = mês da data do evento da nota; RBT12 = os 12 meses anteriores (art. 18, §1º), com a regra proporcional para
  * empresa com menos de 12 meses (precisa do início de atividade).
  */
-export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, fonte: FonteReceita = fonteReceitaMinima(db)): Promise<ResultadoSimplesNota> {
+export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, fonte: FonteReceita = fonteReceitaDaApuracao(db)): Promise<ResultadoSimplesNota> {
   const regime = nota.emissor?.regime ?? null;
   if (!nota.emissor) return { aplica: false, motivo: "empresa emissora ainda não escolhida" };
   if (regime !== "simples_nacional") {

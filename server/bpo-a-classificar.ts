@@ -90,10 +90,12 @@ export async function criarLancamentosDasMovimentacoes(ids: number[], escolha: {
 }
 
 /** "Transferência interna / ignorar": sem lançamento e fora de "A classificar". */
-export async function ignorarMovimentacoes(ids: number[]) {
+// QA3 S-6 (Q3): grava a auditoria (quem, quando, quantas, valor somado). Continua liberado ao colaborador com o módulo BPO (decisão do
+// coordenador): com o Q1, a marcação sem par não tira mais receita do limite (server/fiscal/teto.ts).
+export async function ignorarMovimentacoes(ids: number[], userId: number | null = null) {
   const alvo = await idsAClassificar(ids);
   if (!alvo.length) throw new Error("Nenhuma das movimentações está mais em A classificar. Atualize a tela.");
-  await aplicarClassificacaoEmLote(alvo, { categoria: TRANSFERENCIA_INTERNA });
+  await aplicarClassificacaoEmLote(alvo, { categoria: TRANSFERENCIA_INTERNA }, { userId, via: "ignorar" });
   return { ignoradas: alvo.length };
 }
 

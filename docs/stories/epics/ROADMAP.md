@@ -357,5 +357,8 @@ permanente — é porte adiado; a regra de paridade obrigatória continua valend
 - [x] **Cancelada — decisão do dono em 22/11/2026.** S-2 — rascunhos de NFS-e dentro da aba Contabilidade do BPO (emissor = perfil tributário; tomador = cadastros existentes),
   histórico imutável, prévia com marca d'água, relatório notas × receita.
 - [x] **Cancelada — decisão do dono em 22/11/2026.** S-4/S-5 — emissão na API Nacional (DPS, assinatura com A1 do painel, mTLS), cancelamento, notas recebidas pelo ADN.
+- [ ] S-6 — conta bancária ligada ao estabelecimento (CNPJ completo; empresa = raiz do CNPJ), apelido da conta, regime por empresa
+  (inclui "a confirmar") e painel de limite de receita do ano por regime (Simples, Presumido; Real sem limite). O aviso e a leitura da
+  Dolores (`limite_receita`, `consultar_limites_receita`) seguem a exceção da Dolores.
 - **Não portar:** S-3 (Dolores) e a origem `adn` em `obra_notas` como notas de obra da Dolores — seguem a exceção da Dolores
   (seção EPIC-025 acima). No Santa Fé, as notas recebidas precisam de um registro próprio, sem Dolores.

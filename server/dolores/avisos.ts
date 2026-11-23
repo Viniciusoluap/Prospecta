@@ -23,10 +23,12 @@ import { doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { doloresAvisosAchados, doloresAvisosConfig, doloresAvisosEnvios, doloresAvisosTipos, type DoloresAvisosConfig } from "../../drizzle/schema-dolores-avisos.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import {
-  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SILENCIADOS_POR_PADRAO, SISTEMA_AVISOS, TIPOS_AVISO, TIPOS_COLETADOS, agruparPorTipo,
-  chaveDoAchado, comPerguntaFiscal, dadosParaIA, dentroDaJanela, diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, silenciadoPelaLinha, textoDaIAValido,
+  DEGRAUS, LIMITES_PADRAO, MAX_ACHADOS_POR_TIPO, MAX_TOKENS_AVISO, SILENCIADOS_POR_PADRAO, SISTEMA_AVISOS, TIPOS_AVISO, TIPOS_COLETADOS, TIPOS_SEM_REAVISO,
+  agruparPorTipo, chaveDoAchado, comPerguntaFiscal, dadosParaIA, dentroDaJanela, diaDosAvisos, faixaDe, montarAvisoFixo, precisaAvisar, silenciadoPelaLinha, textoDaIAValido,
   type Achado, type AchadoPendente, type GrupoDoAviso, type TipoAviso,
 } from "../../shared/dolores/avisos.js";
+import { anoEmBrasilia, nomeSeguroDaConta } from "../../shared/fiscal/regimes.js";
+import { apurarLimites } from "../fiscal/teto.js";
 import { diasEntre } from "../../shared/dolores/formato.js";
 import { limparNomeDeTerceiro, relogioBrasilia } from "../../shared/dolores/operacao.js";
 import { detalhar } from "../fiscal/notas.js";
@@ -70,7 +72,7 @@ export const configDaLinha = (c: DoloresAvisosConfig): ConfigAvisos => ({
 });
 
 /**
- * Tipos silenciados: a linha da tabela vale; sem linha, o padrão do tipo (EPIC-029 S-3: "nota_fiscal" nasce silenciado —
+ * Tipos silenciados: a linha da tabela vale; sem linha, o padrão do tipo (EPIC-029 S-3: "nota_fiscal" e S-6: "limite_receita" nascem silenciados —
  * SILENCIADOS_POR_PADRAO). Sem a migração → só os padrões (com os avisos desligados por falta de configuração, nada sai de qualquer jeito).
  */
 export async function tiposSilenciados(): Promise<Set<TipoAviso>> {
@@ -263,10 +265,29 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     return { achados, completo };
   },
   integracao: async () => {
-    const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco }).from(bankAccounts)
+    const linhas = await bancoDaLeitura().select({ id: bankAccounts.id, banco: bankAccounts.banco, apelido: bankAccounts.apelido }).from(bankAccounts)
       .where(and(eq(bankAccounts.ativo, true), ne(bankAccounts.provedor, "manual"), isNotNull(bankAccounts.ultimoErro))).limit(MAX_ACHADOS_POR_TIPO + 1);
-    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(b.banco), marca: "erro_sincronizacao" as const } })));
+    const c = corte(linhas.map(b => ({ tipo: "integracao" as const, entidade: `conta:${b.id}`, faixa: 1, dados: { nome: nomeLimpo(nomeSeguroDaConta(b)), marca: "erro_sincronizacao" as const } })));
     return { ...c, completo: c.completo && linhas.length <= MAX_ACHADOS_POR_TIPO };
+  },
+  // EPIC-029 S-6 — receita REGISTRADA no ano da empresa (soma das contas dela; sem transferência entre contas dela nem estorno) a 70/85/95/100%
+  // de cada limite do regime vigente (Simples: ME, sublimite, teto; Presumido: R$ 78 mi; Real e "a confirmar": nada). Um achado por empresa (raiz do CNPJ: matriz + filiais) +
+  // limite + ano, com a faixa = % alcançado: cada faixa sai UMA vez (sem reaviso: TIPOS_SEM_REAVISO). Nunca "resolve" no mesmo ano (completo =
+  // false): se a receita cair (estorno) e subir de novo, a faixa já avisada não volta. Só nome da empresa, %, falta e o ano (sem CNPJ, sem conta).
+  limite_receita: async ({ agora }) => {
+    const ap = await apurarLimites(bancoDaLeitura(), agora);
+    const achados: Achado[] = [];
+    for (const e of ap.empresas) for (const l of e.limites) {
+      // QA S-6 (A6): lado seguro — vale a maior faixa entre a receita registrada e a receita com os créditos ainda a classificar
+      const peloPossivel = l.faixaPossivel > l.faixa;
+      const faixa = peloPossivel ? l.faixaPossivel : l.faixa;
+      if (faixa <= 0) continue;
+      achados.push({ tipo: "limite_receita", entidade: `empresa:${e.raiz}:${ap.ano}:${l.chave}`, faixa,
+        dados: { nome: nomeLimpo(e.nome), limite: l.chave, percentual: peloPossivel ? l.percentualPossivel : l.percentual,
+          faltaCentavos: peloPossivel ? Math.max(0, l.valorCentavos - e.receitaPossivelCentavos) : l.faltaCentavos, ano: ap.ano,
+          aClassificarCentavos: peloPossivel ? e.aClassificar.centavos : null } });
+    }
+    return { achados: achados.slice(0, MAX_ACHADOS_POR_TIPO), completo: false };
   },
 };
 
@@ -283,6 +304,11 @@ async function gravarAchados(tipo: TipoAviso, c: Coleta, agora: Date): Promise<v
         avisadoEm: sql`CASE WHEN ${doloresAvisosAchados.resolvidoEm} IS NOT NULL THEN NULL ELSE ${doloresAvisosAchados.avisadoEm} END`,
         resolvidoEm: sql`NULL`,
       } });
+  }
+  if (tipo === "limite_receita") {
+    // EPIC-029 S-6: o achado de um ano anterior fica resolvido (o ano está na chave: nunca volta a ser avisado)
+    await db.update(doloresAvisosAchados).set({ resolvidoEm: agora }).where(and(eq(doloresAvisosAchados.tipo, tipo), isNull(doloresAvisosAchados.resolvidoEm),
+      sql`${doloresAvisosAchados.chave} NOT LIKE ${`limite_receita:empresa:%:${anoEmBrasilia(agora)}:%`}`));
   }
   if (c.completo) {
     await db.update(doloresAvisosAchados).set({ resolvidoEm: agora })
@@ -313,6 +339,8 @@ export function definirDependenciasAvisos(d?: { cliente?: ClienteAviso; credenci
 /**
  * Reserva de entrada de uma chamada de aviso (instrução + dados de todos os tipos × 5 itens), por cima. EPIC-029 S-3: com o 9º tipo
  * (nota_fiscal, itens com valor, serviço e município) e uma regra a mais na instrução, o pior caso medido foi 3.205: 3.000 → 4.000.
+ * EPIC-029 S-6: com o 10º tipo (limite_receita, itens com %, falta e "a classificar"), o pior caso medido na junção foi 3.080
+ * (server/dolores/s6-reserva.test.ts): 4.000 mantido.
  */
 export const RESERVA_ENTRADA_AVISO = 4_000;
 /** Para tentar a IA é preciso este prazo (chamada + envio). */
@@ -419,7 +447,9 @@ export async function executarAvisos(p: { agora: Date; prazoFinal?: number; relo
     const candidatos = await getDb().select().from(doloresAvisosAchados).where(and(inArray(doloresAvisosAchados.tipo, ativos), isNull(doloresAvisosAchados.resolvidoEm),
       gte(doloresAvisosAchados.vistoEm, new Date(agora.getTime() - VALIDADE_DO_ACHADO_MS)))).orderBy(desc(doloresAvisosAchados.faixa), asc(doloresAvisosAchados.id)).limit(2_000);
     const paraPendente = (a: (typeof candidatos)[number]): AchadoPendente => ({ id: a.id, tipo: a.tipo, entidade: a.chave, faixa: a.faixa, dados: a.dados, faixaAvisada: a.faixaAvisada });
-    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora, cfg.reavisoDias)).map(paraPendente);
+    // EPIC-029 S-6: limite_receita não tem reaviso na mesma faixa (cada faixa sai UMA vez por empresa, limite e ano)
+    const pendentes: AchadoPendente[] = candidatos.filter(a => precisaAvisar({ faixaAvisada: a.faixaAvisada, avisadoEm: a.avisadoEm }, a.faixa, agora,
+      TIPOS_SEM_REAVISO.includes(a.tipo) ? 0 : cfg.reavisoDias)).map(paraPendente);
     // EPIC-029 S-3: o resumo do dia das notas fiscais (um achado por dia, a partir das 18h) leva TODOS os rascunhos pendentes, já avisados ou não
     if (pendentes.some(a => a.tipo === "nota_fiscal" && a.dados.resumo)) {
       const ja = new Set(pendentes.map(a => a.id));

@@ -17,7 +17,7 @@ import { router } from "../_core/trpc.js";
 import { taxRouter } from "../tax-router.js";
 import { fiscalRouter } from "./router.js";
 import { carregarNota } from "./notas.js";
-import { AVISO_BPO_SEM_CONTA_POR_EMPRESA, aliquotaSimplesDaNota, fonteReceitaMinima, paraDps } from "./simples.js";
+import { AVISO_BPO_SEM_CONTA_POR_EMPRESA, aliquotaSimplesDaNota, fonteReceitaDaApuracao, paraDps } from "./simples.js";
 import { aliquotaDaDps, faltasDps } from "./dps.js";
 import { PARAMETROS_VAZIOS, type EntradaDps } from "../../shared/fiscal/dps-campos.js";
 
@@ -38,7 +38,9 @@ beforeAll(async () => {
   const { generateDrizzleJson, generateMigration } = createRequire(import.meta.url)("drizzle-kit/api");
   const escolhidas: Record<string, unknown> = {};
   for (const [nome, valor] of Object.entries(schema)) if (TABELAS.includes(nome) || nome.endsWith("Enum")) escolhidas[nome] = valor;
-  ddl = (await generateMigration(generateDrizzleJson({}), generateDrizzleJson(escolhidas)) as string[]).join(";\n");
+  ddl = (await generateMigration(generateDrizzleJson({}), generateDrizzleJson(escolhidas)) as string[]).join(";\n")
+    // S-6 × S-8: o schema já traz as colunas da 0164; aqui o banco começa SEM elas (os testes ligam a conta por empresa com ALTER TABLE)
+    .replace(/,\s*"apelido" varchar\(80\)/, "").replace(/,\s*"empresa_cnpj" varchar\(14\)/, "");
 }, 60_000);
 
 let pg: PGlite;
@@ -150,7 +152,7 @@ describe("RBT12 da empresa (raiz do CNPJ)", () => {
     if (!r.aplica || !r.calculo) throw new Error("devia calcular");
     // Anexo III, 5ª faixa: teto do ISS em 5%.
     expect(r.calculo).toMatchObject({ faixa: 5, efetiva: 168_120, iss: 50_000, reparticao: { tetoAplicado: true } });
-    expect(fonteReceitaMinima(db)).toHaveProperty("receitaDoPeriodo");
+    expect(fonteReceitaDaApuracao(db)).toHaveProperty("receitaDoPeriodo");
   });
 });
 
@@ -425,5 +427,62 @@ describe("Revisão do PR #321 (Codex) — divisão de pagamentos e 1º mês sem 
     const outro = await calcular(await rascunho(1, 101, "2026-11-20", R$(10_000)));
     if (!outro.aplica) throw new Error("devia aplicar");
     expect(outro.rbt12.centavos).toBe(R$(360_000)); // (20 mil + 10 mil) × 12
+  });
+});
+
+describe("S-6 × S-8 — RBT12 pela apuração da S-6 (M5 e lado seguro)", () => {
+  beforeEach(() => preparar());
+  const contas = `ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14);
+    INSERT INTO bank_accounts (id, banco, conta, empresa_cnpj) VALUES (1, 'Banco', '1', '41865900000189'), (2, 'Banco', '2', '41865900000260');`;
+
+  // Revisão do PR #323 (Codex, P1): sem vínculo explícito, coincidência de valor e data NÃO deduplica — as duas contam, com aviso.
+  it("M5: nota de avaliação R$ 8.000 sem vínculo e outro recebimento de R$ 8.000 → as duas contam (R$ 16 mil) e o aviso sugere conferir", async () => {
+    await pg.exec(`${contas}
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 8000, '2026-05-20 12:00', 'PIX RECEBIDO');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (1, 'receita', 'PIX RECEBIDO', 8000, '2026-05-20', true, '2026-05-20 12:00', '2026-05', 1);`);
+    await emitida(1, "2026-05-10", R$(8_000)); // avaliação: origem fora do BPO
+    await emitida(1, "2026-08-10", R$(3_000)); // sem recebimento de mesmo valor → conta
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.rbt12.centavos).toBe(R$(19_000));
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(11_000), bpo: R$(8_000) });
+    expect(r.avisos.join(" ")).toMatch(/Possível mesma receita — confira: 1 nota/);
+  });
+
+  it("M5: com vínculo explícito (nota gerada do lançamento do BPO), a mesma receita conta uma vez só", async () => {
+    await pg.exec(`${contas}
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 8000, '2026-05-20 12:00', 'PIX RECEBIDO');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (1, 'receita', 'PIX RECEBIDO', 8000, '2026-05-20', true, '2026-05-20 12:00', '2026-05', 1);`);
+    await pg.query(`INSERT INTO fiscal_notas (emissor_id, tipo_servico_id, origem_tipo, origem_id, data_evento, status) VALUES (1, 101, 'bpo_lancamento', 1, '2026-05-20', 'EMITIDA')`);
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(8_000), bpo: 0 });
+    expect(r.avisos.join(" ")).not.toMatch(/Possível mesma receita/);
+  });
+
+  it("transferência entre contas da MESMA empresa (os dois lados marcados) não infla o RBT12", async () => {
+    await pg.exec(`${contas}
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao, categoria) VALUES
+        (1, 1, 'debito', -50000, '2026-06-10 12:00', 'TED ENVIADA', 'Transferência interna'),
+        (2, 2, 'credito', 50000, '2026-06-10 13:00', 'TED RECEBIDA', 'Transferência interna'),
+        (3, 1, 'credito', 7000, '2026-06-11 12:00', 'PIX RECEBIDO', NULL);
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (1, 'honorario', 'PIX RECEBIDO', 7000, '2026-06-11', true, '2026-06-11 12:00', '2026-06', 3);`);
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: 0, bpo: R$(7_000) });
+  });
+
+  it("lançamento editado para baixo não tira do RBT12 o que o banco recebeu (a diferença entra, com aviso)", async () => {
+    await pg.exec(`${contas}
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 10000, '2026-04-10 12:00', 'PIX RECEBIDO');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (1, 'receita', 'PIX RECEBIDO', 100, '2026-04-10', true, '2026-04-10 12:00', '2026-04', 1);`);
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.rbt12.centavos).toBe(R$(10_000));
+    expect(r.avisos.join(" ")).toMatch(/diferença entre o extrato e o lançamento/);
   });
 });

@@ -403,3 +403,22 @@ impeditivo para terminar nosso serviço aqui e a Efficaz também não". E: "pode
    multi-regime (cada empresa com o seu, "a confirmar" enquanto não houver definição — e "a confirmar" não emite nota).
 5. Ritmo: qualidade antes de pressa — manter o portão de QA em cada etapa; delegar em paralelo pelo AIOX ("Utilize o aiox
    para delegar várias funções").
+
+## Dolores cobra colaborador e pede documento a cliente — decisão do dono em 23/11/2026 (REGRA)
+
+Proposta aprovada pelo dono com ajustes: "Gostei dessa proposta mas eu quero uma alteração, se o colaborador tiver mais de
+um item atrasado pra ele ele deve buscar e deve cobrar todos ao mesmo tempo. Item um pode ser sozinho, não precisa mandar
+pra ele fazer. Item dois, b". Story: `docs/stories/epics/epic-025-dolores/E10-cobrar-colaborador-e-pedir-documentos.md`.
+
+1. **Cobrança do colaborador — sozinha (sem o dono mandar)**: a Dolores junta TODOS os itens atrasados do colaborador
+   responsável (tarefas e pendências de obra, financiamento, regularização, avaliação, jurídico) e manda UMA mensagem só,
+   no WhatsApp dele, pelo número da empresa: o que está atrasado, de qual cliente, desde quando. No máximo uma por dia por
+   colaborador, só em horário comercial, sem valores em dinheiro, sem dados de cliente que não seja dele. A resposta do
+   colaborador é registrada/encaminhada ao dono e nunca é comando.
+2. **Pedido de documentos ao cliente — categoria LIBERADA (modo b)**: a Dolores envia sozinha a cobrança de documentos
+   pendentes (texto montado pelo sistema, sem IA, só os documentos que faltam de fato), só a cliente com consentimento LGPD
+   no cadastro e telefone ligado a um único cadastro; no máximo uma a cada 3 dias por cliente, em horário comercial; a
+   conversa aparece na Central WhatsApp; o dono recebe um resumo do que foi enviado.
+3. Continua proibido: valores em dinheiro, dados de outro cliente, agir a partir de resposta de cliente/colaborador,
+   mensagem a quem não está cadastrado. Interruptor próprio de cada função (desligado por padrão até o portão de QA
+   aprovar; depois de publicado, ligar conforme a decisão do dono), tetos por pessoa/dia e dentro do teto de gasto.

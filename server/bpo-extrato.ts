@@ -5,7 +5,8 @@
 // Pedido de 12/11 (noite): movimentação NOVA só vira lançamento quando o sistema sabe ligar com segurança
 // (cobrança Asaas conhecida, lançamento do Conta Azul já pago, regra do titular com categoria). O resto
 // fica "A classificar" (bank_transactions.a_classificar) até o dono classificar ou dar baixa.
-import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb } from "./db.js";
 import { conciliarMovimentosComContaAzul } from "./bpo-conta-azul.js";
@@ -178,6 +179,35 @@ export async function reprocessarMovimentacoes(): Promise<ResultadoReprocessamen
   return { categorizadas, lancamentosCriados, saldosRecalculados: contas.length };
 }
 
+/** QA3 S-6 (Q3): quem marcou e por onde (via: ignorar em "A classificar", tela de Bancos, lote, regra do titular). */
+export type AutorMarcacao = { userId: number | null; via: "ignorar" | "bancos" | "lote" | "titular" | "regra" };
+
+/**
+ * QA3 S-6 (Q3): grava a auditoria das movimentações marcadas como "Transferência interna" (quem, quando, por onde, valor; o lote dá
+ * quantas e o valor somado). Só INSERT em bpo_transferencia_marcacoes (migração 0164).
+ * QA4 S-6 (baixo): roda na MESMA transação da marcação (`db` = a transação): se a auditoria falhar, o erro sobe e a marcação é desfeita
+ * (marcação sem rastro não vale). Só sem a tabela (banco anterior à 0164) a marcação segue sem auditoria.
+ */
+export async function registrarMarcacaoTransferencia(
+  ids: number[], autor: AutorMarcacao, db: Pick<ReturnType<typeof getDb>, "execute"> = getDb(),
+): Promise<{ lote: string; quantidade: number; valorCentavos: number } | null> {
+  if (!ids.length) return null;
+  const existe = (await db.execute(sql`SELECT to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS ok`)) as { rows?: { ok: boolean }[] };
+  if (!existe.rows?.[0]?.ok) return null;
+  const lote = randomUUID();
+  let quantidade = 0;
+  let valorCentavos = 0;
+  for (let i = 0; i < ids.length; i += 500) {
+    const r = (await db.execute(sql`
+      INSERT INTO bpo_transferencia_marcacoes (lote, bank_transaction_id, usuario_id, via, valor)
+      SELECT ${lote}, bt.id, ${autor.userId}, ${autor.via}, abs(bt.valor) FROM bank_transactions bt
+      WHERE bt.id IN (${sql.join(ids.slice(i, i + 500).map(id => sql`${id}`), sql`, `)}) AND bt.categoria = ${TRANSFERENCIA_INTERNA}
+      RETURNING valor`)) as { rows?: { valor: string | number }[] };
+    for (const x of r.rows ?? []) { quantidade++; valorCentavos += Math.round(Number(x.valor) * 100); }
+  }
+  return { lote, quantidade, valorCentavos };
+}
+
 /** Mensagem legível quando o lançamento já foi usado em obra/regularização (FK restrict). */
 function erroLancamentoEmUso(e: unknown): Error {
   const msg = e instanceof Error ? e.message : String(e);
@@ -191,7 +221,7 @@ function erroLancamentoEmUso(e: unknown): Error {
  * Muda categoria e/ou Cliente BPO de uma movimentação e mantém o lançamento vinculado coerente:
  * Transferência interna remove o lançamento; voltar para outra categoria o recria.
  */
-export async function atualizarMovimentacao(id: number, mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) {
+export async function atualizarMovimentacao(id: number, mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }, autor?: AutorMarcacao) {
   const db = getDb();
   const [t] = await db.select().from(bankTransactions).where(eq(bankTransactions.id, id)).limit(1);
   if (!t) throw new Error("Movimentação não encontrada.");
@@ -209,6 +239,19 @@ export async function atualizarMovimentacao(id: number, mudanca: { categoria?: C
     bpoClienteId: mudanca.bpoClienteId !== undefined ? mudanca.bpoClienteId : t.bpoClienteId,
   };
   const desejado = lancamentoDaMovimentacao({ ...t, ...novo });
+
+  // QA4 S-6 (baixo): marcar como Transferência interna — tirar o lançamento, gravar a movimentação e a auditoria numa transação só
+  if (mudanca.categoria === TRANSFERENCIA_INTERNA && t.categoria !== TRANSFERENCIA_INTERNA && !desejado) {
+    await db.transaction(async tx => {
+      if (existente && existente.exclusaoLoteBackupId == null) {
+        try { await tx.delete(bpoLancamentos).where(and(eq(bpoLancamentos.id, existente.id), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
+        catch (e) { throw erroLancamentoEmUso(e); }
+      }
+      await tx.update(bankTransactions).set({ ...novo, aClassificar: false }).where(eq(bankTransactions.id, id));
+      await registrarMarcacaoTransferencia([id], autor ?? { userId: null, via: "bancos" }, tx);
+    });
+    return { categoria: novo.categoria, bpoClienteId: novo.bpoClienteId ?? null, lancamento: "nenhum" as const };
+  }
 
   // Remove primeiro o lançamento (pode falhar se já estiver alocado) e só então grava a movimentação.
   if (!desejado && existente && existente.exclusaoLoteBackupId == null) {
@@ -304,7 +347,7 @@ export function classificacaoInicial(
  * "A classificar"); só com cliente (ex.: cadastro de cliente novo) a movimentação A classificar
  * ganha o cliente e continua esperando o usuário.
  */
-export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }) {
+export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null }, autor?: AutorMarcacao) {
   if (!ids.length || (mudanca.categoria === undefined && mudanca.bpoClienteId === undefined)) return 0;
   const db = getDb();
   const explicita = mudanca.categoria !== undefined;
@@ -323,12 +366,22 @@ export async function aplicarClassificacaoEmLote(ids: number[], mudanca: { categ
       ...(explicita ? { aClassificar: false } : {}),
     };
     const comLancamento = linhas.filter(l => l.lancamentoId != null).map(l => l.id);
-    if (mudanca.categoria === TRANSFERENCIA_INTERNA && comLancamento.length) {
-      try { await db.delete(bpoLancamentos).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
-      catch (e) { throw erroLancamentoEmUso(e); }
+    if (mudanca.categoria === TRANSFERENCIA_INTERNA) {
+      // QA4 S-6 (baixo): tirar os lançamentos, gravar as movimentações e a auditoria numa transação só (falhou a auditoria → nada vale)
+      await db.transaction(async tx => {
+        if (comLancamento.length) {
+          try { await tx.delete(bpoLancamentos).where(and(inArray(bpoLancamentos.bankTransactionId, comLancamento), isNull(bpoLancamentos.exclusaoLoteBackupId))); }
+          catch (e) { throw erroLancamentoEmUso(e); }
+        }
+        await tx.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
+        const novas = linhas.filter(l => l.categoria !== TRANSFERENCIA_INTERNA).map(l => l.id);
+        await registrarMarcacaoTransferencia(novas, autor ?? { userId: null, via: "lote" }, tx);
+      });
+      total += linhas.length;
+      continue;
     }
     await db.update(bankTransactions).set(set).where(inArray(bankTransactions.id, linhas.map(l => l.id)));
-    if (mudanca.categoria !== TRANSFERENCIA_INTERNA) {
+    {
       if (comLancamento.length) {
         await db.update(bpoLancamentos).set({
           ...(mudanca.categoria !== undefined ? { categoria: mudanca.categoria } : {}),
@@ -365,9 +418,10 @@ export async function salvarRegraTitular(titular: string, mudanca: { categoria?:
 export async function classificarMovimentacao(
   id: number,
   mudanca: { categoria?: CategoriaBpo; bpoClienteId?: number | null; aplicarATodasDoTitular?: boolean },
+  userId: number | null = null,
 ) {
   const { aplicarATodasDoTitular, ...campos } = mudanca;
-  const resultado = await atualizarMovimentacao(id, campos);
+  const resultado = await atualizarMovimentacao(id, campos, { userId, via: "bancos" });
   if (!aplicarATodasDoTitular) return { ...resultado, regra: null, outras: 0 };
   const db = getDb();
   const [t] = await db.select({ titular: bankTransactions.titular }).from(bankTransactions).where(eq(bankTransactions.id, id)).limit(1);
@@ -378,7 +432,7 @@ export async function classificarMovimentacao(
     .from(bankTransactions)
     .where(isNotNull(bankTransactions.titular));
   const ids = candidatas.filter(c => c.id !== id && normalizarTitular(c.titular) === regra.titularNormalizado).map(c => c.id);
-  const outras = await aplicarClassificacaoEmLote(ids, campos);
+  const outras = await aplicarClassificacaoEmLote(ids, campos, { userId, via: "titular" });
   return { ...resultado, regra, outras };
 }
 
@@ -432,7 +486,7 @@ export async function completarMovimentacoesExistentes(movimentos: MovimentoPara
     await aplicarClassificacaoEmLote(ids, {
       ...(categoriaValida(regra.categoria) ? { categoria: categoriaValida(regra.categoria)! } : {}),
       ...(regra.bpoClienteId ? { bpoClienteId: regra.bpoClienteId } : {}),
-    });
+    }, { userId: null, via: "regra" });
   }
   return completadas;
 }

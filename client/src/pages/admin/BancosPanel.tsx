@@ -16,6 +16,33 @@ import { FileUp, Landmark, Plus, RefreshCw, Trash2, ListOrdered, Repeat } from "
 import { CATEGORIAS_BPO, TRANSFERENCIA_INTERNA, type CategoriaBpo } from "@shared/financeiro/bpo-extrato";
 import { extensaoExtratoValida } from "@shared/extrato-import";
 import { CONFIRMACAO_EXCLUSAO, confirmacaoExclusaoValida } from "@shared/financeiro/bpo-lote";
+import { MAX_APELIDO, formatarCnpj, nomeDaConta } from "@shared/fiscal/regimes";
+
+const SEM_EMPRESA = "__sem__";
+type Estabelecimento = { cnpj: string; cnpjFormatado: string; matriz: boolean; nome: string; regimeRotulo: string; ativo: boolean };
+/** EPIC-029 S-6: seletor da empresa dona da conta (estabelecimento: matriz ou filial). A empresa vem do perfil tributário. */
+function SeletorEmpresa({ valor, onChange, opcoes }: { valor: string; onChange: (v: string) => void; opcoes: Estabelecimento[] }) {
+  return (
+    <div>
+      <Label className="text-gray-300">Empresa que emite a nota (dona da conta)</Label>
+      <Select value={valor || SEM_EMPRESA} onValueChange={v => onChange(v === SEM_EMPRESA ? "" : v)}>
+        <SelectTrigger className={campo}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SEM_EMPRESA}>Sem empresa definida</SelectItem>
+          {opcoes.map(e => (
+            <SelectItem key={e.cnpj} value={e.cnpj}>
+              {e.nome} — {e.matriz ? "matriz" : "filial"} {e.cnpjFormatado} ({e.regimeRotulo}){e.ativo ? "" : " — perfil inativo"}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-gray-300 mt-1">
+        A receita desta conta soma no limite de receita da empresa (matriz + filiais). A empresa e o regime vêm do perfil tributário
+        (<Link href="/admin/bpo" className="underline text-[#C9A961]">BPO › Contabilidade</Link>).
+      </p>
+    </div>
+  );
+}
 
 const campo = "bg-[#2C3E50] border-[#C9A961]/30 text-white mt-1";
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
@@ -44,11 +71,18 @@ export default function BancosPanel() {
   const utils = trpc.useUtils();
   const { data: contas = [] } = trpc.bancario.contas.list.useQuery();
   const { data: clientesBpo = [] } = trpc.bpo.clientes.list.useQuery();
+  const { data: estabelecimentos = [] } = trpc.bancario.contas.empresas.useQuery();
+  const nomeEmpresa = (cnpj: string | null | undefined) => {
+    if (!cnpj) return null;
+    const e = estabelecimentos.find(x => x.cnpj === cnpj);
+    return e ? `${e.nome} (${e.matriz ? "matriz" : "filial"} ${e.cnpjFormatado})` : formatarCnpj(cnpj);
+  };
   // LOTE C (25/10): o extrato alimenta Cobranças, Despesas, DRE, Contabilidade e Relatórios.
   const invalidarBpo = () => {
     utils.bpo.lancamentos.list.invalidate();
     utils.bpo.dre.invalidate();
     utils.tax.overview.invalidate();
+    utils.fiscal.limitesReceita.invalidate();
     utils.relatorios.overview.invalidate();
   };
   const invalidar = () => { utils.bancario.contas.list.invalidate(); invalidarBpo(); };
@@ -56,7 +90,7 @@ export default function BancosPanel() {
   // Pedido de 25/10 (noite), item 8: conectar o Meu Pluggy fica em Configurações › Integrações.
 
   // Nova conta (Asaas ou importação)
-  const vazio = { provedor: "asaas" as "asaas" | "manual" | "inter", banco: "Asaas", conta: "", descricao: "", dataInicial: "", clientId: "", clientSecret: "", certificado: "", chave: "", contaCorrente: "" };
+  const vazio = { provedor: "asaas" as "asaas" | "manual" | "inter", banco: "Asaas", conta: "", descricao: "", apelido: "", empresaCnpj: "", dataInicial: "", clientId: "", clientSecret: "", certificado: "", chave: "", contaCorrente: "" };
   // Lote 4: "API do Banco Inter (beta)" só aparece com BANCO_INTER_API=1 no servidor.
   const interApi = trpc.bancario.contas.interHabilitado.useQuery().data === true;
   const [novaOpen, setNovaOpen] = useState(false);
@@ -66,8 +100,8 @@ export default function BancosPanel() {
     onError: e => toast.error(e.message),
   });
 
-  // Editar data inicial (a chave do Asaas é a central, em Integrações)
-  const [edit, setEdit] = useState<{ id: number; dataInicial: string } | null>(null);
+  // Editar data inicial, apelido e empresa (a chave do Asaas é a central, em Integrações)
+  const [edit, setEdit] = useState<{ id: number; dataInicial: string; apelido: string; empresaCnpj: string; nomeOriginal: string } | null>(null);
   const atualizar = trpc.bancario.contas.update.useMutation({
     onSuccess: () => { toast.success("Conta atualizada."); setEdit(null); invalidar(); },
     onError: e => toast.error(e.message),
@@ -161,7 +195,11 @@ export default function BancosPanel() {
                 <div key={c.id} className="p-3 bg-[#1A2332] rounded-lg space-y-2">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
-                      <p className="text-white font-medium">{c.banco}{c.descricao ? ` — ${c.descricao}` : ""}{c.conta && c.conta !== "—" ? ` • ${c.conta}` : ""}</p>
+                      <p className="text-white font-medium">{nomeDaConta(c)}</p>
+                      {c.apelido && <p className="text-xs text-gray-300">{nomeDaConta({ ...c, apelido: null })}</p>}
+                      {c.empresaCnpj
+                        ? <p className="text-xs text-gray-300">Empresa: {nomeEmpresa(c.empresaCnpj)}</p>
+                        : <p className="text-xs text-amber-300">Sem empresa definida — vincule a conta à empresa que emite a nota (pendência)</p>}
                       <p className="text-xs text-gray-300">
                         {PROVEDOR[c.provedor] ?? c.provedor} • a partir de {dataBR(c.dataInicial)}
                         {c.ultimaSincronizacao ? ` • última sinc. ${new Date(c.ultimaSincronizacao).toLocaleString("pt-BR")}` : ""}
@@ -176,14 +214,15 @@ export default function BancosPanel() {
                         <RefreshCw className="h-3 w-3 mr-1" /> Sincronizar
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setImp({ contaId: c.id, nome: c.descricao || c.banco })}>
+                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setImp({ contaId: c.id, nome: nomeDaConta(c) })}>
                       <FileUp className="h-3 w-3 mr-1" /> Importar extrato
                     </Button>
                     <Button size="sm" variant="outline" className={botaoSec} onClick={() => setVerConta(verConta === c.id ? null : c.id)}>
                       <ListOrdered className="h-3 w-3 mr-1" /> {verConta === c.id ? "Ocultar" : "Movimentações"}
                     </Button>
-                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEdit({ id: c.id, dataInicial: c.dataInicial ?? "" })}>
-                      Data inicial
+                    <Button size="sm" variant="outline" className={botaoSec}
+                      onClick={() => setEdit({ id: c.id, dataInicial: c.dataInicial ?? "", apelido: c.apelido ?? "", empresaCnpj: c.empresaCnpj ?? "", nomeOriginal: nomeDaConta({ ...c, apelido: null }) })}>
+                      Editar conta
                     </Button>
                     <Button size="sm" variant="outline" className="h-7 text-xs border-red-400/40 text-red-300" onClick={() => void abrirLimpeza(c.id)}>
                       <Trash2 className="h-3 w-3 mr-1" /> Remover
@@ -303,6 +342,8 @@ export default function BancosPanel() {
               <div><Label className="text-gray-300">Conta</Label><Input value={nova.conta} onChange={e => setNova(n => ({ ...n, conta: e.target.value }))} className={campo} /></div>
               <div><Label className="text-gray-300">Descrição</Label><Input value={nova.descricao} onChange={e => setNova(n => ({ ...n, descricao: e.target.value }))} className={campo} placeholder="ex.: Conta PJ" /></div>
             </div>
+            <div><Label className="text-gray-300">Apelido (nome que aparece nas listas)</Label><Input value={nova.apelido} maxLength={MAX_APELIDO} onChange={e => setNova(n => ({ ...n, apelido: e.target.value }))} className={campo} placeholder="ex.: Cora — recebimentos de obra" /></div>
+            <SeletorEmpresa valor={nova.empresaCnpj} onChange={v => setNova(n => ({ ...n, empresaCnpj: v }))} opcoes={estabelecimentos} />
             {nova.provedor === "inter" && (
               <div className="space-y-2 rounded border border-white/10 p-3">
                 <p className="text-xs text-gray-300">Internet Banking PJ do Inter › Integrações: crie a integração com "Consultar extrato e saldo" e baixe o certificado (.crt) e a chave (.key). Tudo é validado no Inter e salvo criptografado.</p>
@@ -331,7 +372,7 @@ export default function BancosPanel() {
               </p>
             </div>
             <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={criar.isPending || !nova.banco}
-              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, dataInicial: nova.dataInicial || null,
+              onClick={() => criar.mutate({ provedor: nova.provedor, banco: nova.banco, conta: nova.conta || undefined, descricao: nova.descricao || undefined, apelido: nova.apelido.trim() || null, empresaCnpj: nova.empresaCnpj || null, dataInicial: nova.dataInicial || null,
                 ...(nova.provedor === "inter" ? { inter: { clientId: nova.clientId, clientSecret: nova.clientSecret, certificado: nova.certificado, chave: nova.chave, contaCorrente: nova.contaCorrente || null } } : {}) })}>
               {criar.isPending ? "Validando..." : "Cadastrar conta"}
             </Button>
@@ -341,16 +382,22 @@ export default function BancosPanel() {
 
       <Dialog open={edit !== null} onOpenChange={o => !o && setEdit(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
-          <DialogHeader><DialogTitle className="text-[#C9A961]">Ajustar conta</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Editar conta</DialogTitle></DialogHeader>
           {edit && (
             <div className="space-y-3 mt-2">
+              <div>
+                <Label className="text-gray-300">Apelido (renomear)</Label>
+                <Input value={edit.apelido} maxLength={MAX_APELIDO} onChange={e => setEdit({ ...edit, apelido: e.target.value })} className={campo} placeholder={edit.nomeOriginal} />
+                <p className="text-xs text-gray-300 mt-1">Só muda o nome mostrado. Banco, agência e número continuam: {edit.nomeOriginal}. Em branco, volta ao nome do banco.</p>
+              </div>
+              <SeletorEmpresa valor={edit.empresaCnpj} onChange={v => setEdit({ ...edit, empresaCnpj: v })} opcoes={estabelecimentos} />
               <div>
                 <Label className="text-gray-300">Considerar movimentações a partir de</Label>
                 <Input type="date" value={edit.dataInicial} onChange={e => setEdit({ ...edit, dataInicial: e.target.value })} className={campo} />
                 <p className="text-xs text-gray-300 mt-1">Vale para as próximas sincronizações e importações. O que já foi gravado continua.</p>
               </div>
               <Button className="w-full bg-[#C9A961] hover:bg-[#B8985A] text-[#1A2332] font-bold" disabled={atualizar.isPending}
-                onClick={() => atualizar.mutate({ id: edit.id, dataInicial: edit.dataInicial || null })}>Salvar</Button>
+                onClick={() => atualizar.mutate({ id: edit.id, dataInicial: edit.dataInicial || null, apelido: edit.apelido.trim() || null, empresaCnpj: edit.empresaCnpj || null })}>Salvar</Button>
             </div>
           )}
         </DialogContent>

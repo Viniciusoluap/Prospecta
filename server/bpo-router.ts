@@ -474,8 +474,8 @@ export const bpoRouter = router({
       try { return await criarLancamentosDasMovimentacoes(input.ids, { ...input, categoria: input.categoria as CategoriaBpo }); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao criar os lançamentos." }); }
     }),
-    ignorar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input }) => {
-      try { return await ignorarMovimentacoes(input.ids); }
+    ignorar: adminProcedure.input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) })).mutation(async ({ input, ctx }) => {
+      try { return await ignorarMovimentacoes(input.ids, ctx.user.id); }
       catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Falha ao ignorar." }); }
     }),
     /** Bloco 2: dar baixa / dividir — uma movimentação quita (total ou parcialmente) um ou vários lançamentos. */

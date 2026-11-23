@@ -408,7 +408,8 @@ export async function tratarPropria(conn: ConexaoDaEmpresa, item: unknown, p: { 
 
 // ── O único envio a um contato (conversa direta, que não é o dono) ──
 
-export type TipoAutomatica = "saudacao" | "aviso_ligacao" | "aviso_audio" | "resposta_cliente";
+// EPIC-025 E10: a cobrança do colaborador e o pedido de documentos ao cliente (texto do sistema, sem IA)
+export type TipoAutomatica = "saudacao" | "aviso_ligacao" | "aviso_audio" | "resposta_cliente" | "cobranca_colaborador" | "pedido_documentos";
 
 /**
  * O ÚNICO ponto que escreve a um contato que não é o dono. Confere de novo: o destino não é o dono (comparação estrita), é número
