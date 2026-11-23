@@ -5,7 +5,7 @@
 // - o arquivo vai ao Drive como arquivo NOVO, com o nome montado pelo sistema e só se for o MESMO que foi lido (SHA-256);
 // - nada aqui envia mensagem a ninguém (da Evolution só se BAIXA o arquivo da mensagem).
 import { createHash } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { constructionProjects } from "../../drizzle/schema.js";
 import { doloresGrupoMensagens, doloresGrupos } from "../../drizzle/schema-dolores-grupos.js";
 import { obraNotas } from "../../drizzle/schema-dolores-notas.js";
@@ -23,6 +23,9 @@ import { janelaDaConciliacao, lancamentosParaConciliar, paraConciliar } from "./
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import type { z } from "zod";
 
+/** Mesma trava de `server/dolores/notas-obra.ts` e `server/fiscal/distribuicao.ts` (uma gravação de nota por vez). */
+export const TRAVA_NOTAS = 250005;
+
 const somarDias = (iso: string, dias: number) => new Date(new Date(`${iso}T12:00:00Z`).getTime() + dias * 86_400_000).toISOString().slice(0, 10);
 
 /** Conciliação aprovada: grava o vínculo NA NOTA, depois de conferir tudo de novo numa transação. */
@@ -30,6 +33,9 @@ export async function executarConciliarAprovado(args: z.infer<typeof entradaConc
   if (!ctx.aprovacaoId) throw new RecusaAcao("A conciliação só acontece por item aprovado na fila; nada foi feito.");
   return emTransacaoDeEscrita(async () => {
     const tx = bancoDaAcao();
+    // QA S-5b: a MESMA trava das gravações de nota (grupo e ADN). Com ela, conciliar a nota de grupo e a chegada da NFS-e oficial
+    // divergente (que passa a conciliação para a oficial) nunca se cruzam: a nota é lida (outra origem, cancelada) DEPOIS da trava
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${TRAVA_NOTAS})`);
     const [n] = await tx.select().from(obraNotas).where(eq(obraNotas.id, args.notaId)).limit(1);
     if (!n) throw new RecusaAcao(`Nota ${args.notaId} não encontrada; nada foi feito.`);
     // vínculo perdido (lançamento excluído no BPO) pode ser religado por ESTA nova aprovação; ligada a um lançamento, não

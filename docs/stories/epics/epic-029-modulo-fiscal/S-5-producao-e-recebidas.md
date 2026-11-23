@@ -218,3 +218,10 @@ ANTES de publicar este código — o esquema passa a ler as colunas novas de `ob
   conta como divergência e a conciliação passa para a oficial).
 - Rodada: 19 arquivos, 429/429 (server/fiscal/* com s5b-qa, notas-obra, notas-regras, acoes, acoes-whatsapp, c5-e4-proatividade,
   operacao, operacao-regras, s3-fiscal(+qa), c4-horario-relatorio); tsc e vite build verdes; `origin/main` sem novidade no merge.
+- **Ponto de atenção fechado — conciliação × oficial divergente.** `executarConciliarAprovado` (`server/dolores/conciliacao.ts`)
+  pega a MESMA trava das gravações de nota (`pg_advisory_xact_lock(250005)`, `TRAVA_NOTAS`) antes de ler a nota, e só então
+  reconfere duplicada, cancelada e `outra_origem_de` na mesma transação; `prepararConciliarNota` também pega a trava antes de ler
+  (a transação segue só de leitura). Com isso, conciliar a nota de grupo e gravar a NFS-e oficial divergente ficam em série: ou a
+  do grupo é ligada e a oficial nasce "outra origem" (confira), ou a oficial chega antes e a execução aprovada é recusada.
+  Testes em `notas-recebidas-s5b.test.ts`: as duas ordens, 4 rodadas simultâneas (no PGlite as transações já são em série; por
+  isso também) um teste da ordem das consultas (trava antes da leitura da nota, no preparo e na execução).

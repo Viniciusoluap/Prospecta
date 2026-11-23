@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
 
+import { drizzle } from "drizzle-orm/pglite";
 import { getDb } from "../db.js";
 import { CENARIO, MIGRACAO_0166, criarBanco } from "../dolores/testes-banco.js";
 import { apontarNotas, cancelamentosSemNotaDoAdn, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
@@ -19,6 +20,7 @@ import { REGRAS } from "../dolores/avisos.js";
 import { contarNotasDaRonda } from "../dolores/rondas.js";
 import { gravarNota } from "../dolores/notas-obra.js";
 import { prepararConciliarNota, prepararSalvarNota } from "../dolores/acoes/notas.js";
+import { executarConciliarAprovado } from "../dolores/conciliacao.js";
 import { apontarConciliacao, type LeituraConferida } from "../../shared/dolores/notas.js";
 import {
   MAX_TENTATIVAS_POR_NSU, capturarNotasRecebidas, gravarNotaRecebida, registrarClienteDistribuicao, xmlDoArquivoAdn,
@@ -404,5 +406,91 @@ describe("QA S-5b — eventos pendentes: todos casados; sem nota há mais de 7 d
     const lista = await cancelamentosSemNotaDoAdn(banco.db as never, depois);
     expect(lista).toEqual([expect.objectContaining({ nsu: 9, tipoEvento: "101101" })]);
     for (const sensivel of [outra, EMPREITEIRO, TOMADOR]) expect(JSON.stringify([achado, lista])).not.toContain(sensivel);
+  });
+});
+
+// ── Ponto de atenção do portão: conciliação × chegada da oficial divergente, com a mesma trava ──
+
+describe("QA S-5b — conciliar a nota de grupo × NFS-e oficial divergente: nunca as duas conciliáveis", () => {
+  async function aprovacao(): Promise<number> {
+    return (await q<{ id: number }>(`INSERT INTO dolores_aprovacoes (codigo, vence_em, funcao, alvo, argumentos, resumo) VALUES ('C' || floor(random()*100000)::int, now() + interval '1 day', 'conciliar_nota_obra', 'nota:c:' || floor(random()*1000000)::int, '{}', 'x') RETURNING id`))[0].id;
+  }
+  async function lancamento(): Promise<number> {
+    await banco.pg.exec(`INSERT INTO bank_accounts (banco, conta) VALUES ('Banco', '1') ON CONFLICT DO NOTHING;
+      INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo) VALUES (1, '2026-11-12', 'PIX', '-1500.00', 'debito');
+      INSERT INTO bpo_clients (razao_social, cnpj, responsavel, telefone, honorarios, data_inicio) VALUES ('Construtora Exemplo', '11.222.333/0001-81', 'Zé', '9999', '0', '2026-01-01');
+      INSERT INTO bpo_lancamentos (cliente_id, tipo, descricao, valor, valor_recebido, vencimento, pago, pago_em, competencia, a_classificar, categoria_operacional, vinculo_operacional_id, tipo_despesa_obra, bank_transaction_id)
+        VALUES ((SELECT max(id) FROM bpo_clients), 'despesa', 'Medição 2', '1500.00', '0', '2026-11-12', true, '2026-11-12 12:00', '2026-11', false, 'obras', '1', 'empreiteiro', (SELECT max(id) FROM bank_transactions));`);
+    return (await q<{ id: number }>("SELECT max(id)::int id FROM bpo_lancamentos"))[0].id;
+  }
+  // nota de grupo com a data lida diferente da oficial (mesmo valor): conciliável, e a oficial que chegar diverge
+  const preparar = async () => ({ lanc: await lancamento(), g: (await notaDeGrupo("G1", "123", SHA, { dataEmissao: "2026-11-08" }))! });
+  const conciliar = async (notaId: number, lanc: number) => executarConciliarAprovado({ notaId, obraId: 1, valorCentavos: 150_000, lancamentoId: lanc },
+    { aprovacaoId: await aprovacao(), agora: AGORA, autorId: 1, mensagemId: null, pedidoId: null } as never);
+  const chegaOficial = () => gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA });
+  /** Quantas das duas ainda podem ser (ou já foram) conciliadas: nunca mais de uma. */
+  async function conciliaveis() {
+    const linhas = await q<{ id: number; origem: string; outra_origem_de: number | null; bpo_lancamento_id: number | null }>("SELECT id, origem, outra_origem_de, bpo_lancamento_id FROM obra_notas ORDER BY id");
+    return linhas.filter(l => l.outra_origem_de === null);
+  }
+
+  it("conciliar ANTES: a do grupo fica ligada e a oficial nasce 'outra origem' (o dono confere o pagamento)", async () => {
+    const { lanc, g } = await preparar();
+    expect(await conciliar(g.id, lanc)).toMatchObject({ resumo: { conciliada: true } });
+    expect(await chegaOficial()).toBe("gravada");
+    const c = await conciliaveis();
+    expect(c.map(l => l.id)).toEqual([g.id]);
+    const [adn] = await q<{ id: number; alertas: string[] }>("SELECT id, alertas FROM obra_notas WHERE origem = 'adn'");
+    expect(adn.alertas.join(" ")).toMatch(/já foi ligada a um pagamento/);
+    await expect(prepararConciliarNota({ notaId: adn.id }, ctx)).rejects.toThrow(/outra origem/);
+  });
+
+  it("oficial ANTES: a conciliação da do grupo (já aprovada) é recusada; só a oficial fica conciliável", async () => {
+    const { lanc, g } = await preparar();
+    expect(await chegaOficial()).toBe("gravada");
+    await expect(conciliar(g.id, lanc)).rejects.toThrow(/outra origem/);
+    const c = await conciliaveis();
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ origem: "adn", bpo_lancamento_id: null });
+    expect((await q("SELECT bpo_lancamento_id FROM obra_notas WHERE id = $1", [g.id]))[0].bpo_lancamento_id).toBeNull();
+  });
+
+  it("ao MESMO tempo (4 rodadas, as duas ordens): sempre uma só conciliável, e nunca a do grupo ligada com a oficial livre", async () => {
+    for (let i = 0; i < 4; i++) {
+      if (i) {
+        await banco.pg.close();
+        banco = await criarBanco();
+        await banco.pg.exec(CENARIO);
+        await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp', 'Construtora Exemplo', 'empreiteiro', true, 'hash', '${EMPREITEIRO}');
+          UPDATE construction_projects SET contractor_user_id = 3 WHERE id IN (1, 2);`);
+        vi.mocked(getDb).mockReturnValue(banco.db as never);
+      }
+      const { lanc, g } = await preparar();
+      const tarefas = i % 2 ? [conciliar(g.id, lanc), chegaOficial()] : [chegaOficial(), conciliar(g.id, lanc)];
+      const r = await Promise.allSettled(tarefas);
+      expect(r.map(x => x.status)).toContain("fulfilled");
+      const c = await conciliaveis();
+      expect(c).toHaveLength(1);
+      const ligadas = (await q<{ n: number }>("SELECT count(*)::int n FROM obra_notas WHERE bpo_lancamento_id IS NOT NULL"))[0].n;
+      expect(ligadas).toBeLessThanOrEqual(1);
+      if (ligadas) expect(c[0]).toMatchObject({ id: g.id, bpo_lancamento_id: lanc });
+    }
+  }, 180_000);
+
+  it("a trava 250005 é pega ANTES de ler a nota, no preparo e na execução", async () => {
+    const { lanc, g } = await preparar();
+    // o mesmo banco com um registro de cada SQL, na ordem em que saem
+    const consultas: string[] = [];
+    vi.mocked(getDb).mockReturnValue(drizzle(banco.pg, { logger: { logQuery: (texto: string) => { consultas.push(texto); } } }) as never);
+    await prepararConciliarNota({ notaId: g.id }, ctx).catch(() => undefined);
+    await conciliar(g.id, lanc);
+    const trava = (desde: number) => consultas.findIndex((c, i) => i >= desde && /pg_advisory_xact_lock/.test(c));
+    const leNota = (desde: number) => consultas.findIndex((c, i) => i >= desde && /from "obra_notas"/i.test(c));
+    const t1 = trava(0);
+    expect(t1).toBeGreaterThanOrEqual(0);
+    expect(t1).toBeLessThan(leNota(0));
+    const t2 = trava(t1 + 1);
+    expect(t2).toBeGreaterThan(t1);
+    expect(t2).toBeLessThan(leNota(t2));
   });
 });

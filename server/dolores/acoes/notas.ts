@@ -5,6 +5,7 @@
 // | função               | nível | por quê                                                                                       |
 // | conciliar_nota_obra  | fila  | liga a nota (registro da Dolores) a um pagamento do BPO vindo do banco; o BPO não é alterado    |
 // | salvar_nota_obra     | fila  | grava o arquivo na pasta da obra no Drive (nome montado pelo sistema; mesmo arquivo lido)       |
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { textoDeDado } from "../../../shared/dolores/fila.js";
 import { AVISO_CONFIRMACAO, dataBr, nomeArquivoNota, reais } from "../../../shared/dolores/notas.js";
@@ -43,6 +44,9 @@ async function lerNota(notaId: number) {
 
 export async function prepararConciliarNota(args: z.infer<typeof entradaConciliarNota>, _ctx: ContextoAcao): Promise<Preparo> {
   return emTransacaoSomenteLeitura(async () => {
+    // QA S-5b: a trava das gravações de nota também aqui (a transação continua só de leitura: a trava não grava nada): a nota é lida
+    // depois de qualquer gravação em andamento (ex.: a NFS-e oficial que passa a conciliação para ela). A execução reconfere.
+    await bancoDaLeitura().execute(sql`SELECT pg_advisory_xact_lock(250005)`);
     const { n, obra } = await lerNota(args.notaId);
     // vínculo perdido (o lançamento foi excluído no BPO): pode ser religada, sempre por um NOVO item na fila
     if (n.bpoLancamentoId) throw new RecusaAcao(`A nota ${n.id} já está ligada a um pagamento do BPO; nada a fazer.`);
