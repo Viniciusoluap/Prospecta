@@ -94,7 +94,14 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
         const index=restantes.findIndex(current=>JSON.stringify(serial(b,current,new Set(),true))===digest);
         if(index<0)return false;restantes.splice(index,1);
       }
-      if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")))return false;
+      // Portão de QA de 23/11/2026 (4ª revisão): o widget novo de assinatura precisa ser INVISÍVEL (retângulo de área zero ou
+      // marcado como oculto). Carimbo visível pode cobrir cláusulas com outro texto: não conserva — vai para conferência humana.
+      const invisivel=(w:PdfDict)=>{
+        const f=w.getNumber("F")?.value??0;if((f&2)===2)return true;
+        const r=w.getArray("Rect")?.toArray().map(n=>(n as {type?:string;value?:unknown}).type==="number"?Number((n as {value:number}).value):NaN);
+        return !!r&&r.length===4&&r.every(Number.isFinite)&&(r[0]===r[2]||r[1]===r[3]);
+      };
+      if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")||!invisivel(item)))return false;
     }
     // Páginas citadas pelo catálogo (ex.: OpenAction do jsPDF) são comparadas à parte, abaixo.
     if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k),new Set(),true))!==JSON.stringify(serial(b,b.getCatalog().get(k),new Set(),true))))return false;

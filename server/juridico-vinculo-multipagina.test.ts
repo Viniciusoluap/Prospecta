@@ -4,7 +4,7 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deflateSync } from "node:zlib";
-import { PDF, P12Signer, PdfArray, PdfDict, PdfName, PdfNumber, PdfRef, PdfStream } from "@libpdf/core";
+import { PDF, P12Signer, PdfArray, PdfDict, PdfName, PdfNumber, PdfRef, PdfStream, PdfString } from "@libpdf/core";
 import { criarPki, type Pki } from "./__fixtures__/juridico-pki-ca";
 import { gerarPdfModelo } from "../shared/contratos/pdf";
 import { mesmoConteudo } from "./juridico-workflow";
@@ -187,5 +187,49 @@ describe("vínculo com a origem — preditor e /Subtype /Image", () => {
       const { assinado, titular } = await assinarComMarca(original, pagina);
       expect(await mesmoConteudo(original, assinado, { titular })).toBe(true);
     }
+  }, 120_000);
+});
+
+// Portão de QA de 23/11/2026 (4ª revisão): widget de assinatura novo com aparência VISÍVEL que cobre o texto.
+describe("vínculo com a origem — aparência visível de assinatura", () => {
+  async function comWidgetVisivel(base: Buffer, pagina: number) {
+    const pdf = await PDF.load(new Uint8Array(base)); const page = pdf.getPage(pagina)!;
+    const num = (...n: number[]) => PdfArray.of(...n.map(v => PdfNumber.of(v)));
+    const ap = pdf.register(PdfStream.fromDict({ Type: PdfName.of("XObject"), Subtype: PdfName.of("Form"), BBox: num(0, 0, 520, 80),
+      Resources: PdfDict.of({ Font: PdfDict.of({ H: PdfDict.of({ Type: PdfName.of("Font"), Subtype: PdfName.of("Type1"), BaseFont: PdfName.of("Helvetica") }) }) }) },
+      new TextEncoder().encode("1 g 0 0 520 80 re f 0 g BT /H 28 Tf 10 30 Td (VALOR ALTERADO 999) Tj ET")));
+    const w = pdf.register(PdfDict.of({ FT: PdfName.of("Sig"), T: PdfString.fromString("SigQA"), Type: PdfName.of("Annot"), Subtype: PdfName.of("Widget"),
+      Rect: num(40, 380, 560, 460), F: PdfNumber.of(4), P: page.ref, AP: PdfDict.of({ N: ap }) }));
+    const a = page.dict.get("Annots"); const annots = a instanceof PdfArray ? a : a instanceof PdfRef ? pdf.getObject(a) as PdfArray : PdfArray.of();
+    annots.push(w); page.dict.set("Annots", annots);
+    const cat = pdf.getCatalog(); const af0 = cat.get("AcroForm"); let af = (af0 instanceof PdfRef ? pdf.getObject(af0) : af0) as PdfDict | undefined;
+    if (!af) { af = PdfDict.of({ Fields: PdfArray.of() }); cat.set("AcroForm", af); }
+    const f0 = af.get("Fields"); let campos = (f0 instanceof PdfRef ? pdf.getObject(f0) : f0) as PdfArray | undefined;
+    if (!campos) { campos = PdfArray.of(); af.set("Fields", campos); }
+    campos.push(w); af.set("SigFlags", PdfNumber.of(3));
+    const passo = await PDF.load(await pdf.save({ incremental: true }));
+    const assinadoSemCaixa = (await passo.sign({ signer, fieldName: "SigQA" })).bytes;
+    // O assinador da biblioteca zera o retângulo do widget (carimbo invisível). Assinadores de terceiros deixam o retângulo
+    // visível: aqui ele é recolocado para representar esse caso (a cobertura da assinatura é conferida em outra etapa).
+    const visivel = await PDF.load(assinadoSemCaixa);
+    const campo = visivel.getForm()!.getSignatureFields().find(f => f.name === "SigQA")!;
+    campo.getWidgets()[0].dict.set("Rect", num(40, 380, 560, 460));
+    return { invisivel: Buffer.from(assinadoSemCaixa), visivel: Buffer.from(await visivel.save({ incremental: true })) };
+  }
+  it("retorno do cliente com widget de assinatura visível por cima do texto: não conserva a revisão da empresa", async () => {
+    const original = contrato(30);
+    const { assinado: empresa, titular } = await assinarComMarca(original, 0);
+    expect(await mesmoConteudo(original, empresa, { titular })).toBe(true);
+    const retorno = await comWidgetVisivel(empresa, 1);
+    expect(retorno.visivel.subarray(0, empresa.length).equals(empresa)).toBe(true);
+    expect(await mesmoConteudo(empresa, retorno.invisivel)).toBe(true); // retângulo de área zero: nada é desenhado
+    expect(await mesmoConteudo(empresa, retorno.visivel)).toBe(false);
+  }, 120_000);
+  it("retorno do cliente com assinatura invisível (padrão do assinador) continua conservando", async () => {
+    const original = contrato(30);
+    const { assinado: empresa } = await assinarComMarca(original, 0);
+    const pdf = await PDF.load(new Uint8Array(empresa));
+    const retorno = Buffer.from((await pdf.sign({ signer })).bytes);
+    expect(await mesmoConteudo(empresa, retorno)).toBe(true);
   }, 120_000);
 });
