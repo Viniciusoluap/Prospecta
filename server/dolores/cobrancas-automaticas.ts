@@ -143,7 +143,7 @@ export async function coletarCobrancas(agora: Date): Promise<{ porColaborador: C
     for (const t of tarefas) {
       if (!tarefaAtrasada(t, agora)) continue;
       const cliente = t.relatedType === "lead" && t.relatedId ? leadsAtivos.get(t.relatedId)?.name ?? null : null;
-      porNomeOuLead(t.assignedTo, null, { fonte: "tarefa", chave: `tarefa:${t.id}`, descricao: t.title, cliente, desde: diaFortaleza(t.dueAt), dias: diasEntre(t.dueAt, agora), parado: false });
+      porNomeOuLead(t.assignedTo, t.relatedType === "lead" ? t.relatedId : null, { fonte: "tarefa", chave: `tarefa:${t.id}`, descricao: t.title, cliente, desde: diaFortaleza(t.dueAt), dias: diasEntre(t.dueAt, agora), parado: false });
     }
     for (const p of regs) {
       if (p.encerrado || p.clienteExcluidoDoCrm || !(p.atrasado || p.parado)) continue;

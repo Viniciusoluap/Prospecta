@@ -168,6 +168,16 @@ describe("cobrança do colaborador", () => {
     expect(await rodar(SEG_9H)).toContain("teto");
     expect(enviarAoContato).toHaveBeenCalledTimes(1);
   });
+  it("tarefa ligada a cliente, sem responsável (ou nome de ninguém): vai para o responsável do card do cliente (revisão do Codex no #322)", async () => {
+    await banco.pg.exec(`INSERT INTO tasks (title, assigned_to, related_type, related_id, priority, status, due_at) VALUES
+      ('Sem dono 1', '', 'lead', 1, 'low', 'pending', '2026-11-10 12:00'),
+      ('Sem dono 2', 'Sem responsável', 'lead', 1, 'low', 'pending', '2026-11-10 12:00'),
+      ('Sem dono e sem cliente', 'Fulano Inexistente', NULL, NULL, 'low', 'pending', '2026-11-10 12:00')`);
+    const lista = await coletarItensPorColaborador(SEG_9H);
+    const daBianca = lista.find(l => l.colaborador.id === 2)!.itens.map(i => i.descricao);
+    expect(daBianca).toEqual(expect.arrayContaining(["Sem dono 1", "Sem dono 2"]));
+    expect(lista.flatMap(l => l.itens.map(i => i.descricao))).not.toContain("Sem dono e sem cliente");
+  });
   it("admin e corretor não são cobrados", async () => {
     await banco.pg.exec(`UPDATE users SET phone = '99933332222' WHERE id = 1;
       INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('cor', 'Carlos Corretor', 'corretor', true, 'h', '99944443333');
