@@ -140,3 +140,52 @@ describe("vínculo com a origem — XObject e filtro indireto", () => {
     expect(await mesmoConteudo(original, trocado)).toBe(false);
   }, 120_000);
 });
+
+// Portão de QA de 23/11/2026 (3ª revisão): preditor com linha parcial e fluxo marcado como /Image fora de /XObject.
+describe("vínculo com a origem — preditor e /Subtype /Image", () => {
+  const OCULTO = "BT /F0 40 Tf 1 0 0 1 60 400 Tm (VALOR ALTERADO 999) Tj ET";
+  const caixa = () => PdfArray.of(PdfNumber.of(0), PdfNumber.of(0), PdfNumber.of(600), PdfNumber.of(900));
+  const texto = (s: string) => new TextEncoder().encode(s);
+  const noConteudo = (pdf: PDF, pagina: number, ref: PdfRef) => {
+    const page = pdf.getPage(pagina)!; const c = page.dict.get("Contents");
+    const lista = c instanceof PdfArray ? c : PdfArray.of(c as PdfRef); lista.push(ref); page.dict.set("Contents", lista);
+  };
+  // Preditor TIFF (2) com /Columns maior que o fluxo: a biblioteca devolve só zeros; o leitor decodifica a linha parcial.
+  const tiff = (s: string) => { const b = Buffer.from(s), o = Buffer.alloc(b.length); for (let i = 0; i < b.length; i++) o[i] = (b[i] - (i ? b[i - 1] : 0)) & 255; return o; };
+  const comPreditor = (pdf: PDF) => pdf.register(PdfStream.fromDict({ Filter: PdfName.of("FlateDecode"),
+    DecodeParms: PdfDict.of({ Predictor: PdfNumber.of(2), Columns: PdfNumber.of(100000) }) }, new Uint8Array(deflateSync(tiff(`\n${OCULTO}\n`)))));
+  it.each([
+    ["preditor TIFF com linha parcial, outra página", (pdf: PDF) => noConteudo(pdf, 1, comPreditor(pdf))],
+    ["preditor TIFF com linha parcial, página da marca", (pdf: PDF) => noConteudo(pdf, 0, comPreditor(pdf))],
+    ["aparência de anotação marcada como /Subtype /Image", (pdf: PDF) => {
+      const ap = pdf.register(PdfStream.fromDict({ Type: PdfName.of("XObject"), Subtype: PdfName.of("Image"), BBox: caixa() }, texto(OCULTO)));
+      pdf.getPage(1)!.dict.set("Annots", PdfArray.of(pdf.register(PdfDict.of({ Type: PdfName.of("Annot"), Subtype: PdfName.of("Square"),
+        Rect: caixa(), F: PdfNumber.of(4), AP: PdfDict.of({ N: ap }) }))));
+    }],
+    ["padrão (tiling) marcado como /Subtype /Image", (pdf: PDF) => {
+      const padrao = pdf.register(PdfStream.fromDict({ Type: PdfName.of("Pattern"), Subtype: PdfName.of("Image"), PatternType: PdfNumber.of(1),
+        PaintType: PdfNumber.of(1), TilingType: PdfNumber.of(1), BBox: caixa(), XStep: PdfNumber.of(600), YStep: PdfNumber.of(900) }, texto(OCULTO)));
+      const r = pdf.getPage(1)!.dict.get("Resources"); const recursos = (r instanceof PdfRef ? pdf.getObject(r) : r) as PdfDict;
+      recursos.set("Pattern", PdfDict.of({ PQA: padrao }));
+      noConteudo(pdf, 1, pdf.register(PdfStream.fromDict({}, texto("\nq /Pattern cs /PQA scn 0 0 600 900 re f Q\n"))));
+    }],
+  ])("origem com texto escondido (%s): recusado", async (_nome, montar) => {
+    const pdf = await PDF.load(new Uint8Array(contrato(30))); montar(pdf);
+    const original = Buffer.from(await pdf.save());
+    const { assinado, titular } = await assinarComMarca(original, 0);
+    expect(await mesmoConteudo(original, assinado, { titular })).toBe(false);
+  }, 120_000);
+
+  it("contrato legítimo com logo PNG (imagem com preditor) em todas as páginas continua conferido", async () => {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    // PNG 8x8 vermelho, só para existir um XObject de imagem com /DecodeParms do jsPDF.
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGM4ISeHFTEMLQkAkL9BAbKfPiIAAAAASUVORK5CYII=";
+    for (let p = 0; p < 4; p++) { if (p) doc.addPage(); doc.addImage(png, "PNG", 15, 10, 20, 20); doc.text(`Página ${p + 1} do contrato de teste`, 20, 50); }
+    const original = Buffer.from(doc.output("arraybuffer"));
+    for (const pagina of [0, 3]) {
+      const { assinado, titular } = await assinarComMarca(original, pagina);
+      expect(await mesmoConteudo(original, assinado, { titular })).toBe(true);
+    }
+  }, 120_000);
+});

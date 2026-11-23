@@ -52,7 +52,14 @@ export function lerConteudo(texto: string): Token[] {
  * `/DecodeParms` precisam estar escritos direto no fluxo (nome, ou array só de nomes/dicionários diretos); qualquer
  * referência indireta, ou descompressão que devolve vazio para entrada não vazia, lança (quem chama recusa o vínculo).
  */
-export function decodificarEstrito(stream: PdfStream): Uint8Array {
+export function decodificarEstrito(stream: PdfStream, opcoes: { imagem?: boolean } = {}): Uint8Array {
+  // Preditor (TIFF/PNG) só existe em imagem. Em fluxo de conteúdo a biblioteca e os leitores divergem na linha incompleta
+  // (3ª revisão do QA): a biblioteca devolve zeros e o leitor desenha o texto. Fora de imagem, qualquer preditor é recusado.
+  if (!opcoes.imagem) {
+    const parms = stream.get("DecodeParms");
+    const lista = parms instanceof PdfArray ? parms.toArray() : parms ? [parms] : [];
+    for (const item of lista) if (item instanceof PdfDict && item.has("Predictor") && item.getNumber("Predictor")?.value !== 1) throw new Error("preditor em fluxo de conteúdo");
+  }
   const direto = (v: unknown, aceito: (x: unknown) => boolean) => v === undefined || v === null || aceito(v) || (v instanceof PdfArray && v.toArray().every(aceito));
   const tipo = (x: unknown) => (x as { type?: string } | null)?.type;
   if (!direto(stream.get("Filter"), x => tipo(x) === "name")) throw new Error("filtro indireto");
@@ -134,17 +141,31 @@ export function origemCitaNome(pdf: PDF, pagina: Pagina, nomes: string[]): boole
   const cita = (texto: string) => { for (const m of Array.from(texto.matchAll(/\/([^\s\0/[\]()<>{}%]*)/g))) if (alvo.has(nomeDecodificado(m[1]))) return true; return false; };
   const vistos = new Set<unknown>();
   let visitados = 0;
-  const andar = (valor: unknown): boolean => {
+  // `podeSerImagem`: só o valor direto de um dicionário /XObject (o que o operador Do chama) pode ser pulado como imagem.
+  // Aparência de anotação, padrão, CharProc e conteúdo são executados como conteúdo pelo leitor, diga o /Subtype o que disser.
+  const andar = (valor: unknown, podeSerImagem = false): boolean => {
     const obj = valor instanceof PdfRef ? pdf.getObject(valor) : valor;
-    if (!obj || typeof obj !== "object" || vistos.has(obj)) return false;
-    vistos.add(obj);
+    if (!obj || typeof obj !== "object") return false;
     if (++visitados > 20_000) throw new Error("documento grande demais para conferir");
-    if (obj instanceof PdfArray) return obj.toArray().some(andar);
-    if (obj instanceof PdfStream) {
-      if (obj.getName("Subtype")?.value !== "Image" && cita(Buffer.from(decodificarEstrito(obj)).toString("latin1"))) return true;
+    if (obj instanceof PdfStream && podeSerImagem && (obj.get("Subtype") as { type?: string; value?: string } | undefined)?.type === "name" && obj.getName("Subtype")?.value === "Image") {
+      // Imagem chamada por Do: os dados não são conteúdo. Máscaras e afins (dicionário da imagem) ainda são percorridos abaixo.
+      for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) if (["SMask", "Mask", "Alternates", "OPI"].includes(chave(k)) && andar(v, true)) return true;
+      return false;
     }
+    if (vistos.has(obj)) return false;
+    vistos.add(obj);
+    if (obj instanceof PdfArray) return obj.toArray().some(v => andar(v));
+    if (obj instanceof PdfStream && cita(Buffer.from(decodificarEstrito(obj)).toString("latin1"))) return true;
     if (obj instanceof PdfDict) {
-      for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) { if (chave(k) === "Parent" || chave(k) === "P") continue; if (andar(v)) return true; }
+      for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) {
+        const nome = chave(k);
+        if (nome === "Parent" || nome === "P") continue;
+        if (nome === "XObject") {
+          const xo = dict(pdf, v);
+          if (xo) { for (const [, x] of Array.from(xo as unknown as Iterable<[unknown, unknown]>)) if (andar(x, true)) return true; continue; }
+        }
+        if (andar(v)) return true;
+      }
     }
     return false;
   };
