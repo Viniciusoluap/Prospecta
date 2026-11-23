@@ -59,9 +59,70 @@ describe("Item 10 — premissas da Viabilidade iguais ao Santa Fé", () => {
     expect(defaultsForm(paraEstudoData(linha({ parameterizedBudgetJson: JSON.stringify(orc) }))).custoInfraM2Lote).toBe(2000);
   });
 
-  it("mix padrão: Estudo de Massa > precificação por comparáveis > R$ 500/m²", () => {
+  it("mantém o mix legado salvo e deixa o preço vazio sem referência", () => {
     const mix = [{ nome: "Lote 200m²", quantidade: 10, areaUnidadeM2: 200, precoM2: 700 }];
     expect(defaultsMix(paraEstudoData(linha({ productMixJson: JSON.stringify(mix) })))).toEqual(mix);
-    expect(defaultsMix(paraEstudoData(linha()))[0].precoM2).toBe(500);
+    expect(defaultsMix(paraEstudoData(linha()))[0].precoM2).toBe(0);
+  });
+});
+
+describe("Estudo de Massa e preços da Viabilidade", () => {
+  const cenario = {
+    id: "cenario-1",
+    lotes: [
+      { tipo: "vendavel", areaM2: 128 },
+      { tipo: "vendavel", areaM2: 129.55 },
+      { tipo: "area_publica", areaM2: 700 },
+    ],
+    quadroAreas: {
+      areaBrutaM2: 1000,
+      areaInstitucionalM2: 0,
+      areaVerdeM2: 600,
+      sistemaViarioM2: 142.45,
+      appM2: 500,
+      faixaServidaoM2: 0,
+      faixaTransmissaoM2: 0,
+      supressaoVegetalM2: 0,
+      outrasNaoParcelaveisM2: 0,
+      areaLiquidaVendavelM2: 257.55,
+    },
+  };
+  const dadosCenario = { selectedScenarioId: "cenario-1", massScenariosJson: JSON.stringify([cenario]) };
+  const mercado = { marketStudyJson: JSON.stringify({ precoM2Lote: 1400, precoM2Casa: 4000, precoM2Apartamento: 4500 }) };
+
+  it("usa apenas os lotes vendáveis, a área exata e o preço de mercado quando o mix vem do cenário", () => {
+    const estudo = paraEstudoData(linha({
+      ...dadosCenario, ...mercado,
+      lottingJson: JSON.stringify({ ...LOTEAMENTO, mixModo: "cenario", urbanismoModo: "cenario" }),
+    }));
+    const premissas = montarPremissasLoteamento(estudo)!;
+    expect(premissas.itensMix).toEqual([{ nome: "Lotes", quantidade: 2, areaUnidadeM2: 128.775, precoM2: 1400 }]);
+    const resultado = calcularLoteamento(premissas);
+    expect(resultado.urbanistico.areaVendavelM2).toBe(257.55);
+    expect(resultado.vgvGross).toBeCloseTo(360_570, 2);
+  });
+
+  it.each([
+    { tipo: "casa", modo: { casaPronta: true }, area: 55, vgv: 440_000 },
+    { tipo: "apartamento", modo: { apartamento: true }, area: 48, vgv: 432_000 },
+  ])("calcula o VGV por unidade com a referência de $tipo e preserva o preço manual", ({ modo, area, vgv }) => {
+    const produto = { nome: "Residencial", quantidade: 2, areaUnidadeM2: 129, precoM2: 1400, areaPrivativaM2: area, ...modo };
+    const simular = (precoUnidade: number) => calcularLoteamento(montarPremissasLoteamento(paraEstudoData(linha({
+      ...mercado,
+      lottingJson: JSON.stringify({ ...LOTEAMENTO, itensMix: [{ ...produto, precoUnidade }] }),
+    })))!);
+    expect(simular(0).vgvGross).toBe(vgv);
+    expect(simular(230_000).vgvGross).toBe(460_000);
+  });
+
+  it("recupera a referência legada ao marcar casa pronta sem preço unitário", () => {
+    const estudo = paraEstudoData(linha({
+      ...dadosCenario,
+      massScenariosJson: JSON.stringify({ params: { precoM2Lote: 1400 }, cenarios: [cenario] }),
+      lottingJson: JSON.stringify({ ...LOTEAMENTO, itensMix: [
+        { nome: "Casa", quantidade: 2, casaPronta: true, areaUnidadeM2: 128, precoM2: 0 },
+      ] }),
+    }));
+    expect(calcularLoteamento(montarPremissasLoteamento(estudo)!).vgvGross).toBe(358_400);
   });
 });

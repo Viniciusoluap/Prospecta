@@ -31,6 +31,8 @@ export interface ItemMixProduto {
   vagasPorBloco?: number;
   /** Valor de venda por unidade (Casa pronta ou Apartamento). */
   precoUnidade?: number;
+  /** Área construída/privativa por unidade usada apenas para estimar o preço por comparáveis. */
+  areaPrivativaM2?: number;
 }
 
 /** VGV de um item do mix (por unidade para casa/apartamento; por m² para os demais). */
