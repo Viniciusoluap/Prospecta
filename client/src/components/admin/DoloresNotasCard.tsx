@@ -128,6 +128,8 @@ export function DoloresNotasCard() {
                   </p>
                   {n.conciliacao && <p className={`text-xs ${COR_APONTAMENTO[n.conciliacao.situacao] ?? ""}`}><span className="text-gray-400">BPO: </span>{n.conciliacao.rotulo} — {n.conciliacao.texto}</p>}
                   {n.vinculoPerdido && <p role="alert" className="text-xs text-amber-200">⚠ Vínculo perdido: {n.vinculoPerdido}</p>}
+                  {n.cancelada && <p role="alert" className="text-xs text-red-300">⚠ {n.cancelada}</p>}
+                  {n.outraOrigemDe && <p className="text-xs text-gray-400">Mesma nota {n.outraOrigemDe}, registrada pela outra origem (ADN ou grupo): a conciliação fica nela.</p>}
                   {n.textoSugerido && (
                     <div className="rounded border border-[#C9A961]/20 p-2 text-xs">
                       <p className="text-gray-400">Texto sugerido para VOCÊ enviar ao empreiteiro no grupo (a Dolores não envia):</p>

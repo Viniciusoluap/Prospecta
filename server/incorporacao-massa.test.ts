@@ -118,17 +118,12 @@ describe("gerarCenariosMassa", () => {
     expect(outra[0].anguloVia).toBe(cenarios[0].anguloVia);
   });
 
-  it("VGV recalculado a partir de um preço digitado em formato BR (vírgula) confere", () => {
-    // Simula o usuário digitando "1.234,56" no campo de preço/m² — o valor
-    // já deve chegar parseado corretamente (função testada em utils.test.ts);
-    // aqui validamos que o motor de VGV responde de forma consistente ao
-    // trocar apenas o preço, mantendo a área vendável.
-    const precoBR = 1234.56; // resultado de parseNumeroBR("1.234,56")
-    const comPrecoBR = gerarCenariosMassa(anelGeo, CENTRO, { ...PARAMS, precoM2Lote: precoBR }, {
+  it("gera a mesma geometria sem um preço legado", () => {
+    const semPreco = gerarCenariosMassa(anelGeo, CENTRO, { ...PARAMS, precoM2Lote: 0 }, {
       populacao: 8, geracoes: 5, seed: 42, nCenarios: 2,
     });
-    expect(comPrecoBR[0].kpis.areaVendavelM2).toBe(cenarios[0].kpis.areaVendavelM2);
-    expect(comPrecoBR[0].kpis.vgv).toBe(Math.round(comPrecoBR[0].kpis.areaVendavelM2 * precoBR));
+    expect(semPreco[0].lotes).toEqual(cenarios[0].lotes);
+    expect(semPreco[0].kpis.vgv).toBe(0);
   });
 });
 
@@ -175,8 +170,8 @@ describe("validarParametrosMassa", () => {
     ).toMatch(/soma/i);
   });
 
-  it("rejeita preço do lote igual a 0", () => {
-    expect(validarParametrosMassa({ ...PARAMS, precoM2Lote: 0 })).toMatch(/preço/i);
+  it("aceita gerar cenários sem preço", () => {
+    expect(validarParametrosMassa({ ...PARAMS, precoM2Lote: 0 })).toBeNull();
   });
 
   it("rejeita preço do lote negativo", () => {

@@ -4,7 +4,7 @@
 // Nada aqui chama rede (vigia de fetch) nem toca banco real (PGlite).
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CENARIO, criarBanco } from "../dolores/testes-banco.js";
+import { CENARIO, MIGRACAO_0166, MIGRACAO_0170, criarBanco } from "../dolores/testes-banco.js";
 import { notasDoBanco } from "../dolores/leitura/notas.js";
 import { cnpjValido as cnpjDosContratos } from "../../shared/contratos/modelos.js";
 import { cnpjValido as cnpjDasNotasDeGrupo, cpfValido as cpfDasNotas } from "../../shared/dolores/notas.js";
@@ -107,7 +107,7 @@ describe("QA 0163 — só aditiva, CHECK validado, idempotente, guardas convivem
   });
 
   it("nota de grupo continua impossível sem grupo/mensagem — também por UPDATE (CHECK + guarda da 0128)", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     const m = await mensagemDeGrupo("U1");
     const [{ id }] = await q<{ id: number }>("INSERT INTO obra_notas (grupo_id, mensagem_id, situacao) VALUES ($1, $2, 'rascunho') RETURNING id", [m.grupoId, m.mensagemId]);
     await expect(q("UPDATE obra_notas SET mensagem_id = NULL WHERE id = $1", [id])).rejects.toThrow();
@@ -119,7 +119,7 @@ describe("QA 0163 — só aditiva, CHECK validado, idempotente, guardas convivem
   });
 
   it("as duas guardas convivem: nota 'adn' aceita a conciliação (vínculo BPO) e recusa mexer no que foi lido", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
     const [{ id }] = await q<{ id: number }>("SELECT id FROM obra_notas WHERE origem = 'adn'");
     await expect(q("UPDATE obra_notas SET valor_centavos = 1 WHERE id = $1", [id])).rejects.toThrow(/OBRA_NOTAS_IMUTAVEL/);
@@ -137,7 +137,7 @@ describe("QA 0163 — só aditiva, CHECK validado, idempotente, guardas convivem
       await q("INSERT INTO obra_notas (grupo_id, mensagem_id, obra_id, situacao) VALUES ($1, $2, $3, 'rascunho')", [m.grupoId, m.mensagemId, i % 2 ? 1 : null]);
     }
     const inner = await q<{ id: number }>("SELECT n.id FROM obra_notas n INNER JOIN dolores_grupo_mensagens m ON m.id = n.mensagem_id ORDER BY n.id DESC");
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     const linhas = await notasDoBanco(banco.db as never, {});
     expect(linhas.map(l => l.n.id)).toEqual(inner.map(r => r.id));
     expect(linhas.every(l => l.enviadaEm !== undefined)).toBe(true);
@@ -205,7 +205,7 @@ describe("QA parser — XXE, tamanho, ambiente, tomador, textos", () => {
 
 describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   it("com o cliente registrado globalmente mas nenhum CNPJ ligado, não chama o cliente; NoCron nunca lança se o banco cair", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     const cliente = clienteFalso(3);
     registrarClienteDistribuicao(cliente);
     expect(await capturarRecebidasNoCron(db, 10_000)).toEqual({ executou: false, motivo: "nenhum_cnpj_ligado" });
@@ -218,7 +218,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   });
 
   it("erro do ADN: o log não leva a mensagem (que pode ter CNPJ/CPF), só o nome do erro", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     const erro = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const cliente: ClienteDistribuicaoAdn = { buscarDesde: async () => { throw new Error(`falhou para ${TOMADOR} cpf 529.982.247-25`); } };
@@ -228,7 +228,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   });
 
   it("NSU nunca volta: documentos com NSU <= último, NaN ou fracionário são descartados; erro no meio da página avança só até o último tratado", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada, ultimo_nsu) VALUES ($1, true, 10)", [TOMADOR]);
     let chamada = 0;
     const cliente: ClienteDistribuicaoAdn = {
@@ -254,7 +254,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   });
 
   it("idempotência sob concorrência na GRAVAÇÃO: 5 gravações simultâneas da mesma chave → 1 nota, 1 XML", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     const doc = { nsu: 1, chave: CHAVE_FIXTURE, xml: FIXTURE };
     const r = await Promise.all(Array.from({ length: 5 }, () => gravarNotaRecebida(db(), doc, { tomadorCnpj: TOMADOR, agora: AGORA })));
     expect(r.filter(x => x === "gravada")).toHaveLength(1);
@@ -263,7 +263,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   });
 
   it("CORRIGIDO (médio): duas capturas simultâneas do mesmo CNPJ — a mais atrasada tenta voltar o NSU, o gatilho lança e a rodada termina em exceção", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     const rapido = clienteFalso(150);
     let liberar!: () => void;
@@ -280,7 +280,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   });
 
   it("CORRIGIDO (médio): cliente que ignora o AbortSignal estoura o prazo total (sem Promise.race / corte do lado de cá)", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     const surdo: ClienteDistribuicaoAdn = { buscarDesde: () => new Promise(r => setTimeout(() => r({ documentos: [] }), 3_200)) };
     const prazoEm = Date.now() + 2_600;
@@ -289,7 +289,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
   }, 10_000);
 
   it("CORRIGIDO (médio): documento ilegível avança o NSU e some sem rastro — a rodada fica 'ok'", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await q("INSERT INTO fiscal_distribuicao_estado (cnpj, ligada) VALUES ($1, true)", [TOMADOR]);
     let n = 0;
     const cliente: ClienteDistribuicaoAdn = { buscarDesde: async () => (n++ ? { documentos: [] } : { documentos: [
@@ -321,7 +321,7 @@ describe("QA captura — desligada, NSU, prazo, concorrência, log", () => {
 
 describe("QA vínculo e conciliação", () => {
   it("dois empreiteiros ativos com o mesmo documento, ambos com obra → sem vínculo nenhum", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await banco.pg.exec(`
       INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp2', 'Clone', 'empreiteiro', true, 'hash', '11222333000181');
       INSERT INTO construction_projects (title, status, progress, contractor_user_id) VALUES ('Outra', 'in_progress', 0, 4);`);
@@ -330,14 +330,14 @@ describe("QA vínculo e conciliação", () => {
   });
 
   it("CORRIGIDO (baixo): documento em dois usuários, mas só um com obra ativa → vincula a esse (a regra diz: dois usuários → nada)", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp2', 'Clone', 'empreiteiro', true, 'hash', '11222333000181');`);
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
     expect((await q("SELECT obra_id, empreiteiro_user_id FROM obra_notas"))[0]).toEqual({ obra_id: null, empreiteiro_user_id: null });
   });
 
   it("nenhum lançamento do BPO é criado ou alterado pela captura inteira", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     await banco.pg.exec(`
       INSERT INTO bpo_clients (razao_social, cnpj, responsavel, telefone, honorarios, data_inicio) VALUES ('Construtora Exemplo', '11.222.333/0001-81', 'Zé', '9999', '0', '2026-01-01');
       INSERT INTO bpo_lancamentos (cliente_id, tipo, descricao, valor, valor_recebido, vencimento, pago, competencia, a_classificar)
@@ -354,7 +354,7 @@ describe("QA vínculo e conciliação", () => {
   });
 
   it("nota 'adn' não pode ser religada a grupo/mensagem (não vira mensagem de grupo nem resposta de empreiteiro)", async () => {
-    await banco.pg.exec(MIGRACAO);
+    await banco.pg.exec(MIGRACAO); await banco.pg.exec(MIGRACAO_0166()); await banco.pg.exec(MIGRACAO_0170());
     expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
     const m = await mensagemDeGrupo("X1");
     await expect(q("UPDATE obra_notas SET grupo_id = $1, mensagem_id = $2 WHERE origem = 'adn'", [m.grupoId, m.mensagemId])).rejects.toThrow();

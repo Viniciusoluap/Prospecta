@@ -137,6 +137,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolea
     const recebidas = MIGRACAO_0163();
     await pg.exec(recebidas);
     await pg.exec(recebidas);
+    // EPIC-029 S-5b (cancelamento do ADN e "mesma nota por outra origem"): migração 0166, também duas vezes.
+    const s5b = MIGRACAO_0166();
+    await pg.exec(s5b);
+    await pg.exec(s5b);
+    // EPIC-029 S-5b (revisão do Codex): papel do evento do ADN (recebida/emitida), migração 0170, também duas vezes.
+    const papel = MIGRACAO_0170();
+    await pg.exec(papel);
+    await pg.exec(papel);
   }
   // EPIC-025 E10 (cobrança do colaborador e pedido de documentos): migração 0169, também duas vezes.
   const cobrancas = MIGRACAO_0169();
@@ -147,6 +155,8 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolea
 
 export const MIGRACAO_0169 = () => readFileSync(new URL("../../drizzle/0169_dolores_cobrancas.sql", import.meta.url), "utf8");
 
+export const MIGRACAO_0170 = () => readFileSync(new URL("../../drizzle/0170_obra_notas_eventos_adn_papel.sql", import.meta.url), "utf8");
+export const MIGRACAO_0166 = () => readFileSync(new URL("../../drizzle/0166_obra_notas_cancelamento_e_outra_origem.sql", import.meta.url), "utf8");
 export const MIGRACAO_0163 = () => readFileSync(new URL("../../drizzle/0163_obra_notas_origem_adn.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0160 = () => readFileSync(new URL("../../drizzle/0160_dolores_avisos_reserva.sql", import.meta.url), "utf8");

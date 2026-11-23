@@ -5,6 +5,7 @@
 // | função               | nível | por quê                                                                                       |
 // | conciliar_nota_obra  | fila  | liga a nota (registro da Dolores) a um pagamento do BPO vindo do banco; o BPO não é alterado    |
 // | salvar_nota_obra     | fila  | grava o arquivo na pasta da obra no Drive (nome montado pelo sistema; mesmo arquivo lido)       |
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { textoDeDado } from "../../../shared/dolores/fila.js";
 import { AVISO_CONFIRMACAO, dataBr, nomeArquivoNota, reais } from "../../../shared/dolores/notas.js";
@@ -43,10 +44,16 @@ async function lerNota(notaId: number) {
 
 export async function prepararConciliarNota(args: z.infer<typeof entradaConciliarNota>, _ctx: ContextoAcao): Promise<Preparo> {
   return emTransacaoSomenteLeitura(async () => {
+    // QA S-5b: a trava das gravações de nota também aqui (a transação continua só de leitura: a trava não grava nada): a nota é lida
+    // depois de qualquer gravação em andamento (ex.: a NFS-e oficial que passa a conciliação para ela). A execução reconfere.
+    await bancoDaLeitura().execute(sql`SELECT pg_advisory_xact_lock(250005)`);
     const { n, obra } = await lerNota(args.notaId);
     // vínculo perdido (o lançamento foi excluído no BPO): pode ser religada, sempre por um NOVO item na fila
     if (n.bpoLancamentoId) throw new RecusaAcao(`A nota ${n.id} já está ligada a um pagamento do BPO; nada a fazer.`);
     if (n.duplicadaDe) throw new RecusaAcao(`A nota ${n.id} repete a nota ${n.duplicadaDe} (duplicada): não é conciliada. Nada foi posto na fila.`);
+    // EPIC-029 S-5b: NFS-e cancelada nunca é conciliada; a mesma nota da outra origem concilia só na outra
+    if (n.canceladaEm) throw new RecusaAcao(`A nota ${n.id} foi CANCELADA pelo emitente (evento do ADN): não é conciliada. Nada foi posto na fila.`);
+    if (n.outraOrigemDe) throw new RecusaAcao(`A nota ${n.id} é a mesma nota ${n.outraOrigemDe} registrada pela outra origem: concilie a nota ${n.outraOrigemDe}. Nada foi posto na fila.`);
     if (n.situacao === "nao_e_nota" || n.situacao === "nao_lida" || n.situacao === "ilegivel") throw new RecusaAcao(`A nota ${n.id} não foi lida com segurança (${n.situacao}); confira o original. Nada foi posto na fila.`);
     if (!n.valorCentavos || !n.dataEmissao) throw new RecusaAcao(`A nota ${n.id} não tem valor ou data lidos com segurança; a conciliação depende da sua conferência. Nada foi posto na fila.`);
     const janela = await janelaDaConciliacao(bancoDaLeitura());
@@ -83,8 +90,10 @@ export async function prepararSalvarNota(args: z.infer<typeof entradaSalvarNota>
     if (n.duplicadaDe) throw new RecusaAcao(`A nota ${n.id} repete a nota ${n.duplicadaDe}: salve a original. Nada foi posto na fila.`);
     const nomeArquivo = nomeArquivoNota(n.id, n.dataEmissao, n.criadoEm, EXTENSAO[n.arquivoMime]);
     const titulo = mostrar(obra, 80, `obra ${n.obraId}`);
+    // EPIC-029 S-5b: a nota de grupo que é a mesma nota recebida pelo ADN (outra origem) TEM arquivo e pode ir ao Drive
+    const avisoCancelada = n.canceladaEm ? ` ATENÇÃO: esta nota foi CANCELADA pelo emitente (evento do ADN); o arquivo vai só como registro.` : "";
     const resumo = resumoDaFila(`Salvar o arquivo da nota ${n.id} na pasta da obra "${titulo}" (obra ${n.obraId}) no Drive — Obras › ${titulo} › ${PASTA_NOTAS_OBRA} — com o nome "${nomeArquivo}" `
-      + `(montado pelo sistema). Antes de enviar, confiro que o arquivo baixado do grupo é o MESMO que foi lido (SHA-256). É um arquivo novo: não substitui nem apaga nada; nenhum lançamento é criado.`, [`"${nomeArquivo}"`]);
+      + `(montado pelo sistema). Antes de enviar, confiro que o arquivo baixado do grupo é o MESMO que foi lido (SHA-256). É um arquivo novo: não substitui nem apaga nada; nenhum lançamento é criado.${avisoCancelada}`, [`"${nomeArquivo}"`]);
     return { itens: [{ alvo: `nota:${n.id}:salvar`, resumo, argumentos: { notaId: n.id, obraId: n.obraId!, nomeArquivo, sha256: n.arquivoSha256 } }], recusados: [] };
   });
 }
