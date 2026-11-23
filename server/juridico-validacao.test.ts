@@ -350,6 +350,32 @@ describe("pendência de rede e retentativa automática", () => {
       expect(simulado.rede.chamadas).toEqual([]);
     } finally { await pg.close(); }
   }, 60_000);
+  it("Conferir novamente (23/11): documento marcado inválido por cadeia não montada é reavaliado com o motor atual, pelos mesmos bytes", async () => {
+    const pg = await preparar();
+    try {
+      const original = contratoBase(); const origemId = await gerado(pg, original);
+      // Reproduz o estado de produção: a conferência da época não fechava a cadeia (aqui, sem a raiz sintética).
+      raizesIcp.splice(raizesIcp.indexOf(pki.raiz), 1);
+      let doc;
+      try { doc = await admin().uploadDocument({ contractId: 1, name: "x.pdf", type: "assinatura_digital", base64: b64(await assinar(original, "empresa")), documentoOrigemId: origemId }); }
+      finally { raizesIcp.push(pki.raiz); }
+      expect(doc.validacao).toMatchObject({ estado: "invalida", proximaTentativa: null });
+      expect(doc.validacao?.motivo).toMatch(/não pertence a uma cadeia ICP-Brasil/);
+      const shaAntes = (await linhaValidacao(pg, doc.id)).sha256;
+      // A retentativa automática nunca mexe em inválido; a manual, logo depois de gravar, respeita o intervalo mínimo.
+      expect(await revalidarDocumento(doc.id, { agora: new Date(Date.now() + 3 * 3600_000) })).toMatchObject({ estado: "invalida" });
+      expect(await revalidarDocumento(doc.id, { manual: true })).toMatchObject({ estado: "invalida" });
+      const r = await admin().revalidarDocumento({ documentId: doc.id, manual: true }).catch(() => null);
+      expect(r).toMatchObject({ estado: "invalida" }); // ainda dentro do intervalo de 1 minuto
+      const refeita = await revalidarDocumento(doc.id, { manual: true, agora: new Date(Date.now() + 2 * 60_000) });
+      expect(refeita).toMatchObject({ estado: "valida", proximaTentativa: null });
+      const linha = await linhaValidacao(pg, doc.id);
+      expect(linha).toMatchObject({ estado: "valida", sha256: shaAntes });
+      // Já válido: não é reconferido.
+      expect(await revalidarDocumento(doc.id, { manual: true, agora: new Date(Date.now() + 10 * 60_000) })).toMatchObject({ estado: "valida" });
+      expect((await linhaValidacao(pg, doc.id)).tentativas).toBe(linha.tentativas);
+    } finally { await pg.close(); }
+  }, 60_000);
   it("rodada do cron respeita o prazo e nunca lança", async () => {
     const pg = await preparar();
     try {
