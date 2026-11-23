@@ -5,7 +5,7 @@
 import { TRPCError } from "@trpc/server";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { fiscalConfig, fiscalEmissores, fiscalTiposServico } from "../../drizzle/schema-fiscal.js";
+import { fiscalConfig, fiscalDadosSimples, fiscalEmissores, fiscalTiposServico } from "../../drizzle/schema-fiscal.js";
 import { MOTIVOS_SEM_NOTA } from "../../shared/fiscal/motivos.js";
 import { ORIGENS_NOTA } from "../../shared/fiscal/origens.js";
 import { STATUS_NOTA } from "../../shared/fiscal/status.js";
@@ -19,6 +19,7 @@ import {
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
+import { aliquotaSimplesDaNota, dadosSimplesPorRaiz, raizDoCnpj } from "./simples.js";
 
 /**
  * QA S-2 (B6): erro inesperado (ex.: CHECK/gatilho do banco) nunca chega ao cliente com o SQL nem com o texto do banco —
@@ -98,9 +99,12 @@ export const fiscalRouter = router({
         FROM tax_profiles WHERE coalesce(cnpj, '') <> ''
         ORDER BY upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`)) as { rows?: Record<string, unknown>[] }).rows ?? [];
       const complementos = await db.select().from(fiscalEmissores);
+      // S-8: folha dos 12 meses e início de atividade, por empresa (raiz do CNPJ) — null sem a migração 0168 ou sem a linha.
+      const simples = await dadosSimplesPorRaiz(db);
       return perfis.map(p => {
         const e = complementos.find(c => c.cnpj === p.cnpj) ?? null;
-        return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e };
+        return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e,
+          simples: simples.get(raizDoCnpj(String(p.cnpj))) ?? null };
       });
     }),
     salvar: adminPorPapel
@@ -127,6 +131,32 @@ export const fiscalRouter = router({
         // Ambiente fica "desligado" até a homologação (S-4): esta etapa não aceita outro valor.
         const [salvo] = await db.insert(fiscalEmissores).values({ cnpj, ambiente: "desligado", criadoPor: ctx.user.id, ...valores })
           .onConflictDoUpdate({ target: fiscalEmissores.cnpj, set: valores }).returning();
+        return salvo;
+      }),
+    /**
+     * S-8: dados da EMPRESA para a alíquota do Simples (raiz do CNPJ: vale para matriz e filiais) — folha dos 12 meses
+     * (Fator R) e o último mês que ela inclui, e a data de início de atividade (RBT12 proporcional). Só admin por papel.
+     */
+    salvarSimples: adminPorPapel
+      .input(z.object({
+        cnpj: z.string().trim().min(14).max(20),
+        folha12mCentavos: z.number().int().min(0).max(100_000_000_000).nullable(),
+        folhaAte: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mês da folha no formato AAAA-MM.").nullable(),
+        inicioAtividade: data.nullable(),
+      }).refine(v => (v.folha12mCentavos == null) === (v.folhaAte == null), { message: "Informe a folha junto com o último mês que ela inclui." }))
+      .mutation(async ({ input, ctx }) => {
+        await ensureTaxSchema();
+        const db = getDb();
+        const cnpj = cnpjLimpo(input.cnpj);
+        const raiz = raizDoCnpj(cnpj);
+        const existe = ((await db.execute(sql`
+          SELECT 1 FROM tax_profiles WHERE left(upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz} LIMIT 1`)) as { rows?: unknown[] }).rows ?? [];
+        if (!existe.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre primeiro o perfil tributário com este CNPJ." });
+        const tabela = ((await db.execute(sql`SELECT to_regclass('fiscal_dados_simples') IS NOT NULL AS ok`)) as { rows?: { ok: boolean }[] }).rows?.[0];
+        if (!tabela?.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A folha do Fator R ainda não pode ser salva: falta aplicar a migração 0168 no banco." });
+        const valores = { folha12mCentavos: input.folha12mCentavos, folhaAte: input.folhaAte, inicioAtividade: input.inicioAtividade, atualizadoPor: ctx.user.id, atualizadoEm: new Date() };
+        const [salvo] = await db.insert(fiscalDadosSimples).values({ raiz, ...valores })
+          .onConflictDoUpdate({ target: fiscalDadosSimples.raiz, set: valores }).returning();
         return salvo;
       }),
   }),
@@ -194,6 +224,11 @@ export const fiscalRouter = router({
       .query(({ input }) => opcoesDosFiltros(getDb(), input?.emissorId ?? null)),
     ver: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role)),
     historico: fiscalProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
+    /** S-8: alíquota do Simples da nota e "como foi calculada" (RBT12, anexo, faixa, Fator R, fontes). Só valores da empresa. */
+    aliquotaSimples: fiscalProcedure.input(z.object({ id })).query(async ({ input }) => {
+      const db = getDb();
+      return aliquotaSimplesDaNota(db, await carregarNota(db, input.id));
+    }),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */
     previa: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
       const nota = paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role);

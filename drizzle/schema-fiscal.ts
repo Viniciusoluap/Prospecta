@@ -161,3 +161,15 @@ export const fiscalCertificadosHistorico = pgTable("fiscal_certificados_historic
   usuarioId: integer("usuario_id"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// EPIC-029 S-8 (22/11/2026) — folha dos 12 meses (Fator R) e início de atividade, por EMPRESA (raiz do CNPJ), migração
+// 0168_fiscal_folha_fator_r.sql. Lida com guarda (`to_regclass`) em server/fiscal/simples.ts: sem a tabela, folha "a informar".
+export const fiscalDadosSimples = pgTable("fiscal_dados_simples", {
+  raiz: varchar("raiz", { length: 8 }).primaryKey(),
+  folha12mCentavos: bigint("folha_12m_centavos", { mode: "number" }),
+  folhaAte: varchar("folha_ate", { length: 7 }),
+  inicioAtividade: date("inicio_atividade", { mode: "string" }),
+  atualizadoPor: integer("atualizado_por"),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+export type FiscalDadosSimples = typeof fiscalDadosSimples.$inferSelect;
