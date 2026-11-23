@@ -755,3 +755,17 @@ PRODUÇÃO RESTRITA (homologação) com o A1; validador XSD carregando na Vercel
 2. Folha de 12 meses + início de atividade em "Folha e início (Simples)" (sem a folha, Fator R usa o Anexo V).
 3. Contador: conferir regra do sublimite (ano-calendário) e casas do pAliq; CNO das obras (7.02/7.05 ainda recusadas).
 4. Paridade Santa Fé: correção da cadeia ICP do Jurídico (verificar se o Santa Fé tem o mesmo defeito). Módulo fiscal: o dono faz depois.
+
+## Atualização de 23/11/2026 ~12:35 UTC — incidente da publicação da S-7 e correção do validador XSD
+
+**Incidente:** a publicação de produção do #324 (S-7) deu ERROR na Vercel ("invalid deployment package … symlinked directories"):
+o `includeFiles` do `vercel.json` apontava para `node_modules/.pnpm/xmllint-wasm…` (link simbólico do pnpm). O site ficou na versão
+anterior (S-6) até o hotfix.
+**Concluído:**
+- #325 (f849f57) mesclado: tirou o xmllint-wasm do `includeFiles`. Produção READY (dpl_B5NCrz4kReH5DzQXxArV5BZMtytk) — S-7 no ar.
+- #326 (ramo `claude/epic029-xmllint-embarcado`): validador XSD embarcado em `shared/fiscal/xsd/vendor/xmllint-wasm/` (5.3.0, SHA-256
+  conferidos no carregamento; falha fechado), `server/fiscal/leiaute.ts` carrega dessa cópia; teste `server/fiscal/leiaute-vendor.test.ts`.
+**Testes:** (a) automáticos — 96/96 nos testes fiscais afetados, tsc e vite build limpos; (b) manuais — nenhum; (c) pendente em
+produção — validador carregando na Vercel (só se vê na primeira emissão em produção restrita).
+**Próximo passo exato:** revisão do Codex + prévia READY do #326 → merge → produção READY; depois a pendência 1 da seção anterior
+(decidir com o dono como liberar a emissão de teste).
