@@ -28,7 +28,7 @@ import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
 import { acoesDoPedido, decidir, porNaFila } from "./aprovacoes.js";
 import { FRASE_SO_QUANDO_MARCADA, comoDesfazer, podeExecutarPorOrdemDireta, preparadoPodeIrDireto } from "../../shared/dolores/ordem-direta.js";
-import { provarAlvosDoDono } from "./ordem-direta.js";
+import { provarAlvosDoDono, type Prova } from "./ordem-direta.js";
 import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
 export const VARIAVEL_TOKEN = "DOLORES_PONTE_TOKEN";
@@ -360,8 +360,15 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   // EPIC-025 E11: ordem direta do dono — a ação reversível da lista fechada cujos ALVOS saíram das palavras dele (conferência no
   // servidor, por código). Provado, o resumo não leva o aviso de "pedido surgido durante a leitura" (o alvo não veio da leitura).
-  const ordemDireta = !!c.ordemDireta && podeExecutarPorOrdemDireta(funcao, args)
-    && (await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" }))).ok;
+  const prova = c.ordemDireta && podeExecutarPorOrdemDireta(funcao, args)
+    ? await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" } as Prova))
+    : null;
+  const ordemDireta = prova?.ok === true;
+  // E11b: o nome que ele digitou aponta mais de um cliente/responsável → pergunta curta com os nomes (nada vai para a fila)
+  if (prova && !prova.ok && prova.pergunta) {
+    await registrar("recusada", { funcao, argumentos: args, motivo: `ordem direta: ${prova.motivo}; perguntado qual`, pedidoId: c.pedidoId });
+    return { ...responder(422, { ok: false, nadaFoiFeito: true, erro: `${prova.pergunta} Pergunte isso ao dono, com esses nomes, em uma frase.` }), contamina: true };
+  }
   const ctx: ContextoAcao = { agora: c.agora, autorId: c.autor, mensagemId: c.mensagemId, pedidoId: c.pedidoId, aprovacaoId: null,
     motivoContaminacao: c.contaminado && !ordemDireta ? (c.motivoContaminacao ?? "leitura") : null,
     ...(c.confirmacaoNatural ? { validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS } : {}),
@@ -419,7 +426,7 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       const inicio = Date.now();
       const resultados = diretos.length ? await decidir(diretos, "aprovar", { via: "whatsapp", userId: null, agora: c.agora, mensagemId: c.mensagemId,
         prazoFinal: inicio + c.prazoMs, relogio: () => Date.now(), confirmado: true, motivo: "ordem direta do dono" }) : [];
-      // QA E11 (M2): ligar um grupo diz que lá ela só responde quando marcada; cada frase leva como desfazer, quando existe
+      // QA E11 (M2): ligar um grupo diz que lá ela só responde quando marcada; cada frase leva como desfazer, quando existe (E11b)
       const argsDe = new Map(criados.map((x, i) => [x.codigo, cabem[i]?.argumentos]));
       const feitos = resultados.filter(r => r.ok).map(r => {
         const frase = String(r.natural ?? r.texto).trim().replace(/\.+$/, "");
@@ -433,8 +440,10 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       if (feitos.length) c.aoExecutar?.(feitos);
       await registrar("ok", { funcao, argumentos: args, pedidoId: c.pedidoId,
         resumo: { nivel: "ordem_direta", feitos: feitos.length, naoFeitos: naoFeitos.length, esperando: resto.length, recusados: recusados.length } });
-      const { valor } = limitarResposta(sanitizarResposta({ feito: feitos, naoFeito: naoFeitos, naoPreparados: recusados, ficouEsperando: resto.length }, filtroDaSaida("whatsapp")));
-      return { contamina: true, ...responder(200, { ok: true, nivel: feitos.length ? "feito" : "fila", avisoSeguranca: AVISO_SEGURANCA,
+      // QA R2 N2 (mantido): ao modelo vai só QUANTO foi feito — a frase (com nomes do cadastro) vai ao dono pela linha do sistema
+      const { valor } = limitarResposta(sanitizarResposta({ feitos: feitos.length, naoFeito: naoFeitos, naoPreparados: recusados, ficouEsperando: resto.length }, filtroDaSaida("whatsapp")));
+      // só a contagem volta ao modelo: não contamina — a não ser que volte texto de recusa (pode citar nomes do cadastro)
+      return { contamina: naoFeitos.length > 0 || recusados.length > 0 || resto.length > 0, ...responder(200, { ok: true, nivel: feitos.length ? "feito" : "fila", avisoSeguranca: AVISO_SEGURANCA,
         aviso: feitos.length
           ? "FEITO agora, por ordem direta do dono. O sistema já mostra a ele a linha \"Feito: …\" com o que foi feito: não repita isso, não peça confirmação e não diga que o sistema vai mostrar algo. Se não houver mais nada a dizer, não escreva nada."
           : "NADA foi feito ainda (veja naoFeito). Diga em uma frase curta o motivo, sem pedir \"pode\" você mesma e sem dizer que o sistema vai mostrar algo.", dados: valor }) };

@@ -125,14 +125,20 @@ describe("R2-N1 invertido — texto de terceiro COLADO na mensagem do dono não 
     expect((await fila()).map(i => i.funcao)).toEqual(["criar_tarefa"]);
   });
 
-  it("GARANTIA (EPIC-027 C5 E2): pedido curto e direto do dono espera o \"pode\" — sem ele nada grava; com ele, grava", async () => {
-    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("Vou criar.")];
+  // EPIC-025 E11b: o pedido curto e direto do dono com o texto e os alvos nas palavras dele grava NA HORA (pela mesma fila: resumo +
+  // hash + decidir); o texto que NÃO saiu das palavras dele continua esperando o "pode" (segundo caso)
+  it("GARANTIA (E11b): pedido curto e direto do dono grava na hora; tarefa cujo texto não saiu das palavras dele espera o \"pode\"", async () => {
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("")];
     await chamar(aviso({ texto: "cria uma tarefa para a Bianca ligar para o João amanhã" }));
-    expect(await tarefasDolores()).toEqual([]);
-    expect((await fila()).map(i => i.situacao)).toEqual(["aguardando"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João"]);
+    expect((await fila()).map(i => i.situacao)).toEqual(["executada"]);
+    expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "Ligar para o João"/);
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Cobrar o boleto do fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar.")];
+    await chamar(aviso({ texto: "cria aquela outra tarefa para a Bianca" }));
+    expect(await tarefasDolores()).toHaveLength(1);
     expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
     await chamar(aviso({ texto: "pode" }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João", "Cobrar o boleto do fornecedor"]);
     expect(ultimaResposta()).toMatch(/^Pronto: /);
   });
 });
@@ -146,9 +152,9 @@ describe("R2-N2 invertido — texto de dados que volta de AÇÃO contamina (ou n
       () => texto("Feito."),
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca revisar o contrato." }));
+    // E11b: feita na hora (ordem direta); o resultado ao modelo continua sem o nome do cadastro (só a contagem do que foi feito)
     expect(resultadosAoModelo(1)).not.toContain("SISTEMA");
     expect(resultadosAoModelo(1)).not.toContain("Bianca Souza");
-    await chamar(aviso({ texto: "pode" }));
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Revisar o contrato"]);
   });
 
@@ -208,7 +214,8 @@ describe("R2-N3 invertido — o item da fila mostra TODO o texto que será grava
       () => ferramenta(["criar_tarefa", { titulo: "Ligar para o cartório", responsavel: "Bianca" }]),
       () => texto("Criei a tarefa. A senha: Abc12345xyz não vale; veja http://golpe.example/x"),
     ];
-    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para o cartório." }));
+    // E11b: "aquela tarefa" — o texto não saiu das palavras dele: o caminho do "pode" (com o filtro da pergunta) continua testado
+    await chamar(aviso({ texto: "Dolores, crie aquela tarefa para a Bianca." }));
     expect(resultadosAoModelo(1)).toMatch(/contém um link/);
     const r = ultimaResposta();
     expect(r).toMatch(/Posso fazer isto\?/);

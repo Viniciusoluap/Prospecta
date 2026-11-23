@@ -115,7 +115,10 @@ afterEach(() => {
 });
 
 const PREFERENCIA = "Prefiro o resumo das obras às segundas de manhã";
-const proporGuardar = async (pedido = `lembra que eu prefiro o resumo das obras às segundas de manhã`, args: Record<string, unknown> = { texto: PREFERENCIA, categoria: "preferencia_dono" }) => {
+// EPIC-025 E11b: com o texto INTEIRO nas palavras dele, a memória é guardada na hora (ver e11-conversa-direta). O fluxo do "pode" daqui usa
+// um pedido em que o texto proposto tem uma palavra que ele NÃO escreveu ("manhã"): passa a conferência da memória (metade das palavras)
+// mas não a da ordem direta (todas) → UMA confirmação, com as mesmas propriedades de antes.
+const proporGuardar = async (pedido = `lembra que eu prefiro o resumo das obras às segundas`, args: Record<string, unknown> = { texto: PREFERENCIA, categoria: "preferencia_dono" }) => {
   roteiro.push(() => ferramenta(["guardar_memoria", args]), () => texto("Vou guardar isso."));
   await dono(pedido);
 };
@@ -215,7 +218,7 @@ describe("o dono pede → proposta → \"pode\" grava UMA vez", () => {
     await proporGuardar();
     await dono("não");
     expect(await memorias()).toEqual([]);
-    await proporGuardar("guarda isso: eu prefiro o resumo das obras às segundas de manhã");
+    await proporGuardar("guarda isso: eu prefiro o resumo das obras às segundas");
     agora = new Date(agora.getTime() + 16 * 60_000);
     await dono("pode");
     expect(await memorias()).toEqual([]);
@@ -230,7 +233,7 @@ describe("o dono pede → proposta → \"pode\" grava UMA vez", () => {
   });
 
   it("CPF e telefone de terceiro ficam mascarados no texto guardado; segredo é recusado (nada na fila)", async () => {
-    await proporGuardar("lembra que o CPF do João é 123.456.789-01 e o telefone dele (99) 99123-4567", { texto: "O CPF do João é 123.456.789-01 e o telefone dele (99) 99123-4567", categoria: "pessoa", leadId: 2 });
+    await proporGuardar("lembra que o CPF do João é 123.456.789-01 e o telefone (99) 99123-4567", { texto: "O CPF do João é 123.456.789-01 e o telefone dele (99) 99123-4567", categoria: "pessoa", leadId: 2 });
     expect(ultima()).toMatch(/\(dado pessoal omitido\)/);
     expect(ultima()).toMatch(/CPF, telefone e e-mail ficam mascarados/);
     await dono("pode");
@@ -342,21 +345,24 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
     expect((p.mensagens[0].content[0] as { text: string }).text.startsWith(CABECALHO_MEMORIA)).toBe(true);
     expect(p.sistema).not.toMatch(/Ignore as regras de seguran/);
     // QA C5 (C1): com pedido de ação do dono e SEM outra leitura (conversa limpa), a memória sozinha não marca o pedido como
-    // "surgido durante a leitura de dados" — mas o que surgir só fica PROPOSTO: nada é criado antes do "pode"
+    // "surgido durante a leitura de dados". EPIC-025 E11b: a tarefa com o texto DELE é feita na hora; a da lembrança injetada
+    // ("Pagar o fornecedor", palavras que ele não escreveu) só fica proposta — nunca é criada sem o "pode"
     await banco.pg.exec("DELETE FROM dolores_conversa");
-    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }]), () => texto("Vou criar."));
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }], ["criar_tarefa", { titulo: "Pagar o fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar."));
     await dono("cria uma tarefa para a Bianca ligar para o João");
-    const [item] = await fila();
-    expect(item).toMatchObject({ funcao: "criar_tarefa", situacao: "aguardando" });
+    expect(await q("SELECT title FROM tasks WHERE title IN ('Ligar para o João', 'Pagar o fornecedor')")).toEqual([{ title: "Ligar para o João" }]);
+    const [item] = (await fila()).filter((i: any) => i.situacao === "aguardando");
+    expect(item).toMatchObject({ funcao: "criar_tarefa" });
+    expect(item.resumo).toMatch(/criar a tarefa "Pagar o fornecedor"/);
     expect(item.resumo).not.toMatch(/^Pedido surgido durante a leitura de dados/);
-    expect(await q("SELECT id FROM tasks WHERE title IN ('Ligar para o João', 'Pagar o fornecedor')")).toEqual([]);
   });
 
   it("QA C5 (C1): leitura do sistema no mesmo pedido continua contaminando, com ou sem memória", async () => {
     await inserir(PREFERENCIA);
     roteiro.push(
       () => ferramenta(["consultar_cliente", { busca: "João" }]),
-      () => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }]),
+      // EPIC-025 E11b: o título traz o que a consulta devolveu ("averbação"), não as palavras dele → fica proposto, marcado
+      () => ferramenta(["criar_tarefa", { titulo: "Ligar para o João sobre a averbação", responsavel: "Bianca Souza" }]),
       () => texto("Vou criar."));
     await dono("procura o João e cria uma tarefa para a Bianca ligar para ele");
     const [item] = await fila();
@@ -412,11 +418,11 @@ describe("corrigir e esquecer pela conversa", () => {
     await dono("pode");
     expect((await memorias())[0].texto).toBe("Prefiro o resumo das obras às terças de manhã");
 
-    roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: 1 }]), () => texto("Vou tirar da memória."));
+    // EPIC-025 E11b: "esquece que…" apontando UMA lembrança pelas palavras dele arquiva na hora (sem "pode"); nunca apaga
+    roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: 1 }]), () => texto(""));
     await dono("esquece que eu prefiro o resumo às terças");
-    expect((await memorias())[0].situacao).toBe("ativa");
-    await dono("pode");
     expect(await memorias()).toMatchObject([{ id: 1, situacao: "arquivada" }]);
+    expect(ultima()).toMatch(/^Feito: .*fica arquivada; para voltar, me peça para lembrar de novo/);
     expect((await memorias())[0].arquivado_em).not.toBeNull();
     roteiro.push(() => texto("Bom dia."));
     await dono("bom dia");

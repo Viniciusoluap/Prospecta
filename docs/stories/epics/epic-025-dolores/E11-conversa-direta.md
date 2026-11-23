@@ -85,14 +85,36 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 - [x] AC5 — Sério: "confirmo" uma vez executa uma vez; a IA não pede "pode" ela mesma.
 - [x] AC6 — Adversariais: nome de grupo com instrução, homônimo, grupo copiado, encaminhada, anexo, verbo de outra função, aceitar
   sem código, ligar a resposta → nada executa sem a confirmação de sempre.
-- [ ] AC7 — Ordem direta também para criar tarefa, registrar acompanhamento, memória e silenciar aviso (ver "Não feito").
+- [x] AC7 — (E11b) Ordem direta também para criar tarefa, registrar acompanhamento, guardar/corrigir/esquecer memória e silenciar aviso.
 
-## Não feito nesta entrega (próximo passo: E11b)
+## E11b — registros por ordem direta (autorização do dono de 23/11)
 
-- **Tarefa, acompanhamento, memória e silenciar aviso** continuam com o "pode". O mecanismo está pronto (basta pôr na lista
-  `podeExecutarPorOrdemDireta` e, em `provarAlvosDoDono`, conferir o texto com `veioDasPalavrasDoDono` e o vínculo como o cliente
-  acima), mas ~150 testes existentes (E2, E3, memória, mesas, avisos) usam a tarefa como o veículo do "pode"; mudá-la exige
-  reescrever esses testes com outro veículo. Fica para a E11b, com o portão de QA.
+- Lista fechada ampliada: `criar_tarefa`, `registrar_acompanhamento`, `guardar_memoria`, `corrigir_memoria`, `esquecer_memoria`,
+  `silenciar_aviso`. Prova no servidor (`provarRegistro`, server/dolores/ordem-direta.ts):
+  - **texto gravado** (título, descrição, anotação, lembrança): `textoSaiuDoDono` = `veioDasPalavrasDoDono` E **todas** as palavras de
+    conteúdo na mensagem dele (nenhuma palavra lida de documento/consulta). Senão → UMA confirmação.
+  - **cliente** (vínculo da tarefa, anotação, lembrança): "cliente N" escrito ou UM cliente pelas palavras dele; empate → pergunta
+    curta com os NOMES (nada vai para a fila); corte de 300 → ambíguo.
+  - **responsável**: o nome pedido está nas palavras dele e aponta UMA pessoa da equipe (a mesma que as palavras dele apontam);
+    empate → pergunta com os nomes.
+  - **lembrança** a corrigir/esquecer: a ATIVA que as palavras dele apontam (uma só).
+  - **aviso**: o tipo (nome ou rótulo) e a direção ("para/silencia" × "volta/religa") nas palavras dele.
+  - intenção pela palavra da função ("tarefa", "anota/registra", memória pelo reconhecimento que já existia, "avisa/silencia");
+    negação, colagem, anexo, encaminhada e "pode" solto → nunca ordem direta.
+- A linha "Feito: …" diz como desfazer onde existe (tarefa: "cancele em Tarefas"; memória: "me peça para esquecer/corrigir/lembrar
+  de novo"; aviso: "é só pedir"); anotação no histórico não tem desfazer pela conversa — a linha não promete.
+- Ao modelo volta só a CONTAGEM do que foi feito (a frase com nomes do cadastro vai ao dono pela linha do sistema — QA R2 N2).
+- O teto de ações por comando (10) e os tetos de gasto continuam valendo (testado: 11 tarefas pedidas → 10 feitas).
+
+### Testes alterados (o veículo do "pode" mudou; nenhuma propriedade deixou de ser testada)
+
+Ver a tabela no relatório da E11b e o Change Log. Regra geral: onde a tarefa/memória/aviso era só o VEÍCULO do "pode", o pedido passou
+a ser um em que o texto proposto NÃO saiu das palavras do dono ("cria aquela tarefa para a Bianca") — o caminho da confirmação
+continua igual e todas as propriedades (A1, substituição, concorrência, vencimento, terceiros, encaminhada, colagem, auditoria,
+máscara, filtro da pergunta) continuam testadas. Onde o teste afirmava "o pedido direto do dono espera o pode", ele passou a afirmar a
+regra nova (feito na hora) e, quando a propriedade era de contaminação, o texto proposto passou a trazer uma palavra da leitura.
+
+## Não feito
 - A lista dos itens da fila aguardando **não** vai como bloco no contexto do modelo (a resolução por nome é por código; a IA vê o
   que o sistema perguntou pela memória da conversa).
 - O código dos grupos continua saindo da memória da conversa (`semCodigosReais`); a IA o vê pela consulta de grupos.
@@ -125,5 +147,6 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 
 ## Change Log
 
+- 23/11/2026 — @dev (Dex): E11b — ordem direta para tarefa, anotação, memória e aviso; testes do "pode" migrados de veículo.
 - 23/11/2026 — @dev (Dex): achados do portão de QA E11 (I1, I1b, I2, M1–M4, B2, qualidade) corrigidos; regressões no e11.
 - 23/11/2026 — @dev (Dex): story escrita com as causas confirmadas no código; Ready → InProgress → InReview (implementação + testes).

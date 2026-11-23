@@ -53,7 +53,9 @@ const texto = (t: string): RespostaModelo => ({ stop_reason: "end_turn", usage: 
 const respostasAoDono = () => enviar.mock.calls.map(c => c[0] as { numero: string; texto: string }).filter(m => m.numero === DONO);
 const ultima = () => respostasAoDono().at(-1)?.texto ?? "";
 const TAREFA = { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" };
-const proporTarefa = async (pedido = "cria uma tarefa para a Bianca ligar para o João amanhã") => {
+// EPIC-025 E11b: a ordem direta do dono (texto e alvos das palavras dele) faz na hora. O fluxo do "pode" testado aqui usa a tarefa cujo
+// TEXTO não saiu das palavras dele ("aquela tarefa"): continua pedindo UMA confirmação — as propriedades do "pode" seguem as mesmas.
+const proporTarefa = async (pedido = "cria aquela tarefa para a Bianca") => {
   roteiro.push(() => ferramenta(["criar_tarefa", TAREFA]), () => texto("Vou criar a tarefa para a Bianca ligar para o João amanhã."));
   await dono(pedido);
 };

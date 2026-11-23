@@ -151,7 +151,7 @@ describe("QA item 1 — envio em várias mensagens", () => {
     comTarefa();
     // o 1º envio demora até restar menos que MINIMO_PARA_ENVIAR_MS do prazo do aviso
     enviar.mockImplementationOnce(async () => { relogio += 44_000; return true; });
-    const r = await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
+    const r = await chamar(aviso("Dolores, crie aquela tarefa para a Bianca e liste tudo."));
     expect(enviar).toHaveBeenCalledTimes(1);
     const primeira = enviar.mock.calls[0][0].texto as string;
     // EPIC-027 C5 (E2): o quadro do sistema agora é a pergunta "pode" (a tarefa espera o dono) — e ela continua indo na 1ª mensagem
@@ -168,7 +168,7 @@ describe("QA item 1 — envio em várias mensagens", () => {
     comTarefa();
     // depois do 1º envio, resta tempo para uma mensagem, mas não para as duas que faltam
     enviar.mockImplementationOnce(async () => { relogio = 1_000_000 + PRAZO_TOTAL_MS - 2_000; return true; });
-    await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
+    await chamar(aviso("Dolores, crie aquela tarefa para a Bianca e liste tudo."));
     const enviados = enviar.mock.calls.map(c => c[0].texto as string);
     expect(enviados).toHaveLength(2);
     expect(enviados[0]).toMatch(/\*Posso fazer isto\?\*/);
@@ -182,7 +182,7 @@ describe("QA item 1 — envio em várias mensagens", () => {
   it("A1: a 2ª parte falhou no envio — uma mensagem curta avisa que faltou parte (e a auditoria registra)", async () => {
     comTarefa();
     enviar.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-    await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
+    await chamar(aviso("Dolores, crie aquela tarefa para a Bianca e liste tudo."));
     const enviados = enviar.mock.calls.map(c => c[0]);
     expect(enviados).toHaveLength(3);
     expect(enviados[2].texto).toBe(AVISO_FALTOU_PARTE);
@@ -194,7 +194,7 @@ describe("QA item 1 — envio em várias mensagens", () => {
   it("revisão automática (C): entrega incompleta — a memória guarda só o que saiu do texto do modelo (sem os quadros), com a marca", async () => {
     comTarefa();
     enviar.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-    await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11 e liste tudo."));
+    await chamar(aviso("Dolores, crie aquela tarefa para a Bianca e liste tudo."));
     const enviados = enviar.mock.calls.map(c => c[0].texto as string);
     const [linha] = await q<{ texto: string }>("SELECT texto FROM dolores_conversa WHERE origem = 'resposta' ORDER BY id DESC LIMIT 1");
     expect(linha.texto).toContain(MARCA_ENTREGA_INCOMPLETA);
@@ -246,7 +246,8 @@ describe("QA item 2 — parcial em max_tokens", () => {
         input: { titulo: "Cobrar certidão no cartório", responsavel: "Bianca Souza", prazo: "2026-11-20", vinculo: { tipo: "cliente", id: 2 } } }] }),
       () => ({ stop_reason: "max_tokens", usage: uso, content: [{ type: "text", text: "Pronto, criei duas tarefas.\nE agora a segunda" }, { type: "tool_use", id: "tu_2", name: "criar_tarefa", input: {} }] }),
     ];
-    await chamar(aviso("Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11."));
+    // E11b: "aquela tarefa" (texto que não saiu das palavras dele) mantém a tarefa como PROPOSTA — o quadro do sistema continua testado
+    await chamar(aviso("Dolores, crie aquela tarefa para a Bianca."));
     // EPIC-027 C5 (E2): a tarefa foi PROPOSTA antes do corte (item esperando o "pode")
     expect(await q("SELECT id FROM dolores_acoes WHERE funcao = 'criar_tarefa' AND resultado = 'ok'")).toHaveLength(1);
     expect(await q("SELECT id FROM dolores_aprovacoes WHERE situacao = 'aguardando'")).toHaveLength(1);

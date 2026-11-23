@@ -13,9 +13,13 @@
 import { and, desc, eq, gt, isNull, or, sql, type SQL } from "drizzle-orm";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, type DoloresGrupo } from "../../drizzle/schema-dolores-grupos.js";
+import { doloresMemoriaLonga } from "../../drizzle/schema-dolores-memoria-longa.js";
+import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
+import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, escolherPorNome, exigeCodigoDigitado, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta, tipoDitoPeloDono,
+  codigoCitado, direcaoDoAvisoDita, escolherPorNome, exigeCodigoDigitado, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  textoSaiuDoDono, tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
@@ -69,8 +73,103 @@ export async function clienteDoNomeDoGrupo(g: Pick<DoloresGrupo, "nome" | "nomeW
 /** O dono pôs a Dolores no grupo (ou o grupo foi cadastrado à mão pela equipe)? */
 export const grupoDoDono = (g: { adicionadoPor?: string | null; origem?: string | null }) => g.adicionadoPor === "dono" || g.origem === "manual";
 
-export type Prova = { ok: true } | { ok: false; motivo: string };
-const nao = (motivo: string): Prova => ({ ok: false, motivo });
+/**
+ * `pergunta` (E11b): o nome que ele digitou aponta MAIS de um cliente/responsável — em vez de uma confirmação com um deles, a Dolores
+ * pergunta qual, com os nomes (texto do sistema). Nada é posto na fila.
+ */
+export type Prova = { ok: true } | { ok: false; motivo: string; pergunta?: string };
+const nao = (motivo: string, pergunta?: string): Prova => ({ ok: false, motivo, ...(pergunta ? { pergunta } : {}) });
+const SIM: Prova = { ok: true };
+const nomesEntreAspas = (nomes: ReadonlyArray<string | null>) => {
+  const l = nomes.slice(0, 5).map(n => `«${String(n ?? "(sem nome)").replace(/[«»\r\n]/g, " ").trim().slice(0, 60)}»`);
+  return l.length > 1 ? `${l.slice(0, -1).join(", ")} ou ${l.at(-1)}` : l.join("");
+};
+
+/** Cliente (lead) apontado pelas palavras dele: "cliente N"/"nº N", ou UM cliente ativo pelo nome; empate → pergunta com os nomes. */
+async function provarCliente(leadId: unknown, textoDoDono: string, palavras: string[]): Promise<Prova> {
+  const id = Number(leadId);
+  if (!Number.isSafeInteger(id) || id <= 0) return nao("sem cliente");
+  if (numeroCitado(textoDoDono, id)) return SIM;
+  const achados = await clientesPelasPalavras(palavras);
+  // QA E11 (B2): passou do teto → ambíguo
+  if (achados.cortado) return nao("nome comum demais: muitos clientes");
+  const candidatos = achados.clientes;
+  const e = escolherPorNome(palavras, candidatos);
+  if (e.escolhido === id) return SIM;
+  if (e.empatados.length > 1 && e.empatados.includes(id)) {
+    return nao("o nome aponta mais de um cliente", `Qual cliente: ${nomesEntreAspas(candidatos.filter(c => e.empatados.includes(c.id)).map(c => c.nome))}? Nada foi feito ainda.`);
+  }
+  return nao("o cliente não saiu das palavras do dono");
+}
+
+async function provarObra(obraId: unknown, textoDoDono: string, palavras: string[]): Promise<Prova> {
+  const id = Number(obraId);
+  if (!Number.isSafeInteger(id) || id <= 0) return nao("sem obra");
+  if (numeroCitado(textoDoDono, id)) return SIM;
+  const obras = palavras.length ? await bancoDaLeitura().select({ id: constructionProjects.id, nome: constructionProjects.title }).from(constructionProjects)
+    .where(or(...palavras.slice(0, 8).map(p => contem(sql`${constructionProjects.title}`, p)))).limit(MAX_CANDIDATOS_POR_PALAVRA) : [];
+  return escolherPorNome(palavras, obras).escolhido === id ? SIM : nao("a obra não saiu das palavras do dono");
+}
+
+/** Responsável da tarefa: o nome pedido resolve para UM usuário da equipe e é esse que as palavras dele apontam (empate → pergunta). */
+async function provarResponsavel(responsavel: unknown, palavras: string[]): Promise<Prova> {
+  const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
+  const pedido = palavrasQueIdentificam(String(responsavel ?? ""));
+  if (!pedido.some(p => palavras.includes(p))) return nao("o responsável não saiu das palavras do dono");
+  const e = escolherPorNome(palavras, equipe.map(u => ({ id: u.id, nome: u.name })));
+  if (e.empatados.length > 1) return nao("o nome aponta mais de uma pessoa da equipe", `Para quem é a tarefa: ${nomesEntreAspas(equipe.filter(u => e.empatados.includes(u.id)).map(u => u.name))}? Nada foi feito ainda.`);
+  const doPedido = escolherPorNome(pedido, equipe.map(u => ({ id: u.id, nome: u.name }))).escolhido;
+  return e.escolhido !== null && e.escolhido === doPedido ? SIM : nao("o responsável não é o que o dono disse");
+}
+
+/** A lembrança (corrigir/esquecer) que as palavras dele apontam entre as ATIVAS. */
+async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<Prova> {
+  const id = Number(memoriaId);
+  if (!Number.isSafeInteger(id) || id <= 0) return nao("sem lembrança");
+  const ativas = await bancoDaLeitura().select({ id: doloresMemoriaLonga.id, nome: doloresMemoriaLonga.texto }).from(doloresMemoriaLonga)
+    .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(500);
+  return escolherPorNome(palavras, ativas).escolhido === id ? SIM : nao("a lembrança não saiu das palavras do dono");
+}
+
+/** E11b — os registros (tarefa, anotação, memória, aviso): texto gravado e alvos das palavras do dono. */
+async function provarRegistro(funcao: string, a: Record<string, unknown>, textoDoDono: string, palavras: string[]): Promise<Prova> {
+  switch (funcao) {
+    case "criar_tarefa": {
+      if (!textoSaiuDoDono(String(a.titulo ?? ""), textoDoDono)) return nao("o título da tarefa não saiu das palavras do dono");
+      if (a.descricao && !textoSaiuDoDono(String(a.descricao), textoDoDono)) return nao("a descrição não saiu das palavras do dono");
+      const quem = await provarResponsavel(a.responsavel, palavras);
+      if (!quem.ok) return quem;
+      const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
+      if (!v) return SIM;
+      return v.tipo === "cliente" ? provarCliente(v.id, textoDoDono, palavras) : v.tipo === "obra" ? provarObra(v.id, textoDoDono, palavras) : nao("vínculo inválido");
+    }
+    case "registrar_acompanhamento": {
+      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("a anotação não saiu das palavras do dono");
+      // "ligação" só quando ele disse que ligou
+      if (a.tipo === "ligacao" && !/\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(textoDoDono.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase())) return nao("o dono não disse que houve ligação");
+      return provarCliente(a.leadId, textoDoDono, palavras);
+    }
+    case "guardar_memoria": {
+      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("a lembrança não saiu das palavras do dono");
+      if (a.leadId) return provarCliente(a.leadId, textoDoDono, palavras);
+      if (a.obraId) return provarObra(a.obraId, textoDoDono, palavras);
+      return SIM;
+    }
+    case "corrigir_memoria": {
+      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("o texto novo não saiu das palavras do dono");
+      return provarMemoria(a.memoriaId, palavras);
+    }
+    case "esquecer_memoria": return provarMemoria(a.memoriaId, palavras);
+    case "silenciar_aviso": {
+      if (typeof a.silenciar !== "boolean" || !direcaoDoAvisoDita(a.silenciar, textoDoDono)) return nao("a direção (parar/voltar) não é a que o dono disse");
+      const i = (TIPOS_AVISO as readonly string[]).indexOf(String(a.tipo));
+      if (i < 0) return nao("tipo de aviso inválido");
+      const tipos = TIPOS_AVISO.map((t, j) => ({ id: j + 1, nome: `${t.replace(/_/g, " ")} ${ROTULO_TIPO_AVISO[t]}` }));
+      return escolherPorNome(palavras, tipos).escolhido === i + 1 ? SIM : nao("o tipo de aviso não saiu das palavras do dono");
+    }
+    default: return nao("função fora da lista");
+  }
+}
 
 /**
  * A ação reversível `funcao(argumentos)` (como o modelo pediu) tem a intenção e os alvos nas palavras do dono (`textoDoDono`)?
@@ -81,6 +180,7 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, tex
     if (!podeExecutarPorOrdemDireta(funcao, argumentos)) return nao("função fora da lista da ordem direta");
     if (!intencaoDaFuncao(funcao, textoDoDono)) return nao("a mensagem do dono não tem o verbo desta ação");
     const a = (argumentos ?? {}) as { grupoId?: unknown; tipo?: unknown; leadId?: unknown; obraId?: unknown };
+    if (!String(funcao).endsWith("_grupo")) return await provarRegistro(funcao, a as Record<string, unknown>, textoDoDono, palavrasQueIdentificam(textoDoDono));
     const grupoId = Number(a.grupoId);
     if (!Number.isSafeInteger(grupoId) || grupoId <= 0) return nao("grupo inválido");
     const cfg = await lerConfigWhatsapp().catch(() => null);

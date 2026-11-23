@@ -48,7 +48,9 @@ const ferramenta = (...chamadas: Array<[string, unknown]>): RespostaModelo => ({
 const texto = (t: string): RespostaModelo => ({ stop_reason: "end_turn", usage: uso, content: [{ type: "text", text: t }] });
 const respostasAoDono = () => enviar.mock.calls.map(c => c[0] as { numero: string; texto: string }).filter(m => m.numero === DONO);
 const ultima = () => respostasAoDono().at(-1)?.texto ?? "";
-const proporTarefa = async (titulo = "Ligar para o João", pedido = "cria uma tarefa para a Bianca ligar para o João amanhã") => {
+// EPIC-025 E11b: o veículo do "pode" é a tarefa cujo TEXTO não saiu das palavras do dono ("aquela tarefa") — ordem direta não vale e as
+// propriedades do "pode" (A1, substituição, concorrência…) continuam testadas
+const proporTarefa = async (titulo = "Ligar para o João", pedido = "cria aquela tarefa para a Bianca") => {
   roteiro.push(() => ferramenta(["criar_tarefa", { titulo, responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("Vou criar a tarefa."));
   await dono(pedido);
 };
@@ -115,7 +117,7 @@ describe("QA 1 — quem confirma", () => {
     await proporTarefa("Ligar para o João");
     const viuA = new Date(agora.getTime() + 10_000); // o dono responde "pode" à proposta A…
     agora = new Date(agora.getTime() + 60_000);
-    await proporTarefa("Cobrar o Pedro", "cria uma tarefa para a Bianca cobrar o Pedro"); // …mas o webhook entrega B antes do "pode"
+    await proporTarefa("Cobrar o Pedro", "cria a outra tarefa para a Bianca"); // …mas o webhook entrega B antes do "pode"
     expect((await pendencias()).map(p => p.situacao)).toEqual(["substituida", "aberta"]);
     await chamar(direta("pode", { quando: viuA })); // escrito antes de a pergunta de B existir
     expect(await tarefasDolores()).toEqual([]); // nada executa
@@ -192,7 +194,7 @@ describe("QA 2 — o que executa", () => {
 
   it("proposta substituída não executa; \"pode\" faz só a última, e só uma vez", async () => {
     await proporTarefa("Primeira");
-    await proporTarefa("Segunda", "cria uma tarefa para a Bianca fazer a segunda");
+    await proporTarefa("Segunda", "cria a outra tarefa para a Bianca");
     expect(ultima()).toMatch(/A proposta anterior ficou de lado/);
     await dono("pode");
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["Segunda"]);
@@ -247,7 +249,7 @@ describe("QA 3 — injeção e resumo do sistema", () => {
   it("memória da conversa com leitura anterior: a proposta seguinte leva o aviso \"confira\" no resumo", async () => {
     roteiro.push(() => ferramenta(["consultar_cliente", { busca: "Maria" }]), () => texto("A Maria Trello está em atendimento."));
     await dono("como está a Maria?");
-    await proporTarefa("Ligar para a Maria", "cria uma tarefa para a Bianca ligar para a Maria");
+    await proporTarefa("Ligar para a Maria", "cria aquela tarefa para a Bianca");
     expect(ultima()).toMatch(/- Pedido surgido durante a leitura de dados; confira antes de aprovar: criar a tarefa "Ligar para a Maria"/);
   });
 });

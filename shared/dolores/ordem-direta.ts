@@ -13,6 +13,7 @@
 // - O que é sério (nota fiscal, cobrança, mensagem a terceiro, dinheiro, tipos que liberam mais, ligar a resposta num grupo, aceitar
 //   grupo sem o código digitado) continua pedindo "confirmo"/"pode" como antes (shared/dolores/confirmacao.ts, intacto).
 import { normalizarNome } from "./grupos-tipo.js";
+import { intencaoDeMemoria, palavrasDeConteudo, veioDasPalavrasDoDono } from "./memoria-longa.js";
 
 /** Palavras que aparecem em nome de grupo/cliente mas não identificam ninguém (nunca contam para escolher um alvo). */
 export const PALAVRAS_GENERICAS: ReadonlySet<string> = new Set([
@@ -78,6 +79,9 @@ export function podeExecutarPorOrdemDireta(funcao: string, argumentos: unknown):
     case "ignorar_grupo": case "aceitar_grupo": return true;
     // desligar a resposta (literalmente false) só a deixa calada; LIGAR amplia o que ela fala — continua com a confirmação
     case "ligar_resposta_grupo": return a.ligado === false;
+    // EPIC-025 E11b (autorização do dono de 23/11): registros reversíveis — o TEXTO gravado e os alvos também são conferidos no servidor
+    case "criar_tarefa": case "registrar_acompanhamento": case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria": return true;
+    case "silenciar_aviso": return typeof a.silenciar === "boolean" && typeof a.tipo === "string";
     default: return false;
   }
 }
@@ -90,9 +94,16 @@ const INTENCAO: Readonly<Record<string, RegExp>> = {
   aceitar_grupo: /\baceit\w*/,
   ignorar_grupo: /\b(?:ignor\w*|deix\w* de lado|desativ\w*)\b/,
   ligar_resposta_grupo: /\b(?:deslig\w*|par\w* de respond\w*|nao respond\w*|cal(?:ar|a|e|ada))\b/,
+  // E11b
+  criar_tarefa: /\btarefas?\b/,
+  registrar_acompanhamento: /\b(?:anot\w*|registr\w*|acompanhamento|historico)\b/,
+  silenciar_aviso: /\b(?:avis\w*|silenci\w*|relig\w*)\b/,
 };
+/** E11b: memória usa o reconhecimento que já existia ("lembra que…", "esquece que…", "corrige…"). */
+const FUNCOES_DE_MEMORIA = new Set(["guardar_memoria", "corrigir_memoria", "esquecer_memoria"]);
 export function intencaoDaFuncao(funcao: string, textoDoDono: string | null | undefined): boolean {
   if (negaAcao(textoDoDono)) return false;
+  if (FUNCOES_DE_MEMORIA.has(funcao)) return intencaoDeMemoria(textoDoDono);
   const r = INTENCAO[funcao];
   if (!r) return false;
   const t = String(textoDoDono ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -196,6 +207,30 @@ export function ehPedidoDeDesfazer(texto: string | null | undefined): boolean {
   return /^(?:dolores )?(?:pode )?(?:desfaz|desfaca|desfazer|desfaz isso|desfaca isso|desfazer isso|volta atras|desfaz o ultimo|desfaz a ultima)$/.test(n);
 }
 
+/** Portão de QA E11 (M2): o que a linha "Feito" diz quando liga um grupo (a resposta lá continua só quando marcada). */
+export const FRASE_SO_QUANDO_MARCADA = "Lá eu só respondo quando me marcarem";
+
+// ── E11b: texto do dono, aviso e como desfazer ──
+
+/**
+ * O texto que será GRAVADO (título da tarefa, descrição, anotação, lembrança) saiu das palavras do dono NAQUELA mensagem? Por código: a
+ * regra da memória (`veioDasPalavrasDoDono`) e, mais rígido, TODA palavra de conteúdo (4+ letras, fora a moldura "prefere", "para"…)
+ * tem de estar na mensagem dele — o modelo não pode acrescentar uma palavra lida de um documento ou de uma consulta.
+ */
+export function textoSaiuDoDono(texto: string | null | undefined, textoDoDono: string, extras: readonly string[] = []): boolean {
+  const t = String(texto ?? "");
+  if (!t.trim()) return true;
+  if (!veioDasPalavrasDoDono(t, textoDoDono, extras)) return false;
+  const doDono = new Set([...palavrasDeConteudo(textoDoDono), ...extras.flatMap(palavrasDeConteudo)]);
+  return palavrasDeConteudo(t).every(p => doDono.has(p));
+}
+
+/** silenciar_aviso: a direção (parar / voltar) bate com o que ele escreveu. */
+export function direcaoDoAvisoDita(silenciar: boolean, textoDoDono: string | null | undefined): boolean {
+  const n = normalizarNome(textoDoDono);
+  return silenciar ? /\b(?:par\w*|silenci\w*|chega|deix\w* de|nao (?:me )?avis\w*|sem avis\w*)\b/.test(n) : /\b(?:volt\w*|relig\w*)\b/.test(n);
+}
+
 /** Como desfazer, por função (só onde existe um jeito de verdade). Texto do SISTEMA. */
 export function comoDesfazer(funcao: string, argumentos?: unknown, codigoDoGrupo?: string | null): string | null {
   const a = (argumentos && typeof argumentos === "object" ? argumentos : {}) as Record<string, unknown>;
@@ -203,9 +238,11 @@ export function comoDesfazer(funcao: string, argumentos?: unknown, codigoDoGrupo
     case "classificar_grupo": return codigoDoGrupo ? `se não for esse, me diga o cliente certo; para eu sair de lá, «grupo ${codigoDoGrupo} ignorar»` : "se não for esse, me diga o cliente certo";
     case "ignorar_grupo": return "para voltar, me peça para ligar o grupo de novo";
     case "ligar_resposta_grupo": return a.ligado === false ? "para voltar, me peça para ligar a resposta de novo" : null;
+    case "criar_tarefa": return "para desfazer, cancele em Tarefas";
+    case "guardar_memoria": return "para desfazer, me peça para esquecer";
+    case "corrigir_memoria": return "para desfazer, me peça para corrigir de novo";
+    case "esquecer_memoria": return "fica arquivada; para voltar, me peça para lembrar de novo";
+    case "silenciar_aviso": return a.silenciar === false ? "para parar de novo, é só pedir" : "para voltar, é só pedir";
     default: return null;
   }
 }
-
-/** Portão de QA E11 (M2): o que a linha "Feito" diz quando liga um grupo (a resposta lá continua só quando marcada). */
-export const FRASE_SO_QUANDO_MARCADA = "Lá eu só respondo quando me marcarem";

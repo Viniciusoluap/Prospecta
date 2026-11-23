@@ -120,16 +120,17 @@ describe("teste de aceite da etapa 3 pelo WhatsApp", () => {
     expect(acoes.slice(1).map(a => a.pedido_id)).toEqual(itens.map(i => `fila:${i.codigo}`));
   });
 
-  it("tarefa pedida pelo dono (EPIC-027 C5 E2): espera o \"pode\"; com ele, é criada e a resposta diz o que foi feito", async () => {
+  // EPIC-025 E11b: ordem direta do dono (texto e alvos das palavras dele) é feita na hora; o fluxo do "pode" continua coberto em
+  // c5-e2-resolve/c5-e2-qa (tarefa cujo texto NÃO saiu das palavras dele) e pela cobrança acima (séria)
+  it("tarefa pedida pelo dono, com o texto e o cliente nas palavras dele (E11b): criada na hora e a resposta diz o que foi feito", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Cobrar certidão no cartório", responsavel: "Bianca Souza", prazo: "2026-11-20", vinculo: { tipo: "cliente", id: 2 } }]),
       () => texto("Vou criar a tarefa para a Bianca."),
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11." }));
-    expect(ultimaResposta()).toMatch(/\*Posso fazer isto\?\*\n- criar a tarefa "Cobrar certidão no cartório" para Bianca Souza/);
-    expect(await q("SELECT * FROM tasks WHERE title = 'Cobrar certidão no cartório'")).toEqual([]);
-    await chamar(aviso({ texto: "pode" }));
-    expect(ultimaResposta()).toMatch(/^Pronto: Tarefa #\d+ "Cobrar certidão no cartório" para Bianca Souza \(20\/11\/2026; cliente João Atrasado\)/);
+    expect(await q("SELECT title FROM tasks WHERE title = 'Cobrar certidão no cartório'")).toHaveLength(1);
+    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "Cobrar certidão no cartório" para Bianca Souza \(20\/11\/2026; cliente João Atrasado\) \(para desfazer, cancele em Tarefas\)/);
+    expect(ultimaResposta()).not.toMatch(/Posso fazer isto/);
   });
 });
 

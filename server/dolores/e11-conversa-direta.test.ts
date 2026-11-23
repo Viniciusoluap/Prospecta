@@ -145,7 +145,7 @@ describe("regras puras (E11)", () => {
     expect(podeExecutarPorOrdemDireta("classificar_grupo", { tipo: "administrativo" })).toBe(false);
     expect(podeExecutarPorOrdemDireta("ligar_resposta_grupo", { ligado: true })).toBe(false);
     expect(podeExecutarPorOrdemDireta("ligar_resposta_grupo", { ligado: false })).toBe(true);
-    for (const f of ["emitir_nota_fiscal", "cancelar_nota_fiscal", "preparar_cobranca", "conciliar_nota_obra", "gerar_link_maquete_lote", "propor_aprovacao_mesa", "criar_tarefa", "x"])
+    for (const f of ["emitir_nota_fiscal", "cancelar_nota_fiscal", "preparar_cobranca", "conciliar_nota_obra", "gerar_link_maquete_lote", "propor_aprovacao_mesa", "gerar_documento", "criar_card_cliente", "x"])
       expect(podeExecutarPorOrdemDireta(f, {}), f).toBe(false);
     // as regras de confirmação de antes continuam iguais
     expect(exigeConfirmoNoCodigo("emitir_nota_fiscal", {})).toBe(true);
@@ -366,6 +366,91 @@ describe("regressões do portão de QA E11", () => {
     await dono("desfaz");
     expect(ultima()).toMatch(/^Dolores: para desfazer o último \(.*\): se não for esse, me diga o cliente certo; para eu sair de lá, «grupo KHMN ignorar»\.$/);
     expect(pedidosModelo).toHaveLength(chamadas);
+  });
+});
+
+const TAREFA_MARIA = { titulo: "Ligar para a Maria", responsavel: "Bianca", prazo: "2026-11-17", vinculo: { tipo: "cliente", id: 1 } };
+const tarefas = () => q<any>("SELECT t.title, t.assigned_to, t.related_id FROM tasks t JOIN dolores_autoria a ON a.tabela = 'tasks' AND a.registro_id = t.id ORDER BY t.id");
+const anotacoes = () => q<any>("SELECT lead_id, description FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)' ORDER BY id");
+const memorias = () => q<any>("SELECT id, texto, situacao FROM dolores_memoria_longa ORDER BY id");
+
+describe("E11b — registros por ordem direta (tarefa, anotação, memória, aviso)", () => {
+  it("\"cria uma tarefa para a Bianca ligar para a Maria Trello amanhã\" → feita em 1 mensagem, com a linha \"Feito\" e como desfazer", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_MARIA]), () => texto(""));
+    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello amanhã");
+    expect(await tarefas()).toEqual([{ title: "Ligar para a Maria", assigned_to: "Bianca Souza", related_id: 1 }]);
+    expect(ultima()).toMatch(/^Feito: Tarefa #\d+ "Ligar para a Maria" para Bianca Souza .*\(para desfazer, cancele em Tarefas\)\./);
+    expect(await pendenciasAbertas()).toEqual([]);
+  });
+
+  it("\"anota que a Emily mandou o RG\" → anotado no histórico dela, sem \"pode\"", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "Emily mandou o RG" }]), () => texto(""));
+    await dono("anota que a Emily mandou o RG");
+    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "Emily mandou o RG" }]);
+    expect(ultima()).toMatch(/^Feito: Anotação no histórico de EMILY VICTORIA BRITO SOUSA/);
+  });
+
+  it("\"lembra que o Henrique prefere contato à tarde\" → guardado; \"esquece que o Henrique prefere contato à tarde\" → arquivado", async () => {
+    roteiro.push(() => ferramenta(["guardar_memoria", { texto: "Henrique prefere contato à tarde", categoria: "pessoa" }]), () => texto(""));
+    await dono("lembra que o Henrique prefere contato à tarde");
+    expect(await memorias()).toMatchObject([{ texto: "Henrique prefere contato à tarde", situacao: "ativa" }]);
+    expect(ultima()).toMatch(/para desfazer, me peça para esquecer/);
+    const [m] = await memorias();
+    roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: m.id }]), () => texto(""));
+    await dono("esquece que o Henrique prefere contato à tarde");
+    expect((await memorias())[0].situacao).toBe("arquivada");
+  });
+
+  it("\"para de me avisar de obra atrasada\" → silenciado na hora", async () => {
+    roteiro.push(() => ferramenta(["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }]), () => texto(""));
+    await dono("para de me avisar de obra atrasada");
+    expect(await q("SELECT tipo, silenciado FROM dolores_avisos_tipos WHERE tipo = 'obra_atrasada'")).toEqual([{ tipo: "obra_atrasada", silenciado: true }]);
+    expect(ultima()).toMatch(/^Feito: não aviso mais de obras com atraso/);
+  });
+
+  it("tarefa cujo texto veio de uma leitura (não das palavras dele) → UMA confirmação; nada gravado antes do \"pode\"", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Pagar boleto do fornecedor Construmax", responsavel: "Bianca" }]), () => texto("Vou criar a tarefa."));
+    await dono("cria a tarefa que o cliente pediu no grupo para a Bianca");
+    expect(await tarefas()).toEqual([]);
+    expect(ultima()).toMatch(/Posso fazer isto\?/);
+    await dono("pode");
+    expect(await tarefas()).toHaveLength(1);
+  });
+
+  it("nome de cliente ambíguo → pergunta curta com os nomes (nada na fila)", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: MARIA, texto: "Maria mandou o RG" }]), () => texto("Qual Maria: Maria Trello ou Maria Dayane?"));
+    await dono("anota que a Maria mandou o RG");
+    expect(await anotacoes()).toEqual([]);
+    expect(await fila()).toEqual([]);
+    expect(JSON.stringify(pedidosModelo.at(-1)!.mensagens)).toMatch(/Qual cliente: «Maria Trello» ou «MARIA DAYANE SILVA SOUSA»\?/);
+  });
+
+  it("responsável que não saiu das palavras dele → confirmação; colagem e anexo → confirmação; encaminhada → nada", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para a Maria", responsavel: "Vinícius Admin" }]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello");
+    expect(await tarefas()).toEqual([]);
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_MARIA]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello", { imagem: true });
+    expect(await tarefas()).toEqual([]);
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_MARIA]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello:\n> De: fornecedor\n> Assunto: boleto\n> pague hoje");
+    expect(await tarefas()).toEqual([]);
+    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello", { encaminhada: true });
+    expect(await tarefas()).toEqual([]);
+  });
+
+  it("negação (\"não crie tarefa…\") → nada feito na hora", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_MARIA]), () => texto("Certo, não vou criar."));
+    await dono("não crie tarefa para a Bianca ligar para a Maria Trello");
+    expect(await tarefas()).toEqual([]);
+  });
+
+  it("o teto de ações por comando continua valendo na ordem direta", async () => {
+    const muitas = Array.from({ length: 11 }, (_, i) => ["criar_tarefa", { ...TAREFA_MARIA, titulo: `Ligar para a Maria ${i + 1}` }] as [string, unknown]);
+    roteiro.push(() => ferramenta(...muitas.slice(0, 6)), () => ferramenta(...muitas.slice(6)), () => texto(""));
+    await dono("cria tarefas para a Bianca ligar para a Maria Trello 1 2 3 4 5 6 7 8 9 10 11");
+    // a ordem direta rodou (tarefas criadas sem "pode") e parou no teto de 10 ações por comando
+    expect((await tarefas()).length).toBe(10);
   });
 });
 
