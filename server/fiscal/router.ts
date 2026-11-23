@@ -4,12 +4,12 @@
 // S-7: emitir/cancelar/buscar alíquotas oficiais chamam a Sefin SÓ pelas funções de server/fiscal/emissao.ts e
 // parametros-municipais.ts, com as travas de lá (EMISSAO_DISPONIVEL, interruptor por emissor, ambiente). DANFSe e XML: só admin.
 import { TRPCError } from "@trpc/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { fiscalConfig, fiscalDadosSimples, fiscalEmissores, fiscalTiposServico } from "../../drizzle/schema-fiscal.js";
 import { MOTIVOS_SEM_NOTA } from "../../shared/fiscal/motivos.js";
 import { ORIGENS_NOTA } from "../../shared/fiscal/origens.js";
-import { STATUS_NOTA } from "../../shared/fiscal/status.js";
+import { FRASE_LIBERAR_EMISSAO, STATUS_NOTA } from "../../shared/fiscal/status.js";
 import { CODIGOS_ATIVIDADE_SIMPLES } from "../../shared/fiscal/dps-campos.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
@@ -172,7 +172,7 @@ export const fiscalRouter = router({
 
     /**
      * S-7: troca do ambiente do emissor. "producao" só com a frase "EMITIR EM PRODUÇÃO" digitada (conferida AQUI, não na tela).
-     * O interruptor `emissao_liberada` NÃO é mexido aqui (nenhuma rota o liga nesta etapa).
+     * O interruptor `emissao_liberada` NÃO é mexido aqui: é a rota `liberarEmissao`, logo abaixo.
      */
     ambiente: adminPorPapel
       .input(z.object({ emissorId: id, ambiente: z.enum(["desligado", "producao_restrita", "producao"]), frase: z.string().max(40).optional() }).strict())
@@ -186,6 +186,37 @@ export const fiscalRouter = router({
         const [salvo] = await db.update(fiscalEmissores).set({ ambiente: input.ambiente, atualizadoPor: ctx.user.id, atualizadoEm: new Date() })
           .where(eq(fiscalEmissores.id, input.emissorId)).returning();
         if (!salvo) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
+        return salvo;
+      }),
+    /**
+     * 23/11/2026 (dono): interruptor da emissão POR EMPRESA (`fiscal_emissores.emissao_liberada`, 2ª trava). Só admin por papel.
+     * LIGAR exige a frase "LIBERAR EMISSÃO" digitada (conferida AQUI: trim e comparação exata) e nenhuma nota da empresa em
+     * "Emitindo"; DESLIGAR não pede frase (é o freio: sempre permitido). Ligar não troca o ambiente: com o ambiente "desligado"
+     * nada sai do mesmo jeito (emissao.ts + gatilho da 0167). Registro: quem/quando no emissor e uma linha de log só com os
+     * números internos (emissor e usuário) — sem CNPJ, nome ou chave.
+     */
+    liberarEmissao: adminPorPapel
+      .input(z.object({ emissorId: id, liberar: z.boolean(), frase: z.string().max(40).optional() }).strict())
+      .mutation(async ({ input, ctx }) => {
+        if (input.liberar && (input.frase ?? "").trim() !== FRASE_LIBERAR_EMISSAO) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Para liberar a emissão desta empresa, digite exatamente: ${FRASE_LIBERAR_EMISSAO}` });
+        }
+        const db = getDb();
+        const emitindo = sql`EXISTS (SELECT 1 FROM fiscal_notas WHERE emissor_id = ${input.emissorId} AND status = 'EMITINDO')`;
+        const FRASE_EMITINDO = "Há uma nota desta empresa sendo emitida. Resolva a emissão antes de liberar a emissão.";
+        if (input.liberar) {
+          const [r] = ((await db.execute(sql`SELECT ${emitindo} AS ok`)) as { rows?: { ok: boolean }[] }).rows ?? [];
+          if (r?.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: FRASE_EMITINDO });
+        }
+        // Ligar: a condição vai também no próprio UPDATE (nota que entrar em "Emitindo" entre a conferência e a gravação).
+        const [salvo] = await db.update(fiscalEmissores).set({ emissaoLiberada: input.liberar, atualizadoPor: ctx.user.id, atualizadoEm: new Date() })
+          .where(input.liberar ? and(eq(fiscalEmissores.id, input.emissorId), sql`NOT ${emitindo}`) : eq(fiscalEmissores.id, input.emissorId)).returning();
+        if (!salvo) {
+          const [existe] = await db.select({ id: fiscalEmissores.id }).from(fiscalEmissores).where(eq(fiscalEmissores.id, input.emissorId)).limit(1);
+          if (!existe) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: FRASE_EMITINDO });
+        }
+        console.info("[fiscal] emissão da empresa", input.liberar ? "liberada" : "desligada", `emissor=${salvo.id}`, `usuario=${ctx.user.id}`);
         return salvo;
       }),
     /** S-7: parâmetros do contador que são da EMPRESA (códigos do leiaute; vazio = ainda não informado). */

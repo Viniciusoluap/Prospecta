@@ -1,7 +1,8 @@
 // EPIC-029 S-7 (22/11/2026) — emissão e cancelamento de NFS-e pela Sefin Nacional, com IDEMPOTÊNCIA. Usada pela tela
 // (router.ts) e pela Dolores (acoes/fiscal.ts), sempre com as MESMAS travas:
-//   1. `EMISSAO_DISPONIVEL` (constante do código, hoje false);
-//   2. `fiscal_emissores.emissao_liberada` (interruptor por emissor, falso por padrão, sem rota que o ligue);
+//   1. `EMISSAO_DISPONIVEL` (constante do código; ligada pelo dono em 23/11/2026);
+//   2. `fiscal_emissores.emissao_liberada` (interruptor por emissor, falso por padrão; só o admin liga, pela rota
+//      `emissores.liberarEmissao` com a frase "LIBERAR EMISSÃO" digitada);
 //   3. ambiente do emissor `producao_restrita` ou `producao` ("producao" só pelo admin, com a frase "EMITIR EM PRODUÇÃO").
 //   O gatilho da 0167 confere 2 e 3 de novo no banco.
 // Idempotência (R10, PESQUISA §1.4): o Id da DPS de um rascunho é reservado UMA vez (FOR UPDATE no emissor e na nota) e nunca

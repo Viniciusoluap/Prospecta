@@ -23,17 +23,11 @@ import { CurrencyInput } from "@/components/ui/currency-input";
 import { AliquotaSimples } from "./AliquotaSimples";
 import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota } from "@shared/fiscal/motivos";
 import { ALERTA_TOMADOR_MUDOU } from "@shared/fiscal/origens";
-import { AVISO_EMISSAO_INDISPONIVEL, EMISSAO_DISPONIVEL, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
+import { motivoSemEmissao, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
 
 const MOTIVOS_CANCELAMENTO = [[1, "Erro na emissão"], [2, "Serviço não prestado"], [9, "Outros"]] as const;
-/** Por que o botão Emitir está desligado (null = pode emitir). */
-function bloqueioDeEmissao(n: Nota): string | null {
-  if (!EMISSAO_DISPONIVEL) return AVISO_EMISSAO_INDISPONIVEL;
-  if (!n.emissor) return "Escolha a empresa emissora (Editar).";
-  if (n.emissor.ambiente !== "producao_restrita" && n.emissor.ambiente !== "producao") return "A emissão desta empresa está com o ambiente desligado.";
-  if (!n.emissor.emissaoLiberada) return "A emissão desta empresa ainda não foi liberada.";
-  return null;
-}
+/** Por que o botão Emitir está desligado (null = pode emitir): o motivo real (sistema, ambiente ou empresa não liberada). */
+const bloqueioDeEmissao = (n: Nota) => motivoSemEmissao(n.emissor);
 
 type Nota = inferRouterOutputs<AppRouter>["fiscal"]["notas"]["listar"]["itens"][number];
 
@@ -160,8 +154,8 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-gray-400">
-          Cada recebimento de serviço vira um rascunho para você decidir: emitir (disponível após a homologação), não emitir
-          (com motivo) ou decidir depois. Nada é enviado a nenhum órgão nesta etapa.
+          Cada recebimento de serviço vira um rascunho para você decidir: emitir, não emitir (com motivo) ou decidir depois.
+          Emitir só fica disponível quando a empresa emissora tem a emissão liberada e o ambiente ligado (Dados fiscais do perfil).
           {resumo?.config.ultimaVarreduraEm ? ` Última atualização: ${new Date(resumo.config.ultimaVarreduraEm).toLocaleString("pt-BR")}.` : ""}
         </p>
 
@@ -270,8 +264,8 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                     <Button size="sm" variant="outline" onClick={() => setHistorico(n)}><History className="mr-1 h-4 w-4" /> Histórico</Button>
                     {podeDecidir && ["A_DECIDIR", "ADIADA", "ERRO", "EMITINDO"].includes(n.status) && (() => {
                       const bloqueio = bloqueioDeEmissao(n);
-                      return <Button size="sm" disabled={Boolean(bloqueio) || emitir.isPending} title={bloqueio ?? undefined} onClick={() => setEmitirConf(n)}>
-                        {bloqueio ? `Emitir (${bloqueio === AVISO_EMISSAO_INDISPONIVEL ? "disponível após homologação" : "indisponível"})` : n.status === "EMITINDO" ? "Conferir emissão" : n.status === "ERRO" ? "Tentar emitir de novo" : "Emitir"}
+                      return <Button size="sm" disabled={Boolean(bloqueio) || emitir.isPending} title={bloqueio?.frase} onClick={() => setEmitirConf(n)}>
+                        {bloqueio ? `Emitir (${bloqueio.rotulo})` : n.status === "EMITINDO" ? "Conferir emissão" : n.status === "ERRO" ? "Tentar emitir de novo" : "Emitir"}
                       </Button>;
                     })()}
                     {podeDecidir && n.status === "EMITINDO" && (
@@ -288,8 +282,8 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                         {n.status === "EMITIDA" && (() => {
                           // QA S-7 (B8): com a emissão da empresa desligada, nada sai à Sefin — nem cancelamento (o servidor também recusa).
                           const bloqueio = bloqueioDeEmissao(n);
-                          return <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" disabled={Boolean(bloqueio)} title={bloqueio ? `Cancelamento indisponível: ${bloqueio}` : undefined}
-                            onClick={() => setCancelar({ nota: n, motivo: 0, justificativa: "" })}>{bloqueio ? "Cancelar nota (emissão desligada)" : "Cancelar nota"}</Button>;
+                          return <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" disabled={Boolean(bloqueio)} title={bloqueio ? `Cancelamento indisponível: ${bloqueio.frase}` : undefined}
+                            onClick={() => setCancelar({ nota: n, motivo: 0, justificativa: "" })}>{bloqueio ? `Cancelar nota (${bloqueio.rotulo})` : "Cancelar nota"}</Button>;
                         })()}
                       </>
                     )}

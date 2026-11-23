@@ -246,12 +246,27 @@ describe("QA S-7 — travas (nada sai com qualquer uma fechada)", () => {
     }
     expect((await q<{ a: string }>(`SELECT ambiente AS a FROM fiscal_emissores WHERE id = 1`))[0]!.a).toBe("producao_restrita");
   });
-  it("Dolores: emitir/cancelar fora do WhatsApp (tela/ponte) recusam antes de qualquer coisa; com EMISSAO_DISPONIVEL false, recusam sem rede", async () => {
+  it("Dolores: emitir/cancelar fora do WhatsApp (tela/ponte) recusam antes de qualquer coisa; com EMISSAO_DISPONIVEL false (desvio de teste), recusam sem rede", async () => {
     const ctxTela = { agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "tela" } as never;
     await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita", liberada: true }, ctxTela, { emissaoDisponivel: true })).rejects.toThrow(/WhatsApp/);
     await expect(executarCancelarAprovado({ notaFiscalId: 1, versao: 1, motivo: 1, justificativa: "Justificativa de teste longa" }, ctxTela, { emissaoDisponivel: true })).rejects.toThrow(/WhatsApp/);
     const ctxWa = { agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "whatsapp" } as never;
-    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita", liberada: true }, ctxWa)).rejects.toThrow(/ativa/);
+    await expect(executarEmitirAprovado({ notaFiscalId: 1, versao: 1, ambiente: "producao_restrita", liberada: true }, ctxWa, { emissaoDisponivel: false })).rejects.toThrow(/ativa/);
+    await expect(executarCancelarAprovado({ notaFiscalId: 1, versao: 1, motivo: 1, justificativa: "Justificativa de teste longa" }, ctxWa, { emissaoDisponivel: false })).rejects.toThrow(/ativa/);
+    expect(recebidos).toHaveLength(0);
+  });
+  it("Dolores com EMISSAO_DISPONIVEL true (sem desvio): empresa não liberada ou ambiente desligado → recusa sem rede, nota intacta", async () => {
+    expect(EMISSAO_DISPONIVEL).toBe(true);
+    const ctxWa = { agora: new Date(), autorId: 1, mensagemId: 1, pedidoId: null, aprovacaoId: null, motivoContaminacao: null, via: "whatsapp" } as never;
+    const n = await rascunho();
+    const antes = await nota(n.id);
+    // empresa não liberada (o dono confirmou o resumo "nada sai"): a execução chega à emissão, que recusa
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = false, ambiente = 'producao_restrita'`);
+    await expect(executarEmitirAprovado({ notaFiscalId: n.id, versao: n.versao, ambiente: "producao_restrita", liberada: false }, ctxWa)).rejects.toThrow(FRASE_EMISSOR_DESLIGADO);
+    // ambiente desligado com o interruptor ligado
+    await pg.exec(`UPDATE fiscal_emissores SET emissao_liberada = true, ambiente = 'desligado'`);
+    await expect(executarEmitirAprovado({ notaFiscalId: n.id, versao: n.versao, ambiente: "desligado", liberada: false }, ctxWa)).rejects.toThrow(FRASE_EMISSOR_DESLIGADO);
+    expect(await nota(n.id)).toMatchObject({ status: antes.status, versao: antes.versao, numero_dps: null, dps_id: null });
     expect(recebidos).toHaveLength(0);
   });
 });

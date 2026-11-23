@@ -329,18 +329,20 @@ describe("ações — confirmação natural (registro) e \"confirmo\" (emitir)",
     await dono("manda ver");
     expect(Number((await nota(id)).valor_ajustado_centavos)).toBe(100000);
   });
-  it("\"emite essa\": \"pode\" não basta (pede confirmo); \"confirmo\" → emissão ainda não ativa, status intacto, nada sai", async () => {
+  it("\"emite essa\": \"pode\" não basta (pede confirmo); \"confirmo\" com a empresa não liberada → recusa, status intacto, nada sai", async () => {
     const id = await rascunho();
     roteiro = [() => ferramenta("emitir_nota_fiscal", { notaFiscalId: id }), () => texto("Vou emitir.")];
     await dono("emite a nota do João");
     expect(ultima()).toMatch(/EMITIR a nota de «João Silva»/);
+    // EMISSAO_DISPONIVEL ligado (23/11): o resumo diz o motivo real (emissor deste teste: ambiente "desligado", não liberado)
+    expect(ultima()).toMatch(/ambiente de emissão desta empresa está desligado; com a sua confirmação eu só confiro, nada sai/);
     agora = new Date(agora.getTime() + 60_000);
     await dono("pode");
     expect(ultima()).toMatch(/confirmo/);
     expect((await nota(id)).status).toBe("A_DECIDIR");
     agora = new Date(agora.getTime() + 60_000);
     await dono("confirmo");
-    expect(ultima()).toMatch(/emissão de nota fiscal ainda não está ativa/);
+    expect(ultima()).toMatch(/não está liberada.*Nada foi enviado/);
     expect(await nota(id)).toMatchObject({ status: "A_DECIDIR", versao: 1 });
     expect(Number((await q<{ n: string }>(`SELECT count(*) AS n FROM fiscal_notas_historico WHERE nota_id = ${id}`))[0]!.n)).toBe(1); // só a criação
     expect(enviarDocumento).not.toHaveBeenCalled();

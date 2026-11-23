@@ -1,5 +1,5 @@
 // EPIC-029 S-2 (22/11/2026) — rascunhos de nota: leitura (com os dados lidos das origens e dos cadastros, nunca copiados)
-// e as decisões do dono (não emitir com motivo, depois, reabrir, editar). Emitir é RECUSADO até a homologação (S-4).
+// e as decisões do dono (não emitir com motivo, depois, reabrir, editar). Emitir vai por emissao.ts (S-7), com as três travas.
 //
 // Toda mudança passa por `mudar()`: confere a transição, exige a versão que a pessoa viu (edição concorrente é recusada)
 // e grava `atualizado_por`/`alterado_via`, que o gatilho da 0154 copia no histórico imutável (fiscal_notas_historico).
@@ -401,7 +401,8 @@ async function mudar(
 ): Promise<FiscalNota> {
   const [atual] = await db.select().from(fiscalNotas).where(eq(fiscalNotas.id, id)).limit(1);
   if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Rascunho de nota não encontrado." });
-  if (para && exigeEmissao(para)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: AVISO_EMISSAO_INDISPONIVEL });
+  // Emitindo/emitida/cancelada/erro só pela emissão real (emissao.ts, com as três travas) — nunca por edição ou decisão.
+  if (para && exigeEmissao(para)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: FRASE_SO_PELA_EMISSAO });
   if (para && !transicaoValida(atual.status, para)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: `Não é possível passar de "${atual.status}" para "${para}".` });
   }
@@ -476,8 +477,9 @@ export async function editar(db: DrizzleDb, e: Edicao) {
   return mudar(db, e.id, e.versao, e, null, campos);
 }
 
-/** Emitir: SEMPRE recusado nesta etapa (o botão da tela também fica desabilitado). Nenhuma chamada de rede. */
-// A S-4 troca esta função pela emissão real (e o gatilho da 0154); até lá `EMISSAO_DISPONIVEL` é false e nada muda.
+export const FRASE_SO_PELA_EMISSAO = "Essa situação só é gravada pela própria emissão (botão Emitir). Nada mudou.";
+
+/** Legado da S-2 (sem uso nas rotas: a emissão real é emissao.ts#emitirNota). Sempre recusa, sem rede. */
 export function emitir(): never {
   throw new TRPCError({
     code: "PRECONDITION_FAILED",

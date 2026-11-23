@@ -179,7 +179,7 @@ describe("cofre — status, desativar e guarda do banco", () => {
 
 describe("a emissão continua recusada", () => {
   it("a rota recusa e o gatilho da 0154 recusa EMITINDO/EMITIDA (a 0162 não mexe nele)", async () => {
-    expect(() => emitir()).toThrow(/homologação/);
+    expect(() => emitir()).toThrow(); // legado da S-2, sem uso nas rotas: sempre recusa (a emissão real é emissao.ts, com as três travas)
     await expect(pg.exec(`INSERT INTO fiscal_notas (origem_tipo, origem_id, data_evento, status) VALUES ('bpo_lancamento', 1, '2026-11-20', 'EMITINDO')`))
       .rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);
     await expect(pg.exec(`INSERT INTO fiscal_notas (origem_tipo, origem_id, data_evento, status) VALUES ('bpo_lancamento', 2, '2026-11-20', 'EMITIDA')`))
