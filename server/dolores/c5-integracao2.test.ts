@@ -36,7 +36,7 @@ const SEGREDO_CRON = "segredo-do-cron-de-teste-int2-0123456789";
 /** Segunda-feira, 16/11/2026, 09:00 de Brasília (12:00 UTC): dentro da janela dos avisos. */
 const SEG_9H = new Date("2026-11-16T12:00:00Z");
 const hora = (iso: string) => new Date(iso);
-const SO_DO_DONO = ["analisar_regularizacao_reurb", "listar_mesas", "consultar_maquete_lote", "listar_maquetes_lotes", "rascunhar_mensagem_lote"];
+const SO_DO_DONO = ["analisar_regularizacao_reurb", "listar_mesas", "consultar_maquete_lote", "listar_maquetes_lotes", "rascunhar_mensagem_lote", "consultar_limites_receita"];
 const MEMORIA = "Margem alvo secreta de dezoito por cento";
 const PROPOSTA = {
   titulo: "Obras paradas toda segunda", objetivo: "Avisar o dono toda segunda quais obras estão paradas há mais de 7 dias",

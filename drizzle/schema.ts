@@ -1518,6 +1518,10 @@ export const bankAccounts = pgTable("bank_accounts", {
   // LOTE C (25/10): de onde veio o saldo atual — "extrato" (arquivo), "api" (Asaas/Pluggy)
   // ou "calculado" (créditos − débitos das movimentações).
   saldoFonte: varchar("saldo_fonte", { length: 20 }).$type<"extrato" | "api" | "calculado">(),
+  // EPIC-029 S-6 (22/11, migração 0164): nome amigável editável (banco/agência/número não mudam) e a empresa (CNPJ de um perfil
+  // tributário) dona da conta — N contas por empresa; sem empresa = pendência. Ligado pelo CNPJ, como fiscal_emissores.
+  apelido: varchar("apelido", { length: 80 }),
+  empresaCnpj: varchar("empresa_cnpj", { length: 14 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 export type BankAccount =typeof bankAccounts.$inferSelect;

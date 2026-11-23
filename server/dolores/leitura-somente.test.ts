@@ -36,12 +36,17 @@ describe("leitura: estático", () => {
           || origem === "../somente-leitura.js" || /^\.\/[\w-]+\.js$/.test(origem)
           // o interruptor dos dados pessoais (opção B, 16/11): só lê a variável de ambiente e formata; não toca o banco
           || origem === "../dados-pessoais.js"
+          // EPIC-029 S-6: a soma das receitas por empresa (mesma conta da aba Contabilidade) recebe a conexão SOMENTE LEITURA como argumento
+          || origem === "../../fiscal/teto.js"
           // EPIC-029 S-3: as leituras fiscais usam as MESMAS consultas da aba Contabilidade (listarNotas/detalhar, só SELECT) — a
           // transação READ ONLY da porta continua recusando qualquer escrita (o banco é a trava, não o import)
           || (a === "fiscal.ts" && origem === "../../fiscal/notas.js");
         expect(permitido, `${a} importa ${origem}`).toBe(true);
       }
     }
+    // …e ela mesma não abre conexão própria: só drizzle-orm e regras puras
+    const teto = readFileSync(new URL("../fiscal/teto.ts", import.meta.url), "utf8");
+    for (const [, origem] of teto.matchAll(/from\s+"([^"]+)"/g)) expect(["drizzle-orm", "../../shared/fiscal/regimes.js"], `teto.ts importa ${origem}`).toContain(origem);
   });
 });
 

@@ -41,7 +41,9 @@ beforeAll(async () => {
   const { generateDrizzleJson, generateMigration } = createRequire(import.meta.url)("drizzle-kit/api");
   const escolhidas: Record<string, unknown> = {};
   for (const [nome, valor] of Object.entries(schema)) if (TABELAS.includes(nome) || nome.endsWith("Enum")) escolhidas[nome] = valor;
-  ddl = (await generateMigration(generateDrizzleJson({}), generateDrizzleJson(escolhidas)) as string[]).join(";\n");
+  ddl = (await generateMigration(generateDrizzleJson({}), generateDrizzleJson(escolhidas)) as string[]).join(";\n")
+    // S-6 × S-8: o schema já traz as colunas da 0164; aqui o banco começa SEM elas (os testes ligam a conta por empresa com ALTER TABLE)
+    .replace(/,\s*"apelido" varchar\(80\)/, "").replace(/,\s*"empresa_cnpj" varchar\(14\)/, "");
 }, 60_000);
 
 let pg: PGlite;
@@ -310,8 +312,10 @@ describe("QA S-8 — servidor: RBT12 por raiz e janela", () => {
         (4, 'despesa', 'd', 1000, '2026-03-10', true, '2026-03-10 12:00', '2026-03', 4);`);
     const r = await calcular(await rascunho(1, 101));
     if (!r.aplica) throw new Error("devia aplicar");
-    // Conta 1 com CNPJ formatado da filial entra; conta 2 é de outra raiz (41865901).
-    expect(r.receita).toEqual({ completo: true, notasEmitidas: 0, bpo: R$(1_000) });
+    // Conta 1 com CNPJ formatado da filial entra; conta 2 é de outra raiz (41865901). Despesa não entra.
+    // S-6 × S-8 (QA4 S-6, R2): o crédito do banco ligado a um lançamento "não pago" (c) não some — entra como pendente, com aviso.
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: 0, bpo: R$(2_000) });
+    expect(r.avisos.join(" ")).toMatch(/R\$ 1\.000,00 de entradas .* a classificar ou com diferença/);
   });
 
   it("ACHADO M1: reembolso de despesa do cliente não é receita bruta (art. 3º §1º) — não pode inflar o RBT12", async () => {

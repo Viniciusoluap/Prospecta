@@ -33,6 +33,8 @@ const DONO = "5599991234567";
 const CPF = "52998224725";
 const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const MIGRACAO_0161 = readFileSync(new URL("../../drizzle/0165_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
+// EPIC-029 S-6 (junção): em produção a 0164 vem DEPOIS da 0165 (lista completa: os 8 + nota_fiscal + limite_receita, e as colunas da conta)
+const MIGRACAO_0164 = readFileSync(new URL("../../drizzle/0164_contas_empresa_limite_receita.sql", import.meta.url), "utf8");
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
@@ -72,11 +74,12 @@ beforeEach(async () => {
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
   await banco.pg.exec(`
-    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01');
+    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01', effective_to timestamp);
     CREATE TABLE IF NOT EXISTS operational_commissions (id serial PRIMARY KEY, construction_project_id integer, amount numeric, business_type text, property text);`);
   await banco.pg.exec(MIGRACAO_0154);
   await banco.pg.exec(MIGRACAO_0161);
   await banco.pg.exec(MIGRACAO_0161); // idempotente
+  await banco.pg.exec(MIGRACAO_0164);
   await banco.pg.exec(`
     INSERT INTO tax_profiles (cnpj, company_name, regime) VALUES ('11222333000181', 'Prospecta Construções', 'simples_nacional');
     INSERT INTO fiscal_emissores (cnpj, municipio_nome, municipio_uf) VALUES ('11222333000181', 'Imperatriz', 'MA');
@@ -251,8 +254,11 @@ describe("QA S-3 — migração 0161", () => {
     expect(r.map(x => x.conname).sort()).toEqual(["dolores_avisos_tipos_tipo_check", "dolores_avisos_tipos_via_check"]);
     expect(r.find(x => x.conname.endsWith("tipo_check"))!.def).toContain("nota_fiscal");
     expect(r.find(x => x.conname.endsWith("via_check"))!.def).not.toContain("nota_fiscal");
-    for (const t of TIPOS_AVISO) await banco.pg.exec(`INSERT INTO dolores_avisos_tipos (tipo, silenciado) VALUES ('${t}', true) ON CONFLICT (tipo) DO NOTHING`);
-    await banco.pg.exec(MIGRACAO_0161); // de novo, com todas as linhas
+    // EPIC-029 S-6: a 0165 não conhece 'limite_receita' — reaplicada, ela exige reaplicar a 0164 depois (comentário da 0164)
+    for (const t of TIPOS_AVISO.filter(x => x !== "limite_receita")) await banco.pg.exec(`INSERT INTO dolores_avisos_tipos (tipo, silenciado) VALUES ('${t}', true) ON CONFLICT (tipo) DO NOTHING`);
+    await banco.pg.exec(MIGRACAO_0161); // de novo, com todas as linhas que ela conhece
+    await banco.pg.exec(MIGRACAO_0164);
+    await banco.pg.exec(`INSERT INTO dolores_avisos_tipos (tipo, silenciado) VALUES ('limite_receita', true)`);
     expect(Number((await q<{ n: string }>("SELECT count(*) AS n FROM dolores_avisos_tipos"))[0]!.n)).toBe(TIPOS_AVISO.length);
   });
 });

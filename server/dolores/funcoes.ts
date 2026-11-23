@@ -27,6 +27,7 @@ import { entradaListarMesas, listarMesas } from "./leitura/mesas.js";
 import { analisarRegularizacaoReurb, entradaAnalisarReurb } from "./leitura/reurb.js";
 import { FUNCAO_REURB } from "../../shared/dolores/reurb-conhecimento.js";
 import { entradaListarNotasFiscais, entradaVerNotaFiscal, listarNotasFiscais, verNotaFiscal } from "./leitura/fiscal.js";
+import { consultarLimitesReceita, entradaLimitesReceita } from "./leitura/limites-receita.js";
 
 /**
  * `canal` decide o interruptor dos dados pessoais dos campos estruturados (campoPessoal). Etapa 7: "grupo" (grupo interno, quando
@@ -98,6 +99,7 @@ const CONTAMINA: Record<string, boolean> = {
   [FUNCAO_REURB]: true, // nome do cliente, observações do processo e das etapas
   // EPIC-029 S-3: nome do tomador, descrição e município (cadastrados por pessoas) nos rascunhos de nota fiscal
   listar_notas_fiscais: true, ver_nota_fiscal: true,
+  consultar_limites_receita: true, // EPIC-029 S-6: nomes de empresa e apelidos de conta digitados pela equipe
 };
 
 /**
@@ -194,6 +196,10 @@ export const LEITURAS_DO_DONO: readonly FuncaoDolores[] = [
   soDoDono(f("ver_nota_fiscal",
     "Um rascunho de nota fiscal (notaFiscalId): tudo da lista mais CPF/CNPJ do tomador, empresa emissora, valor do recebimento × ajustado, competência, de onde veio o município e se faltam os códigos do contador. enviarPrevia true quando o dono quer ver a nota/prévia: o sistema manda o PDF ao número dele. Só lê.",
     entradaVerNotaFiscal, (a, ctx) => verNotaFiscal(a, ctx))),
+  // EPIC-029 S-6 (pedido do dono de 22/11): limite de receita do ano por empresa — só na conversa direta do dono
+  soDoDono(f("consultar_limites_receita",
+    "Receita REGISTRADA no ano por empresa (soma das contas bancárias de cada uma, sem transferências entre contas dela e sem estornos), o regime de cada uma e quanto falta para cada limite: Simples (ME R$ 360 mil informativo, sublimite R$ 3,6 mi, teto R$ 4,8 mi), Presumido (R$ 78 mi), Real sem limite; com a projeção do ano pelo ritmo. Use quando o dono perguntar quanto falta para estourar o Simples/limite. Diga sempre que a apuração oficial é do contador. Só lê.",
+    entradaLimitesReceita, consultarLimitesReceita)),
 ];
 export const leituraDoDonoPorNome = (nome: string) => LEITURAS_DO_DONO.find(x => x.nome === nome) ?? null;
 /** Qualquer leitura registrada (as de `FUNCOES` e as só do dono) — para a porta e a regra de contaminação. */

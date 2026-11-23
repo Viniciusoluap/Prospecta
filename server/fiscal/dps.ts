@@ -13,6 +13,7 @@ import {
 } from "../../shared/fiscal/dps-campos.js";
 import { aliquotaTextoParaDps } from "../../shared/fiscal/simples.js";
 import type { NotaDetalhada } from "./notas.js";
+import { REGIMES_TRIBUTARIOS, regimeAConfirmar } from "../../shared/fiscal/regimes.js";
 
 export class ErroDps extends Error {
   constructor(readonly faltas: string[]) {
@@ -97,7 +98,10 @@ export function faltasDps(e: EntradaDps): string[] {
   for (const [k, rotulo] of contador) if (vazio(p[k])) f.push(`${rotulo} — contador`);
   // Regime × opção do Simples (decisão do dono de 22/11: todas as empresas no Simples Nacional).
   const simples = e.regimeTributario === "simples_nacional";
-  if (vazio(e.regimeTributario)) f.push("regime tributário do perfil da empresa emissora");
+  // QA2 S-6 (N3): "a confirmar" (ou regime que o sistema não reconhece) é FALTA — sem o contador dizer o regime, não se monta a DPS
+  const reconhecido = !vazio(e.regimeTributario) && !regimeAConfirmar(e.regimeTributario) && (REGIMES_TRIBUTARIOS as readonly string[]).includes(e.regimeTributario!);
+  if (!reconhecido) f.push(vazio(e.regimeTributario) ? "regime tributário do perfil da empresa emissora"
+    : "regime tributário do perfil da empresa emissora (está \"a confirmar\" ou não reconhecido — o contador precisa definir)");
   else if (!vazio(p.opSimpNac)) {
     const optante = p.opSimpNac === OP_SIMPLES.mei || p.opSimpNac === OP_SIMPLES.meEpp;
     if (simples && !optante) f.push("opção do Simples (opSimpNac) coerente com o regime Simples Nacional do perfil — contador");
