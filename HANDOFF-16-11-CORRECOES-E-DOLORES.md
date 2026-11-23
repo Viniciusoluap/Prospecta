@@ -805,3 +805,19 @@ desta empresa" + `EMISSAO_DISPONIVEL = true`; no portão de QA; sem push ainda.
 
 **23/11 ~14:50 UTC:** migração `0172_fiscal_emissores_historico` APLICADA no Neon de produção (aditiva; 3 gatilhos, 0 linhas; emissor 1 segue
 desligado/não liberada). #330 (Jurídico, várias páginas) mesclado (340adb2), produção READY — falta o dono clicar "Conferir novamente".
+
+## Atualização de 23/11/2026 ~15:55 UTC — fechamento do dia: #330 e #331 publicados
+
+**Publicado (main + produção READY):**
+- #330 (340adb2) Jurídico — vínculo com a origem em contrato de várias páginas + endurecimento da conferência (6 revisões do portão + 1 achado do Codex).
+- #331 (c0a8fd3) Fiscal — `EMISSAO_DISPONIVEL = true`; rota/botão "Liberar emissão desta empresa" (frase `LIBERAR EMISSÃO`; em produção também
+  `EMITIR EM PRODUÇÃO`); trocar o ambiente desliga a liberação; releitura do emissor antes de cada POST à Sefin; histórico imutável
+  `fiscal_emissores_historico` (migração 0172 aplicada no Neon); Dolores: emitir/cancelar nota exigem "confirmo CÓDIGO" (achado do Codex).
+**Estado em produção (conferido 15:54 UTC):** emissor 1 (Prospecta) ambiente `desligado`, `emissao_liberada` = false, histórico com 0 linhas. Nada sai.
+**Testes:** (a) automáticos — Jurídico+portal 179/179; fiscal + s3 547/547; ligados ao "confirmo" (s3-fiscal*, c5-e2*, acoes*, correcoes-e3*, c5-mesas,
+s7-qa) 279/279; tsc e vite build limpos. A suíte INTEIRA `server/dolores` não cabe em 30 min neste ambiente (não foi concluída).
+(b) manuais — nenhum. (c) pendentes em produção — "Conferir novamente" no contrato da Maylanne; primeira emissão em produção restrita.
+**Ressalva:** as correções M1/M2/B1–B4 do portão do #331 não voltaram para uma 2ª rodada do @qa (foram revistas pelo Codex).
+**Pendências do dono:** `PENDENCIAS-DO-DONO-23-11.md` (raiz). **Dívidas de segurança do Jurídico:** ROADMAP.
+**Próximo passo exato:** dono faz o passo 3 do arquivo de pendências (ambiente "Produção restrita (teste)" → "Liberar emissão desta empresa" →
+"Buscar alíquotas oficiais" → emitir um rascunho); a sessão acompanha a resposta da Sefin (nomes dos campos JSON só confirmáveis com o A1).
