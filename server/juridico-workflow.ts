@@ -9,7 +9,7 @@ import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
 import { proximaTentativa, relatorioRetorno, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
 import type { Certificate } from "pkijs";
 import { PDF, PdfDict, PdfRef } from "@libpdf/core";
-import { paginaComMarca } from "./juridico-marca-conferencia.js";
+import { paginaComMarca, paginaSoGanhouFonteSemUso } from "./juridico-marca-conferencia.js";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
@@ -102,11 +102,17 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
     const caixa=(p:typeof ap[number])=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation]);
     const iguais=ap.map((p,i)=>JSON.stringify([caixa(p),serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([caixa(bp[i]),serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
     if(iguais.every(Boolean))return true;
-    const diferentes=iguais.map((ok,i)=>ok?-1:i).filter(i=>i>=0);
-    if(!marca||diferentes.length!==1)return false;
-    const i=diferentes[0];
+    if(!marca)return false;
+    // Só UMA página pode ter o conteúdo mudado (a da marca). As demais podem diferir apenas por terem "ganhado" a fonte
+    // padrão da marca quando o PDF usa um dicionário de recursos comum a todas as páginas (jsPDF, contrato de várias páginas).
+    const txt=(pdf:PDF,v:unknown)=>JSON.stringify(serial(pdf,v));
+    const conteudoMudou=ap.map((p,i)=>caixa(p)!==caixa(bp[i])||txt(a,p.dict.get("Contents"))!==txt(b,bp[i].dict.get("Contents")));
+    const comMarca=conteudoMudou.map((mudou,i)=>mudou?i:-1).filter(i=>i>=0);
+    if(comMarca.length!==1)return false;
+    const i=comMarca[0];
     if(caixa(ap[i])!==caixa(bp[i]))return false;
-    return paginaComMarca(a,ap[i],b,bp[i],marca.titular,(pdf,v)=>JSON.stringify(serial(pdf,v)));
+    for(let j=0;j<ap.length;j++)if(j!==i&&!iguais[j]&&!paginaSoGanhouFonteSemUso(a,ap[j],b,bp[j],txt))return false;
+    return paginaComMarca(a,ap[i],b,bp[i],marca.titular,txt);
   }catch{return false;}
 }
 export async function confirmarTodasAssinaturas(id:number,role:string) {

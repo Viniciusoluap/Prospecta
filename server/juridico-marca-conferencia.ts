@@ -86,6 +86,26 @@ function recursosSoComFontePadrao(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial
   return true;
 }
 
+/**
+ * Página que NÃO recebeu a marca, num PDF em que as páginas dividem o mesmo dicionário de recursos (jsPDF): desenhar a
+ * marca numa página acrescenta a fonte padrão ao dicionário comum, e todas as outras "ganham" essa fonte sem mudar de
+ * conteúdo. Aceito só isso: recursos antigos intactos, entrada nova = fonte padrão sem arquivo embutido, e o conteúdo
+ * (idêntico ao de origem, conferido por quem chama) não cita o nome da fonte nova — fonte que ninguém usa não desenha nada.
+ */
+export function paginaSoGanhouFonteSemUso(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial: (pdf: PDF, v: unknown) => string): boolean {
+  try {
+    if (!recursosSoComFontePadrao(a, pa, b, pb, serial)) return false;
+    const ra = dict(a, pa.dict.get("Resources")), rb = dict(b, pb.dict.get("Resources"));
+    const nomes = (d: PdfDict | null) => { const f = d && d.has("Font") ? dict(d === ra ? a : b, d.get("Font")) : null; return f ? Array.from(f as unknown as Iterable<[unknown, unknown]>).map(([k]) => chave(k)) : []; };
+    const antigas = new Set(nomes(ra)), novas = nomes(rb).filter(n => !antigas.has(n));
+    if (!novas.length) return true;
+    const conteudo = fluxos(b, pb);
+    if (!conteudo) return false;
+    const texto = conteudo.join("\n");
+    return novas.every(n => !new RegExp(`/${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![^\\s/\\[\\]()<>{}%])`).test(texto));
+  } catch { return false; }
+}
+
 /** Os fluxos acrescentados desenham só a marca: um retângulo de borda e texto do vocabulário da marca dentro dele. */
 export function desenhoSoDaMarca(acrescentados: string[], titular: string, pagina: { x: number; y: number; width: number; height: number }, fontesPermitidas?: Set<string>): boolean {
   const pontos: [number, number][] = [], textos: { x: number; y: number; tamanho: number; texto: string }[] = [];
