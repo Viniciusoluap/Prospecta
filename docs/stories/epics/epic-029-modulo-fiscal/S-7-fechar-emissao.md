@@ -153,6 +153,11 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
   (`FRASE_CANCELAMENTO_DESLIGADO` no servidor). O cancelamento continua indo ao ambiente em que a nota foi emitida.
 
 ### Testes
+- Depois das correções do portão de QA e do merge da main (23/11): `server/fiscal/*` 11 arquivos / 265 testes OK (`s7-qa` com 32:
+  os 4 achados viraram `it` + testes de I1, M1, M2, B1–B8); `server/dolores/{s3-fiscal,s3-fiscal-qa,acoes,acoes-whatsapp,c5-e2-resolve}`
+  + `server/{auth-session,imports-esm}` 7 arquivos / 119 OK; `tsc --noEmit` OK; `vite build` OK. Merge: conflitos só nos arquivos do
+  Jurídico (cadeia ICP), resolvidos com a versão da main (já com o portão de QA do Jurídico). A S-8 (alíquota do Simples) ainda não
+  está na main: `registrarFonteSimples` continua sem fonte ligada.
 - Automáticos: `server/fiscal/emissao-s7.test.ts` (28: Sefin simulada com mTLS local — sucesso, rejeição, queda depois/antes de
   gerar, 5xx, concorrência, produção; gatilho; cancelamento; DANFSe pelo texto do PDF; XSD válido/inválido; alíquota; parâmetros
   municipais; certificado). Ajustados: `emissao-fundacao`, `certificado`, `emissao-qa`, `rascunhos*`, `s3-fiscal*`, `acoes`.
