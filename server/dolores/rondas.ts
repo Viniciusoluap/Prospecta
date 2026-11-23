@@ -470,7 +470,22 @@ export async function tratarCronDolores(req: Pick<Request, "headers">): Promise<
   // EPIC-027 C5-E4: depois (os alertas de gasto têm a vez: prazo curto e o de 100% avisa que uma função parou), com o tempo que sobra,
   // os avisos automáticos ao dono (desligados por padrão; janela, teto, vaga única e proposta aberta conferidos em
   // server/dolores/avisos.ts). Nunca mudam a resposta nem o erro da ronda.
-  return { status: saida.status, body: { ...saida.body, avisos: await avisosNoCron(agora, prazoFinal) } };
+  const avisos = await avisosNoCron(agora, prazoFinal);
+  // EPIC-025 E10: por último, com o tempo que sobra, a cobrança do colaborador e o pedido de documentos (desligados por padrão)
+  return { status: saida.status, body: { ...saida.body, avisos, cobrancas: await cobrancasNoCron(agora, prazoFinal) } };
+}
+
+/** EPIC-025 E10: a rotina de cobranças precisa ao menos disto de prazo (coleta + um envio). */
+const MINIMO_PARA_COBRANCAS_MS = 12_000;
+async function cobrancasNoCron(agora: Date, prazoFinal: number): Promise<string> {
+  if (prazoFinal - relogio.ms() < MINIMO_PARA_COBRANCAS_MS) return "sem-tempo";
+  try {
+    const { executarCobrancas } = await import("./cobrancas-automaticas.js");
+    return await executarCobrancas({ agora, prazoFinal, ms: relogio.ms });
+  } catch (e) {
+    console.error("[dolores/rondas] falha nas cobranças do cron", erroParaLog(e));
+    return "erro";
+  }
 }
 
 /** EPIC-027 C5-E4: os avisos precisam ao menos disto de prazo dentro da chamada do cron (coleta + envio). */
@@ -500,7 +515,8 @@ export async function tratarCronAvisos(req: Pick<Request, "headers">): Promise<{
   // Revisor do PR #298: a tarde também é rede de segurança da tarefa demorada (sem cron novo) — a mesma chamada e a mesma ordem da
   // rotina da manhã: depois dos alertas de gasto e antes dos avisos proativos. Nunca lança nem muda a resposta.
   await retomarTarefasDemoradas({ prazoFinal, canal: "cron" }).catch(() => undefined);
-  return { status: 200, body: { ok: true, avisos: await avisosNoCron(agora, prazoFinal) } };
+  const avisos = await avisosNoCron(agora, prazoFinal);
+  return { status: 200, body: { ok: true, avisos, cobrancas: await cobrancasNoCron(agora, prazoFinal) } };
 }
 
 /** A ronda do dia e o relatório diário (a rotina da Dolores de 07h a 14h), sem os avisos nem os alertas. */

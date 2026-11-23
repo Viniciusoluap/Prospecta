@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DoloresMesasSecao } from "@/components/admin/DoloresMesasSecao";
 import { DoloresAvisosSecao } from "./DoloresAvisosSecao";
+import { DoloresCobrancasSecao } from "./DoloresCobrancasSecao";
 
 const botaoSec = "min-h-10 border-[#C9A961]/40 text-[#C9A961] hover:bg-[#C9A961]/10";
 const campo = "mt-1 bg-[#1A2332] border-[#C9A961]/30 text-white";
@@ -310,6 +311,8 @@ export function DoloresOperacaoCard() {
           <DoloresMesasSecao />
           {/* EPIC-027 C5-E4 — avisos automáticos ao dono (regras do sistema; a IA, se ligada, só redige) */}
           <DoloresAvisosSecao pausada={pausada} />
+          {/* EPIC-025 E10 — cobrança do colaborador e pedido de documentos ao cliente (texto do sistema, sem IA) */}
+          <DoloresCobrancasSecao pausada={pausada} />
         </>}
       </CardContent>
     </Card>

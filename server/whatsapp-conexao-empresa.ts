@@ -8,7 +8,7 @@
 // (sem instância), para servir de `connectionId`.
 import { eq } from "drizzle-orm";
 import { users, whatsappConnections, type WhatsappConnection } from "../drizzle/schema.js";
-import { ehNumeroDoDono, mascararNumero } from "../shared/dolores/whatsapp.js";
+import { ehNumeroDoDono, mascararNumero, normalizarNumeroDono } from "../shared/dolores/whatsapp.js";
 import { ehConversaSemNumero } from "../shared/whatsapp/conversas.js";
 import { getDb } from "./db.js";
 import { lerConfigWhatsapp } from "./dolores/consumo.js";
@@ -29,6 +29,11 @@ export type NumerosReservados = {
    * busca, não lidas) para quem não é ADMIN (por papel) — pode ser o dono escrevendo de um "@lid" ainda não aprendido.
    */
   ocultarSemNumero?: boolean;
+  /**
+   * EPIC-025 E10 (QA M3): os telefones dos USUÁRIOS do sistema (qualquer papel, ativos e inativos), normalizados. A conversa da
+   * empresa com um usuário é a cobrança da Dolores ao colaborador (e a resposta dele): pela conexão da empresa, só o ADMIN vê.
+   */
+  usuarios?: readonly string[];
 };
 
 /** Falha ao ler a configuração → lança (quem chama fecha: não envia, não lista). */
@@ -45,7 +50,15 @@ export async function numerosReservados(): Promise<NumerosReservados> {
 export async function numerosReservadosDoPapel(role: string | null | undefined): Promise<NumerosReservados> {
   const ocultarSemNumero = role !== "admin";
   if (!usaConexaoDaEmpresa(role)) return { dono: null, empresa: null, ocultarSemNumero };
-  return { ...(await numerosReservados()), ocultarSemNumero };
+  const base = await numerosReservados();
+  if (role === "admin") return { ...base, ocultarSemNumero };
+  return { ...base, ocultarSemNumero, usuarios: await telefonesDosUsuarios() };
+}
+
+/** Os telefones (normalizados, sem repetição) de todos os usuários do sistema. Falha ao ler → lança (quem chama fecha). */
+async function telefonesDosUsuarios(): Promise<string[]> {
+  const linhas = await getDb().select({ phone: users.phone }).from(users);
+  return Array.from(new Set(linhas.map(u => normalizarNumeroDono(u.phone)).filter((n): n is string => !!n)));
 }
 
 /**
@@ -59,11 +72,11 @@ export function ehNumeroReservado(numero: string | null | undefined, r: NumerosR
   const d = String(numero ?? "").replace(/\D/g, "");
   if (!d) return false;
   const efetivo = d.startsWith("55") ? d : `55${d}`;
-  return [d, efetivo].some(n => ehNumeroDoDono(n, r.dono) || ehNumeroDoDono(n, r.empresa));
+  return [d, efetivo].some(n => ehNumeroDoDono(n, r.dono) || ehNumeroDoDono(n, r.empresa) || (r.usuarios ?? []).some(u => ehNumeroDoDono(n, u)));
 }
 
 export const MENSAGEM_NUMERO_RESERVADO =
-  "Esse é o número do dono (conversa com a Dolores) ou o da própria empresa: a Central não escreve, não mostra nem altera essa conversa pelo número da empresa.";
+  "Esse é o número do dono (conversa com a Dolores), o da própria empresa ou o de um usuário do sistema (cobrança da Dolores, só o administrador vê): a Central não escreve, não mostra nem altera essa conversa pelo número da empresa.";
 
 /** Primeiro admin (o mesmo critério que o colaborador já usava). */
 async function primeiroAdmin(): Promise<number | null> {

@@ -287,7 +287,9 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   /** EPIC-027 C5 (E3): este aviso É a pergunta desta proposta (pedido do dono feito num grupo): enviado, ela passa a aceitar o "pode". */
   pendenciaId?: number | null;
   /** EPIC-027 C5-E4: referências (ids do banco, por código) que o aviso cita, para a memória da conversa ("e esse atraso aí?"). */
-  referencias?: readonly ReferenciaConversa[] }): Promise<{ ok: boolean; motivo: string | null;
+  referencias?: readonly ReferenciaConversa[];
+  /** EPIC-025 E10: o aviso leva texto de TERCEIRO (resposta de colaborador): na memória da conversa entra só esta linha fixa. */
+  textoNaMemoria?: string }): Promise<{ ok: boolean; motivo: string | null;
   /** QA C5 (B1): false = recusado ANTES do envio (com certeza não saiu); true = o envio foi tentado (com erro, pode ter chegado). */
   tentou: boolean }> {
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string | null, extra: Record<string, unknown> = {}, duracaoMs?: number) =>
@@ -318,7 +320,7 @@ export async function enviarAvisoAoDono(texto: string, ctx: { funcao: string; pe
   // aviso de grupo, só o primeiro parágrafo (as opções numeradas e os códigos ficam fora); a ref do grupo vem do banco.
   if (ok) {
     const doGrupo = ctx.funcao.startsWith("grupo_");
-    await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: doGrupo ? final.split("\n")[0] : final,
+    await gravarNaConversa({ papel: "sistema", origem: "aviso", funcao: ctx.funcao, agora: deps.agora(), texto: ctx.textoNaMemoria ?? (doGrupo ? final.split("\n")[0] : final),
       referencias: [...(ctx.referencias ?? []), ...(await referenciaDoGrupo(ctx.resumo?.grupoId))] });
   }
   return { ok, motivo, tentou: true };
@@ -882,7 +884,7 @@ export function esquecerEstranhasVistas() { estranhasVistas.clear(); }
 
 type Direta = Extract<ItemRoteado, { tipo: "direta" }>;
 /** O que fica para DEPOIS dos itens do dono no mesmo aviso (chama IA ou serviço externo). */
-type PendenteDoAviso = { tipo: "cliente" | "audio"; item: Direta; quem: Remetente; centralId: number | null; nome: string | null };
+type PendenteDoAviso = { tipo: "cliente" | "audio" | "colaborador"; item: Direta; quem: Remetente; centralId: number | null; nome: string | null };
 
 /**
  * Mensagem direta de quem NÃO é o dono. Nunca é comando. Reivindicada uma vez (reentrega não duplica nada); entra na Central pela
@@ -925,6 +927,8 @@ async function tratarTerceiro(cfg: DoloresWhatsappConfig, bruto: unknown, d: Dir
     .catch(e => { console.error("[dolores/whatsapp] falha na saudação", erroCurto(e)); return "saudacao-erro"; }));
   if (ehSoAudio(d) && (rota.categoria === "cliente" || rota.categoria === "desconhecido")) ctx.pendentes.push({ tipo: "audio", item: d, quem, centralId, nome });
   else if (rota.dolores && d.texto && quem.leadId) ctx.pendentes.push({ tipo: "cliente", item: d, quem, centralId, nome });
+  // EPIC-025 E10: usuário do sistema (colaborador) respondendo a uma cobrança: registrada e encaminhada ao dono, nunca comando
+  else if (quem.categoria === "usuario" && d.texto) ctx.pendentes.push({ tipo: "colaborador", item: d, quem, centralId, nome });
   return r;
 }
 
@@ -994,6 +998,12 @@ function destinoDoTerceiro(ks: string[]): [DestinoDoItem, string] {
 
 /** Depois dos itens do dono e das marcações: áudio (transcrição ou aviso) e a resposta ao cliente cadastrado. */
 async function tratarPendente(cfg: DoloresWhatsappConfig, p: PendenteDoAviso, ctx: { autor: number | null; prazoFinal: number }): Promise<string[]> {
+  // EPIC-025 E10: a resposta do colaborador não envia nada a ele; só registra e avisa o dono (o texto é dado, nunca comando)
+  if (p.tipo === "colaborador") {
+    if (!p.item.numero) return ["colaborador-sem-numero"];
+    const { tratarRespostaDoColaborador } = await import("./cobrancas-automaticas.js");
+    return [await tratarRespostaDoColaborador({ numero: p.item.numero, texto: p.item.texto, externalId: p.item.externalId, prazoFinal: ctx.prazoFinal, autor: ctx.autor, agora: deps.agora() })];
+  }
   const conn = await conexaoDaEmpresa().catch(() => null);
   if (!conn || !cfg.instancia || !p.item.numero) return ["pendente-sem-conexao"];
   const numero = p.item.numero;
