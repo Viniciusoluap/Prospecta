@@ -802,3 +802,6 @@ cancelada lá por decisão do dono (22/11), nada a portar.
 **Em andamento em paralelo:** ramo `claude/epic029-liberar-emissao` (commit local f5551da, worktree `epic029-liberar`): botão "Liberar emissão
 desta empresa" + `EMISSAO_DISPONIVEL = true`; no portão de QA; sem push ainda.
 **Próximo passo exato:** PR do Jurídico → Codex + prévia → merge → produção READY; receber o portão do "liberar emissão" → corrigir → PR.
+
+**23/11 ~14:50 UTC:** migração `0172_fiscal_emissores_historico` APLICADA no Neon de produção (aditiva; 3 gatilhos, 0 linhas; emissor 1 segue
+desligado/não liberada). #330 (Jurídico, várias páginas) mesclado (340adb2), produção READY — falta o dono clicar "Conferir novamente".
