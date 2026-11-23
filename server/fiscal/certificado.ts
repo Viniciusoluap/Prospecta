@@ -7,7 +7,6 @@
 // O .pfx é aberto em JS puro (P12Signer do @libpdf/core + pkijs), que lê também o PFX legado RC2/3DES que o OpenSSL 3
 // do Node recusa (R4); a chave privada sai em PEM só em memória, para o mTLS e a assinatura XML.
 import { createPrivateKey, X509Certificate, type KeyObject } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import { P12Signer } from "@libpdf/core";
 import { and, desc, eq } from "drizzle-orm";
 import { Certificate } from "pkijs";
@@ -241,6 +240,10 @@ export async function guardarCertificado(db: DrizzleDb, entrada: {
     await auditarCertificado(db, { emissorId: entrada.emissorId ?? null, acao: "recusado", detalhe: "arquivo ou senha não conferem", usuarioId: entrada.usuarioId });
     throw e;
   }
+  // Cadeia mostrada na tela: completada SEM rede pelas intermediárias oficiais embarcadas (rotina do Jurídico).
+  if (!aberto.info.cadeiaIcp) {
+    try { aberto = await completarCadeia(aberto, { sessaoAia: null, raizesIcp: entrada.raizesIcp }); } catch { /* só informa: a emissão completa de novo (com AIA) */ }
+  }
   const emissor = await acharEmissor(db, entrada.emissorId ?? null, aberto.info.cnpj);
   try { conferirParaEmissor(aberto.info, emissor.cnpj, agora); }
   catch (e) {
@@ -296,62 +299,51 @@ export async function desativarCertificado(db: DrizzleDb, emissorId: number, usu
  */
 export const FRASE_SEM_CADEIA_ICP = "A cadeia do certificado guardado não fecha numa raiz ICP-Brasil, nem completando pelos intermediários conhecidos e pelo endereço da certificadora (AIA). Nada foi enviado. Tente de novo mais tarde ou envie o .pfx com a cadeia completa.";
 
-/**
- * Intermediários ICP-Brasil EMBARCADOS (outra frente do EPIC-029 os coloca em server/certificados/icp-intermediarios.json, no
- * mesmo formato das raízes: [{ pem }]). Enquanto o arquivo não existe, a lista é vazia e a cadeia é completada pelo AIA.
- */
-function intermediariosEmbarcados(): X509Certificate[] {
-  try {
-    const arquivo = new URL("../certificados/icp-intermediarios.json", import.meta.url);
-    if (!existsSync(arquivo)) return [];
-    const lista = JSON.parse(readFileSync(arquivo, "utf8")) as ({ pem?: string } | string)[];
-    return lista.flatMap(i => { try { return [new X509Certificate(typeof i === "string" ? i : i.pem ?? "")]; } catch { return []; } });
-  } catch { return []; }
-}
-
 export type OpcoesCadeia = {
   /** Só para teste: raízes no lugar das ICP-Brasil oficiais. */
   raizesIcp?: X509Certificate[];
-  /** Só para teste: intermediários no lugar dos embarcados. */
+  /** Só para teste: intermediários fornecidos além dos do .pfx (as oficiais embarcadas já vêm do Jurídico). */
   intermediarios?: X509Certificate[];
-  /** Só para teste: baixador do AIA (padrão: o do Jurídico, com os limites de lá). */
+  /** Baixador do AIA (padrão: o do Jurídico, com os limites de lá); null = nunca vai à rede. */
   sessaoAia?: import("../juridico-pki.js").Baixador | null;
 };
 
 /**
- * Pedido do coordenador (22/11, sobre a revisão da S-4): certificado que veio SEM os intermediários (ex.: o A1 da Prospecta,
- * AC SAFEWEB RFB v5) não é recusado — a cadeia é COMPLETADA no servidor com a mesma rotina do Jurídico (server/juridico-pki.ts
- * `montarCadeia`: intermediários conhecidos + AIA da certificadora) e só então conferida até uma raiz ICP-Brasil. Fechou →
- * a credencial passa a levar os intermediários (o mTLS manda cert + intermediários). Não fechou → recusa para emitir.
+ * Pedido do coordenador (22–23/11, revisão da S-4): certificado que veio SEM os intermediários (ex.: o A1 da Prospecta, AC SAFEWEB
+ * RFB v5) não é recusado — a cadeia é COMPLETADA no servidor pela rotina do Jurídico (`completarCadeiaIcp` de
+ * server/juridico-pki.ts: intermediárias oficiais embarcadas em server/certificados/icp-intermediarias.json e, só se faltar,
+ * o AIA da certificadora) e então conferida aqui até uma raiz ICP-Brasil. Fechou → a credencial leva os intermediários do
+ * CAMINHO (o mTLS manda cert + intermediários). Não fechou nem completando → recusa para emitir.
  */
 export async function completarCadeia(c: CredencialA1, o: OpcoesCadeia = {}): Promise<CredencialA1> {
-  if (c.info.cadeiaIcp) return c;
   const folha = new X509Certificate(c.certPem);
   const raizesX = o.raizesIcp ?? RAIZES_ICP;
-  const conhecidos = [...c.cadeiaPem.map(p => new X509Certificate(p)), ...(o.intermediarios ?? intermediariosEmbarcados())];
-  let achados: X509Certificate[] = [];
-  if (o.sessaoAia !== null) {
-    try {
-      const pki = await import("../juridico-pki.js");
-      const paraPki = (x: X509Certificate) => Certificate.fromBER(Uint8Array.from(x.raw).buffer);
-      const r = await pki.montarCadeia(paraPki(folha), conhecidos.map(paraPki), raizesX.map(paraPki), o.sessaoAia ?? undefined);
-      achados = r.intermediarios.map(i => new X509Certificate(pki.derCertificado(i)));
-    } catch { /* AIA fora do ar etc.: confere só com o que já há */ }
-  }
-  const pool = new Map<string, X509Certificate>();
-  for (const x of [...conhecidos, ...achados]) if (x.fingerprint256 !== folha.fingerprint256 && !raizesX.some(r => r.fingerprint256 === x.fingerprint256)) pool.set(x.fingerprint256, x);
-  // Só os intermediários do CAMINHO até a raiz (nada de certificado solto do pool no mTLS).
-  const caminho: X509Certificate[] = [];
-  let atual = folha;
-  for (let passo = 0; passo < 8; passo++) {
-    if (raizesX.some(r => atual.checkIssued(r) && atual.verify(r.publicKey))) {
-      return { ...c, cadeiaPem: caminho.map(x => pem(x.raw)), info: { ...c.info, cadeiaIcp: true } };
+  const fornecidos = [...c.cadeiaPem.map(p => new X509Certificate(p)), ...(o.intermediarios ?? [])];
+  const pki = await import("../juridico-pki.js");
+  const roots = o.raizesIcp ? o.raizesIcp.map(x => Certificate.fromBER(Uint8Array.from(x.raw).buffer)) : undefined;
+  const fechar = (extras: X509Certificate[]): X509Certificate[] | null => {
+    const pool = new Map<string, X509Certificate>();
+    for (const x of [...fornecidos, ...extras]) if (x.fingerprint256 !== folha.fingerprint256 && !raizesX.some(r => r.fingerprint256 === x.fingerprint256)) pool.set(x.fingerprint256, x);
+    const caminho: X509Certificate[] = [];
+    let atual = folha;
+    for (let passo = 0; passo < 8; passo++) {
+      if (raizesX.some(r => atual.checkIssued(r) && atual.verify(r.publicKey))) return caminho;
+      const prox = Array.from(pool.values()).find(i => i !== atual && atual.checkIssued(i) && atual.verify(i.publicKey));
+      if (!prox) return null;
+      caminho.push(prox); atual = prox;
     }
-    const prox = Array.from(pool.values()).find(i => i !== atual && atual.checkIssued(i) && atual.verify(i.publicKey));
-    if (!prox) break;
-    caminho.push(prox); atual = prox;
-  }
-  throw new ErroCertificado(FRASE_SEM_CADEIA_ICP);
+    return null;
+  };
+  const tentar = async (opcoes: Parameters<typeof pki.completarCadeiaIcp>[2]) => {
+    try {
+      const r = await pki.completarCadeiaIcp(Buffer.from(folha.raw), fornecidos.map(x => Buffer.from(x.raw)), { ...opcoes, ...(roots ? { roots } : {}) });
+      return fechar(r.intermediarios.map(d => new X509Certificate(d)));
+    } catch { return null; }
+  };
+  // 1º: só com o que está no servidor (embarcadas), sem rede; 2º: com o AIA da certificadora.
+  const caminho = fechar([]) ?? (await tentar({ semRede: true })) ?? (o.sessaoAia === null ? null : await tentar(o.sessaoAia ? { sessao: o.sessaoAia } : {}));
+  if (!caminho) throw new ErroCertificado(FRASE_SEM_CADEIA_ICP);
+  return { ...c, cadeiaPem: caminho.map(x => pem(x.raw)), info: { ...c.info, cadeiaIcp: true } };
 }
 
 export async function credencialDoEmissor(db: DrizzleDb, emissorId: number, agora = new Date(), o: { paraEmitir?: boolean } & OpcoesCadeia = {}): Promise<CredencialA1> {

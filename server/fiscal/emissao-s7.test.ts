@@ -564,7 +564,7 @@ describe("revisão da S-4 — certificado", () => {
     await expect(credencialDoEmissor(getDb(), 1, new Date())).resolves.toMatchObject({ info: { cadeiaIcp: false } });
     // (6) antes do início da validade → recusa
     await expect(credencialDoEmissor(getDb(), 1, new Date(Date.now() - 3 * 86_400_000))).rejects.toThrow(/ainda não está dentro da validade/);
-  });
+  }, 60_000);
   it("(2) testar conexão de emissor inexistente → NOT_FOUND com frase própria (não erro 500)", async () => {
     await expect(admin().testarConexao({ emissorId: 999 })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
   });

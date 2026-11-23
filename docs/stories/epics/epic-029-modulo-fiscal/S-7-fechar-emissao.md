@@ -116,7 +116,9 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
   trata o que não reconhece como INCERTO (consulta antes de reenviar), nunca como sucesso.
 - CNO da obra (7.02/7.05): não há onde guardá-lo; a DPS desses itens continua recusada com a frase.
 - Tabela de alíquotas do Simples (RBT12 + anexo): outra frente; ponto de entrada pronto.
-- Intermediários ICP-Brasil embarcados: outra frente (`server/certificados/icp-intermediarios.json`, lido se existir); até lá, AIA.
+- Cadeia do A1: usa `completarCadeiaIcp` do Jurídico (commit 981ea52 da frente `juridico-cadeia`, trazido por cherry-pick para esta
+  branch: intermediárias oficiais embarcadas em `server/certificados/icp-intermediarias.json` + AIA). Ordem: o que veio no .pfx →
+  embarcadas sem rede → AIA; o caminho folha→raiz é conferido de novo aqui. Ao guardar, a cadeia mostrada já sai completada sem rede.
 - Vercel: `vercel.json` inclui `shared/fiscal/xsd/**` e `node_modules/xmllint-wasm/**` no pacote da função; conferir no primeiro
   deploy que o validador carrega (se não carregar, a emissão recusa — falha fechada).
 
@@ -138,3 +140,4 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 
 ## Change Log
 - 22/11/2026 — @dev: story criada (Draft→InProgress) e implementada; InProgress → InReview (aguarda portão de QA).
+- 23/11/2026 — @dev: cadeia do A1 completada por `completarCadeiaIcp` do Jurídico (cherry-pick 981ea52), sem recusar o .pfx sem intermediários.
