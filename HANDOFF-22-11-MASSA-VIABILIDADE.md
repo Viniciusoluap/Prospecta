@@ -12,3 +12,9 @@
 - (a) QA automatizado cobriu geração de cenários sem preço, recuperação do VGV, geometria com APP e fluxo de caixa para as três modalidades e mix. 235 testes e a compilação passaram. A revisão do PR #317 identificou que um apartamento podia herdar a referência do lote. A correção exige preço unitário ou referência residencial com área privativa e tem teste de regressão.
 - (b) Conferência do código e da interface por revisão de implementação. Validação interativa com um empreendimento real pendente.
 - (c) Após a revisão GitHub do commit final e preview pronto, mesclar, confirmar publicação do SHA em produção e testar o endpoint de saúde.
+
+## Fechamento em produção
+
+- (a) Versão final passou na checagem de tipos e nos 236 testes de 16 suítes. Preview da Vercel pronto. Revisão automática concluída no commit 62a59a5 sem pendências.
+- (b) A tela autenticada com dados de empreendimento real ainda não foi conferida.
+- (c) PR #317 mesclado pelo commit 64d511e. Deploy de produção pronto. API pública de saúde respondeu HTTP 200 com banco conectado. Nenhuma migração necessária.
