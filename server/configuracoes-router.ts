@@ -11,7 +11,8 @@ import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
-import { DOLORES_OPEN_ID, ehContaDoSistema } from "./dolores/perfil.js";
+import { DOLORES_OPEN_ID, DOLORES_PERFIL, ehContaDoSistema } from "./dolores/perfil.js";
+import { registrarAcao } from "./dolores/auditoria.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, semConfundirFalhaDoBanco, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
@@ -252,6 +253,31 @@ export const configuracoesRouter = router({
     }).where(eq(users.id, input.id)).returning({ id: users.id });
     if (input.engenheiro !== undefined) await definirPerfilEngenheiroAtivo(input.id, input.engenheiro && input.role === "colaborador", ctx.user.id);
     return updated;
+  }),
+
+  /**
+   * QA S-3b: o caminho do produto para devolver a conta do sistema ao padrão depois de uma edição indevida — perfil "user", módulos "[]",
+   * sem senha. Não mexe em "ativo" (o botão de parada segue como estava). Só para a conta do sistema; idempotente (sem diferença, não
+   * grava nada além da auditoria); auditoria curta, só com os NOMES dos campos que voltaram ao padrão (nunca os valores).
+   */
+  restaurarContaDoSistema: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const db = getDb();
+    const [current] = await db.select({ id: users.id, openId: users.openId, role: users.role, permissions: users.permissions, passwordHash: users.passwordHash, active: users.active })
+      .from(users).where(eq(users.id, input.id)).limit(1);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    if (!ehContaDoSistema(current.openId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Só a conta do sistema da Dolores tem \"Restaurar conta padrão\"." });
+    const campos = [
+      ...(current.role !== DOLORES_PERFIL ? ["perfil"] : []),
+      ...(current.permissions && current.permissions !== "[]" ? ["modulos"] : []),
+      ...(current.passwordHash ? ["senha"] : []),
+    ];
+    if (campos.length) {
+      await db.update(users).set({ role: DOLORES_PERFIL, permissions: "[]", passwordHash: null, sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: new Date() })
+        .where(eq(users.id, input.id));
+    }
+    await registrarAcao({ funcao: "conta_do_sistema_restaurada", resultado: "ok", motivo: campos.length ? "conta da Dolores restaurada ao padrão" : "conta da Dolores já estava no padrão",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { campos } });
+    return { id: current.id, restaurada: campos.length > 0, campos, active: current.active };
   }),
 
   /** 22/11/2026: a única mudança aceita na conta do sistema da Dolores — ativar/desativar (o botão de parada). Só para ela. */

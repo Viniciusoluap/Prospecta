@@ -323,7 +323,7 @@ export async function relatorioSobDemanda(p: { origem: "tela" | "whatsapp"; agor
     return { ok: false, situacao: "bloqueado", motivo: "não consegui conferir o limite diário de relatórios", relatorioId: null };
   }
   const r = await executarRonda({ janela, origem: p.origem, agora: p.agora, prazoFinal: p.prazoFinal, relogio: p.relogio, config });
-  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "não consegui fazer a ronda agora", relatorioId: null };
+  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" || r.motivo === "indisponivel" || r.motivo === "usuaria_desativada" || r.motivo === "conta_alterada" ? motivoDoBloqueio(r.motivo) : "não consegui fazer a ronda agora", relatorioId: null };
   if (p.prazoFinal - p.relogio() < MINIMO_PARA_RELATORIO_MS) return { ok: false, situacao: "nao_enviado", motivo: "sem tempo para enviar dentro do prazo", relatorioId: null };
   return enviarRelatorio({ tipo: "sob_demanda", janela, origem: p.origem, ronda: r.ronda, agora: p.agora, prazoFinal: p.prazoFinal, config, pedidoPorUserId: p.pedidoPorUserId });
 }

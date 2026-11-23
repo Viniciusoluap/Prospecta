@@ -29,7 +29,7 @@ import { carregarNota, type NotaDetalhada } from "../fiscal/notas.js";
 import { gerarPreviaPdf } from "../fiscal/previa-pdf.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
-import { AVISO_PREVIA_NA_RETOMADA, FRASE_PREVIA_NA_RETOMADA, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
+import { AVISO_PREVIA_ACIMA_DO_TETO, AVISO_PREVIA_NA_RETOMADA, FRASE_PREVIA_NA_RETOMADA, MAX_PREVIAS_POR_PEDIDO, definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { campoPessoal } from "./dados-pessoais.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
@@ -178,7 +178,7 @@ function marcarTextos(nota: NotaDetalhada) {
   let n = 0;
   const andar = (v: unknown, caminho: string, chave: string | null): unknown => {
     if (typeof v === "string") {
-      if (chave && CAMPOS_ESTRUTURADOS_DA_PREVIA.has(chave)) return v;
+      if (CAMPOS_ESTRUTURADOS_DA_PREVIA.has(caminho)) return v;
       const m = `Qz${++n}Kw7RtLmPx`; // longo o bastante para nunca virar um CPF/CNPJ formatado no PDF
       marcadores.set(m, caminho);
       return `senha: ${m}`;
@@ -265,6 +265,21 @@ describe("S-3b item 3 — retomada da tarefa demorada: a prévia não vai e a Do
     const resposta = enviados().join("\n");
     expect(resposta).toContain(FRASE_PREVIA_NA_RETOMADA);
     expect(await q("SELECT 1 FROM dolores_acoes WHERE funcao = 'whatsapp_previa_fiscal'")).toHaveLength(0);
+  });
+});
+
+describe("QA S-3b — teto de prévias por pedido", () => {
+  it("passado o MAX_PREVIAS_POR_PEDIDO, o modelo não lê \"o sistema manda o PDF\" e só as prévias dentro do teto vão", async () => {
+    const ids = [await rascunho(), await rascunho(), await rascunho()];
+    expect(MAX_PREVIAS_POR_PEDIDO).toBe(2);
+    roteiro = [...ids.map(id => () => ferramenta("ver_nota_fiscal", { notaFiscalId: id, enviarPrevia: true })), () => texto("Mando as prévias que couberem.")];
+    await dono("me manda a prévia das notas do João");
+    const resultado = (i: number) => JSON.parse((pedidos[i + 1]!.mensagens.at(-1)!.content.at(-1) as { content: string }).content);
+    expect(resultado(0).dados.previaFiscal).toBe(ids[0]);
+    expect(resultado(1).dados.previaFiscal).toBe(ids[1]);
+    expect(resultado(2).dados.previaFiscal).toBeUndefined();
+    expect(resultado(2).dados.aviso).toBe(AVISO_PREVIA_ACIMA_DO_TETO);
+    expect(enviarDocumento.mock.calls.map(c => (c[0] as { nome: string }).nome)).toEqual([`previa-nota-${ids[0]}.pdf`, `previa-nota-${ids[1]}.pdf`]);
   });
 });
 

@@ -234,8 +234,12 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
   }
 }
 
-/** 22/11/2026: a conta da Dolores foi editada em "Usuários e acesso" (perfil, módulos ou senha) — ela para e diz o que fazer. */
-export const FRASE_CONTA_ALTERADA = "Dolores: minha conta foi alterada em Usuários e acesso (perfil ou módulos), e por segurança eu parei. Peça para restaurar (perfil padrão, sem módulos).";
+/**
+ * 22/11/2026: a conta da Dolores foi editada em "Usuários e acesso" (perfil, módulos ou senha) — ela para e diz onde restaurar.
+ * QA S-3b: a frase diz "login" e não "senha" de propósito — o filtro de saída do WhatsApp (sempre ligado) corta o que vem depois da palavra
+ * "senha" ("senha [senha omitida]…") e o filtro não é afrouxado por uma frase do sistema (teste em conta-alterada.test.ts).
+ */
+export const FRASE_CONTA_ALTERADA = "Dolores: minha conta foi alterada em Usuários e acesso (perfil, módulos ou login), e por segurança eu parei. Para me liberar, um administrador abre Configurações › Usuários e acesso › Dolores › Restaurar conta padrão.";
 
 export const FRASE_ENCAMINHADA = "Dolores: recebi uma mensagem encaminhada. Mensagem encaminhada não vale como pedido: escreva o pedido com as suas palavras, por favor. Nada foi consultado.";
 export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de texto. Escreva o pedido, por favor. Nada foi consultado.";

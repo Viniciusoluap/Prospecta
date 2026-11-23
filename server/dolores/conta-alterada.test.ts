@@ -17,6 +17,7 @@ import { getDb } from "../db.js";
 import { FRASE_CONTA_DO_SISTEMA } from "../configuracoes-router.js";
 import { appRouter } from "../routers.js";
 import { FRASE_CONTA_ALTERADA, fraseDeBloqueio } from "../../shared/dolores/whatsapp.js";
+import { sanitizarTexto } from "../../shared/dolores/sanitizar.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { bloqueioDaOperacao, podeFalarNoGrupo } from "./operacao.js";
 import { DOLORES_OPEN_ID, DoloresContaAlterada, DoloresDesativada, contaDaDoloresForaDoPadrao, esquecerUsuarioDolores, usuarioDolores } from "./perfil.js";
@@ -79,7 +80,10 @@ describe("1 — conta alterada: erro próprio, motivo \"conta_alterada\", frase 
     expect(contaDaDoloresForaDoPadrao({ role: "user", passwordHash: "x", permissions: "[]" })).toBe(true);
     expect(contaDaDoloresForaDoPadrao({ role: "user", passwordHash: null, permissions: "[\"crm\"]" })).toBe(true);
     expect(fraseDeBloqueio("conta_alterada")).toBe(FRASE_CONTA_ALTERADA);
-    expect(FRASE_CONTA_ALTERADA).toBe("Dolores: minha conta foi alterada em Usuários e acesso (perfil ou módulos), e por segurança eu parei. Peça para restaurar (perfil padrão, sem módulos).");
+    expect(FRASE_CONTA_ALTERADA).toContain("(perfil, módulos ou login)");
+    // sai inteira pelo filtro de saída (com e sem o mascaramento de dados pessoais) — "senha" na frase seria cortada pelo filtro
+    for (const m of [false, true]) expect(sanitizarTexto(FRASE_CONTA_ALTERADA, { mascararDadosPessoais: m })).toBe(FRASE_CONTA_ALTERADA);
+    expect(FRASE_CONTA_ALTERADA).toContain("Configurações › Usuários e acesso › Dolores › Restaurar conta padrão");
   });
 
   it("usuarioDolores lança DoloresContaAlterada (e não um Error genérico); desativada continua DoloresDesativada", async () => {
@@ -169,6 +173,32 @@ describe("2 — Usuários e acesso: a conta do sistema não é editável (só at
     await expect(admin().configuracoes.definirContaDoSistemaAtiva({ id: outro!.id, active: false })).rejects.toThrow("Só a conta do sistema");
   });
 
+  it("restaurarContaDoSistema: devolve perfil 'user', '[]' e sem senha, mantém 'ativa', é idempotente, auditado e só para a conta do sistema", async () => {
+    const id = await idDaDolores();
+    await alterarComoEmProducao();
+    await banco.pg.exec(`UPDATE users SET "passwordHash" = 'hash-qualquer', active = false WHERE id = ${id}`);
+    expect(await admin().configuracoes.restaurarContaDoSistema({ id })).toEqual({ id, restaurada: true, campos: ["perfil", "modulos", "senha"], active: false });
+    expect((await q(`SELECT role, permissions, "passwordHash", active FROM users WHERE id = ${id}`))[0]).toEqual({ role: "user", permissions: "[]", passwordHash: null, active: false });
+    await banco.pg.exec(`UPDATE users SET active = true WHERE id = ${id}`);
+    await expect(usuarioDolores()).resolves.toBe(id);
+    // idempotente: de novo, nada muda
+    expect(await admin().configuracoes.restaurarContaDoSistema({ id })).toEqual({ id, restaurada: false, campos: [], active: true });
+    const auditoria = await q<{ resultado: string; motivo: string; resumo: unknown; canal: string }>("SELECT resultado, motivo, resumo, canal FROM dolores_acoes WHERE funcao = 'conta_do_sistema_restaurada' ORDER BY id");
+    expect(auditoria).toEqual([
+      { resultado: "ok", motivo: "conta da Dolores restaurada ao padrão", resumo: { campos: ["perfil", "modulos", "senha"] }, canal: "tela" },
+      { resultado: "ok", motivo: "conta da Dolores já estava no padrão", resumo: { campos: [] }, canal: "tela" },
+    ]);
+    expect(JSON.stringify(auditoria)).not.toMatch(/hash-qualquer|crm|colaborador/);
+    const [outro] = await q<{ id: number }>(`SELECT id FROM users WHERE "openId" <> '${DOLORES_OPEN_ID}' ORDER BY id LIMIT 1`);
+    const antes = await q(`SELECT role, permissions FROM users WHERE id = ${outro!.id}`);
+    await expect(admin().configuracoes.restaurarContaDoSistema({ id: outro!.id })).rejects.toThrow("Só a conta do sistema");
+    expect(await q(`SELECT role, permissions FROM users WHERE id = ${outro!.id}`)).toEqual(antes);
+    const colaborador = appRouter.createCaller({ user: { id: 2, role: "colaborador", active: true, permissions: "[\"usuarios\"]" }, req: {}, res: {} } as never);
+    await alterarComoEmProducao();
+    await expect(colaborador.configuracoes.restaurarContaDoSistema({ id })).rejects.toThrow();
+    expect((await q<{ role: string }>(`SELECT role FROM users WHERE id = ${id}`))[0]!.role).toBe("colaborador");
+  });
+
   it("não-admin não usa o botão", async () => {
     const id = await idDaDolores();
     const colaborador = appRouter.createCaller({ user: { id: 2, role: "colaborador", active: true, permissions: "[]" }, req: {}, res: {} } as never);
@@ -180,6 +210,8 @@ describe("2 — Usuários e acesso: a conta do sistema não é editável (só at
     const tela = readFileSync(new URL("../../client/src/pages/admin/AdminConfiguracoes.tsx", import.meta.url), "utf8");
     expect(tela).toContain("Conta do sistema — não editável");
     expect(tela).toContain("definirContaDoSistemaAtiva.useMutation");
+    expect(tela).toContain("restaurarContaDoSistema.useMutation");
+    expect(tela).toContain("Restaurar conta padrão");
     // o diálogo da conta do sistema vem antes (ramo próprio) do formulário de "Gerenciar acesso"
     const ramo = tela.indexOf("usuario?.contaDoSistema ?");
     expect(ramo).toBeGreaterThan(0);

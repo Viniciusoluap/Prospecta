@@ -7,6 +7,7 @@
 //  - BAIXO: o relatório sob demanda (`relatorioSobDemanda`) ainda devolve "não consegui fazer a ronda agora" para conta alterada;
 //  - BAIXO: a isenção do filtro do PDF é pelo NOME da chave em qualquer nível (uma chave "fonte"/"tipo"/"status" com texto livre num
 //    objeto aninhado novo escaparia do filtro).
+// 23/11/2026 — @dev (Dex): os 4 achados corrigidos; os `it.fails` viraram `it`.
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -121,12 +122,14 @@ describe("QA S-3b — conta do sistema: nenhum caminho de admin/colaborador alte
   // ACHADO IMPORTANTE — sem caminho de restauração no produto. A frase ao dono diz "Peça para restaurar (perfil padrão, sem módulos)", mas
   // a tela só mostra o interruptor, o servidor recusa updateUser na conta do sistema e o enum `managedRole` não tem "user". A conta de
   // produção que já foi editada continua parada depois do deploy até alguém rodar SQL à mão (alteração de dado existente: pede o dono).
-  it.fails("depois da edição de produção, algum caminho do produto (admin) devolve a conta ao padrão e a Dolores volta", async () => {
+  // corrigido: configuracoes.restaurarContaDoSistema (botão "Restaurar conta padrão" no diálogo da conta do sistema)
+  it("depois da edição de produção, algum caminho do produto (admin) devolve a conta ao padrão e a Dolores volta", async () => {
     await alterarComoEmProducao();
     const id = await idDaDolores();
     await admin().configuracoes.updateUser({ id, name: "Dolores (funcionária digital)", role: "user", active: true, permissions: [] } as never).catch(() => null);
     await admin().configuracoes.definirContaDoSistemaAtiva({ id, active: false }).catch(() => null);
     await admin().configuracoes.definirContaDoSistemaAtiva({ id, active: true }).catch(() => null);
+    await admin().configuracoes.restaurarContaDoSistema({ id });
     esquecerUsuarioDolores();
     await expect(usuarioDolores()).resolves.toBe(id);
   });
@@ -134,7 +137,7 @@ describe("QA S-3b — conta do sistema: nenhum caminho de admin/colaborador alte
 
 describe("QA S-3b — o motivo novo em todas as portas", () => {
   // ACHADO MÉDIO/BAIXO — ponte.ts tratarFerramentas (GET das ferramentas) cai no catch genérico: "Ponte indisponível; nada foi executado."
-  it.fails("ponte, GET das ferramentas: conta alterada responde com a frase de conta alterada (não 'indisponível')", async () => {
+  it("ponte, GET das ferramentas: conta alterada responde com a frase de conta alterada (não 'indisponível')", async () => {
     await alterarComoEmProducao();
     const r = await tratarFerramentas({ headers: { authorization: `Bearer ${TOKEN}` }, body: {}, ip: "203.0.113.7" } as never);
     expect(r.status).toBe(503);
@@ -150,7 +153,7 @@ describe("QA S-3b — o motivo novo em todas as portas", () => {
 
   // ACHADO BAIXO — rondas.ts relatorioSobDemanda: `r.motivo === "pausada" ? … : "não consegui fazer a ronda agora"` — conta alterada (e
   // usuária desativada) chegam ao dono/à tela sem a frase própria, embora `motivoDoBloqueio` já saiba dizer.
-  it.fails("relatório sob demanda usa motivoDoBloqueio para conta alterada (não a frase genérica)", () => {
+  it("relatório sob demanda usa motivoDoBloqueio para conta alterada (não a frase genérica)", () => {
     const fonte = readFileSync(new URL("./rondas.ts", import.meta.url), "utf8");
     expect(fonte).not.toContain(`r.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "não consegui fazer a ronda agora"`);
   });
@@ -181,7 +184,7 @@ describe("QA S-3b — filtro do PDF", () => {
 
   // ACHADO BAIXO (fragilidade) — a isenção é pelo NOME da chave em qualquer nível. Hoje nenhum texto livre impresso tem chave
   // "fonte"/"tipo"/"status"/…, mas um objeto aninhado novo com essa chave (ex.: origem.tipo com texto do banco) escaparia do filtro.
-  it.fails("a isenção dos campos fechados vale só no caminho certo (origem.fonte com texto livre é filtrado)", () => {
+  it("a isenção dos campos fechados vale só no caminho certo (origem.fonte com texto livre é filtrado)", () => {
     const nota = { ...base(), origem: { descricao: "x", fonte: "senha: Qz9Kw7RtLmPx" } };
     expect(JSON.stringify(notaParaPreviaDaDolores(nota as never, campoPessoal))).not.toContain("Qz9Kw7RtLmPx");
   });

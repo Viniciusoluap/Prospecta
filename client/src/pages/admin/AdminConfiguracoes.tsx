@@ -112,6 +112,7 @@ export default function AdminConfiguracoes() {
   });
   // 22/11/2026: a conta do sistema da Dolores só se ativa/desativa (o servidor recusa qualquer outra mudança)
   const ativarSistema = trpc.configuracoes.definirContaDoSistemaAtiva.useMutation({ onSuccess: async (r) => { await refresh(); toast.success(r?.active ? "Dolores ativada" : "Dolores desativada"); }, onError: e => toast.error(e.message) });
+  const restaurarSistema = trpc.configuracoes.restaurarContaDoSistema.useMutation({ onSuccess: async (r) => { await refresh(); toast.success(r.restaurada ? "Conta da Dolores restaurada ao padrão" : "A conta da Dolores já estava no padrão"); }, onError: e => toast.error(e.message) });
   const excluir = trpc.configuracoes.deleteUser.useMutation({ onSuccess: async () => { await refresh(); setEditId(null); toast.success("Usuário excluído"); }, onError: e => toast.error(e.message) });
 
   function handleNovo(event: FormEvent<HTMLFormElement>) {
@@ -191,6 +192,7 @@ export default function AdminConfiguracoes() {
       <DialogHeader><DialogTitle>{usuario.name} — Conta do sistema — não editável</DialogTitle></DialogHeader>
       <p className="text-sm text-gray-300">Esta é a conta da Dolores (funcionária digital). Perfil, módulos, nome e senha não podem ser alterados: qualquer mudança neles faz a Dolores parar por segurança. Aqui só dá para ativar ou desativar — desativar é o botão de parada dela.</p>
       <label className="flex items-center justify-between rounded-lg bg-[#2C3E50] p-3"><span>Dolores ativa</span><Switch checked={usuario.active} disabled={ativarSistema.isPending} onCheckedChange={active => ativarSistema.mutate({ id: usuario.id, active })} /></label>
+      <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4"><p className="text-xs text-gray-300">Se a Dolores parou dizendo que a conta dela foi alterada: volta o perfil padrão, sem módulos e sem senha (não muda o "ativa").</p><Button type="button" variant="outline" disabled={restaurarSistema.isPending} onClick={() => restaurarSistema.mutate({ id: usuario.id })}>Restaurar conta padrão</Button></div>
     </> : usuario && <>
       <DialogHeader><DialogTitle>Gerenciar acesso — {usuario.name}</DialogTitle></DialogHeader><form onSubmit={handleEditar} className="space-y-5">
         <div className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papel === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeEdit} onChange={setNomeEdit} readOnly={papel === "cliente"} /><Campo name="phone" label={papel === "corretor" ? "Telefone *" : papel === "cliente" ? "Telefone (do CRM)" : "Telefone"} required={papel === "corretor"} value={foneEdit} onChange={setFoneEdit} readOnly={papel === "cliente"} />{papel === "corretor" && <><Campo name="creci" label="CRECI *" required defaultValue={usuario.creci || ""} /><Campo name="defaultCommissionPct" label="Comissão padrão (%)" defaultValue={usuario.defaultCommissionPct ? String(Number(usuario.defaultCommissionPct)) : ""} /></>}

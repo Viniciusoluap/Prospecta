@@ -161,6 +161,9 @@ function comPrazo<T>(p: Promise<T>, ms: number): Promise<T> {
     .finally(() => clearTimeout(t));
 }
 
+/** 22/11/2026: a conta da Dolores foi alterada em Usuários e acesso — a ponte para e diz onde restaurar. */
+const ERRO_PONTE_CONTA_ALTERADA = "A conta da Dolores foi alterada em Usuários e acesso (perfil, módulos ou login); por segurança a ponte parou. Para liberar: Configurações › Usuários e acesso › Dolores › Restaurar conta padrão.";
+
 export async function tratarChamada(req: Pedido): Promise<RespostaPonte> {
   const negado = autenticar(req, deps.agora());
   if (negado) return negado;
@@ -255,7 +258,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     if (e instanceof DoloresContaAlterada) {
       console.error("[dolores/ponte] conta da Dolores fora do padrão (perfil, senha ou módulos alterados em Usuários e acesso); parada");
       await registrar("recusada", { motivo: "conta da Dolores alterada em Usuários e acesso" });
-      return responder(503, { ok: false, erro: "A conta da Dolores foi alterada em Usuários e acesso (perfil, senha ou módulos); por segurança a ponte parou. Restaure o perfil padrão, sem módulos." });
+      return responder(503, { ok: false, erro: ERRO_PONTE_CONTA_ALTERADA });
     }
     await registrar("erro", { motivo: `usuária Dolores: ${erroSeguro(e)}` });
     return responder(503, { ok: false, erro: "Usuária Dolores indisponível ou alterada; ponte parada." });
@@ -438,6 +441,16 @@ export async function tratarFerramentas(req: Pedido): Promise<RespostaPonte> {
       return { status: 429, body: { ...base(agora), ok: false, erro: `Limite de ${config.limite} chamadas por minuto atingido.` } };
     }
   } catch (e) {
+    // QA S-3b: os motivos próprios da conta da Dolores também aqui (falha fechada: 503, nenhuma ferramenta)
+    if (e instanceof DoloresDesativada) {
+      await registrar("recusada", "usuária Dolores desativada");
+      return { status: 503, body: { ...base(agora), ok: false, erro: "A usuária Dolores está desativada no sistema (Usuários e acesso); a ponte não executa nada até ela ser reativada." } };
+    }
+    if (e instanceof DoloresContaAlterada) {
+      console.error("[dolores/ponte] conta da Dolores fora do padrão (perfil, senha ou módulos alterados em Usuários e acesso); parada");
+      await registrar("recusada", "conta da Dolores alterada em Usuários e acesso");
+      return { status: 503, body: { ...base(agora), ok: false, erro: ERRO_PONTE_CONTA_ALTERADA } };
+    }
     await registrar("erro", erroSeguro(e));
     return { status: 503, body: { ...base(agora), ok: false, erro: "Ponte indisponível; nada foi executado." } };
   }

@@ -675,11 +675,14 @@ export const FRASE_PREVIA_NAO_FOI = "Dolores: não consegui mandar o PDF da pré
 export const MAX_BYTES_PREVIA = 1_000_000;
 
 /**
- * S-3b (revisão, item 2): campos da nota que NÃO são texto livre — valores fechados (enum), datas e o tipo do tomador. Não passam pelo
- * filtro porque o PDF os usa como chave de rótulo (ROTULO_STATUS, ROTULO_MOTIVO) ou data. Todo o RESTO que for texto passa.
+ * S-3b (revisão, item 2): campos da nota que NÃO são texto livre — valores fechados (enum) e datas. Não passam pelo filtro porque o PDF
+ * os usa como chave de rótulo (ROTULO_STATUS, ROTULO_MOTIVO) ou data. Todo o RESTO que for texto passa.
+ * QA S-3b: a isenção é pelo CAMINHO exato (ex.: "tomador.tipo"), nunca pelo nome da chave em qualquer nível — um objeto novo com uma
+ * chave "tipo"/"fonte" de texto livre continua filtrado.
  */
 export const CAMPOS_ESTRUTURADOS_DA_PREVIA: ReadonlySet<string> = new Set([
-  "status", "motivoSemNota", "motivoSugerido", "origemTipo", "alteradoVia", "fonte", "tipo", "ambiente", "dataEvento", "adiadaAte"]);
+  "status", "motivoSemNota", "motivoSugerido", "origemTipo", "alteradoVia", "dataEvento", "adiadaAte",
+  "tomador.tipo", "municipio.fonte", "emissor.ambiente"]);
 
 /**
  * QA S-3 (M1) + S-3b (item 2): no caminho da Dolores, o PDF passa pelo MESMO filtro de saída da conversa do dono. Em vez de uma lista
@@ -691,15 +694,16 @@ export const CAMPOS_ESTRUTURADOS_DA_PREVIA: ReadonlySet<string> = new Set([
 export function notaParaPreviaDaDolores<T extends { tomador: { documento: string | null } }>(nota: T,
   campo: (v: string, tipo: "cpf" | "cnpj", canal: "whatsapp") => string | null | undefined): T {
   const f = (t: string) => sanitizarTexto(t, filtroDaSaida("whatsapp"));
-  const filtrar = (v: unknown, chave: string | null): unknown => {
-    if (typeof v === "string") return chave && CAMPOS_ESTRUTURADOS_DA_PREVIA.has(chave) ? v : f(v);
-    if (Array.isArray(v)) return v.map(x => filtrar(x, null));
+  // caminho "a.b" de cada campo; item de lista tem caminho próprio ("a[]"), nunca isento
+  const filtrar = (v: unknown, caminho: string): unknown => {
+    if (typeof v === "string") return CAMPOS_ESTRUTURADOS_DA_PREVIA.has(caminho) ? v : f(v);
+    if (Array.isArray(v)) return v.map(x => filtrar(x, `${caminho}[]`));
     if (v && typeof v === "object" && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)) {
-      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, filtrar(x, k)]));
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, filtrar(x, caminho ? `${caminho}.${k}` : k)]));
     }
     return v;
   };
-  const saida = filtrar(nota, null) as T;
+  const saida = filtrar(nota, "") as T;
   const doc = saida.tomador.documento;
   return { ...saida, tomador: { ...saida.tomador, documento: doc ? (campo(doc, doc.replace(/[^0-9A-Za-z]/g, "").length === 11 ? "cpf" : "cnpj", "whatsapp") ?? null) : null } };
 }

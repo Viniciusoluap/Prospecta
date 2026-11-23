@@ -27,6 +27,8 @@ export const ACOES_DE_MESA: ReadonlySet<string> = new Set(FUNCOES_DAS_MESAS.filt
 const ACOES_FISCAIS_SET: ReadonlySet<string> = new Set(ACOES_FISCAIS);
 /** EPIC-029 S-3: prévias em PDF por pedido (o sistema manda cada uma ao número do dono depois da resposta). */
 export const MAX_PREVIAS_POR_PEDIDO = 2;
+/** QA S-3b: o que o modelo lê quando o pedido já tem MAX_PREVIAS_POR_PEDIDO prévias (esta não vai). */
+export const AVISO_PREVIA_ACIMA_DO_TETO = `Este pedido já tem ${MAX_PREVIAS_POR_PEDIDO} prévias em PDF (o máximo por mensagem): a prévia deste rascunho NÃO vai. Não diga que está mandando este PDF; diga que o dono pede esta prévia em outra mensagem.`;
 /** S-3b (item 3): o que o modelo lê, na retomada em segundo plano, no lugar do "o sistema manda o PDF". */
 export const AVISO_PREVIA_NA_RETOMADA = "Este levantamento vai em segundo plano: a prévia em PDF NÃO vai junto. Não diga que está mandando o PDF; diga que, para recebê-la, o dono pede a prévia de novo na conversa.";
 /** S-3b (item 3): frase fixa que a retomada acrescenta quando o modelo pediu prévia (o texto do modelo nunca promete o PDF sozinho). */
@@ -472,7 +474,13 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
             delete dados.previaFiscal;
             dados.aviso = AVISO_PREVIA_NA_RETOMADA;
             previasRecusadas.add(previa);
-          } else if (previasFiscais.size < MAX_PREVIAS_POR_PEDIDO) previasFiscais.add(previa);
+          } else if (previasFiscais.size < MAX_PREVIAS_POR_PEDIDO || previasFiscais.has(previa)) previasFiscais.add(previa);
+          else {
+            // QA S-3b: passou do teto do pedido — o modelo não pode ler "o sistema manda o PDF" de uma prévia que não vai
+            const dados = resp.body.dados as Record<string, unknown>;
+            delete dados.previaFiscal;
+            dados.aviso = AVISO_PREVIA_ACIMA_DO_TETO;
+          }
         }
       }
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila

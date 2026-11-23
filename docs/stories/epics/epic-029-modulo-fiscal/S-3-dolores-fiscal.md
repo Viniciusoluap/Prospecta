@@ -177,11 +177,41 @@ mudança de tela.
 - (b) Manuais: não feitos (sem WhatsApp real).
 - (c) Pendentes em produção: nenhuma nova (sem migração).
 
+### S-3b — correção de produção: conta da Dolores alterada em "Usuários e acesso" (22–23/11/2026)
+
+Achado em produção: desde 21/11 toda conversa do dono saía "indisponível", porque a conta do sistema da Dolores (`sistema:dolores`) foi
+editada na tela (perfil virou colaborador, 16 módulos). O perfil "user" aparecia na tela como "Cliente", o que levou à edição. A linha de
+produção foi restaurada por SQL pelo coordenador em 23/11 (perfil `user`, módulos `[]`); não há migração.
+
+- [x] **Erro próprio e motivo `conta_alterada`.** `perfil.ts#DoloresContaAlterada` (regra única em `contaDaDoloresForaDoPadrao`). As portas
+  mapeiam para o motivo novo, cada uma com uma linha curta no log e sem dados: `whatsapp.ts#bloqueioAtual` (conversa, classificação,
+  marcação, atendimento, avisos, retomada), `operacao.ts#bloqueioDaOperacao` (grupos, cliente, rondas, avisos), a ponte (`tratarChamada` e,
+  pelo portão de QA, `tratarFerramentas`), a fila (`aprovacoes.ts`) e as notas (`notas-router.ts`). O relatório sob demanda
+  (`rondas.ts#relatorioSobDemanda`) usa `motivoDoBloqueio`. Um "indisponível" vindo de exceção também deixa uma linha curta no log.
+- [x] **Frase ao dono:** `FRASE_CONTA_ALTERADA` diz "(perfil, módulos ou login)" e onde restaurar ("Configurações › Usuários e acesso ›
+  Dolores › Restaurar conta padrão"). **Desvio do pedido:** a frase diz "login" em vez de "senha" porque o filtro de saída do WhatsApp
+  (sempre ligado) corta o que vem depois da palavra "senha". O filtro não é afrouxado; um teste garante que a frase passa por ele intacta.
+- [x] **Usuários e acesso** (`server/configuracoes-router.ts`, `client/src/pages/admin/AdminConfiguracoes.tsx`). A conta do sistema
+  aparece como "Conta do sistema — não editável". O servidor recusa `updateUser`, `resetPassword` e `deleteUser` nela.
+  `definirContaDoSistemaAtiva` só ativa e desativa (o botão de parada). `restaurarContaDoSistema` (pedido pelo portão de QA) devolve
+  perfil `user`, módulos `[]` e sem senha, sem mexer em "ativa"; é idempotente, só para admin e só para essa conta, e a auditoria
+  (`dolores_acoes`, função `conta_do_sistema_restaurada`) guarda só os nomes dos campos. A tela tem o botão "Restaurar conta padrão".
+- [x] **Portão de QA da S-3b (itens leves):** a isenção do filtro do PDF passou a valer pelo CAMINHO exato (`tomador.tipo`,
+  `municipio.fonte`, `emissor.ambiente`, `status`…), e não pelo nome da chave em qualquer nível. Passado o `MAX_PREVIAS_POR_PEDIDO`, o
+  resultado que o modelo lê perde `previaFiscal` e recebe `AVISO_PREVIA_ACIMA_DO_TETO` (nada de "o sistema manda o PDF").
+
+Testes: `server/dolores/conta-alterada.test.ts` (14), `server/dolores/s3b-qa.test.ts` (11; os 4 `it.fails` viraram `it`),
+`server/dolores/s3-fiscal-revisao.test.ts` (8, inclusive o teto de prévias). `server/dolores/ponte.test.ts`: o teste de conta alterada
+agora espera "recusada" com a frase nova.
+
 ### Arquivos (S-3b)
 - `server/dolores/whatsapp.ts` (ordem da marcação, teto da leitura, filtro total do PDF, memória da prévia)
 - `server/dolores/cerebro.ts` (`AVISO_PREVIA_NA_RETOMADA`, `FRASE_PREVIA_NA_RETOMADA`, `previasRecusadas`)
 - `server/dolores/tarefa-demorada.ts` (frase fixa no fecho da retomada)
 - `server/dolores/s3-fiscal-revisao.test.ts` (novo)
+- Conta alterada: `server/dolores/perfil.ts`, `shared/dolores/whatsapp.ts`, `server/dolores/operacao.ts`, `server/dolores/rondas.ts`,
+  `server/dolores/ponte.ts`, `server/dolores/aprovacoes.ts`, `server/dolores/notas-router.ts`, `server/configuracoes-router.ts`,
+  `client/src/pages/admin/AdminConfiguracoes.tsx`, `server/dolores/conta-alterada.test.ts` (novo), `server/dolores/ponte.test.ts`
 
 ## Change Log
 - 22/11/2026 — @dev (Dex): Draft → InReview. Implementação completa no ramo `epic029-s3` (merge de `cf12927` da S-2); migração 0161 NÃO aplicada.
@@ -193,3 +223,4 @@ mudança de tela.
   conferido antes do envio, com a frase de falha. Os 2 `it.fails` viraram `it`. Merge de `origin/main`. **Atenção: a `main` já tem
   `drizzle/0161_juridico_validacao_assinaturas.sql` — dois arquivos 0161 convivem; decidir com o coordenador se a desta story é renumerada.**
 - 22/11/2026 — @dev (Dex): S-3b — 4 pendências leves da revisão independente corrigidas (seção "S-3b — pendências da revisão").
+- 23/11/2026 — @dev (Dex): conta da Dolores alterada (motivo próprio, conta do sistema não editável, "Restaurar conta padrão") e achados do portão de QA da S-3b corrigidos.
