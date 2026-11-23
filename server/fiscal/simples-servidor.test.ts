@@ -24,7 +24,7 @@ import { PARAMETROS_VAZIOS, type EntradaDps } from "../../shared/fiscal/dps-camp
 const TABELAS = [
   "users", "leads", "leadServices", "imoveis", "bpoClients", "bpoLancamentos", "bankAccounts", "bankTransactions", "constructionProjects",
   "obraMovimentos", "regularizacoes", "regularizacaoItensFinanceiros", "regularizacaoRecebimentos", "avaliacoes", "operationalCommissions",
-  "financialTransactions", "taxProfiles", "taxObligations", "retProjects",
+  "financialTransactions", "taxProfiles", "taxObligations", "retProjects", "bpoRecebimentos",
 ];
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
 const M0154 = ler("0154_fiscal_notas.sql");
@@ -368,5 +368,59 @@ describe("QA S-8 — correções (M1 a M4 e Fator R com receita incompleta)", ()
     await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: null, folhaAte: null, inicioAtividade: "2021-05-07" });
     const r = await calcular(await rascunho(1, 101));
     expect(paraDps(r)).toMatchObject({ inicioAtividadeInformado: true });
+  });
+});
+
+describe("Revisão do PR #321 (Codex) — divisão de pagamentos e 1º mês sem dupla contagem", () => {
+  beforeEach(() => preparar());
+
+  it("P2 1: receita baixada pela divisão de pagamentos entra pela conta do crédito, uma vez; sem duplicar o lançamento direto nem a nota emitida", async () => {
+    await pg.exec(`ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14);
+      INSERT INTO bank_accounts (id, banco, conta, empresa_cnpj) VALUES (1, 'Banco', '1', '41865900000189'), (2, 'Banco', '2', '11222333000181');
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES
+        (1, 1, 'credito', 1000, '2026-03-10 12:00', 'um crédito, três cobranças'),
+        (2, 1, 'credito', 500, '2026-04-10 12:00', 'pagamento direto'),
+        (3, 2, 'credito', 700, '2026-04-10 12:00', 'outra empresa'),
+        (4, 1, 'credito', 300, '2026-11-05 12:00', 'fora da janela');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (11, 'honorario', 'A', 600, '2026-03-10', true, '2026-03-10 12:00', '2026-03', NULL),
+        (12, 'receita', 'B', 400, '2026-03-10', false, NULL, '2026-03', NULL),
+        (13, 'receita', 'C direto', 500, '2026-04-10', true, '2026-04-10 12:00', '2026-04', 2),
+        (14, 'receita', 'D de nota emitida', 300, '2026-03-10', true, '2026-03-10 12:00', '2026-03', NULL),
+        (15, 'reembolso', 'E reembolso', 100, '2026-03-10', true, '2026-03-10 12:00', '2026-03', NULL),
+        (16, 'receita', 'F outra empresa', 700, '2026-04-10', true, '2026-04-10 12:00', '2026-04', NULL),
+        (17, 'receita', 'G fora', 300, '2026-11-05', true, '2026-11-05 12:00', '2026-11', NULL);
+      INSERT INTO bpo_recebimentos (lancamento_id, request_key, valor, recebido_em, bank_transaction_id) VALUES
+        (11, 'r11', 600, '2026-03-10 12:00', 1),
+        (12, 'r12', 400, '2026-03-10 12:00', 1),
+        (13, 'r13', 500, '2026-04-10 12:00', 2),
+        (14, 'r14', 300, '2026-03-10 12:00', 1),
+        (15, 'r15', 100, '2026-03-10 12:00', 1),
+        (16, 'r16', 700, '2026-04-10 12:00', 3),
+        (17, 'r17', 300, '2026-11-05 12:00', 4);`);
+    await pg.query(`INSERT INTO fiscal_notas (emissor_id, tipo_servico_id, origem_tipo, origem_id, data_evento, status) VALUES (1, 101, 'bpo_lancamento', 14, '2026-03-10', 'EMITIDA')`);
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    // A (600) + B (400) pela divisão + C (500) direto, uma vez; D já está na nota (300); E é reembolso; F é de outra raiz; G fora.
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(300), bpo: R$(1_500) });
+    expect(r.rbt12.centavos).toBe(R$(1_800));
+  });
+
+  it("P2 2: 1º mês — rascunho de lançamento do BPO já pago não é somado de novo (R$ 20 mil → RBT12 R$ 240 mil)", async () => {
+    await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: null, folhaAte: null, inicioAtividade: "2026-11-03" });
+    await pg.exec(`ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14);
+      INSERT INTO bank_accounts (id, banco, conta, empresa_cnpj) VALUES (1, 'Banco', '1', '41865900000189');
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 20000, '2026-11-05 12:00', 'honorário');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (21, 'honorario', 'honorário de novembro', 20000, '2026-11-05', true, '2026-11-05 12:00', '2026-11', 1);`);
+    const n = await pg.query<{ id: number }>(`INSERT INTO fiscal_notas (emissor_id, tipo_servico_id, origem_tipo, origem_id, data_evento)
+      VALUES (1, 101, 'bpo_lancamento', 21, '2026-11-05') RETURNING id`);
+    const r = await calcular(n.rows[0]!.id);
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.rbt12).toEqual({ centavos: R$(240_000), regra: "primeiro_mes", meses: 0 });
+    // Rascunho que NÃO é de lançamento do BPO continua somado (ainda não é receita no sistema).
+    const outro = await calcular(await rascunho(1, 101, "2026-11-20", R$(10_000)));
+    if (!outro.aplica) throw new Error("devia aplicar");
+    expect(outro.rbt12.centavos).toBe(R$(360_000)); // (20 mil + 10 mil) × 12
   });
 });

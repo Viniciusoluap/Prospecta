@@ -36,6 +36,11 @@ export type ReceitaApurada = {
   /** false = alguma fonte não pôde ser lida (o RBT12 pode estar subestimado). */
   completo: boolean;
   avisos: string[];
+  /**
+   * Revisão do PR #321 (Codex, P2 2): lançamentos do BPO já somados (direto ou pela divisão de pagamentos). Serve para não somar
+   * de novo o valor de um rascunho cuja origem é um desses lançamentos. Opcional: uma fonte sem a lista não deduplica.
+   */
+  lancamentosBpo?: number[];
 };
 
 /** Interface da receita bruta da empresa num período (datas AAAA-MM-DD, inclusive, em Brasília). */
@@ -80,14 +85,28 @@ export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
         return { centavos: notasEmitidas, fontes: { notasEmitidas, bpo: null }, completo: false, avisos: [AVISO_BPO_SEM_CONTA_POR_EMPRESA] };
       }
       const fora = jaNaNota.length ? sql`AND l.id NOT IN (${sql.join(jaNaNota.map(i => sql`${i}`), sql`, `)})` : sql``;
-      const [r] = linhas(await db.execute(sql`
-        SELECT coalesce(sum(l.valor), 0) AS total
-        FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
-        WHERE l.tipo IN ('honorario', 'receita') AND l.pago = true AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL
-          AND left(upper(regexp_replace(coalesce(ba.empresa_cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz}
-          AND l.pago_em >= ${meiaNoiteBrasilia(de)}::timestamp AND l.pago_em < ${meiaNoiteBrasilia(diaSeguinte(ate))}::timestamp ${fora}`));
-      const bpo = centavos(r?.total);
-      return { centavos: notasEmitidas + bpo, fontes: { notasEmitidas, bpo }, completo: true, avisos: [] };
+      const daEmpresa = sql`left(upper(regexp_replace(coalesce(ba.empresa_cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz}`;
+      const valido = sql`l.tipo IN ('honorario', 'receita') AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL`;
+      const inicio = meiaNoiteBrasilia(de);
+      const fim = meiaNoiteBrasilia(diaSeguinte(ate));
+      // (b1) Lançamento pago com a PRÓPRIA movimentação do banco, na data do pagamento.
+      const diretos = linhas(await db.execute(sql`
+        SELECT l.id, l.valor FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
+        WHERE ${valido} AND l.pago = true AND ${daEmpresa}
+          AND l.pago_em >= ${inicio}::timestamp AND l.pago_em < ${fim}::timestamp ${fora}`));
+      // (b2) Revisão do PR #321 (Codex, P2 1): baixa pela "divisão de pagamentos" (darBaixaComMovimentacao) — o banco fica em
+      //      bpo_recebimentos.bank_transaction_id e o lançamento fica SEM movimentação própria. Cada alocação entra uma vez, pela
+      //      conta e na data do CRÉDITO. Lançamento com movimentação própria não entra aqui (já está em b1); o de nota emitida, também não.
+      const temRecebimentos = linhas(await db.execute(sql`SELECT to_regclass('bpo_recebimentos') IS NOT NULL AS ok`))[0]?.ok;
+      const divididos = temRecebimentos ? linhas(await db.execute(sql`
+        SELECT r.lancamento_id AS id, r.valor FROM bpo_recebimentos r
+        JOIN bpo_lancamentos l ON l.id = r.lancamento_id
+        JOIN bank_transactions bt ON bt.id = r.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
+        WHERE ${valido} AND l.bank_transaction_id IS NULL AND bt.tipo = 'credito' AND ${daEmpresa}
+          AND bt.data >= ${inicio}::timestamp AND bt.data < ${fim}::timestamp ${fora}`)) : [];
+      const bpo = [...diretos, ...divididos].reduce((a, x) => a + centavos(x.valor), 0);
+      const lancamentosBpo = Array.from(new Set([...diretos, ...divididos].map(x => Number(x.id))));
+      return { centavos: notasEmitidas + bpo, fontes: { notasEmitidas, bpo }, completo: true, avisos: [], lancamentosBpo };
     },
   };
 }
@@ -212,7 +231,10 @@ export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, 
     if (atividade === 0) {
       // 1º mês: receita do próprio mês (até agora) + esta nota, se ainda não emitida — provisório até o mês fechar.
       const r = await fonte.receitaDoPeriodo(raiz, `${competencia}-01`, ultimoDiaDoMes(competencia));
-      doMes = r.centavos + (nota.status === "EMITIDA" ? 0 : nota.valorCentavos);
+      // Revisão do PR #321 (Codex, P2 2): rascunho de lançamento do BPO já pago já está na receita do mês — não somar de novo.
+      const origemBpo = nota.origem?.bpoLancamentoId ?? null;
+      const jaSomada = nota.status === "EMITIDA" || (origemBpo != null && (r.lancamentosBpo ?? []).includes(origemBpo));
+      doMes = r.centavos + (jaSomada ? 0 : nota.valorCentavos);
       receita = somar(receita, r);
       avisos.push("1º mês de atividade: RBT12 = receita do próprio mês × 12 (provisório até o mês fechar).");
       periodo = { de: `${competencia}-01`, ate: ultimoDiaDoMes(competencia) };

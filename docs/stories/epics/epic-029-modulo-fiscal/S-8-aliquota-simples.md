@@ -59,6 +59,9 @@ Fator R, da folha de salários. O número fixo erra para cima ou para baixo e n�
   acima de R$ 3,6 mi → ISS fora no ano todo; ano em curso acima em mais de 20% → fora a partir do mês seguinte ao excesso; até 20%
   → continua no DAS e o efeito fica para o ano seguinte (aviso). Ano de início: limite proporcional (R$ 300 mil × meses). RBT12 na
   6ª faixa sem excesso → ISS no DAS pela fórmula da 5ª faixa, com teto de 5%. Com o ISS fora do DAS, o `pAliq` é a alíquota municipal.
+- **Divisão de pagamentos (revisão do PR #321, Codex):** a receita baixada por `bpo_recebimentos.bank_transaction_id` (lançamento sem
+  movimentação própria) entra pela conta e na data do CRÉDITO, uma vez por alocação; não repete o lançamento com movimentação própria
+  nem o de nota emitida. No 1º mês, rascunho de lançamento do BPO já somado na receita do mês não é somado de novo.
 - **Receita bruta (M1):** só honorário e receita do BPO; reembolso de despesa não é receita bruta (LC 123, art. 3º §1º).
 - **`pAliq` com 2 casas** (`CASAS_PALIQ`, meio para cima): os percentuais do leiaute nacional são de 2 casas (TSDec1V2) —
   [NÃO CONFIRMADO: o XSD não está no repositório]. Vale também para a alíquota municipal.
@@ -135,5 +138,6 @@ Fator R, da folha de salários. O número fixo erra para cima ou para baixo e n�
 ## Change Log
 - 22/11/2026 — @dev (Dex): story criada (Ready → InProgress) a partir da ordem do lead; implementação.
 - 23/11/2026 — @dev (Dex): implementação concluída, InProgress → InReview (aguarda o portão de QA).
+- 23/11/2026 — @dev (Dex): revisão do PR #321 (Codex, 2 × P2): divisão de pagamentos no RBT12 e 1º mês sem dupla contagem.
 - 23/11/2026 — @dev (Dex): correções do portão de QA (CONCERNS): M1 receita bruta, M2 folha só para o admin, M3 sublimite pelo
   ano-calendário, M4 início de atividade na produção, pAliq com 2 casas e Fator R com receita incompleta no Anexo V. M5 pendente (S-6).
