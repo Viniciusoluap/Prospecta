@@ -38,6 +38,7 @@ export default function AdminWhatsApp() {
   // Item 12 (25/10 noite): abre em Conversas; a aba de conexão existe só para quem não é admin.
   const [activeTab, setActiveTab] = useState<AbaCentral>(abaInicialCentral(role, params.get("aba")));
   useEffect(() => { if (!abasCentralWhatsapp(role).includes(activeTab)) setActiveTab("conversas"); }, [role, activeTab]);
+  const [numeroAposEnvio, setNumeroAposEnvio] = useState<string | null>(null);
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   const [searchLead, setSearchLead] = useState("");
   const [etapaFiltro, setEtapaFiltro] = useState<string>(ETAPA_TODAS);
@@ -142,20 +143,31 @@ export default function AdminWhatsApp() {
     const destinatarios = leads.filter((l) => selectedLeads.includes(l.id)).map((l) => ({ id: l.id, nome: l.name, telefone: l.phone }));
     // Pedido de 30/10: seleção grande (ex.: todos de uma etapa) vai em lotes; cada lead recebe a própria mensagem.
     let enviadas = 0, falhas = 0, erro: string | null = null;
+    let numeroConversa: string | null = null;
+    let historicoPendente = false;
     setEnviandoLotes(true);
     try {
       for (const lote of lotesDeEnvio(destinatarios)) {
         const r = await enviar.mutateAsync({ mensagem, destinatarios: lote, extras: extrasEnvio, extrasPorLead: Object.fromEntries(lote.map((d) => [String(d.id), extrasPorLead[String(d.id)]])) });
         if (!r.success) { erro = r.error ?? "Erro ao enviar"; break; }
         enviadas += r.enviadas; falhas += r.falhas;
+        if ("numeroConversa" in r) numeroConversa = r.numeroConversa ?? numeroConversa;
+        if ("historicoPendente" in r) historicoPendente ||= !!r.historicoPendente;
+        if (r.error) { erro = r.error; break; }
       }
     } catch (e) {
       erro = e instanceof Error ? e.message : "Erro ao enviar";
     } finally {
       setEnviandoLotes(false);
     }
-    if (enviadas + falhas > 0) { utils.whatsapp.resumoEnvios.invalidate(); utils.whatsapp.historico.invalidate(); }
+    if (enviadas + falhas > 0) { utils.whatsapp.resumoEnvios.invalidate(); utils.whatsapp.historico.invalidate(); void utils.whatsapp.conversas.invalidate(); void utils.whatsapp.mensagensConversa.invalidate(); }
     if (erro) { toast.error(enviadas + falhas > 0 ? `${erro} (${enviadas} já enviada(s) antes do erro)` : erro); return; }
+    if (!enviadas) { toast.error("O WhatsApp não confirmou o envio. Confira o destinatário e a conversa antes de tentar novamente."); return; }
+    if (historicoPendente) toast.warning("Envio aceito. O histórico pode demorar a aparecer.");
+    if (destinatarios.length === 1 && numeroConversa) {
+      setNumeroAposEnvio(numeroConversa);
+      setActiveTab("conversas");
+    }
     toast.success(`${enviadas} enviada(s)${falhas > 0 ? `, ${falhas} falha(s)` : ""}`, falhas > 0 ? { icon: "⚠️" } : undefined);
     setSelectedLeads([]); setMensagem(""); setSelectedTemplate(null); setExtras({}); setServicosSelecionados([]); setDocsGeral({ marcados: [], livre: "" }); setDocsUnico(null);
   }
@@ -217,7 +229,7 @@ export default function AdminWhatsApp() {
           ))}
         </div>
 
-        {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={params.get("numero")} />}
+        {activeTab === "conversas" && <ConversasWhatsApp numeroInicial={numeroAposEnvio ?? params.get("numero")} />}
 
         {/* Conexão */}
         {activeTab === "conexao" && <ConexaoWhatsApp role={role} />}

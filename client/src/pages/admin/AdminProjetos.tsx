@@ -370,13 +370,23 @@ export default function AdminProjetos() {
           <h2 className="font-semibold">Checklist</h2>
           {form.checklist.map((c, i) => (
             <div className="grid gap-2 rounded border p-3" key={c.id ?? i}>
-              <input
-                type="checkbox"
-                aria-label={`Concluído: ${c.text}`}
-                checked={c.done}
-                disabled
-                title="O item é concluído automaticamente quando PDF e editável válidos estão anexados."
-              />
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label={`Concluído: ${c.text}`}
+                  checked={c.done}
+                  onChange={e => {
+                    const concluido = e.currentTarget.checked;
+                    setForm(f => ({
+                      ...f,
+                      checklist: f.checklist.map((item, index) => index === i
+                        ? { ...item, done: concluido, conclusaoManual: concluido }
+                        : item),
+                    }));
+                  }}
+                />
+                Realizado
+              </label>
               <input
                 aria-label={`Item ${i + 1}`}
                 className={inputClass}

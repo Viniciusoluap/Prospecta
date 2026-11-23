@@ -180,7 +180,7 @@ export const projectInput = z
     approvalNotes: z.string().trim().max(2000).nullable().optional(),
     checklist: z
       .array(
-        z.object({ id: z.string().max(100).optional(), type: z.string().max(80).optional(), text: z.string().trim().min(1).max(500), done: z.boolean() })
+        z.object({ id: z.string().max(100).optional(), type: z.string().max(80).optional(), text: z.string().trim().min(1).max(500), done: z.boolean(), conclusaoManual: z.boolean().optional(), pdfDone: z.boolean().optional(), editableDone: z.boolean().optional() })
       )
       .max(100),
     files: z

@@ -223,7 +223,12 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
   const conversas = trpc.whatsapp.conversas.useQuery(undefined, { refetchInterval: 5000 });
   const mensagens = trpc.whatsapp.mensagensConversa.useQuery({ numero: numero ?? "" }, { enabled: Boolean(numero), refetchInterval: 4000 });
   const responder = trpc.whatsapp.responder.useMutation({
-    onSuccess: () => { setTexto(""); utils.whatsapp.mensagensConversa.invalidate(); utils.whatsapp.conversas.invalidate(); },
+    onSuccess: resultado => {
+      setTexto("");
+      void utils.whatsapp.mensagensConversa.invalidate();
+      void utils.whatsapp.conversas.invalidate();
+      if (resultado.historicoPendente) toast.warning("Envio aceito. O histórico pode demorar a aparecer.");
+    },
     onError: e => toast.error(e.message),
   });
   const criarLead = trpc.whatsapp.criarLeadDaConversa.useMutation({
@@ -307,7 +312,7 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
                 <input type="checkbox" className="accent-[#C9A961]" checked={selecionadas.includes(c.numero)}
                   onChange={() => setSelecionadas(s => alternarItem(s, c.numero))} aria-label={`Selecionar conversa com ${c.nome ?? formatar(c.numero)}`} />
               </label>
-              <button onClick={() => setNumero(c.numero)} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
+              <button type="button" aria-pressed={numero === c.numero} onClick={() => { setNumero(c.numero); setTexto(""); }} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-bold text-sm text-white truncate">{c.nome ?? formatar(c.numero)}</p>
                   {c.naoLidas > 0 && <span className="rounded-full bg-green-600 px-2 text-xs font-bold text-white">{c.naoLidas}</span>}
@@ -363,6 +368,8 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
               {!semNumero && <AtendimentoDaConversa numero={numero} />}
             </div>
             <div className="flex-1 overflow-y-auto max-h-[460px] p-3 space-y-2">
+              {mensagens.isLoading && <p role="status" className="text-sm text-gray-300">Carregando mensagens…</p>}
+              {mensagens.isError && <button type="button" className="text-sm underline" onClick={() => void mensagens.refetch()}>Falha ao carregar mensagens. Tentar de novo</button>}
               {(mensagens.data ?? []).map(m => (
                 <div key={m.id} className={`flex ${m.direcao === "saida" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.direcao === "saida" ? "bg-green-800 text-white" : "bg-[#1A2332] text-gray-100"}`}>

@@ -1,7 +1,7 @@
 export const PROJECT_UPLOAD_LIMIT = 300 * 1024 * 1024;
 export const PROJECT_CHUNK_SIZE = 1024 * 1024;
 export type ProjectDocumentKind = "editable" | "pdf";
-export type ProjectCheck = { id?: string; type?: string; text: string; done: boolean; pdfDone?: boolean; editableDone?: boolean };
+export type ProjectCheck = { id?: string; type?: string; text: string; done: boolean; conclusaoManual?: boolean; pdfDone?: boolean; editableDone?: boolean };
 export type ProjectDocumentPresence = { itemId: string; kind: ProjectDocumentKind };
 export function projectChecklist(types: string[], current: ProjectCheck[], labels: Record<string, string>): ProjectCheck[] {
   const selected = types.filter(t => t !== "projeto_completo");
@@ -41,13 +41,13 @@ export function projectDocumentCanonicalName(input: { projectName: string; clien
   return `${canonicalPart(input.projectName, "PROJETO")}_${canonicalPart(input.clientName, "CLIENTE")}_${canonicalPart(input.itemName, "ARQUIVO")}_V${version}.${extension}`;
 }
 
-/** O checklist é derivado de documentos ativos; nunca fica concluído sem arquivo. */
+/** Atualiza os indicadores de anexos e preserva decisões manuais sobre a conclusão. */
 export function reconcileProjectChecklist(checks: ProjectCheck[], documents: ProjectDocumentPresence[]): ProjectCheck[] {
   const active = new Set(documents.map(document => `${document.itemId}:${document.kind}`));
   return checks.map((check, index) => {
     const id = check.id || check.type || `legacy-${index}`;
     const pdfDone = active.has(`${id}:pdf`);
     const editableDone = active.has(`${id}:editable`);
-    return { ...check, id, pdfDone, editableDone, done: pdfDone && editableDone };
+    return { ...check, id, pdfDone, editableDone, done: check.conclusaoManual ?? (pdfDone && editableDone) };
   });
 }

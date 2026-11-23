@@ -102,13 +102,22 @@ export async function removerInstancia(c: EvolutionConfig, instancia: string, fe
  */
 export async function enviarTextoEvolution(c: EvolutionConfig, instancia: string, numero: string, texto: string, fetchImpl: Fetch = fetch,
   opcoes: { linkPreview?: boolean } = {}): Promise<string | null> {
+  return (await enviarTextoEvolutionConfirmado(c, instancia, numero, texto, fetchImpl, opcoes)).externalId;
+}
+
+export async function enviarTextoEvolutionConfirmado(c: EvolutionConfig, instancia: string, numero: string, texto: string, fetchImpl: Fetch = fetch,
+  opcoes: { linkPreview?: boolean } = {}): Promise<{ aceito: boolean; externalId: string | null }> {
   const num = numero.replace(/\D/g, "");
-  const r = await chamar<{ key?: { id?: string } }>(c, `/message/sendText/${encodeURIComponent(instancia)}`, {
+  const r = await chamar<{ key?: { id?: string }; status?: string; error?: unknown }>(c, `/message/sendText/${encodeURIComponent(instancia)}`, {
     method: "POST",
     body: JSON.stringify({ number: num.startsWith("55") ? num : `55${num}`, text: texto,
       ...(opcoes.linkPreview === undefined ? {} : { linkPreview: opcoes.linkPreview }) }),
   }, fetchImpl);
-  return r.ok ? (r.data?.key?.id ?? null) : null;
+  const externalId = typeof r.data?.key?.id === "string" ? r.data.key.id || null : null;
+  const status = String(r.data?.status ?? "").toUpperCase();
+  const aceito = r.ok && !r.data?.error && !["ERROR", "FAILED"].includes(status)
+    && (!!externalId || [201, 202, 204].includes(r.status) || ["PENDING", "SERVER_ACK", "DELIVERY_ACK", "READ"].includes(status));
+  return { aceito, externalId: aceito ? externalId : null };
 }
 
 /**
