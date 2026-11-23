@@ -27,6 +27,12 @@ export const ACOES_DE_MESA: ReadonlySet<string> = new Set(FUNCOES_DAS_MESAS.filt
 const ACOES_FISCAIS_SET: ReadonlySet<string> = new Set(ACOES_FISCAIS);
 /** EPIC-029 S-3: prévias em PDF por pedido (o sistema manda cada uma ao número do dono depois da resposta). */
 export const MAX_PREVIAS_POR_PEDIDO = 2;
+/** QA S-3b: o que o modelo lê quando o pedido já tem MAX_PREVIAS_POR_PEDIDO prévias (esta não vai). */
+export const AVISO_PREVIA_ACIMA_DO_TETO = `Este pedido já tem ${MAX_PREVIAS_POR_PEDIDO} prévias em PDF (o máximo por mensagem): a prévia deste rascunho NÃO vai. Não diga que está mandando este PDF; diga que o dono pede esta prévia em outra mensagem.`;
+/** S-3b (item 3): o que o modelo lê, na retomada em segundo plano, no lugar do "o sistema manda o PDF". */
+export const AVISO_PREVIA_NA_RETOMADA = "Este levantamento vai em segundo plano: a prévia em PDF NÃO vai junto. Não diga que está mandando o PDF; diga que, para recebê-la, o dono pede a prévia de novo na conversa.";
+/** S-3b (item 3): frase fixa que a retomada acrescenta quando o modelo pediu prévia (o texto do modelo nunca promete o PDF sozinho). */
+export const FRASE_PREVIA_NA_RETOMADA = "(A prévia em PDF da nota não vai junto com este levantamento: peça a prévia de novo na conversa, ou veja em BPO Financeiro › Contabilidade › Notas a decidir, botão Prévia.)";
 
 /**
  * A resposta desta função traz texto de dados (terceiros/banco)? Leituras e ações marcam no registro; nome desconhecido
@@ -191,6 +197,8 @@ export type ResultadoComando = {
    * dele, por código). Quem gera e manda o arquivo, ao número do dono, é whatsapp.ts — nunca o modelo.
    */
   previasFiscais: number[];
+  /** S-3b (item 3): prévias que o modelo pediu na retomada em segundo plano (somenteLeitura) e que NÃO foram mandadas. */
+  previasRecusadas?: number[];
 };
 
 export type PedidoComando = {
@@ -346,6 +354,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // EPIC-029 S-3: o texto da mensagem do dono, para as ações fiscais conferirem que o texto livre gravado saiu das palavras dele
   const pedidoFiscal = acoesFiscais ? { texto: comando } : null;
   const previasFiscais = new Set<number>();
+  const previasRecusadas = new Set<number>();
   const tokens = { entrada: 0, saida: 0 };
   const consultas: string[] = [];
   /** EPIC-027 C5 (REURB): a análise deu caso analisável — o aviso fixo vai no fim da resposta, por código. */
@@ -456,7 +465,23 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         if (d && typeof d.texto === "string" && typeof d.seFaltar === "string" && d.texto && d.seFaltar) paraODono.push({ texto: d.texto, seFaltar: d.seFaltar });
         // EPIC-029 S-3: a prévia em PDF pedida (o id veio do banco, pela própria leitura); o sistema manda depois da resposta
         const previa = (resp.body.dados as { previaFiscal?: unknown } | undefined)?.previaFiscal;
-        if (u.name === "ver_nota_fiscal" && typeof previa === "number" && Number.isInteger(previa) && previa > 0 && previasFiscais.size < MAX_PREVIAS_POR_PEDIDO) previasFiscais.add(previa);
+        if (u.name === "ver_nota_fiscal" && typeof previa === "number" && Number.isInteger(previa) && previa > 0) {
+          // S-3b (revisão, item 3): na retomada em segundo plano (somenteLeitura) a prévia NÃO vai — o caminho seguro do PDF (número
+          // conferido, prazo do aviso, filtro) é o da conversa direta. O resultado que o modelo lê diz isso, para ele não dizer que
+          // está mandando; a retomada ainda acrescenta uma frase fixa (FRASE_PREVIA_NA_RETOMADA), por código.
+          if (p.somenteLeitura) {
+            const dados = resp.body.dados as Record<string, unknown>;
+            delete dados.previaFiscal;
+            dados.aviso = AVISO_PREVIA_NA_RETOMADA;
+            previasRecusadas.add(previa);
+          } else if (previasFiscais.size < MAX_PREVIAS_POR_PEDIDO || previasFiscais.has(previa)) previasFiscais.add(previa);
+          else {
+            // QA S-3b: passou do teto do pedido — o modelo não pode ler "o sistema manda o PDF" de uma prévia que não vai
+            const dados = resp.body.dados as Record<string, unknown>;
+            delete dados.previaFiscal;
+            dados.aviso = AVISO_PREVIA_ACIMA_DO_TETO;
+          }
+        }
       }
       // a partir daqui (inclusive as próximas chamadas desta mesma volta), ação direta só pela fila
       // QA R2 N2: qualquer resposta — ok OU erro — com texto vindo do banco contamina (a porta marca); sem a marca, vale o
@@ -508,5 +533,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
   // EPIC-027 C5 (REURB): o aviso fixo no fim da resposta, por código, quando a análise deu caso analisável
   texto = comAvisoReurb(texto, analisouReurb);
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais) };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais), previasRecusadas: Array.from(previasRecusadas) };
 }

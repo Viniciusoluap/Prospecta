@@ -62,8 +62,9 @@ export const tempoLimiteDaSecao = (restanteMs: number) =>
 /** Para enviar o relatório depois da ronda. */
 const MINIMO_PARA_RELATORIO_MS = 6_000;
 
-const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada") =>
-  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso" : "configuração indisponível";
+const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada") =>
+  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso"
+    : m === "conta_alterada" ? "conta da Dolores alterada em Usuários e acesso (perfil, senha ou módulos)" : "configuração indisponível";
 /** Nome de terceiro (cliente, responsável) guardado nos destaques: filtro do registro + limpeza de nome (sem formatação nem comando). */
 const limpo = (s: string | null | undefined) => limparNomeDeTerceiro(sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO));
 const contar = (v: unknown) => Number(v ?? 0) || 0;
@@ -207,7 +208,7 @@ export async function contarNotasDaRonda(conexao: Pick<ReturnType<typeof bancoDa
 
 export type ResultadoRonda =
   | { ok: true; ronda: DoloresRonda; nova: boolean }
-  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "desligada" | "erro"; detalhe?: string | null };
+  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada" | "desligada" | "erro"; detalhe?: string | null };
 
 /**
  * Uma ronda na janela dada. Já existe → devolve a existente (nova = false), sem ler de novo. Pausa geral ou configuração que
@@ -327,7 +328,7 @@ export async function relatorioSobDemanda(p: { origem: "tela" | "whatsapp"; agor
     return { ok: false, situacao: "bloqueado", motivo: "não consegui conferir o limite diário de relatórios", relatorioId: null };
   }
   const r = await executarRonda({ janela, origem: p.origem, agora: p.agora, prazoFinal: p.prazoFinal, relogio: p.relogio, config });
-  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "não consegui fazer a ronda agora", relatorioId: null };
+  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" || r.motivo === "indisponivel" || r.motivo === "usuaria_desativada" || r.motivo === "conta_alterada" ? motivoDoBloqueio(r.motivo) : "não consegui fazer a ronda agora", relatorioId: null };
   if (p.prazoFinal - p.relogio() < MINIMO_PARA_RELATORIO_MS) return { ok: false, situacao: "nao_enviado", motivo: "sem tempo para enviar dentro do prazo", relatorioId: null };
   return enviarRelatorio({ tipo: "sob_demanda", janela, origem: p.origem, ronda: r.ronda, agora: p.agora, prazoFinal: p.prazoFinal, config, pedidoPorUserId: p.pedidoPorUserId });
 }

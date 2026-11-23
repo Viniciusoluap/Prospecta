@@ -110,6 +110,9 @@ export default function AdminConfiguracoes() {
     onSuccess: (result) => toast.success(result.emailEnviado ? "Link de redefinição enviado por email" : "Sessões revogadas, mas o email não pôde ser enviado (confira a configuração de SMTP)"),
     onError: e => toast.error(e.message),
   });
+  // 22/11/2026: a conta do sistema da Dolores só se ativa/desativa (o servidor recusa qualquer outra mudança)
+  const ativarSistema = trpc.configuracoes.definirContaDoSistemaAtiva.useMutation({ onSuccess: async (r) => { await refresh(); toast.success(r?.active ? "Dolores ativada" : "Dolores desativada"); }, onError: e => toast.error(e.message) });
+  const restaurarSistema = trpc.configuracoes.restaurarContaDoSistema.useMutation({ onSuccess: async (r) => { await refresh(); toast.success(r.restaurada ? "Conta da Dolores restaurada ao padrão" : "A conta da Dolores já estava no padrão"); }, onError: e => toast.error(e.message) });
   const excluir = trpc.configuracoes.deleteUser.useMutation({ onSuccess: async () => { await refresh(); setEditId(null); toast.success("Usuário excluído"); }, onError: e => toast.error(e.message) });
 
   function handleNovo(event: FormEvent<HTMLFormElement>) {
@@ -154,7 +157,7 @@ export default function AdminConfiguracoes() {
       </div>
       {isLoading ? <p className="text-gray-300">Carregando…</p> : visiveis.length === 0 ? <p className="rounded-lg bg-[#1A2332] p-4 text-sm text-gray-300">Nenhum usuário com esses filtros.</p> : visiveis.map(item => <button key={item.id} onClick={() => setEditId(item.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg bg-[#1A2332] p-4 text-left hover:ring-1 hover:ring-[#C9A961]/50">
         <div className="flex items-center gap-3"><UserCog className={item.active ? "text-green-400" : "text-gray-300"} /><div><p className="font-semibold text-white">{item.name || "Sem nome"}</p><p className="text-xs text-gray-400">{item.email}</p>{termo && <LinhaDoTermo aceite={aceiteDe.get(item.id)} nomeDe={id => usuarios.find(u => u.id === id)?.name ?? null} />}</div></div>
-        <div className="text-right"><p className="text-sm text-[#C9A961]">{item.engenheiro ? ROLE_LABEL.engenheiro : ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {item.role === "corretor" ? `CRECI ${item.creci || "—"}${item.defaultCommissionPct ? ` · comissão ${Number(item.defaultCommissionPct).toLocaleString("pt-BR")}%` : ""}` : `${parsePermissions(item.permissions).length} permissões`}</p></div>
+        <div className="text-right"><p className="text-sm text-[#C9A961]">{item.contaDoSistema ? "Conta do sistema — não editável" : item.engenheiro ? ROLE_LABEL.engenheiro : ROLE_LABEL[item.role === "user" ? "cliente" : item.role] ?? item.role}</p><p className="text-xs text-gray-400">{item.active ? "Ativo" : "Inativo"} · {item.role === "corretor" ? `CRECI ${item.creci || "—"}${item.defaultCommissionPct ? ` · comissão ${Number(item.defaultCommissionPct).toLocaleString("pt-BR")}%` : ""}` : `${parsePermissions(item.permissions).length} permissões`}</p></div>
       </button>)}
     </CardContent></Card>
     </main>
@@ -185,7 +188,12 @@ export default function AdminConfiguracoes() {
         <Button type="submit" disabled={criar.isPending} className="md:col-span-2 bg-[#C9A961] text-[#1A2332]">Criar usuário</Button>
       </form></DialogContent></Dialog>
 
-    <Dialog open={!!usuario} onOpenChange={open => !open && setEditId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{usuario && <>
+    <Dialog open={!!usuario} onOpenChange={open => !open && setEditId(null)}><DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto border-[#C9A961]/30 bg-[#1A2332] text-white">{usuario?.contaDoSistema ? <>
+      <DialogHeader><DialogTitle>{usuario.name} — Conta do sistema — não editável</DialogTitle></DialogHeader>
+      <p className="text-sm text-gray-300">Esta é a conta da Dolores (funcionária digital). Perfil, módulos, nome e senha não podem ser alterados: qualquer mudança neles faz a Dolores parar por segurança. Aqui só dá para ativar ou desativar — desativar é o botão de parada dela.</p>
+      <label className="flex items-center justify-between rounded-lg bg-[#2C3E50] p-3"><span>Dolores ativa</span><Switch checked={usuario.active} disabled={ativarSistema.isPending} onCheckedChange={active => ativarSistema.mutate({ id: usuario.id, active })} /></label>
+      <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-4"><p className="text-xs text-gray-300">Se a Dolores parou dizendo que a conta dela foi alterada: volta o perfil padrão, sem módulos e sem senha (não muda o "ativa").</p><Button type="button" variant="outline" disabled={restaurarSistema.isPending} onClick={() => restaurarSistema.mutate({ id: usuario.id })}>Restaurar conta padrão</Button></div>
+    </> : usuario && <>
       <DialogHeader><DialogTitle>Gerenciar acesso — {usuario.name}</DialogTitle></DialogHeader><form onSubmit={handleEditar} className="space-y-5">
         <div className="grid gap-4 md:grid-cols-2"><Campo name="name" label={papel === "cliente" ? "Nome (do CRM)" : "Nome"} required value={nomeEdit} onChange={setNomeEdit} readOnly={papel === "cliente"} /><Campo name="phone" label={papel === "corretor" ? "Telefone *" : papel === "cliente" ? "Telefone (do CRM)" : "Telefone"} required={papel === "corretor"} value={foneEdit} onChange={setFoneEdit} readOnly={papel === "cliente"} />{papel === "corretor" && <><Campo name="creci" label="CRECI *" required defaultValue={usuario.creci || ""} /><Campo name="defaultCommissionPct" label="Comissão padrão (%)" defaultValue={usuario.defaultCommissionPct ? String(Number(usuario.defaultCommissionPct)) : ""} /></>}
           <div><Label>Perfil</Label><Select value={papel} onValueChange={value => setPapel(value as typeof papel)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PERFIS.map(role => <SelectItem key={role} value={role}>{ROLE_LABEL[role]}</SelectItem>)}</SelectContent></Select></div>

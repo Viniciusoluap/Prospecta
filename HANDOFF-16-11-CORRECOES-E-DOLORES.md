@@ -724,3 +724,13 @@ Mesclar #304 e #305; receber S-3/S-4/S-5/S-6 dos agentes → portão de QA de ca
 **Testes:** (a) automáticos — S-4 182 + 103; S-3 233 + 137; S-5 265 + 255; tsc e vite build limpos em todas. (b) manuais — nenhum. (c) pendentes em produção — PDF chegando como documento no WhatsApp real; emissão real depende do contador (alíquota PGDAS-D, códigos).
 
 **Próximo passo exato:** esperar a revisão do #315 → merge → produção READY; receber as correções da S-6 → nova revisão de QA → aplicar 0164 → PR → merge.
+
+## Atualização de 23/11/2026 ~09:40 UTC — S-3b (Dolores: conta do sistema + prévia fiscal), PR #320
+
+**Concluído (PR #320, ramo `claude/epic029-s3b-dolores`):**
+- Conta do sistema da Dolores: causa do "não consegui ler a minha configuração" desde 21/11 (a tela de Usuários mostrava o perfil `user` como "Cliente" e salvar trocava o perfil → trava da ponte). Agora: "Conta do sistema — não editável" (só ativar/desativar e **Restaurar conta padrão**, só admin), servidor recusa editar/resetar senha/apagar, motivo `conta_alterada` com frase clara em todas as portas, log curto sem dados.
+  Dado de produção já restaurado por SQL em 23/11 (users id 28: role `user`, permissions `[]`).
+- Prévia fiscal em PDF (pendências da revisão da S-3): mensagem marcada como respondida antes do envio; filtro de saída em todos os campos impressos (isenção por caminho); retomada de tarefa demorada não promete PDF; memória só com o número do rascunho.
+**Testes:** (a) automáticos — s3*, conta-alterada, s3b-qa, ponte, c5-integracao2*, leitura-somente, operacao*, admin-permissions: todos verdes (64/64 nos centrais após o merge da main; rodada completa 185 + 208); (b) manual — dono confirmou a Dolores respondendo após a restauração (23/11 23:50 UTC); (c) pendente em produção — PDF da prévia chegando como documento no WhatsApp real.
+**Pendências:** nenhuma desta etapa.
+**Próximo passo exato:** merge do #320 após prévia da Vercel; seguir com #321 (S-8), S-6 (4º portão), S-7 (correções do portão) e E10 (correções do portão) — estado completo na atualização de 23/11 00:45 UTC no ramo `claude/dolores-cobrancas` (vai para a main com a E10).
