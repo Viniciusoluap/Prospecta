@@ -210,6 +210,7 @@ export function ConversasWhatsApp({ numeroInicial }: { numeroInicial?: string | 
 function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) {
   const utils = trpc.useUtils();
   const [numero, setNumero] = useState<string | null>(numeroInicial ?? null);
+  const [registroSemDestino, setRegistroSemDestino] = useState<number | null>(null);
   const [texto, setTexto] = useState("");
   const [busca, setBusca] = useState("");
   const fim = useRef<HTMLDivElement>(null);
@@ -279,7 +280,8 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
   const lista = (conversas.data ?? []).filter(c => !busca || (c.nome ?? "").toLowerCase().includes(busca.toLowerCase()) || c.numero.includes(busca.replace(/\D/g, "")));
   const atual = (conversas.data ?? []).find(c => numero && mesmaConversa(c.numero, numero));
   const semNumero = Boolean(numero && ehConversaSemNumero(numero));
-  const visiveis = lista.map(c => c.numero);
+  const tentativa = conversas.data?.find(c => !c.numero && c.registroId === registroSemDestino);
+  const visiveis = lista.map(c => c.numero).filter(Boolean);
   const todasVisiveis = visiveis.length > 0 && visiveis.every(n => selecionadas.includes(n));
   // Conversa que sumiu (excluída em outra aba, por exemplo) sai da seleção.
   useEffect(() => {
@@ -307,12 +309,12 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
         <div className="flex-1 overflow-y-auto max-h-[560px]">
           {lista.length === 0 && <p className="p-4 text-sm text-gray-300">Nenhuma conversa ainda. As mensagens recebidas aparecem aqui sozinhas.</p>}
           {lista.map(c => (
-            <div key={c.numero} className={`flex items-stretch border-b border-white/5 ${numero && mesmaConversa(c.numero, numero) ? "bg-[#C9A961]/10" : ""}`}>
+            <div key={c.numero || c.registroId} className={`flex items-stretch border-b border-white/5 ${numero && mesmaConversa(c.numero, numero) ? "bg-[#C9A961]/10" : ""}`}>
               <label className="flex items-center pl-3">
-                <input type="checkbox" className="accent-[#C9A961]" checked={selecionadas.includes(c.numero)}
+                <input type="checkbox" className="accent-[#C9A961]" disabled={!c.numero} checked={selecionadas.includes(c.numero)}
                   onChange={() => setSelecionadas(s => alternarItem(s, c.numero))} aria-label={`Selecionar conversa com ${c.nome ?? formatar(c.numero)}`} />
               </label>
-              <button type="button" aria-pressed={numero === c.numero} onClick={() => { setNumero(c.numero); setTexto(""); }} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
+              <button type="button" aria-pressed={c.numero ? numero === c.numero : registroSemDestino === c.registroId} onClick={() => { setRegistroSemDestino(c.numero ? null : c.registroId); setNumero(c.numero || null); setTexto(""); }} className="min-w-0 flex-1 text-left px-3 py-3 hover:bg-white/5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-bold text-sm text-white truncate">{c.nome ?? formatar(c.numero)}</p>
                   {c.naoLidas > 0 && <span className="rounded-full bg-green-600 px-2 text-xs font-bold text-white">{c.naoLidas}</span>}
@@ -320,7 +322,7 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
                 <p className="text-xs text-gray-300 truncate">{c.ultima}</p>
                 <p className="text-[11px] text-gray-400">{hora(c.quando)}</p>
               </button>
-              <button type="button" title="Excluir conversa" aria-label={`Excluir conversa com ${c.nome ?? formatar(c.numero)}`} disabled={excluir.isPending}
+              <button type="button" title="Excluir conversa" aria-label={`Excluir conversa com ${c.nome ?? formatar(c.numero)}`} disabled={!c.numero || excluir.isPending}
                 onClick={() => confirmarExclusao(c.numero, c.nome)} className="px-3 text-gray-400 hover:text-red-400">
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -330,7 +332,14 @@ function ConversasDiretas({ numeroInicial }: { numeroInicial?: string | null }) 
       </div>
 
       <div className="rounded-lg border border-[#C9A961]/20 bg-[#2C3E50] flex flex-col">
-        {!numero ? (
+        {tentativa ? (
+          <div className="p-4 space-y-3">
+            <h3 className="font-bold text-white">{tentativa.nome}</h3>
+            <p className="text-white whitespace-pre-wrap">{tentativa.ultima}</p>
+            <p className="text-sm text-amber-200">Tentativa sem telefone de destino. Cadastre o WhatsApp do cliente no CRM e inicie o envio em Enviar mensagem.</p>
+            {tentativa.leadId && <Link className="underline text-[#C9A961]" href={`/admin/crm/${tentativa.leadId}`}>Abrir cadastro do cliente</Link>}
+          </div>
+        ) : !numero ? (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-300 p-6">Escolha uma conversa à esquerda.</div>
         ) : (
           <>
