@@ -93,7 +93,9 @@ export async function verNotaFiscal(args: z.infer<typeof entradaVerNotaFiscal>, 
         codigosFiscais: faltamCodigos ? "a preencher pelo contador (sem eles a nota não pode ser emitida)" : "preenchidos",
         ...(n.motivoSemNota ? { motivoSemNota: ROTULO_MOTIVO[n.motivoSemNota], ...(n.motivoTexto ? { motivoTexto: truncar(n.motivoTexto, 200) } : {}) } : {}),
       },
-      ...(args.enviarPrevia ? { previaFiscal: n.id, aviso: "O sistema manda o PDF da prévia (RASCUNHO — SEM VALOR FISCAL) ao dono logo depois da sua resposta: diga só que está mandando." } : {}),
+      ...(args.enviarPrevia ? { previaFiscal: n.id, aviso: n.status === "EMITIDA" || n.status === "CANCELADA"
+        ? "O sistema manda o DANFSe (documento auxiliar da NFS-e emitida) ao dono logo depois da sua resposta: diga só que está mandando."
+        : "O sistema manda o PDF da prévia (RASCUNHO — SEM VALOR FISCAL) ao dono logo depois da sua resposta: diga só que está mandando." } : {}),
     },
     resumo: { encontrada: true, previa: args.enviarPrevia },
   };

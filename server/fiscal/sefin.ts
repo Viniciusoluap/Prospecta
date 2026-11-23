@@ -1,4 +1,5 @@
-// EPIC-029 S-4 (22/11/2026) — cliente mTLS do Sistema Nacional NFS-e (Sefin Nacional e ADN). FUNDAÇÃO: nada aqui é
+// EPIC-029 S-4 (22/11/2026) — cliente mTLS do Sistema Nacional NFS-e (Sefin Nacional e ADN). S-7: usado pela emissão (emissao.ts)
+// com as travas de lá; abaixo, o texto original da fundação. FUNDAÇÃO: nada aqui é
 // chamado pela emissão ainda (o gatilho do banco e a rota continuam recusando EMITINDO/EMITIDA).
 // Padrão de server/_core/inter.ts (https.request com cert/key PEM em memória), com regras mais duras:
 // - host FIXO por ambiente (desligado / producao_restrita / producao, de fiscal_emissores.ambiente); URL montada aqui,
@@ -19,6 +20,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import raizes from "../certificados/icp-raizes.json" with { type: "json" };
 import type { AmbienteFiscal } from "../../drizzle/schema-fiscal.js";
 import type { getDb } from "../db.js";
+import { assinarXml } from "./assinatura.js";
 import { credencialDoEmissor } from "./certificado.js";
 
 type DrizzleDb = ReturnType<typeof getDb>;
@@ -50,7 +52,17 @@ export const CAMINHOS = {
   consultarDps: { servico: "sefin", metodo: "GET", modelo: "/dps/{id}", confirmado: true, fonte: "MAN-API" },
   existeDps: { servico: "sefin", metodo: "HEAD", modelo: "/dps/{id}", confirmado: true, fonte: "MAN-API" },
   eventos: { servico: "sefin", metodo: "POST", modelo: "/nfse/{chave}/eventos", confirmado: true, fonte: "MAN-API (cancelamento e101101)" },
+  /** S-7: consulta de UM evento (tipo + sequência) — a listagem sem tipo responde 404 segundo terceiros (PESQUISA §1.2). */
+  consultarEvento: { servico: "sefin", metodo: "GET", modelo: "/nfse/{chave}/eventos/{tipo}/{seq}", confirmado: true, fonte: "MAN-API §1.2 (forma com tipo e sequência)" },
   convenioMunicipal: { servico: "sefin", metodo: "GET", modelo: "/parametros_municipais/{ibge}/convenio", confirmado: true, fonte: "MAN-API; FAQ 19.6" },
+  /**
+   * S-7 [OFICIAL, MAN-API v1.2 §1.2.1-b]: "alíquotas, regimes especiais e deduções/reduções por subitem da lista de serviço".
+   * O formato de {servico} (cTribNac de 6 dígitos × subitem da LC 116) e os nomes dos campos da resposta: [NÃO CONFIRMADO no
+   * Swagger] — usamos o cTribNac e a leitura só aceita UMA alíquota sem ambiguidade (parametros-municipais.ts).
+   */
+  aliquotasMunicipio: { servico: "sefin", metodo: "GET", modelo: "/parametros_municipais/{ibge}/{servico}", confirmado: true, fonte: "MAN-API v1.2 §1.2.1-b" },
+  /** S-7 [OFICIAL, MAN-API v1.2 §1.2.1-c]: retenções que o contribuinte (CNPJ) deve recolher no município. */
+  retencoesMunicipio: { servico: "sefin", metodo: "GET", modelo: "/parametros_municipais/{ibge}/{cnpj}", confirmado: true, fonte: "MAN-API v1.2 §1.2.1-c" },
   distribuicao: { servico: "adn", metodo: "GET", modelo: "/DFe/{nsu}", confirmado: true, fonte: "MAN-ADN §1.1.1 (até 50 por chamada)" },
   // DANFSe: a API do ADN foi SUSPENSA em 03/08/2026 (NT 008) — o PDF é gerado pelo sistema. Sem caminho aqui.
 } as const satisfies Record<string, Caminho>;
@@ -69,6 +81,8 @@ export const CAMPOS_JSON = {
 export const CAMINHO_TESTE_CONEXAO: { servico: ServicoNacional; nome: NomeCaminho } | null = { servico: "sefin", nome: "convenioMunicipal" };
 
 export const TEMPO_LIMITE_MS = 25_000;
+/** QA S-7 (B3): abaixo disto de tempo restante no orçamento, a chamada não é feita. */
+export const PRAZO_MINIMO_CHAMADA_MS = 2_000;
 export const TAMANHO_MAXIMO_RESPOSTA = 5 * 1024 * 1024;
 
 export class ErroSefin extends Error {
@@ -79,14 +93,15 @@ export class ErroSefin extends Error {
 export const CA_CONFIAVEIS: string[] = [...rootCertificates, ...(raizes as { pem: string }[]).map(r => r.pem)];
 
 export const MENSAGEM_DESLIGADO = "A emissão desta empresa está desligada (ambiente \"desligado\"). Nada foi enviado.";
-export const MENSAGEM_PRODUCAO_BLOQUEADA = "Produção bloqueada nesta etapa: só a produção restrita (testes) será liberada, na homologação com o dono.";
-
-/** Destino fixo do ambiente. Desligado, produção (nesta etapa) e endereço não confirmado → recusa. */
+/**
+ * Destino fixo do ambiente. Desligado e endereço não confirmado → recusa. S-7: a produção deixou de ser recusada AQUI — quem
+ * decide se algo sai são as travas da emissão (EMISSAO_DISPONIVEL, `emissao_liberada` do emissor e o ambiente, que só vira
+ * "producao" pelo admin com a frase "EMITIR EM PRODUÇÃO"; server/fiscal/emissao.ts e router.ts).
+ */
 export function destinoDo(ambiente: AmbienteFiscal | string, servico: ServicoNacional, enderecos: MapaEnderecos = ENDERECOS): Endereco {
   if (ambiente === "desligado") throw new ErroSefin(MENSAGEM_DESLIGADO);
-  if (ambiente === "producao") throw new ErroSefin(MENSAGEM_PRODUCAO_BLOQUEADA);
-  if (ambiente !== "producao_restrita") throw new ErroSefin("Ambiente fiscal desconhecido. Nada foi enviado.");
-  const d = enderecos.producao_restrita[servico];
+  if (ambiente !== "producao_restrita" && ambiente !== "producao") throw new ErroSefin("Ambiente fiscal desconhecido. Nada foi enviado.");
+  const d = enderecos[ambiente][servico];
   if (!d?.hostConfirmado || !d.baseConfirmada) throw new ErroSefin("O endereço exato deste serviço (base da API) ainda não foi confirmado no Swagger oficial. Nada foi enviado.");
   return d;
 }
@@ -143,11 +158,16 @@ export function opcoesTls(url: URL, credencial: CredencialMtls, metodo: string, 
 export function criarClienteSefin(o: {
   ambiente: AmbienteFiscal | string; servico: ServicoNacional; credencial: CredencialMtls;
   enderecos?: MapaEnderecos; ca?: string[]; requestImpl?: RequestImpl; tempoLimiteMs?: number;
+  /**
+   * QA S-7 (B3): fim do orçamento de tempo da operação inteira (epoch ms, relógio real). O prazo de CADA chamada é o menor entre
+   * `tempoLimiteMs` e o que resta; com menos de PRAZO_MINIMO_CHAMADA_MS restando, a chamada nem sai (nada é enviado).
+   */
+  prazoFinalMs?: number;
   /** Produção restrita: usar o caminho sem "/API" (fallback configurável — PESQUISA a586c55). */
   usarBaseAlternativa?: boolean;
 }) {
   const destino = destinoDo(o.ambiente, o.servico, o.enderecos);
-  const tempo = o.tempoLimiteMs ?? TEMPO_LIMITE_MS;
+  const tempoBase = o.tempoLimiteMs ?? TEMPO_LIMITE_MS;
   const enviar = o.requestImpl ?? (requestHttps as unknown as RequestImpl);
   return {
     destino,
@@ -155,6 +175,9 @@ export function criarClienteSefin(o: {
       const url = montarUrl(destino, caminho, o.usarBaseAlternativa ?? false);
       const corpo = corpoJson === undefined ? undefined : JSON.stringify(corpoJson);
       const cabecalhos: Record<string, string> = { Accept: "application/json", ...(corpo ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(corpo)) } : {}) };
+      const resta = o.prazoFinalMs === undefined ? Number.POSITIVE_INFINITY : o.prazoFinalMs - Date.now();
+      if (resta < PRAZO_MINIMO_CHAMADA_MS) return Promise.reject(new ErroSefin("Sem tempo para consultar o serviço nacional nesta tentativa (nada foi enviado nesta chamada). Tente de novo em alguns minutos."));
+      const tempo = Math.min(tempoBase, resta);
       return new Promise<RespostaSefin>((resolveBruto, rejectBruto) => {
         let req: ClientRequest | undefined;
         // QA S-4 (M1): `timeout` do https.request é de OCIOSIDADE; este é o prazo TOTAL (conexão + resposta inteira).
@@ -214,4 +237,27 @@ export async function testarConexaoSefin(
     if (e instanceof ErroSefin || (e instanceof Error && e.name === "ErroCertificado")) return { ok: false, ambiente, mensagem: e.message };
     return { ok: false, ambiente, mensagem: "Não foi possível testar a conexão agora." };
   }
+}
+
+export type DepsSefin = { enderecos?: MapaEnderecos; ca?: string[]; requestImpl?: RequestImpl; tempoLimiteMs?: number; credencial?: () => Promise<CredencialMtls>; agora?: Date; prazoFinalMs?: number };
+
+/**
+ * S-7 — sessão de EMISSÃO de um emissor: abre o A1 (exigindo cadeia ICP-Brasil — revisão da S-4) e devolve o cliente mTLS e
+ * uma função que assina com a mesma chave. A chave privada fica só dentro deste fechamento (nunca volta a quem chama).
+ */
+export async function sessaoDoEmissor(db: DrizzleDb, emissor: { id: number; ambiente: string }, deps: DepsSefin = {}) {
+  destinoDo(emissor.ambiente, "sefin", deps.enderecos);
+  const credencial = deps.credencial ? await deps.credencial() : await credencialDoEmissor(db, emissor.id, deps.agora, { paraEmitir: true });
+  const cliente = criarClienteSefin({ ambiente: emissor.ambiente, servico: "sefin", credencial, enderecos: deps.enderecos, ca: deps.ca, requestImpl: deps.requestImpl, tempoLimiteMs: deps.tempoLimiteMs, prazoFinalMs: deps.prazoFinalMs });
+  return {
+    cliente,
+    assinar: (xml: string, elemento: "infDPS" | "infPedReg") => assinarXml(xml, credencial, elemento),
+  };
+}
+
+/** S-7 — sessão SÓ DE LEITURA (parâmetros municipais): abre o A1 sem exigir a cadeia ICP (nada é emitido nem assinado). */
+export async function sessaoDeConsulta(db: DrizzleDb, emissor: { id: number; ambiente: string }, deps: DepsSefin = {}) {
+  destinoDo(emissor.ambiente, "sefin", deps.enderecos);
+  const credencial = deps.credencial ? await deps.credencial() : await credencialDoEmissor(db, emissor.id, deps.agora);
+  return criarClienteSefin({ ambiente: emissor.ambiente, servico: "sefin", credencial, enderecos: deps.enderecos, ca: deps.ca, requestImpl: deps.requestImpl, tempoLimiteMs: deps.tempoLimiteMs, prazoFinalMs: deps.prazoFinalMs });
 }

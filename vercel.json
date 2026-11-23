@@ -14,7 +14,7 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
-      "includeFiles": "data/plantas/**"
+      "includeFiles": "{data/plantas/**,shared/fiscal/xsd/**,node_modules/xmllint-wasm/**,node_modules/.pnpm/xmllint-wasm@*/node_modules/xmllint-wasm/**}"
     }
   },
   "crons": [

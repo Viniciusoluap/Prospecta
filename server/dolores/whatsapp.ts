@@ -747,14 +747,23 @@ async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, 
       // S-3b (item 1): banco lento não segura a função além do prazo — o próprio banco cancela a leitura
       const tempoLimiteMs = Math.max(1_000, Math.min(TETO_LEITURA_PREVIA_MS, resta - RESERVA_ENVIO_PREVIA_MS));
       const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id), { tempoLimiteMs });
-      const pdf = gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
+      // EPIC-029 S-7: nota EMITIDA/CANCELADA → o DANFSe do XML AUTORIZADO (nunca do rascunho); rascunho → a prévia de sempre.
+      const emitida = (nota.status === "EMITIDA" || nota.status === "CANCELADA") && Boolean(nota.xmlNfse);
+      const pdf = emitida
+        // QA S-7 (B4/B5): aviso "sem validade" também pelo ambiente gravado; CPF/CNPJ/telefone/e-mail do tomador e textos livres
+        // pelo MESMO interruptor da prévia (DOLORES_MASCARAR_DADOS_PESSOAIS).
+        ? (await import("../fiscal/danfse.js")).gerarDanfsePdf(nota.xmlNfse!, { cancelada: nota.status === "CANCELADA", ambienteEmissao: nota.ambienteEmissao,
+          dadosPessoais: { campo: (v, tipo) => campoPessoal(v, tipo, "whatsapp"), texto: t => sanitizarTexto(t, filtroDaSaida("whatsapp")) } })
+        : gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
       // QA S-3 (B2): teto explícito do arquivo antes do envio
       if (pdf.byteLength > MAX_BYTES_PREVIA) { await auditar("erro", "prévia acima do tamanho máximo", { notaFiscalId: id, bytes: pdf.byteLength }); falhou = true; break; }
       const aposLer = ctx.prazoFinal - deps.ms();
       if (aposLer < MINIMO_PARA_ENVIAR_MS) { await auditar("erro", "sem tempo para mandar a prévia (a leitura demorou)", { notaFiscalId: id }); falhou = true; break; }
       const base64 = Buffer.from(pdf).toString("base64");
-      const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64, nome: `previa-nota-${id}.pdf`,
-        legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, aposLer - 1_000) });
+      const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64,
+        nome: emitida ? `danfse-${nota.numeroNfse ?? id}.pdf` : `previa-nota-${id}.pdf`,
+        legenda: emitida ? `DANFSe da NFS-e nº ${nota.numeroNfse ?? "?"}${nota.status === "CANCELADA" ? " (CANCELADA)" : ""}${nota.ambienteEmissao === "producao_restrita" ? " — ambiente de testes, sem validade jurídica" : ""}.`
+          : `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, aposLer - 1_000) });
       await auditar(ok ? "ok" : "erro", ok ? null : "a Evolution não aceitou o documento", { notaFiscalId: id, bytes: pdf.byteLength });
       if (!ok) { falhou = true; break; }
       mandadas.push(id);

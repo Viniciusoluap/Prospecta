@@ -2,9 +2,10 @@
 // implícito. Entrada = rascunho (fiscal_notas detalhada) + emissor + tipo de serviço + parâmetros do contador.
 // Tags e códigos em shared/fiscal/dps-campos.ts. Formato [OFICIAL, PESQUISA §2]: UTF-8 com declaração (E1229), sem prefixo
 // de namespace (E1228), sem espaços/quebras entre tags. Duas variantes de leiaute (produção restrita com a NT 009 ×
-// produção de 09/02/2026), escolhidas pelo ambiente; produção continua bloqueada nesta etapa.
-// Campo obrigatório nulo → ErroDps com a LISTA do que falta (S-4, item 2). A validação contra o XSD oficial fica para
-// quando o XSD for obtido (não está no repositório).
+// produção de 09/02/2026), escolhidas pelo ambiente (S-7: as travas de produção ficam em server/fiscal/emissao.ts).
+// Campo obrigatório nulo → ErroDps com a LISTA do que falta (S-4, item 2). S-7: o XML assinado é validado contra o XSD
+// oficial do ambiente (server/fiscal/leiaute.ts) antes do envio; a validação achou e corrigiu aqui a ordem do cNBS, o
+// cAtvSN (não existe no regTrib do XSD v1.01) e o formato do pAliq.
 import type { FiscalEmissor } from "../../drizzle/schema-fiscal.js";
 import {
   CODIGOS_ATIVIDADE_SIMPLES, FIN_NFSE_REGULAR, NAMESPACE_NFSE, OP_SIMPLES, PADRAO_ID_DPS, PADRAO_NUMERO_DPS, SERIE_MAX_API, SERIE_MIN_API, TIPO_INSCRICAO_ID, TP_AMB,
@@ -13,7 +14,7 @@ import {
 } from "../../shared/fiscal/dps-campos.js";
 import { aliquotaTextoParaDps } from "../../shared/fiscal/simples.js";
 import type { NotaDetalhada } from "./notas.js";
-import { REGIMES_TRIBUTARIOS, regimeAConfirmar } from "../../shared/fiscal/regimes.js";
+import { regimeAConfirmar } from "../../shared/fiscal/regimes.js";
 
 export class ErroDps extends Error {
   constructor(readonly faltas: string[]) {
@@ -72,9 +73,26 @@ export function idDps(municipioIbge: string, cnpj: string, serie: string, numero
 }
 
 /** Tudo o que falta para montar a DPS (vazio = pode montar). */
+/**
+ * S-7: regimes com que a DPS pode ser montada (valores de tax_profiles.regime). "a_confirmar", "outro", vazio ou qualquer
+ * valor desconhecido → a DPS é recusada (nada é presumido).
+ */
+export const REGIMES_CONHECIDOS = ["simples_nacional", "lucro_presumido", "lucro_real", "ret"] as const;
+
+/** pAliq (TSDec1V2, XSD v1.01): "0" ou um dígito com duas casas ("5.00"). Alíquota com mais casas ou ≥ 10 → recusa. */
+export function aliquotaDoLeiaute(v: string | null | undefined): string | null {
+  if (vazio(v)) return null;
+  const n = Number(String(v).trim());
+  if (!Number.isFinite(n) || n < 0 || n >= 10 || Math.abs(Math.round(n * 100) - n * 100) > 1e-6) throw new ErroDps(["alíquota do ISS com até duas casas decimais e menor que 10% (formato do leiaute)"]);
+  return n === 0 ? "0" : n.toFixed(2);
+}
+
+/** Limite do leiaute para nome/razão social (TSNomeRazaoSocial). */
+export const MAX_NOME = 300;
+
 export function faltasDps(e: EntradaDps): string[] {
   const f: string[] = [];
-  if (e.ambiente !== "producao_restrita") f.push("empresa emissora em produção restrita (a produção fica bloqueada nesta etapa)");
+  if (e.ambiente !== "producao_restrita" && e.ambiente !== "producao") f.push("empresa emissora em produção restrita ou produção (o ambiente está desligado)");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(e.competencia)) f.push("data de competência");
   if (!serieValida(e.serie)) f.push("série da DPS da empresa emissora (1 a 49999)");
   if (e.numero == null) f.push("número da DPS");
@@ -98,21 +116,24 @@ export function faltasDps(e: EntradaDps): string[] {
   for (const [k, rotulo] of contador) if (vazio(p[k])) f.push(`${rotulo} — contador`);
   // Regime × opção do Simples (decisão do dono de 22/11: todas as empresas no Simples Nacional).
   const simples = e.regimeTributario === "simples_nacional";
-  // QA2 S-6 (N3): "a confirmar" (ou regime que o sistema não reconhece) é FALTA — sem o contador dizer o regime, não se monta a DPS
-  const reconhecido = !vazio(e.regimeTributario) && !regimeAConfirmar(e.regimeTributario) && (REGIMES_TRIBUTARIOS as readonly string[]).includes(e.regimeTributario!);
+  // QA2 S-6 (N3) + S-7: "a confirmar", "outro" ou regime que o sistema não reconhece é FALTA — sem o contador dizer o regime
+  // (um dos REGIMES_CONHECIDOS), não se monta a DPS. Nada é presumido.
+  const reconhecido = !vazio(e.regimeTributario) && !regimeAConfirmar(e.regimeTributario) && (REGIMES_CONHECIDOS as readonly string[]).includes(e.regimeTributario!);
   if (!reconhecido) f.push(vazio(e.regimeTributario) ? "regime tributário do perfil da empresa emissora"
-    : "regime tributário do perfil da empresa emissora (está \"a confirmar\" ou não reconhecido — o contador precisa definir)");
+    : "regime tributário confirmado no perfil da empresa emissora (está \"a confirmar\", \"outro\" ou não reconhecido — o contador precisa definir)");
   else if (!vazio(p.opSimpNac)) {
     const optante = p.opSimpNac === OP_SIMPLES.mei || p.opSimpNac === OP_SIMPLES.meEpp;
     if (simples && !optante) f.push("opção do Simples (opSimpNac) coerente com o regime Simples Nacional do perfil — contador");
     if (!simples && optante) f.push("opção do Simples (opSimpNac) coerente com o regime do perfil (não optante) — contador");
     if (simples && p.opSimpNac === OP_SIMPLES.meEpp && vazio(p.regApTribSN)) f.push("regime de apuração do Simples (regApTribSN) — contador");
   }
-  // cAtvSN (Anexo VIII; regra 449 do Anexo VI): obrigatório para optante do Simples, vem do tipo de serviço.
-  const atv = e.servico.codigoAtividadeSimples;
-  if (simples && !(CODIGOS_ATIVIDADE_SIMPLES as readonly string[]).includes(atv ?? "")) {
+  // cAtvSN (Anexo VIII; regra 449 do Anexo VI): S-7 — o XSD v1.01 (produção e produção restrita) NÃO tem cAtvSN no regTrib.
+  // O campo continua no tipo de serviço (para quando o leiaute o trouxer), mas não é exigido nem enviado.
+  if (CATVSN_EM_REGTRIB && simples && !(CODIGOS_ATIVIDADE_SIMPLES as readonly string[]).includes(e.servico.codigoAtividadeSimples ?? "")) {
     f.push("código da atividade do Simples (cAtvSN: 7, 9, 12 ou 13) no tipo de serviço — contador");
   }
+  // Formato do leiaute (TSDec1V2, < 10%): a do tipo (outros regimes) ou a calculada pela S-8 (Simples).
+  try { aliquotaDoLeiaute(simples ? e.aliquotaSimples?.aliquotaIss ?? null : e.aliquotaIss); } catch (x) { if (x instanceof ErroDps) f.push(...x.faltas); else throw x; }
   // S-8: alíquota do Simples calculada pelo sistema (não o número fixo do tipo). Sem cálculo, a DPS do Simples não sai.
   if (simples) {
     const a = e.aliquotaSimples;
@@ -134,7 +155,11 @@ export function faltasDps(e: EntradaDps): string[] {
     ["indDest", "indicador do destinatário (IBS/CBS)"], ["cst", "CST do IBS/CBS"], ["cClassTrib", "classificação tributária do IBS/CBS (cClassTrib)"],
   ];
   const semClassificacao = ib.every(([k]) => vazio(p.ibscbs[k])) && vazio(p.ibscbs.cIndOp) && vazio(p.ibscbs.indFinal);
-  if (!(simples && semClassificacao && e.competencia < "2027-01-01")) for (const [k, rotulo] of ib) if (vazio(p.ibscbs[k])) f.push(`${rotulo} — contador`);
+  if (!(simples && semClassificacao && e.competencia < "2027-01-01")) {
+    for (const [k, rotulo] of ib) if (vazio(p.ibscbs[k])) f.push(`${rotulo} — contador`);
+    // XSD de produção (09/02/2026): cIndOp é obrigatório no grupo IBSCBS (na produção restrita, com a NT 009, é opcional).
+    if (e.ambiente === "producao" && vazio(p.ibscbs.cIndOp)) f.push("código do indicador da operação (cIndOp) do IBS/CBS — contador");
+  }
   return f;
 }
 
@@ -146,10 +171,10 @@ export function exigeGrupoObra(e: Pick<EntradaDps, "servico">): boolean {
 }
 
 /**
- * Posição do cAtvSN no XML: [NÃO CONFIRMADO linha a linha no XSD] — vem do leiaute RTC (Anexo VI); colocado em
- * prest/regTrib, logo depois do regApTribSN. Ajustar só aqui quando conferido no XSD da produção restrita.
+ * cAtvSN: conferido no XSD oficial em 22/11/2026 (S-7) — NÃO existe em prest/regTrib (opSimpNac, regApTribSN, regEspTrib)
+ * na v1.01 de produção nem na de produção restrita. Fica desligado até um leiaute que o traga.
  */
-const CATVSN_EM_REGTRIB = true;
+const CATVSN_EM_REGTRIB: boolean = false;
 
 /** pAliq: emissor do Simples usa a alíquota calculada (S-8); os outros regimes, a alíquota do tipo de serviço. */
 export function aliquotaDaDps(e: Pick<EntradaDps, "regimeTributario" | "aliquotaIss" | "aliquotaSimples">): string | null {
@@ -168,7 +193,7 @@ export function serializarDps(e: EntradaDps, id: string, variante: VarianteLeiau
   const p = e.parametros;
   const ib = p.ibscbs;
   const nt009 = variante === "producao_restrita_20261020";
-  const tpAmb = nt009 ? TP_AMB.producao_restrita : TP_AMB.producao;
+  const tpAmb = e.ambiente === "producao" ? TP_AMB.producao : TP_AMB.producao_restrita;
   const classificacao = `${tag("CST", ib.cst)}${tag("cClassTrib", ib.cClassTrib)}`;
   const semIbsCbs = [ib.indDest, ib.cst, ib.cClassTrib, ib.cIndOp, ib.indFinal].every(vazio);
   const ibscbs = semIbsCbs ? "" : nt009
@@ -193,10 +218,12 @@ export function serializarDps(e: EntradaDps, id: string, variante: VarianteLeiau
     `<prest>`, tag("CNPJ", doc(e.prestador.cnpj)), tag("IM", e.prestador.inscricaoMunicipal),
     `<regTrib>`, tag("opSimpNac", p.opSimpNac), tag("regApTribSN", p.regApTribSN),
     CATVSN_EM_REGTRIB && e.regimeTributario === "simples_nacional" ? tag("cAtvSN", e.servico.codigoAtividadeSimples) : "", tag("regEspTrib", p.regEspTrib), `</regTrib>`, `</prest>`,
-    `<toma>`, tomadorDoc.length === 11 ? tag("CPF", tomadorDoc) : tag("CNPJ", tomadorDoc), tag("xNome", e.tomador!.nome), `</toma>`,
+    `<toma>`, tomadorDoc.length === 11 ? tag("CPF", tomadorDoc) : tag("CNPJ", tomadorDoc), tag("xNome", cortarTexto((e.tomador!.nome ?? "").trim(), MAX_NOME)), `</toma>`,
     `<serv>`,
     `<locPrest>`, tag("cLocPrestacao", e.servico.municipioIncidenciaIbge), `</locPrest>`,
-    `<cServ>`, tag("cTribNac", e.servico.codigoTributacaoNacional), tag("xDescServ", cortarTexto(e.servico.descricao, 2000)), tag("cNBS", e.servico.codigoNbs), `</cServ>`,
+    `<cServ>`, tag("cTribNac", e.servico.codigoTributacaoNacional),
+    // Ordem conferida no XSD: produção restrita (NT 009) = cNBS ANTES de xDescServ; produção (09/02/2026) = depois.
+    nt009 ? tag("cNBS", e.servico.codigoNbs) : "", tag("xDescServ", cortarTexto(e.servico.descricao, 2000)), nt009 ? "" : tag("cNBS", e.servico.codigoNbs), `</cServ>`,
     vazio(e.servico.cno) ? "" : `<obra>${tag("cObra", e.servico.cno)}</obra>`,
     `</serv>`,
     `<valores>`,
@@ -217,7 +244,7 @@ export function montarDps(e: EntradaDps): { id: string; xml: string; variante: V
   const faltas = faltasDps(e);
   if (faltas.length) throw new ErroDps(faltas);
   const id = idDps(e.prestador.municipioIbge!, e.prestador.cnpj, e.serie!, e.numero!);
-  const variante = VARIANTE_DO_AMBIENTE.producao_restrita;
+  const variante = VARIANTE_DO_AMBIENTE[e.ambiente === "producao" ? "producao" : "producao_restrita"];
   return { id, xml: serializarDps(e, id, variante), variante };
 }
 

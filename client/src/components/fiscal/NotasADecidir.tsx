@@ -1,4 +1,6 @@
-// EPIC-029 S-2 — seção "Notas a decidir" da aba Contabilidade do BPO. Nada é emitido nesta etapa.
+// EPIC-029 S-2 — seção "Notas a decidir" da aba Contabilidade do BPO.
+// S-7: Emitir/Cancelar/DANFSe/XML. "Emitir" só fica ativo com as três travas abertas (EMISSAO_DISPONIVEL no código, interruptor
+// de emissão da empresa e ambiente de testes/produção); o servidor confere tudo de novo.
 // As colunas vêm da origem e dos cadastros (nada digitado aqui). Editar só ajusta valor, descrição, município, empresa
 // e tipo de serviço; CNPJ/endereço do tomador se corrigem NO CADASTRO (botão "Abrir cadastro do tomador").
 import { useMemo, useState } from "react";
@@ -21,7 +23,17 @@ import { CurrencyInput } from "@/components/ui/currency-input";
 import { AliquotaSimples } from "./AliquotaSimples";
 import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota } from "@shared/fiscal/motivos";
 import { ALERTA_TOMADOR_MUDOU } from "@shared/fiscal/origens";
-import { AVISO_EMISSAO_INDISPONIVEL, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
+import { AVISO_EMISSAO_INDISPONIVEL, EMISSAO_DISPONIVEL, ROTULO_STATUS, type StatusNota } from "@shared/fiscal/status";
+
+const MOTIVOS_CANCELAMENTO = [[1, "Erro na emissão"], [2, "Serviço não prestado"], [9, "Outros"]] as const;
+/** Por que o botão Emitir está desligado (null = pode emitir). */
+function bloqueioDeEmissao(n: Nota): string | null {
+  if (!EMISSAO_DISPONIVEL) return AVISO_EMISSAO_INDISPONIVEL;
+  if (!n.emissor) return "Escolha a empresa emissora (Editar).";
+  if (n.emissor.ambiente !== "producao_restrita" && n.emissor.ambiente !== "producao") return "A emissão desta empresa está com o ambiente desligado.";
+  if (!n.emissor.emissaoLiberada) return "A emissão desta empresa ainda não foi liberada.";
+  return null;
+}
 
 type Nota = inferRouterOutputs<AppRouter>["fiscal"]["notas"]["listar"]["itens"][number];
 
@@ -95,6 +107,35 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
   const adiar = trpc.fiscal.notas.adiar.useMutation({ onSuccess: () => { setDepois(null); toast.success("Deixada para depois."); invalidar(); }, onError: erro });
   const reabrir = trpc.fiscal.notas.reabrir.useMutation({ onSuccess: () => { toast.success("Reaberta."); invalidar(); }, onError: erro });
   const editar = trpc.fiscal.notas.editar.useMutation({ onSuccess: () => { setEdicao(null); toast.success("Rascunho atualizado."); invalidar(); }, onError: erro });
+
+  const [emitirConf, setEmitirConf] = useState<Nota | null>(null);
+  const [cancelar, setCancelar] = useState<{ nota: Nota; motivo: 1 | 2 | 9 | 0; justificativa: string } | null>(null);
+  const emitir = trpc.fiscal.notas.emitir.useMutation({
+    onSuccess: r => { setEmitirConf(null); (r.situacao === "emitida" || r.situacao === "ja_emitida" ? toast.success : toast.warning)(r.mensagem); invalidar(); },
+    onError: e => { erro(e); invalidar(); },
+  });
+  const cancelarM = trpc.fiscal.notas.cancelar.useMutation({
+    onSuccess: r => { setCancelar(null); (r.situacao === "incerta" ? toast.warning : toast.success)(r.mensagem); invalidar(); },
+    onError: e => { erro(e); invalidar(); },
+  });
+  // QA S-7 (B1): nota presa em "Emitindo" → verificar manualmente (só admin; não envia nem apaga; fica no histórico).
+  const verificarManual = trpc.fiscal.notas.verificarManualmente.useMutation({
+    onSuccess: r => { toast.success(r.mensagem); invalidar(); },
+    onError: e => { erro(e); invalidar(); },
+  });
+  const danfse = async (n: Nota) => {
+    try {
+      const r = await utils.fiscal.notas.danfse.fetch({ id: n.id });
+      baixar(r.nomeArquivo, Uint8Array.from(atob(r.base64), c => c.charCodeAt(0)), "application/pdf");
+    } catch (e) { erro(e as Error); }
+  };
+  const xml = async (n: Nota) => {
+    try {
+      const r = await utils.fiscal.notas.xml.fetch({ id: n.id });
+      baixar(r.nomeArquivo, new TextEncoder().encode(r.xml), "application/xml");
+    } catch (e) { erro(e as Error); }
+  };
+  const justificativaLen = cancelar ? cancelar.justificativa.trim().length : 0;
 
   const previa = async (n: Nota) => {
     try {
@@ -218,16 +259,45 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
                     )}
                     {n.alerta && <p role="alert" className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-100">{n.alerta}</p>}
                     {n.motivoSemEmissor && <p className="mt-1 text-xs text-amber-200">{n.motivoSemEmissor}</p>}
+                    {n.status === "ERRO" && n.ultimoErro && <p role="alert" className="mt-1 rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-100">{n.ultimoErro.frase}</p>}
+                    {(n.status === "EMITIDA" || n.status === "CANCELADA") && (
+                      <p className="mt-1 text-xs text-gray-300">NFS-e nº {n.numeroNfse} • chave {n.chaveAcesso}
+                        {n.ambienteEmissao === "producao_restrita" && <span className="ml-2 rounded bg-amber-500/20 px-1 text-amber-200">AMBIENTE DE TESTES — SEM VALOR FISCAL</span>}</p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <Button size="sm" variant="outline" onClick={() => void previa(n)}><FileText className="mr-1 h-4 w-4" /> Prévia</Button>
                     <Button size="sm" variant="outline" onClick={() => setHistorico(n)}><History className="mr-1 h-4 w-4" /> Histórico</Button>
+                    {podeDecidir && ["A_DECIDIR", "ADIADA", "ERRO", "EMITINDO"].includes(n.status) && (() => {
+                      const bloqueio = bloqueioDeEmissao(n);
+                      return <Button size="sm" disabled={Boolean(bloqueio) || emitir.isPending} title={bloqueio ?? undefined} onClick={() => setEmitirConf(n)}>
+                        {bloqueio ? `Emitir (${bloqueio === AVISO_EMISSAO_INDISPONIVEL ? "disponível após homologação" : "indisponível"})` : n.status === "EMITINDO" ? "Conferir emissão" : n.status === "ERRO" ? "Tentar emitir de novo" : "Emitir"}
+                      </Button>;
+                    })()}
+                    {podeDecidir && n.status === "EMITINDO" && (
+                      <Button size="sm" variant="outline" disabled={verificarManual.isPending}
+                        title="Não envia nada e não apaga nada: libera a empresa emissora e registra no histórico. Ao tentar emitir de novo, o sistema consulta a DPS antes de reenviar."
+                        onClick={() => { if (window.confirm("Marcar esta nota para verificar manualmente? Nada é enviado nem apagado; confira no Emissor Nacional se a NFS-e desta DPS existe antes de emitir de novo.")) verificarManual.mutate({ id: n.id, versao: n.versao }); }}>
+                        Marcar como verificar manualmente
+                      </Button>
+                    )}
+                    {podeDecidir && (n.status === "EMITIDA" || n.status === "CANCELADA") && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => void danfse(n)}><FileText className="mr-1 h-4 w-4" /> DANFSe</Button>
+                        <Button size="sm" variant="outline" onClick={() => void xml(n)}>XML</Button>
+                        {n.status === "EMITIDA" && (() => {
+                          // QA S-7 (B8): com a emissão da empresa desligada, nada sai à Sefin — nem cancelamento (o servidor também recusa).
+                          const bloqueio = bloqueioDeEmissao(n);
+                          return <Button size="sm" variant="outline" className="border-red-500/40 text-red-200" disabled={Boolean(bloqueio)} title={bloqueio ? `Cancelamento indisponível: ${bloqueio}` : undefined}
+                            onClick={() => setCancelar({ nota: n, motivo: 0, justificativa: "" })}>{bloqueio ? "Cancelar nota (emissão desligada)" : "Cancelar nota"}</Button>;
+                        })()}
+                      </>
+                    )}
                     {n.emissor?.regime === "simples_nacional" && (
                       <Button size="sm" variant="outline" onClick={() => setSimples(n)}><Calculator className="mr-1 h-4 w-4" /> Alíquota do Simples</Button>
                     )}
                     {podeDecidir && (n.status === "A_DECIDIR" || n.status === "ADIADA") && (
                       <>
-                        <Button size="sm" disabled title={AVISO_EMISSAO_INDISPONIVEL}>Emitir (disponível após homologação)</Button>
                         <Button size="sm" variant="outline" onClick={() => setEdicao({
                           nota: n, valor: n.valorCentavos / 100, descricao: n.descricao, municipioNome: n.municipioIncidenciaNome ?? "",
                           municipioUf: n.municipioIncidenciaUf ?? "", emissorId: n.emissorId ? String(n.emissorId) : "", tipoServicoId: n.tipoServicoId ? String(n.tipoServicoId) : "",
@@ -276,6 +346,51 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
               <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={Boolean(problemaSemNota) || naoEmitir.isPending}
                 onClick={() => semNota.motivo && naoEmitir.mutate({ id: semNota.nota.id, versao: semNota.nota.versao, motivo: semNota.motivo, texto: semNota.texto || null })}>
                 Confirmar: não emitir
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(emitirConf)} onOpenChange={o => !o && setEmitirConf(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Emitir NFS-e</DialogTitle></DialogHeader>
+          {emitirConf && (
+            <div className="space-y-3">
+              {emitirConf.emissor?.ambiente === "producao_restrita"
+                ? <p role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-100">AMBIENTE DE TESTES — SEM VALOR FISCAL</p>
+                : <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-100">PRODUÇÃO: a nota sai com valor fiscal pela API Nacional.</p>}
+              <p className="text-sm text-gray-300">{emitirConf.tomador.nome ?? "Sem tomador"} — {dinheiro(emitirConf.valorCentavos)} — {emitirConf.emissor?.razaoSocial ?? ""}</p>
+              <p className="text-xs text-gray-400">Clicar de novo nunca gera outra nota: o sistema consulta a Sefin antes de reenviar.</p>
+              <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={emitir.isPending}
+                onClick={() => emitir.mutate({ id: emitirConf.id, versao: emitirConf.versao, ambienteEsperado: emitirConf.emissor?.ambiente === "producao" ? "producao" : "producao_restrita" })}>{emitir.isPending ? "Emitindo..." : "Confirmar emissão"}</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(cancelar)} onOpenChange={o => !o && setCancelar(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Cancelar NFS-e</DialogTitle></DialogHeader>
+          {cancelar && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-300">NFS-e nº {cancelar.nota.numeroNfse} — {cancelar.nota.tomador.nome ?? "Sem tomador"} — {dinheiro(cancelar.nota.valorCentavos)}</p>
+              <p className="text-xs text-gray-400">Prazo definido pela prefeitura (até 2 anos). O cancelamento não se desfaz.</p>
+              <div>
+                <Label>Motivo *</Label>
+                <Select value={cancelar.motivo ? String(cancelar.motivo) : ""} onValueChange={v => setCancelar({ ...cancelar, motivo: Number(v) as 1 | 2 | 9 })}>
+                  <SelectTrigger className="mt-1 bg-[#2C3E50]"><SelectValue placeholder="Escolha o motivo" /></SelectTrigger>
+                  <SelectContent>{MOTIVOS_CANCELAMENTO.map(([v, r]) => <SelectItem key={v} value={String(v)}>{r}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="fiscal-cancelar-just">Justificativa * (15 a 255 caracteres)</Label>
+                <Textarea id="fiscal-cancelar-just" maxLength={255} value={cancelar.justificativa} onChange={e => setCancelar({ ...cancelar, justificativa: e.target.value })} className="mt-1 bg-[#2C3E50]" />
+                <p className="mt-1 text-xs text-gray-400">{justificativaLen}/255</p>
+              </div>
+              <Button className="w-full bg-red-700 text-white" disabled={!cancelar.motivo || justificativaLen < 15 || cancelarM.isPending}
+                onClick={() => cancelar.motivo && cancelarM.mutate({ id: cancelar.nota.id, versao: cancelar.nota.versao, motivo: cancelar.motivo, justificativa: cancelar.justificativa.trim() })}>
+                Confirmar cancelamento
               </Button>
             </div>
           )}

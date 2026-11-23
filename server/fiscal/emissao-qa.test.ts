@@ -23,6 +23,7 @@ import { escaparXml, montarDps } from "./dps.js";
 import { criarClienteSefin, ENDERECOS, montarUrl, type MapaEnderecos } from "./sefin.js";
 
 const M0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
+const M0167 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 const M0162 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
 
 const pasta = pastaDeTeste();
@@ -38,7 +39,7 @@ let pg: PGlite;
 let consoleVigia: ReturnType<typeof vi.spyOn>[];
 beforeEach(async () => {
   pg = new PGlite();
-  for (const m of [M0154, M0162]) await pg.exec(m);
+  for (const m of [M0154, M0162, M0167]) await pg.exec(m);
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
   await pg.exec(`INSERT INTO fiscal_emissores (id, cnpj, municipio_ibge, serie_dps) VALUES (1, '11222333000181', '2105302', '1');`);
   consoleVigia = (["log", "info", "warn", "error", "debug"] as const).map(n => vi.spyOn(console, n).mockImplementation(() => undefined));

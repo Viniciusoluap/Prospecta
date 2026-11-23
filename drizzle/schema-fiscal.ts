@@ -6,6 +6,11 @@ import type { MotivoSemNota } from "../shared/fiscal/motivos.js";
 import type { OrigemNota } from "../shared/fiscal/origens.js";
 import type { StatusNota } from "../shared/fiscal/status.js";
 
+export type ParametrosDpsEmissor = { opSimpNac?: string | null; regApTribSN?: string | null; regEspTrib?: string | null };
+export type ParametrosDpsServico = {
+  tribIssqn?: string | null; tpRetIssqn?: string | null; indTotTrib?: string | null;
+  ibscbs?: { indFinal?: string | null; cIndOp?: string | null; indDest?: string | null; cst?: string | null; cClassTrib?: string | null } | null;
+};
 export type ViaFiscal = "tela" | "whatsapp" | "sistema";
 export type AmbienteFiscal = "desligado" | "producao_restrita" | "producao";
 export type RegraTipoServico = "sempre_perguntar" | "nunca_gerar";
@@ -29,6 +34,10 @@ export const fiscalEmissores = pgTable("fiscal_emissores", {
   serieDps: varchar("serie_dps", { length: 5 }),
   proximoNumeroDps: bigint("proximo_numero_dps", { mode: "number" }).default(1).notNull(),
   ambiente: varchar("ambiente", { length: 20 }).$type<AmbienteFiscal>().default("desligado").notNull(),
+  /** S-7 (0167): interruptor de emissão POR EMISSOR (false = nada sai). Nenhuma rota o liga nesta etapa. */
+  emissaoLiberada: boolean("emissao_liberada").default(false).notNull(),
+  /** S-7 (0167): parâmetros do contador que são da empresa (opSimpNac, regApTribSN, regEspTrib). */
+  parametrosDps: jsonb("parametros_dps").$type<ParametrosDpsEmissor | null>(),
   ativo: boolean("ativo").default(true).notNull(),
   criadoPor: integer("criado_por"),
   atualizadoPor: integer("atualizado_por"),
@@ -48,6 +57,8 @@ export const fiscalTiposServico = pgTable("fiscal_tipos_servico", {
   descricaoPadrao: text("descricao_padrao"),
   aliquotaIss: numeric("aliquota_iss", { precision: 7, scale: 4 }),
   retencoes: jsonb("retencoes"),
+  /** S-7 (0167): parâmetros do contador que são do serviço (tribISSQN, tpRetISSQN, indTotTrib, classificação IBS/CBS). */
+  parametrosDps: jsonb("parametros_dps").$type<ParametrosDpsServico | null>(),
   regra: varchar("regra", { length: 20 }).$type<RegraTipoServico>().default("sempre_perguntar").notNull(),
   origens: jsonb("origens").$type<string[]>().default([]).notNull(),
   ativo: boolean("ativo").default(true).notNull(),
@@ -96,6 +107,13 @@ export const fiscalNotas = pgTable("fiscal_notas", {
   emitidaPor: integer("emitida_por"),
   canceladaEm: timestamp("cancelada_em", { withTimezone: true }),
   canceladaPor: integer("cancelada_por"),
+  /** S-7 (0167): retorno da emissão e do cancelamento. */
+  numeroNfse: varchar("numero_nfse", { length: 15 }),
+  ambienteEmissao: varchar("ambiente_emissao", { length: 20 }).$type<"producao_restrita" | "producao">(),
+  emitindoDesde: timestamp("emitindo_desde", { withTimezone: true }),
+  ultimoErro: jsonb("ultimo_erro").$type<{ codigos: string[]; frase: string; quando: string; manual?: boolean } | null>(),
+  cancelamentoMotivo: integer("cancelamento_motivo"),
+  cancelamentoJustificativa: varchar("cancelamento_justificativa", { length: 255 }),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -164,6 +182,46 @@ export const fiscalCertificadosHistorico = pgTable("fiscal_certificados_historic
   detalhe: varchar("detalhe", { length: 300 }),
   usuarioId: integer("usuario_id"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// EPIC-029 S-7 (0167): eventos da emissão (envio/retorno/consulta/cancelamento). Só inserção (gatilho).
+export type TipoEventoFiscal = "emissao" | "consulta_dps" | "cancelamento";
+export type SituacaoEventoFiscal = "autorizada" | "rejeitada" | "incerta" | "nao_encontrada";
+export const fiscalEventos = pgTable("fiscal_eventos", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  notaId: integer("nota_id").notNull(),
+  tipo: varchar("tipo", { length: 20 }).$type<TipoEventoFiscal>().notNull(),
+  situacao: varchar("situacao", { length: 16 }).$type<SituacaoEventoFiscal>().notNull(),
+  ambiente: varchar("ambiente", { length: 20 }).$type<"producao_restrita" | "producao">().notNull(),
+  httpStatus: integer("http_status"),
+  codigos: jsonb("codigos").$type<string[]>().default([]).notNull(),
+  protocolo: varchar("protocolo", { length: 60 }),
+  xml: text("xml"),
+  usuarioId: integer("usuario_id"),
+  via: varchar("via", { length: 10 }).$type<ViaFiscal>().notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// EPIC-029 S-7 (0167): parâmetros municipais oficiais (Sefin Nacional) — alíquotas por município e serviço, retenções.
+export type SituacaoParametroMunicipal = "aceita" | "pendente" | "recusada" | "sem_valor";
+export const fiscalParametrosMunicipais = pgTable("fiscal_parametros_municipais", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  emissorId: integer("emissor_id").notNull(),
+  tipoServicoId: integer("tipo_servico_id"),
+  consulta: varchar("consulta", { length: 12 }).$type<"aliquota" | "retencoes">().notNull(),
+  municipioIbge: varchar("municipio_ibge", { length: 7 }).notNull(),
+  codigoServico: varchar("codigo_servico", { length: 9 }),
+  ambiente: varchar("ambiente", { length: 20 }).$type<"producao_restrita" | "producao">().notNull(),
+  httpStatus: integer("http_status"),
+  aliquota: numeric("aliquota", { precision: 7, scale: 4 }),
+  aliquotaDigitada: numeric("aliquota_digitada", { precision: 7, scale: 4 }),
+  situacao: varchar("situacao", { length: 10 }).$type<SituacaoParametroMunicipal>().notNull(),
+  origem: varchar("origem", { length: 10 }).default("sefin").notNull(),
+  retorno: jsonb("retorno"),
+  consultadoPor: integer("consultado_por"),
+  consultadoEm: timestamp("consultado_em", { withTimezone: true }).defaultNow().notNull(),
+  decididoPor: integer("decidido_por"),
+  decididoEm: timestamp("decidido_em", { withTimezone: true }),
 });
 
 // EPIC-029 S-8 (22/11/2026) — folha dos 12 meses (Fator R) e início de atividade, por EMPRESA (raiz do CNPJ), migração

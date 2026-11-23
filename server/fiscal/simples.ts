@@ -354,3 +354,12 @@ export function paraDps(r: ResultadoSimplesNota): AliquotaSimplesDps | null {
     inicioAtividadeInformado,
   };
 }
+
+/**
+ * S-7 × S-8 — a fonte do Simples para `resolverAliquotaIss` (server/fiscal/aliquota.ts#registrarFonteSimples): calcula pela nota
+ * (RBT12 × anexo) e devolve o que a DPS precisa. Sem a nota/banco no contexto → null (a emissão recusa com FALTA_ALIQUOTA_SIMPLES).
+ */
+export async function fonteSimplesDaS8(c: { nota?: NotaDetalhada; db?: DrizzleDb }): Promise<AliquotaSimplesDps | null> {
+  if (!c.nota || !c.db) return null;
+  return paraDps(await aliquotaSimplesDaNota(c.db, c.nota));
+}

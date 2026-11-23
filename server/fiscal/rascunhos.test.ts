@@ -31,6 +31,7 @@ const TABELAS = [
 ];
 const MIGRACAO = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 // S-4: a 0162 acrescenta a coluna opcional codigo_atividade_simples ao tipo de serviço (lida pelo schema Drizzle).
+const MIGRACAO_S7 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 const MIGRACAO_S4 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
 let ddl = "";
 
@@ -55,6 +56,7 @@ beforeEach(async () => {
   await pg.exec(MIGRACAO);
   await pg.exec(MIGRACAO); // idempotente
   await pg.exec(MIGRACAO_S4);
+  await pg.exec(MIGRACAO_S7); // S-7: colunas novas lidas pelo schema Drizzle
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
   fetchVigia = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("rede proibida no teste"); });
   await pg.exec(`
@@ -297,7 +299,7 @@ describe("status, motivo e histórico", () => {
 
   it("Emitir é recusado no servidor (rota e banco) e nada vai à rede", async () => {
     const n = await umaNota();
-    await expect(admin().fiscal.notas.emitir({ id: n.id, versao: n.versao })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(admin().fiscal.notas.emitir({ id: n.id, versao: n.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(pg.query("UPDATE fiscal_notas SET status = 'EMITIDA' WHERE id = $1", [n.id])).rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);
     expect((await notas())[0]!.status).toBe("A_DECIDIR");
   });
@@ -338,7 +340,7 @@ describe("permissões", () => {
     await expect(colab.fiscal.notas.editar({ id: n!.id, versao: n!.versao, descricao: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.notas.atualizar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.config.salvar({ ligado: true, inicioEm: "2026-11-01" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(colab.fiscal.notas.emitir({ id: n!.id, versao: n!.versao })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(colab.fiscal.notas.emitir({ id: n!.id, versao: n!.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("colaborador", ["obras"]).fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("corretor").fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("colaborador", ["bpo"], false).fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });

@@ -30,6 +30,8 @@ const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.met
 const M0154 = ler("0154_fiscal_notas.sql");
 const M0162 = ler("0162_fiscal_certificados.sql");
 const M0168 = ler("0168_fiscal_folha_fator_r.sql");
+// S-7 (merge): o schema lê as colunas da emissão (0167) — a migração entra também aqui.
+const M0167 = ler("0167_fiscal_emissao.sql");
 let ddl = "";
 
 beforeAll(async () => {
@@ -50,6 +52,7 @@ async function preparar(comMigracao = true) {
   await pg.exec(ddl);
   await pg.exec(M0154);
   await pg.exec(M0162);
+  await pg.exec(M0167);
   if (comMigracao) {
     await pg.exec(M0168);
     await pg.exec(M0168); // idempotente

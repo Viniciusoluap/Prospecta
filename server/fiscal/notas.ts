@@ -43,6 +43,8 @@ export type DadosOrigem = {
 export type Tomador = { tipo: "bpo" | "crm" | "origem" | "nenhum"; nome: string | null; documento: string | null; cidade: string | null; uf: string | null };
 export type EmissorLido = {
   id: number; cnpj: string; razaoSocial: string | null; regime: string | null; municipioNome: string | null; municipioUf: string | null; ambiente: string;
+  /** EPIC-029 S-7: trava da emissão por empresa (fiscal_emissores.emissao_liberada). */
+  emissaoLiberada: boolean;
   /** EPIC-029 S-6: a DPS (S-4) informa a opção pelo Simples só para empresa do Simples; null = regime a confirmar (não emitir). */
   optanteSimples: boolean | null;
 };
@@ -167,7 +169,7 @@ function emissorNaData(e: LinhaEmissor, perfis: readonly PerfilParaRegime[], dat
   const p = perfilDoEmissor(perfis, e.cnpj, data);
   const regime = p.vigente?.regime ?? null;
   return { id: e.id, cnpj: e.cnpj, razaoSocial: p.nome?.companyName ?? null, regime, municipioNome: e.municipioNome, municipioUf: e.municipioUf, ambiente: e.ambiente,
-    optanteSimples: optanteDoSimples(regime) };
+    emissaoLiberada: e.emissaoLiberada, optanteSimples: optanteDoSimples(regime) };
 }
 
 /** Emissores com a razão social e o regime LIDOS do perfil tributário vigente na `data` (padrão: agora) do mesmo CNPJ (nunca copiados). */

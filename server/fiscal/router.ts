@@ -1,7 +1,8 @@
 // EPIC-029 S-2 (22/11/2026) — rotas do fiscal, todas dentro da aba "Contabilidade" do BPO (decisão do dono k).
 // Ver: admin e colaborador ATIVO com o módulo BPO (mapa `fiscal: "bpo"` em server/_core/trpc.ts).
-// Decidir, editar, configurar e "Atualizar" (gerar rascunhos): só ADMIN por papel. Emitir: sempre recusado (S-4).
-// Nada sai do sistema: nenhuma rota chama a rede.
+// Decidir, editar, configurar e "Atualizar" (gerar rascunhos): só ADMIN por papel.
+// S-7: emitir/cancelar/buscar alíquotas oficiais chamam a Sefin SÓ pelas funções de server/fiscal/emissao.ts e
+// parametros-municipais.ts, com as travas de lá (EMISSAO_DISPONIVEL, interruptor por emissor, ambiente). DANFSe e XML: só admin.
 import { TRPCError } from "@trpc/server";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -14,8 +15,12 @@ import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
 import { ensureTaxSchema } from "../tax-router.js";
 import { carregarConfigFiscal, gerarRascunhos } from "./gerador.js";
+import { gerarDanfsePdf } from "./danfse.js";
+import { cancelarNota, emitirNota, ErroEmissao, eventosDaNota, FRASE_PRODUCAO, fraseDeErroConhecido, marcarVerificarManualmente } from "./emissao.js";
+import { buscarAliquotasOficiais, ErroParametros, escolherAliquota, listarParametros } from "./parametros-municipais.js";
+import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import {
-  adiar, carregarNota, cnpjLimpo, contarADecidir, editar, emissoresComPerfil, emitir, historicoDaNota, listarNotas, naoEmitir, opcoesDosFiltros, reabrir, CURSOR_NOTAS,
+  adiar, carregarNota, cnpjLimpo, contarADecidir, editar, emissoresComPerfil, historicoDaNota, listarNotas, naoEmitir, opcoesDosFiltros, reabrir, CURSOR_NOTAS,
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
@@ -59,9 +64,25 @@ export function mascararCpf(doc: string | null): string | null {
   if (doc == null || d.length !== 11 || /[A-Za-z]/.test(doc)) return doc;
   return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
 }
-function paraQuemVe<T extends { tomador: { documento: string | null } }>(nota: T, papel: string): T {
-  return papel === "admin" ? nota : { ...nota, tomador: { ...nota.tomador, documento: mascararCpf(nota.tomador.documento) } };
+/**
+ * S-7: os XML (DPS assinada e NFS-e autorizada, com o CPF do tomador) e o retrato congelado NUNCA vão na lista/detalhe — o XML
+ * sai só pelo download próprio (`notas.xml`, admin).
+ */
+function paraQuemVe<T extends { tomador: { documento: string | null }; xmlDps?: unknown; xmlNfse?: unknown; congelado?: unknown }>(nota: T, papel: string): Omit<T, "xmlDps" | "xmlNfse" | "congelado"> {
+  const { xmlDps: _d, xmlNfse: _n, congelado: _c, ...resto } = nota;
+  return papel === "admin" ? resto : { ...resto, tomador: { ...nota.tomador, documento: mascararCpf(nota.tomador.documento) } };
 }
+/** Erro conhecido da emissão (frase fixa, sem dado) → PRECONDITION_FAILED com a frase; o resto sobe (vira frase genérica). */
+async function comFrase<T>(f: () => Promise<T>): Promise<T> {
+  try { return await f(); }
+  catch (e) {
+    const frase = fraseDeErroConhecido(e) ?? (e instanceof ErroParametros ? e.message : null);
+    if (frase) throw new TRPCError({ code: e instanceof ErroEmissao && e.tipo === "conflito" ? "CONFLICT" : "PRECONDITION_FAILED", message: frase });
+    throw e;
+  }
+}
+/** Código do leiaute (só números, curto): os parâmetros do contador nunca levam texto livre. */
+const codigo = (max: number) => z.string().trim().regex(new RegExp(`^\\d{1,${max}}$`), "Código: só números.").nullable().optional();
 const textoOpcional = (max: number) => z.string().trim().max(max).nullable().optional();
 const ORIGEM_DO_MAPA = new RegExp(`^(${ORIGENS_NOTA.join("|")}):([a-z0-9_]{1,40}|\\*)$`);
 
@@ -143,9 +164,39 @@ export const fiscalRouter = router({
           municipioNome: input.municipioNome, municipioUf: input.municipioUf, municipioIbge: input.municipioIbge ?? null,
           inscricaoMunicipal: input.inscricaoMunicipal || null, serieDps: input.serieDps ?? null, atualizadoPor: ctx.user.id, atualizadoEm: new Date(),
         };
-        // Ambiente fica "desligado" até a homologação (S-4): esta etapa não aceita outro valor.
+        // Ambiente nasce "desligado"; muda só por `emissores.ambiente` (produção exige a frase digitada).
         const [salvo] = await db.insert(fiscalEmissores).values({ cnpj, ambiente: "desligado", criadoPor: ctx.user.id, ...valores })
           .onConflictDoUpdate({ target: fiscalEmissores.cnpj, set: valores }).returning();
+        return salvo;
+      }),
+
+    /**
+     * S-7: troca do ambiente do emissor. "producao" só com a frase "EMITIR EM PRODUÇÃO" digitada (conferida AQUI, não na tela).
+     * O interruptor `emissao_liberada` NÃO é mexido aqui (nenhuma rota o liga nesta etapa).
+     */
+    ambiente: adminPorPapel
+      .input(z.object({ emissorId: id, ambiente: z.enum(["desligado", "producao_restrita", "producao"]), frase: z.string().max(40).optional() }).strict())
+      .mutation(async ({ input, ctx }) => {
+        if (input.ambiente === "producao" && (input.frase ?? "").trim() !== FRASE_PRODUCAO) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Para emitir em produção (notas com valor fiscal), digite exatamente: ${FRASE_PRODUCAO}` });
+        }
+        const db = getDb();
+        const emitindo = ((await db.execute(sql`SELECT 1 FROM fiscal_notas WHERE emissor_id = ${input.emissorId} AND status = 'EMITINDO' LIMIT 1`)) as { rows?: unknown[] }).rows ?? [];
+        if (emitindo.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Há uma nota desta empresa sendo emitida. Resolva a emissão antes de trocar o ambiente." });
+        const [salvo] = await db.update(fiscalEmissores).set({ ambiente: input.ambiente, atualizadoPor: ctx.user.id, atualizadoEm: new Date() })
+          .where(eq(fiscalEmissores.id, input.emissorId)).returning();
+        if (!salvo) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
+        return salvo;
+      }),
+    /** S-7: parâmetros do contador que são da EMPRESA (códigos do leiaute; vazio = ainda não informado). */
+    parametros: adminPorPapel
+      .input(z.object({ emissorId: id, opSimpNac: codigo(1), regApTribSN: codigo(1), regEspTrib: codigo(1) }).strict())
+      .mutation(async ({ input, ctx }) => {
+        const [salvo] = await getDb().update(fiscalEmissores).set({
+          parametrosDps: { opSimpNac: input.opSimpNac || null, regApTribSN: input.regApTribSN || null, regEspTrib: input.regEspTrib || null },
+          atualizadoPor: ctx.user.id, atualizadoEm: new Date(),
+        }).where(eq(fiscalEmissores.id, input.emissorId)).returning();
+        if (!salvo) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
         return salvo;
       }),
     /**
@@ -174,6 +225,17 @@ export const fiscalRouter = router({
           .onConflictDoUpdate({ target: fiscalDadosSimples.raiz, set: valores }).returning();
         return salvo;
       }),
+  }),
+
+  /** S-7: alíquotas oficiais do município (Sefin, só leitura, com o mTLS do emissor) e a escolha do admin. */
+  parametrosMunicipais: router({
+    listar: fiscalProcedure.input(z.object({ tipoServicoId: id.nullable().optional() }).optional()).query(({ input }) => listarParametros(getDb(), input?.tipoServicoId ?? null)),
+    buscar: adminPorPapel
+      .input(z.object({ emissorId: id, tipoServicoId: id, municipios: z.array(z.string().regex(/^\d{7}$/)).max(20).optional() }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => buscarAliquotasOficiais(getDb(), { ...input, usuarioId: ctx.user.id }))),
+    escolher: adminPorPapel
+      .input(z.object({ id, escolha: z.enum(["sefin", "digitada"]) }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => escolherAliquota(getDb(), { ...input, usuarioId: ctx.user.id }))),
   }),
 
   tipos: router({
@@ -212,6 +274,22 @@ export const fiscalRouter = router({
         const [criado] = await db.insert(fiscalTiposServico).values(valores).returning();
         return criado;
       }),
+    /** S-7: parâmetros do contador que são do SERVIÇO (códigos do leiaute; vazio = ainda não informado). */
+    parametros: adminPorPapel
+      .input(z.object({
+        id, tribIssqn: codigo(1), tpRetIssqn: codigo(1), indTotTrib: codigo(1),
+        ibscbs: z.object({ indFinal: codigo(1), cIndOp: codigo(6), indDest: codigo(1), cst: codigo(3), cClassTrib: codigo(6) }).strict().optional(),
+      }).strict())
+      .mutation(async ({ input, ctx }) => {
+        const v = (x: string | null | undefined) => x || null;
+        const [salvo] = await getDb().update(fiscalTiposServico).set({
+          parametrosDps: { tribIssqn: v(input.tribIssqn), tpRetIssqn: v(input.tpRetIssqn), indTotTrib: v(input.indTotTrib),
+            ibscbs: input.ibscbs ? { indFinal: v(input.ibscbs.indFinal), cIndOp: v(input.ibscbs.cIndOp), indDest: v(input.ibscbs.indDest), cst: v(input.ibscbs.cst), cClassTrib: v(input.ibscbs.cClassTrib) } : null },
+          atualizadoPor: ctx.user.id, atualizadoEm: new Date(),
+        }).where(eq(fiscalTiposServico.id, input.id)).returning();
+        if (!salvo) throw new TRPCError({ code: "NOT_FOUND", message: "Tipo de serviço não encontrado." });
+        return salvo;
+      }),
   }),
 
   notas: router({
@@ -248,7 +326,7 @@ export const fiscalRouter = router({
     }),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */
     previa: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
-      const nota = paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role);
+      const nota = { ...paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role), xmlDps: null, xmlNfse: null, congelado: null };
       return { nomeArquivo: `previa-nota-${nota.id}.pdf`, base64: Buffer.from(gerarPreviaPdf(nota)).toString("base64") };
     }),
     /** Botão "Atualizar": roda a varredura agora (mesma função do cron, idempotente). */
@@ -274,8 +352,36 @@ export const fiscalRouter = router({
         tipoServicoId: id.nullable().optional(),
       }))
       .mutation(({ input, ctx }) => editar(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" })),
-    /** Emitir: recusado no servidor até a homologação (S-4). */
-    emitir: adminPorPapel.input(z.object({ id, versao: z.number().int().positive() })).mutation(() => emitir()),
+    /**
+     * S-7: emitir pela Sefin Nacional — só com as três travas abertas (EMISSAO_DISPONIVEL, interruptor do emissor, ambiente).
+     * Repetir o pedido nunca gera outra nota (Id da DPS fixo + consulta antes de reenviar).
+     */
+    emitir: adminPorPapel.input(z.object({ id, versao: z.number().int().positive(), ambienteEsperado: z.enum(["producao_restrita", "producao"]) }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => emitirNota(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
+    /** S-7: cancelar (e101101) — motivo 1/2/9 e justificativa de 15 a 255 caracteres. */
+    cancelar: adminPorPapel
+      .input(z.object({ id, versao: z.number().int().positive(), motivo: z.union([z.literal(1), z.literal(2), z.literal(9)]), justificativa: z.string().trim().min(15).max(255) }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => cancelarNota(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
+    /**
+     * QA S-7 (B1): nota presa em "Emitindo" → "verificar manualmente" (só admin). Não envia, não apaga; libera o emissor e fica no
+     * histórico. Nova tentativa de emitir consulta a DPS antes de reenviar.
+     */
+    verificarManualmente: adminPorPapel.input(z.object({ id, versao: z.number().int().positive() }).strict())
+      .mutation(({ input, ctx }) => comFrase(() => marcarVerificarManualmente(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
+    /** S-7: eventos da emissão (sem XML). */
+    eventos: fiscalProcedure.input(z.object({ id })).query(({ input }) => eventosDaNota(getDb(), input.id)),
+    /** S-7: DANFSe do XML AUTORIZADO (só admin; nunca do rascunho). */
+    danfse: adminPorPapel.input(z.object({ id })).query(async ({ input }) => {
+      const [n] = await getDb().select({ status: fiscalNotas.status, xml: fiscalNotas.xmlNfse, numero: fiscalNotas.numeroNfse, ambienteEmissao: fiscalNotas.ambienteEmissao }).from(fiscalNotas).where(eq(fiscalNotas.id, input.id)).limit(1);
+      if (!n || !n.xml || (n.status !== "EMITIDA" && n.status !== "CANCELADA")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O DANFSe só existe para nota emitida (o rascunho tem a prévia)." });
+      return { nomeArquivo: `danfse-${n.numero ?? input.id}.pdf`, base64: Buffer.from(gerarDanfsePdf(n.xml, { cancelada: n.status === "CANCELADA", ambienteEmissao: n.ambienteEmissao })).toString("base64") };
+    }),
+    /** S-7: XML autorizado (só admin). */
+    xml: adminPorPapel.input(z.object({ id })).query(async ({ input }) => {
+      const [n] = await getDb().select({ status: fiscalNotas.status, xml: fiscalNotas.xmlNfse, numero: fiscalNotas.numeroNfse }).from(fiscalNotas).where(eq(fiscalNotas.id, input.id)).limit(1);
+      if (!n || !n.xml || (n.status !== "EMITIDA" && n.status !== "CANCELADA")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Só a nota emitida tem XML autorizado." });
+      return { nomeArquivo: `nfse-${n.numero ?? input.id}.xml`, xml: n.xml };
+    }),
   }),
 
   relatorio: router({

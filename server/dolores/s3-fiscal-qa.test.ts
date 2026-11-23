@@ -31,6 +31,8 @@ import { definirDependenciasWhatsapp, segredoWebhookDolores, tratarWebhookDolore
 
 const DONO = "5599991234567";
 const CPF = "52998224725";
+const MIGRACAO_0162 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
+const MIGRACAO_0167 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const MIGRACAO_0161 = readFileSync(new URL("../../drizzle/0165_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
 // EPIC-029 S-6 (junção): em produção a 0164 vem DEPOIS da 0165 (lista completa: os 8 + nota_fiscal + limite_receita, e as colunas da conta)
@@ -77,6 +79,8 @@ beforeEach(async () => {
     CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01', effective_to timestamp);
     CREATE TABLE IF NOT EXISTS operational_commissions (id serial PRIMARY KEY, construction_project_id integer, amount numeric, business_type text, property text);`);
   await banco.pg.exec(MIGRACAO_0154);
+  await banco.pg.exec(MIGRACAO_0162); // S-7: o schema lê as colunas da 0162 e da 0167
+  await banco.pg.exec(MIGRACAO_0167);
   await banco.pg.exec(MIGRACAO_0161);
   await banco.pg.exec(MIGRACAO_0161); // idempotente
   await banco.pg.exec(MIGRACAO_0164);

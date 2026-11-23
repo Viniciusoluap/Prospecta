@@ -15,7 +15,7 @@ import { gerarCertificado, pastaDeTeste, SENHA_TESTE } from "./certificados-test
 import { entradaDaNota, ErroDps, escaparXml, faltasDps, idDps, montarDps, serializarDps } from "./dps.js";
 import {
   CA_CONFIAVEIS, CAMINHOS, caminhoDe, compactarXml, criarClienteSefin, descompactarXml, destinoDo, ENDERECOS, ErroSefin, montarUrl,
-  MENSAGEM_DESLIGADO, MENSAGEM_PRODUCAO_BLOQUEADA, opcoesTls, testarConexaoSefin, type MapaEnderecos,
+  MENSAGEM_DESLIGADO, opcoesTls, testarConexaoSefin, type MapaEnderecos,
 } from "./sefin.js";
 import type { NotaDetalhada } from "./notas.js";
 import type { FiscalEmissor } from "../../drizzle/schema-fiscal.js";
@@ -58,9 +58,9 @@ const ID = "DPS210530221122233300018100001000000000000042";
 const FIXTURE_PR = `<?xml version="1.0" encoding="UTF-8"?><DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${ID}">`
   + `<tpAmb>2</tpAmb><dhEmi>2026-11-22T10:00:00-03:00</dhEmi><verAplic>Prospecta-1.0</verAplic><serie>1</serie><nDPS>42</nDPS>`
   + `<dCompet>2026-11-20</dCompet><tpEmit>1</tpEmit><finNFSe>0</finNFSe><cLocEmi>2105302</cLocEmi>`
-  + `<prest><CNPJ>11222333000181</CNPJ><IM>12345</IM><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><cAtvSN>13</cAtvSN><regEspTrib>0</regEspTrib></regTrib></prest>`
+  + `<prest><CNPJ>11222333000181</CNPJ><IM>12345</IM><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><regEspTrib>0</regEspTrib></regTrib></prest>`
   + `<toma><CPF>12345678909</CPF><xNome>Cliente &amp; Filhos &lt;Teste&gt;</xNome></toma>`
-  + `<serv><locPrest><cLocPrestacao>2105302</cLocPrestacao></locPrest><cServ><cTribNac>070201</cTribNac><xDescServ>Administração de obra</xDescServ><cNBS>114011000</cNBS></cServ><obra><cObra>900012345678</cObra></obra></serv>`
+  + `<serv><locPrest><cLocPrestacao>2105302</cLocPrestacao></locPrest><cServ><cTribNac>070201</cTribNac><cNBS>114011000</cNBS><xDescServ>Administração de obra</xDescServ></cServ><obra><cObra>900012345678</cObra></obra></serv>`
   + `<valores><vServPrest><vServ>1234.56</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN><pAliq>5.00</pAliq></tribMun>`
   + `<totTrib><indTotTrib>0</indTotTrib></totTrib></trib></valores>`
   + `<IBSCBS><indFinal>0</indFinal><cIndOp>100301</cIndOp><indDest>0</indDest><valores><trib><CST>000</CST><cClassTrib>000001</cClassTrib></trib></valores></IBSCBS>`
@@ -117,8 +117,10 @@ describe("DPS — montagem pura por fixture", () => {
     expect(faltasDps({ ...ENTRADA, parametros: { ...semClass, ibscbs: { ...semClass.ibscbs, cst: "000" } } })).toEqual(expect.arrayContaining([expect.stringMatching(/cClassTrib/)]));
   });
   it("recusa ambiente desligado e produção, série fora de 1–49999, sem tomador, valor zero", () => {
-    expect(faltasDps({ ...ENTRADA, ambiente: "desligado" })[0]).toMatch(/produção restrita/);
-    expect(faltasDps({ ...ENTRADA, ambiente: "producao" })[0]).toMatch(/bloqueada/);
+    expect(faltasDps({ ...ENTRADA, ambiente: "desligado" })[0]).toMatch(/desligado/);
+    // S-7: a produção não é mais recusada pela DPS (as travas ficam na emissão); no XSD de produção o cIndOp é obrigatório
+    expect(faltasDps({ ...ENTRADA, ambiente: "producao" })).toEqual([]);
+    expect(faltasDps({ ...ENTRADA, ambiente: "producao", parametros: { ...PARAMETROS, ibscbs: { ...PARAMETROS.ibscbs, cIndOp: null } } })).toEqual([expect.stringMatching(/cIndOp/)]);
     expect(faltasDps({ ...ENTRADA, serie: "50000" })).toEqual([expect.stringMatching(/série/)]);
     expect(faltasDps({ ...ENTRADA, serie: "0" })).toEqual([expect.stringMatching(/série/)]);
     expect(faltasDps({ ...ENTRADA, tomador: null })).toEqual(expect.arrayContaining([expect.stringMatching(/CPF ou CNPJ do tomador/)]));
@@ -132,9 +134,9 @@ describe("DPS — montagem pura por fixture", () => {
     expect(desc.endsWith("😀")).toBe(true);
     expect(escaparXml("a\uFFFEb\uFFFFc\uD800d\uDC00e😀")).toBe("abcde😀");
   });
-    it("Simples exige cAtvSN do tipo de serviço; 7.02/7.05 exigem o grupo obra (CNO); IM só quando o emissor tem; reembolso recusado", () => {
-    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, codigoAtividadeSimples: null } })).toEqual([expect.stringMatching(/cAtvSN/)]);
-    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, codigoAtividadeSimples: "IMP" } })).toEqual([expect.stringMatching(/cAtvSN/)]);
+    it("S-7: cAtvSN não existe no XSD v1.01 (nem exigido nem enviado); 7.02/7.05 exigem o grupo obra (CNO); IM só quando o emissor tem; reembolso recusado", () => {
+    expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, codigoAtividadeSimples: null } })).toEqual([]);
+    expect(montarDps(ENTRADA).xml).not.toContain("cAtvSN");
     expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, cno: null } })).toEqual([expect.stringMatching(/grupo "obra"/)]);
     expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, itemLc116: "7.05", codigoTributacaoNacional: "070501", cno: null } })).toEqual([expect.stringMatching(/grupo "obra"/)]);
     expect(faltasDps({ ...ENTRADA, servico: { ...ENTRADA.servico, itemLc116: "28.01", codigoTributacaoNacional: "280101", cno: null } })).toEqual([]);
@@ -233,7 +235,8 @@ describe("assinatura XML-DSig envelopada (certificado de TESTE)", () => {
 describe("cliente mTLS (Sefin/ADN) — sem chamada real", () => {
   it("ambiente desligado, produção e desconhecido são recusados; Sefin da produção restrita confirmada, ADN não", () => {
     expect(() => destinoDo("desligado", "sefin")).toThrow(MENSAGEM_DESLIGADO);
-    expect(() => destinoDo("producao", "sefin")).toThrow(MENSAGEM_PRODUCAO_BLOQUEADA);
+    // S-7: produção deixou de ser recusada no cliente (as travas são da emissão: EMISSAO_DISPONIVEL, interruptor e ambiente)
+    expect(destinoDo("producao", "sefin")).toMatchObject({ host: "sefin.nfse.gov.br", base: "/SefinNacional" });
     expect(() => destinoDo("teste", "sefin")).toThrow(/desconhecido/);
     expect(destinoDo("producao_restrita", "sefin")).toMatchObject({ host: "sefin.producaorestrita.nfse.gov.br", base: "/API/SefinNacional", baseAlternativa: "/SefinNacional" });
     expect(() => destinoDo("producao_restrita", "adn")).toThrow(/não foi confirmado/);
@@ -309,7 +312,7 @@ describe("cliente mTLS (Sefin/ADN) — sem chamada real", () => {
       const credencial = vi.fn(async () => cred);
       expect(await testarConexaoSefin(null as never, { id: 1, ambiente: "desligado", municipioIbge: "2105302" }, { credencial }))
         .toEqual({ ok: false, ambiente: "desligado", mensagem: MENSAGEM_DESLIGADO });
-      expect((await testarConexaoSefin(null as never, { id: 1, ambiente: "producao", municipioIbge: "2105302" }, { credencial })).mensagem).toBe(MENSAGEM_PRODUCAO_BLOQUEADA);
+      expect((await testarConexaoSefin(null as never, { id: 1, ambiente: "producao", municipioIbge: null }, { credencial })).mensagem).toMatch(/código IBGE/);
       expect((await testarConexaoSefin(null as never, { id: 1, ambiente: "producao_restrita", municipioIbge: null }, { credencial })).mensagem).toMatch(/código IBGE/);
       expect((await testarConexaoSefin(null as never, { id: 1, ambiente: "producao_restrita", municipioIbge: "2105302" }, { credencial, teste: { servico: "adn", nome: "distribuicao" } })).mensagem).toMatch(/não foi confirmado/);
       expect(credencial).not.toHaveBeenCalled();

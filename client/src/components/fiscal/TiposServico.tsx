@@ -12,6 +12,15 @@ import { PercentInput } from "@/components/ui/percent-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ROTULO_ORIGEM, type OrigemNota } from "@shared/fiscal/origens";
+import { AliquotasOficiais } from "./AliquotasOficiais";
+
+/** S-7: códigos da DPS que o contador define por serviço (só números; vazio = a preencher). */
+const CAMPOS_DPS = [
+  ["tribIssqn", "Tributação do ISSQN (tribISSQN)", 1], ["tpRetIssqn", "Retenção do ISSQN (tpRetISSQN)", 1], ["indTotTrib", "Total de tributos (indTotTrib)", 1],
+  ["indDest", "IBS/CBS — destinatário (indDest)", 1], ["cst", "IBS/CBS — CST", 3], ["cClassTrib", "IBS/CBS — cClassTrib", 6],
+  ["cIndOp", "IBS/CBS — indicador da operação (cIndOp)", 6], ["indFinal", "IBS/CBS — consumidor final (indFinal)", 1],
+] as const;
+type CodigosDps = Record<(typeof CAMPOS_DPS)[number][0], string>;
 
 const A_PREENCHER = "a preencher pelo contador";
 const REGRA = { sempre_perguntar: "Sempre perguntar", nunca_gerar: "Nunca gerar rascunho" } as const;
@@ -33,6 +42,11 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
   const { data: tipos = [] } = trpc.fiscal.tipos.listar.useQuery();
   const { data: emissores = [] } = trpc.fiscal.emissoresComPerfil.useQuery();
   const [form, setForm] = useState<Form | null>(null);
+  const [codigos, setCodigos] = useState<{ id: number; nome: string; v: CodigosDps } | null>(null);
+  const salvarCodigos = trpc.fiscal.tipos.parametros.useMutation({
+    onSuccess: () => { toast.success("Códigos da nota salvos."); setCodigos(null); void utils.fiscal.tipos.listar.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
   const salvar = trpc.fiscal.tipos.salvar.useMutation({
     onSuccess: () => { toast.success("Tipo de serviço salvo."); setForm(null); void utils.fiscal.tipos.listar.invalidate(); },
     onError: e => toast.error(e.message),
@@ -52,7 +66,16 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
                 ISS {t.aliquotaIss != null ? `${Number(t.aliquotaIss).toLocaleString("pt-BR")}%` : A_PREENCHER}
               </p>
               <p className="text-xs text-gray-500">Origens: {(t.origens ?? []).map(rotuloOrigem).join(", ") || "nenhuma"}</p>
+              <AliquotasOficiais tipoServicoId={t.id} emissorId={t.emissorId ?? emissores[0]?.id ?? null} podeEditar={podeEditar} />
             </div>
+            {podeEditar && (
+              <Button size="sm" variant="outline" onClick={() => {
+                const p = (t.parametrosDps ?? {}) as Record<string, unknown>;
+                const ib = (p.ibscbs ?? {}) as Record<string, unknown>;
+                const v = Object.fromEntries(CAMPOS_DPS.map(([k]) => [k, String((["tribIssqn", "tpRetIssqn", "indTotTrib"].includes(k) ? p[k] : ib[k]) ?? "")])) as CodigosDps;
+                setCodigos({ id: t.id, nome: t.nome, v });
+              }}>Códigos da nota</Button>
+            )}
             {podeEditar && (
               <Button size="sm" variant="outline" onClick={() => setForm({
                 id: t.id, nome: t.nome, emissorId: t.emissorId ? String(t.emissorId) : "", codigoTributacaoNacional: t.codigoTributacaoNacional ?? "",
@@ -63,6 +86,29 @@ export function TiposServico({ podeEditar }: { podeEditar: boolean }) {
           </div>
         ))}
       </CardContent>
+
+      <Dialog open={Boolean(codigos)} onOpenChange={o => !o && setCodigos(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Códigos da nota — {codigos?.nome}</DialogTitle></DialogHeader>
+          {codigos && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <p className="sm:col-span-2 text-xs text-gray-400">Códigos do leiaute nacional definidos pelo contador. Sem eles a nota não é montada (nada é preenchido por padrão).</p>
+              {CAMPOS_DPS.map(([k, rotulo, max]) => (
+                <div key={k}>
+                  <Label htmlFor={`fiscal-dps-${k}`}>{rotulo}</Label>
+                  <Input id={`fiscal-dps-${k}`} inputMode="numeric" maxLength={max} placeholder={A_PREENCHER} value={codigos.v[k]}
+                    onChange={e => setCodigos({ ...codigos, v: { ...codigos.v, [k]: e.target.value.replace(/\D/g, "") } })} className="mt-1 bg-[#2C3E50]" />
+                </div>
+              ))}
+              <Button className="sm:col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={salvarCodigos.isPending}
+                onClick={() => salvarCodigos.mutate({
+                  id: codigos.id, tribIssqn: codigos.v.tribIssqn || null, tpRetIssqn: codigos.v.tpRetIssqn || null, indTotTrib: codigos.v.indTotTrib || null,
+                  ibscbs: { indDest: codigos.v.indDest || null, cst: codigos.v.cst || null, cClassTrib: codigos.v.cClassTrib || null, cIndOp: codigos.v.cIndOp || null, indFinal: codigos.v.indFinal || null },
+                })}>Salvar códigos</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(form)} onOpenChange={o => !o && setForm(null)}>
         <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white sm:max-w-2xl">

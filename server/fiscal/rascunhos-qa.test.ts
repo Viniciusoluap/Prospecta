@@ -25,6 +25,7 @@ const TABELAS = [
 ];
 const MIGRACAO = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 // S-4: a 0162 acrescenta a coluna opcional codigo_atividade_simples ao tipo de serviço (lida pelo schema Drizzle).
+const MIGRACAO_S7 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 const MIGRACAO_S4 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
 let ddl = "";
 
@@ -46,6 +47,7 @@ beforeEach(async () => {
   await pg.exec(MIGRACAO);
   await pg.exec(MIGRACAO);
   await pg.exec(MIGRACAO_S4);
+  await pg.exec(MIGRACAO_S7); // S-7: colunas novas lidas pelo schema Drizzle
   vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
   fetchVigia = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("rede proibida no teste"); });
   await pg.exec(`
@@ -96,7 +98,7 @@ describe("QA — permissões e superfícies de ataque (devem passar)", () => {
     await lancamento();
     await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
     const [n] = await notas();
-    await expect(admin().fiscal.notas.emitir({ id: n!.id, versao: n!.versao })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(admin().fiscal.notas.emitir({ id: n!.id, versao: n!.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     for (const s of ["EMITINDO", "EMITIDA", "CANCELADA", "ERRO"]) {
       await expect(pg.query(`INSERT INTO fiscal_notas (origem_tipo, origem_id, data_evento, status) VALUES ('avaliacao', 9${s.length}, '2026-11-10', $1)`, [s]))
         .rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);

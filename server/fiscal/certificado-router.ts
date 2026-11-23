@@ -9,14 +9,14 @@ import { z } from "zod";
 import { fiscalEmissores } from "../../drizzle/schema-fiscal.js";
 import { adminProcedure, router } from "../_core/trpc.js";
 import { getDb } from "../db.js";
-import { auditarCertificado, desativarCertificado, ErroCertificado, guardarCertificado, resumosAtivos, TAMANHO_MAXIMO_PFX } from "./certificado.js";
+import { auditarCertificado, desativarCertificado, ErroCertificado, FRASE_EMISSOR_NAO_ENCONTRADO, guardarCertificado, resumosAtivos, TAMANHO_MAXIMO_PFX } from "./certificado.js";
 import { testarConexaoSefin } from "./sefin.js";
 
 /** Só admin por papel; erro inesperado vira frase genérica (o log leva só o nome do erro, nunca a mensagem). */
 const adminDoCofre = adminProcedure.use(async ({ ctx, next, path }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Só o administrador cuida do certificado de emissão." });
   const r = await next();
-  if (!r.ok && !(r.error.cause instanceof ErroCertificado) && r.error.code !== "BAD_REQUEST" && r.error.code !== "FORBIDDEN") {
+  if (!r.ok && !(r.error.cause instanceof ErroCertificado) && r.error.code !== "BAD_REQUEST" && r.error.code !== "FORBIDDEN" && r.error.code !== "NOT_FOUND") {
     console.error("[fiscal-certificado]", path, r.error.cause instanceof Error ? r.error.cause.name : "falha");
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível concluir agora. Tente de novo em instantes." });
   }
@@ -71,7 +71,8 @@ export const certificadoFiscalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [emissor] = await db.select({ id: fiscalEmissores.id, ambiente: fiscalEmissores.ambiente, municipioIbge: fiscalEmissores.municipioIbge }).from(fiscalEmissores).where(eq(fiscalEmissores.id, input.emissorId)).limit(1);
-      if (!emissor) throw new TRPCError({ code: "NOT_FOUND", message: "Empresa emissora não encontrada." });
+      // Revisão da S-4: NOT_FOUND passa pelo middleware com a frase própria (antes virava erro 500 genérico).
+      if (!emissor) throw new TRPCError({ code: "NOT_FOUND", message: FRASE_EMISSOR_NAO_ENCONTRADO });
       const r = await testarConexaoSefin(db, emissor);
       await auditarCertificado(db, { emissorId: emissor.id, acao: "teste_conexao", detalhe: `ambiente=${emissor.ambiente}; ${r.ok ? "ok" : "recusado"}`, usuarioId: ctx.user.id });
       return r;

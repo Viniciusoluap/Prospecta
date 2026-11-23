@@ -117,13 +117,13 @@ describe("registro fechado e níveis", () => {
       // EPIC-027 C5 (criadora de mesas): só a PROPOSTA, de fila ("pode"; aprovar = "confirmo")
       propor_mesa: "fila", revisar_mesa: "fila", propor_aprovacao_mesa: "fila", recusar_mesa: "fila",
       // EPIC-029 S-3 (fiscal): sem nota/depois/editar com "pode"; emitir com "confirmo" (e recusado até a S-4/S-5)
-      decidir_nota_fiscal: "fila", editar_rascunho_nota: "fila", emitir_nota_fiscal: "fila",
+      decidir_nota_fiscal: "fila", editar_rascunho_nota: "fila", emitir_nota_fiscal: "fila", cancelar_nota_fiscal: "fila",
       // EPIC-027 C5-E4: silenciar/religar um tipo de aviso automático, também com o "pode"
       silenciar_aviso: "fila" });
     expect(ACOES.map(a => a.nome).sort()).toEqual([...LIBERADAS_ETAPA_3, "criar_card_cliente", "salvar_documentos_grupo", "conciliar_nota_obra", "salvar_nota_obra",
       "classificar_grupo", "aceitar_grupo", "ignorar_grupo", "ligar_resposta_grupo", "guardar_memoria", "corrigir_memoria", "esquecer_memoria",
       "gerar_link_maquete_lote", "propor_mesa", "revisar_mesa", "propor_aprovacao_mesa", "recusar_mesa", "silenciar_aviso",
-      "decidir_nota_fiscal", "editar_rascunho_nota", "emitir_nota_fiscal"].sort());
+      "decidir_nota_fiscal", "editar_rascunho_nota", "emitir_nota_fiscal", "cancelar_nota_fiscal"].sort());
     for (const nome of Object.keys(PROIBIDAS)) { expect(funcaoLiberada(nome)).toBe(false); expect(ACOES.some(a => a.nome === nome)).toBe(false); }
     expect(ferramentasLiberadas().map(f => f.name)).not.toContain("criar_tarefa");
     const wa = ferramentasDoWhatsapp().map(f => f.name);

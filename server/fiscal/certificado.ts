@@ -84,7 +84,7 @@ export function cnpjDoCertificado(x509: X509Certificate): string | null {
   return /:\s*([0-9A-Z]{12}[0-9]{2})\s*$/i.exec(cn)?.[1]?.toUpperCase() ?? null;
 }
 
-/** A cadeia chega a uma raiz ICP-Brasil (com os intermediários que vieram no .pfx)? Só informa; não recusa. */
+/** A cadeia chega a uma raiz ICP-Brasil (com os intermediários que vieram no .pfx)? Ao guardar, só informa; para EMITIR, `credencialDoEmissor({ paraEmitir })` recusa sem ela. */
 export function cadeiaChegaNaIcp(folha: X509Certificate, intermediarios: X509Certificate[], raizesIcp = RAIZES_ICP): boolean {
   let atual = folha;
   for (let passo = 0; passo < 8; passo++) {
@@ -193,16 +193,38 @@ export async function auditarCertificado(db: DrizzleDb, a: { emissorId: number |
   } catch { /* a auditoria não derruba a operação */ }
 }
 
-/** Emissor pelo id ou, sem id, pelo CNPJ do certificado (o do Jurídico chega sem saber de qual emissor é). */
-async function acharEmissor(db: DrizzleDb, emissorId: number | null, cnpjCert: string | null) {
+export const FRASE_EMISSOR_NAO_ENCONTRADO = "Empresa emissora não encontrada.";
+export const FRASE_EMISSOR_INATIVO = "Esta empresa emissora está inativa: reative-a antes de guardar o certificado.";
+export const FRASE_VARIOS_EMISSORES = "Há mais de uma empresa emissora com a raiz do CNPJ deste certificado (matriz e filial). Escolha a empresa emissora no cartão \"Certificado A1 — emissão de NFS-e\" em Configurações › Integrações e envie de novo.";
+export const FRASE_ENVIO_SIMULTANEO = "Outro envio de certificado para esta empresa terminou ao mesmo tempo. Atualize a tela e confira qual certificado ficou ativo.";
+
+/**
+ * Emissor pelo id ou, sem id, pelo CNPJ do certificado (o do Jurídico chega sem saber de qual emissor é).
+ * Revisão da S-4: id explícito de emissor inativo é recusado; matriz e filial com a mesma raiz → pede para escolher.
+ */
+async function acharEmissor(db: DrizzleDb, emissorId: number | null, cnpjCert: string | null): Promise<{ id: number; cnpj: string }> {
   const emissores = await db.select({ id: fiscalEmissores.id, cnpj: fiscalEmissores.cnpj, ativo: fiscalEmissores.ativo }).from(fiscalEmissores);
-  if (emissorId != null) return emissores.find(e => e.id === emissorId) ?? null;
-  if (!cnpjCert) return null;
+  if (emissorId != null) {
+    const e = emissores.find(x => x.id === emissorId);
+    if (!e) throw new ErroCertificado(FRASE_EMISSOR_NAO_ENCONTRADO);
+    if (!e.ativo) throw new ErroCertificado(FRASE_EMISSOR_INATIVO);
+    return e;
+  }
+  const nenhum = "Nenhuma empresa emissora com o CNPJ deste certificado. Cadastre o emissor em BPO › Contabilidade › Notas fiscais (a partir do perfil tributário) e tente de novo.";
+  if (!cnpjCert) throw new ErroCertificado(nenhum);
   const exato = emissores.filter(e => e.ativo && e.cnpj === cnpjCert);
   if (exato.length === 1) return exato[0]!;
   const mesmaRaiz = emissores.filter(e => e.ativo && raizCnpj(e.cnpj) === raizCnpj(cnpjCert));
-  return mesmaRaiz.length === 1 ? mesmaRaiz[0]! : null;
+  if (mesmaRaiz.length === 1) return mesmaRaiz[0]!;
+  if (mesmaRaiz.length > 1) throw new ErroCertificado(FRASE_VARIOS_EMISSORES);
+  throw new ErroCertificado(nenhum);
 }
+
+/** Violação de índice único do Postgres (o driver pode embrulhar o erro em `cause`). */
+const ehUnicidade = (e: unknown): boolean => {
+  for (let x: unknown = e, i = 0; x && i < 4; x = (x as { cause?: unknown }).cause, i++) if ((x as { code?: unknown }).code === "23505") return true;
+  return false;
+};
 
 /**
  * Guarda o A1 do emissor: abre, confere validade e CNPJ, cifra .pfx e senha em campos separados, desativa o anterior e
@@ -218,11 +240,11 @@ export async function guardarCertificado(db: DrizzleDb, entrada: {
     await auditarCertificado(db, { emissorId: entrada.emissorId ?? null, acao: "recusado", detalhe: "arquivo ou senha não conferem", usuarioId: entrada.usuarioId });
     throw e;
   }
-  const emissor = await acharEmissor(db, entrada.emissorId ?? null, aberto.info.cnpj);
-  if (!emissor) {
-    throw new ErroCertificado(entrada.emissorId != null ? "Empresa emissora não encontrada."
-      : "Nenhuma empresa emissora com o CNPJ deste certificado. Cadastre o emissor em BPO › Contabilidade › Notas fiscais (a partir do perfil tributário) e tente de novo.");
+  // Cadeia mostrada na tela: completada SEM rede pelas intermediárias oficiais embarcadas (rotina do Jurídico).
+  if (!aberto.info.cadeiaIcp) {
+    try { aberto = await completarCadeia(aberto, { sessaoAia: null, raizesIcp: entrada.raizesIcp }); } catch { /* só informa: a emissão completa de novo (com AIA) */ }
   }
+  const emissor = await acharEmissor(db, entrada.emissorId ?? null, aberto.info.cnpj);
   try { conferirParaEmissor(aberto.info, emissor.cnpj, agora); }
   catch (e) {
     await auditarCertificado(db, { emissorId: emissor.id, acao: "recusado", detalhe: e instanceof ErroCertificado ? e.message : "recusado", usuarioId: entrada.usuarioId });
@@ -231,7 +253,8 @@ export async function guardarCertificado(db: DrizzleDb, entrada: {
   const i = aberto.info;
   const pfxCifrado = encryptSecret(Buffer.from(entrada.pfx).toString("base64"));
   const senhaCifrada = encryptSecret(entrada.senha);
-  const salvo = await db.transaction(async tx => {
+  let salvo: typeof fiscalEmissoresCertificado.$inferSelect;
+  try { salvo = await db.transaction(async tx => {
     await tx.update(fiscalEmissoresCertificado).set({ ativo: false, desativadoPor: entrada.usuarioId, desativadoEm: agora })
       .where(and(eq(fiscalEmissoresCertificado.emissorId, emissor.id), eq(fiscalEmissoresCertificado.ativo, true)));
     const [linha] = await tx.insert(fiscalEmissoresCertificado).values({
@@ -240,7 +263,11 @@ export async function guardarCertificado(db: DrizzleDb, entrada: {
       origem: entrada.origem, ativo: true, enviadoPor: entrada.usuarioId, enviadoEm: agora,
     }).returning();
     return linha!;
-  });
+  }); } catch (e) {
+    // Revisão da S-4: dois envios ao mesmo tempo esbarram no índice único do certificado ativo → frase clara, não erro 500.
+    if (ehUnicidade(e)) throw new ErroCertificado(FRASE_ENVIO_SIMULTANEO);
+    throw e;
+  }
   await auditarCertificado(db, {
     emissorId: emissor.id, certificadoId: salvo.id, acao: "enviado", usuarioId: entrada.usuarioId,
     detalhe: `origem=${entrada.origem}; impressão digital ${i.impressaoDigital.slice(0, 16)}…; válido até ${i.validoAte.toISOString().slice(0, 10)}`,
@@ -270,7 +297,56 @@ export async function desativarCertificado(db: DrizzleDb, emissorId: number, usu
  * Uso INTERNO do cliente mTLS e da assinatura (nenhuma rota devolve isto). Decifra o .pfx e a senha do certificado
  * ativo do emissor e abre em memória. Sem certificado ativo, vencido ou ilegível (ex.: JWT_SECRET trocado) → erro claro.
  */
-export async function credencialDoEmissor(db: DrizzleDb, emissorId: number, agora = new Date()): Promise<CredencialA1> {
+export const FRASE_SEM_CADEIA_ICP = "A cadeia do certificado guardado não fecha numa raiz ICP-Brasil, nem completando pelos intermediários conhecidos e pelo endereço da certificadora (AIA). Nada foi enviado. Tente de novo mais tarde ou envie o .pfx com a cadeia completa.";
+
+export type OpcoesCadeia = {
+  /** Só para teste: raízes no lugar das ICP-Brasil oficiais. */
+  raizesIcp?: X509Certificate[];
+  /** Só para teste: intermediários fornecidos além dos do .pfx (as oficiais embarcadas já vêm do Jurídico). */
+  intermediarios?: X509Certificate[];
+  /** Baixador do AIA (padrão: o do Jurídico, com os limites de lá); null = nunca vai à rede. */
+  sessaoAia?: import("../juridico-pki.js").Baixador | null;
+};
+
+/**
+ * Pedido do coordenador (22–23/11, revisão da S-4): certificado que veio SEM os intermediários (ex.: o A1 da Prospecta, AC SAFEWEB
+ * RFB v5) não é recusado — a cadeia é COMPLETADA no servidor pela rotina do Jurídico (`completarCadeiaIcp` de
+ * server/juridico-pki.ts: intermediárias oficiais embarcadas em server/certificados/icp-intermediarias.json e, só se faltar,
+ * o AIA da certificadora) e então conferida aqui até uma raiz ICP-Brasil. Fechou → a credencial leva os intermediários do
+ * CAMINHO (o mTLS manda cert + intermediários). Não fechou nem completando → recusa para emitir.
+ */
+export async function completarCadeia(c: CredencialA1, o: OpcoesCadeia = {}): Promise<CredencialA1> {
+  const folha = new X509Certificate(c.certPem);
+  const raizesX = o.raizesIcp ?? RAIZES_ICP;
+  const fornecidos = [...c.cadeiaPem.map(p => new X509Certificate(p)), ...(o.intermediarios ?? [])];
+  const pki = await import("../juridico-pki.js");
+  const roots = o.raizesIcp ? o.raizesIcp.map(x => Certificate.fromBER(Uint8Array.from(x.raw).buffer)) : undefined;
+  const fechar = (extras: X509Certificate[]): X509Certificate[] | null => {
+    const pool = new Map<string, X509Certificate>();
+    for (const x of [...fornecidos, ...extras]) if (x.fingerprint256 !== folha.fingerprint256 && !raizesX.some(r => r.fingerprint256 === x.fingerprint256)) pool.set(x.fingerprint256, x);
+    const caminho: X509Certificate[] = [];
+    let atual = folha;
+    for (let passo = 0; passo < 8; passo++) {
+      if (raizesX.some(r => atual.checkIssued(r) && atual.verify(r.publicKey))) return caminho;
+      const prox = Array.from(pool.values()).find(i => i !== atual && atual.checkIssued(i) && atual.verify(i.publicKey));
+      if (!prox) return null;
+      caminho.push(prox); atual = prox;
+    }
+    return null;
+  };
+  const tentar = async (opcoes: Parameters<typeof pki.completarCadeiaIcp>[2]) => {
+    try {
+      const r = await pki.completarCadeiaIcp(Buffer.from(folha.raw), fornecidos.map(x => Buffer.from(x.raw)), { ...opcoes, ...(roots ? { roots } : {}) });
+      return fechar(r.intermediarios.map(d => new X509Certificate(d)));
+    } catch { return null; }
+  };
+  // 1º: só com o que está no servidor (embarcadas), sem rede; 2º: com o AIA da certificadora.
+  const caminho = fechar([]) ?? (await tentar({ semRede: true })) ?? (o.sessaoAia === null ? null : await tentar(o.sessaoAia ? { sessao: o.sessaoAia } : {}));
+  if (!caminho) throw new ErroCertificado(FRASE_SEM_CADEIA_ICP);
+  return { ...c, cadeiaPem: caminho.map(x => pem(x.raw)), info: { ...c.info, cadeiaIcp: true } };
+}
+
+export async function credencialDoEmissor(db: DrizzleDb, emissorId: number, agora = new Date(), o: { paraEmitir?: boolean } & OpcoesCadeia = {}): Promise<CredencialA1> {
   const [linha] = await db.select().from(fiscalEmissoresCertificado)
     .where(and(eq(fiscalEmissoresCertificado.emissorId, emissorId), eq(fiscalEmissoresCertificado.ativo, true))).limit(1);
   if (!linha) throw new ErroCertificado("Esta empresa emissora não tem certificado A1 ativo.");
@@ -278,8 +354,12 @@ export async function credencialDoEmissor(db: DrizzleDb, emissorId: number, agor
   try { pfx = Buffer.from(decryptSecret(linha.pfxCifrado), "base64"); senha = decryptSecret(linha.senhaCifrada); }
   catch { throw new ErroCertificado("Não foi possível ler o certificado guardado (a chave do servidor mudou?). Envie o certificado de novo."); }
   try {
-    const credencial = await abrirPfx(pfx, senha);
+    const credencial = await abrirPfx(pfx, senha, o.raizesIcp);
     if (agora >= credencial.info.validoAte) throw new ErroCertificado("O certificado guardado está vencido. Envie o renovado.");
+    // Revisão da S-4: também o início da validade (certificado ainda não válido) e, para EMITIR, a cadeia ICP-Brasil.
+    if (agora < credencial.info.validoDe) throw new ErroCertificado("O certificado guardado ainda não está dentro da validade.");
+    // Para emitir: a cadeia tem de fechar numa raiz ICP-Brasil — completada no servidor quando o .pfx veio sem intermediários.
+    if (o.paraEmitir) return await completarCadeia(credencial, o);
     return credencial;
   } finally { pfx.fill(0); }
 }
