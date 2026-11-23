@@ -12,6 +12,7 @@ import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type 
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { negaAcao } from "../../shared/dolores/ordem-direta.js";
 import { ACOES_FISCAIS, FERRAMENTAS_FISCAIS, intencaoFiscal } from "../../shared/dolores/fiscal.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
@@ -212,25 +213,6 @@ export type ResultadoComando = {
   feitosNaHora: string[];
 };
 
-/** EPIC-025 E11: quanto tempo vale a mensagem anterior DO DONO como "as palavras dele" quando ele só responde "sim"/"pode". */
-export const JANELA_PALAVRAS_ANTERIORES_MS = 15 * 60_000;
-/** EPIC-025 E11: quantas mensagens anteriores dele entram (as mais recentes). */
-export const MAX_MENSAGENS_ANTERIORES = 3;
-
-/**
- * EPIC-025 E11 — as PALAVRAS DO DONO para a ordem direta: a mensagem dele (direta, sem colagem e sem anexo) e, quando ela é só um
- * "sim"/"pode" (resposta à pergunta da conversa), as últimas mensagens que ELE digitou na conversa direta nos últimos 15 minutos
- * (origem "mensagem": nunca encaminhada, anexo, aviso, resposta da Dolores nem texto de consulta). Por código.
- */
-export function palavrasDoDonoParaOrdem(comando: string, historico: Historico, agora: Date): string {
-  const c = lerConfirmacao(comando);
-  if (c?.tipo !== "sim" && c?.tipo !== "confirmo") return comando;
-  const anteriores = historico.itens
-    .filter(i => i.papel === "dono" && i.origem === "mensagem" && agora.getTime() - i.criadoEm.getTime() <= JANELA_PALAVRAS_ANTERIORES_MS && i.criadoEm.getTime() <= agora.getTime())
-    .slice(-MAX_MENSAGENS_ANTERIORES).map(i => i.texto);
-  return [...anteriores, comando].join("\n");
-}
-
 export type PedidoComando = {
   comando: string; mensagemId: number; apiKey: string; modelo: string; limites: Limites; mes: string;
   /** Instante (ms) em que tudo — laço e envio — precisa ter terminado. */
@@ -387,8 +369,10 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const pedidoFiscal = acoesFiscais ? { texto: comando } : null;
   // EPIC-025 E11: ordem direta = confirmação para o reversível — só a conversa direta do dono, com intenção de ação por código, sem
   // texto colado, sem anexo e fora da retomada em segundo plano. Quem confere os alvos contra estas palavras é o servidor (ponte.ts).
-  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura
-    ? { texto: palavrasDoDonoParaOrdem(comando, historico, p.agora ?? new Date()) } : null;
+  // Portão de QA E11 (I1b): verbo e alvos saem da MESMA mensagem (nunca somando mensagens anteriores; um "pode" solto só confirma o que
+  // o SISTEMA perguntou, pela proposta). (M1): mensagem com negação antes do verbo ("não vincula…", "nunca ignore…") nunca é ordem direta.
+  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !negaAcao(comando) && !lerConfirmacao(comando)
+    ? { texto: comando } : null;
   const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
   const previasRecusadas = new Set<number>();

@@ -23,12 +23,15 @@ import { getDb } from "../db.js";
 import { escolherPorNome } from "../../shared/dolores/ordem-direta.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
-import { clienteDoNomeDoGrupo, clientesPelasPalavras } from "./ordem-direta.js";
+import { clienteDoNomeDoGrupo, clientesPelasPalavras, grupoDoDono } from "./ordem-direta.js";
+import { FRASE_SO_QUANDO_MARCADA } from "../../shared/dolores/ordem-direta.js";
 
 /** `agora` (WhatsApp): o relógio do aviso, para a hora da PERGUNTA do tipo (a resposta só com o número vale por 30 min). */
 export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date } | { via: "tela"; userId: number };
 
-export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null };
+export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null;
+  /** QA E11 (M3): esta resposta É a pergunta desta proposta ("pode"/"sim" confirma) — quem envia marca a pergunta como enviada. */
+  pendenciaId?: number | null };
 
 const aspas = (s: string | null | undefined) => { const t = limparNomeDeTerceiro(s); return t ? `«${t}»` : "(sem nome)"; };
 
@@ -94,8 +97,14 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
         // EPIC-025 E11 (regra do dono de 19/11, também logo depois do "aceitar"): o nome do grupo aponta UM cliente → liga sozinha e
         // avisa em uma linha; ele só responde se estiver errado. Mais de um → oferece os nomes; nenhum → uma pergunta curta.
         if (origem.via === "whatsapp") {
-          const auto = await clienteDoNomeDoGrupo(g).catch(() => ({ leadId: null, candidatos: [] }));
-          if (auto.leadId) {
+          const auto = await clienteDoNomeDoGrupo(g, { parcial: true }).catch(() => ({ leadId: null, candidatos: [] }));
+          // QA E11 (M3): grupo em que OUTRA pessoa (ou não se sabe quem) pôs a Dolores — o nome é texto de terceiro: não liga sozinha;
+          // UMA pergunta curta com o cliente que o nome aponta ("pode"/"sim" confirma, pela proposta de sempre)
+          if (auto.leadId && !grupoDoDono(g)) {
+            const p = await proporVinculo(g, auto.leadId, origem);
+            if (p) return { ok: true, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. Pelo nome, ele parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
+          }
+          if (auto.leadId && grupoDoDono(g)) {
             const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: "cliente", numero: auto.leadId }, origem);
             if (r.ok) return { ...r, texto: r.texto.replace(/^Dolores: feito\. /, "Dolores: aceito. ") };
           }
@@ -127,11 +136,16 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
     if (d.tipo === "cliente" || d.tipo === "pos_atendimento") {
       // EPIC-025 E11: sem o nº ("grupo CÓDIGO 1", "1"), o cliente sai do NOME do grupo (um só); senão, os nomes para ele escolher
       if (!d.numero) {
-        const auto = await clienteDoNomeDoGrupo(g);
+        const auto = await clienteDoNomeDoGrupo(g, { parcial: true });
         if (!auto.leadId) {
           await marcarPerguntaDoTipo(g.id, origem);
           await auditar("recusada", "cliente sem nº e o nome do grupo não aponta um cliente só: perguntado pelo nome; nada mudou", { grupoId: g.id, candidatos: auto.candidatos.length });
           return { ok: false, texto: `Dolores: ${perguntaDoCliente(auto.candidatos, g.codigo, nomeDoGrupo)}`, grupoId: g.id };
+        }
+        // QA E11 (M3): grupo de terceiro — o cliente que o nome aponta vai como UMA pergunta, nunca ligado sozinho
+        if (!grupoDoDono(g) && origem.via === "whatsapp") {
+          const p = await proporVinculo(g, auto.leadId, origem);
+          if (p) return { ok: false, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: pelo nome, o grupo ${nomeDoGrupo} parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
         }
         d = { ...d, numero: auto.leadId };
       }
@@ -163,7 +177,9 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
     });
     await auditar("ok", `tipo do grupo definido pelo dono: ${d.tipo}`, { grupoId: g.id, tipo: d.tipo, leadId, obraId, antes: g.tipo ?? null });
     // EPIC-025 E11: ligado a um cliente → uma linha, com como corrigir (ele só responde se estiver errado)
-    if (leadId) return { ok: true, texto: `Dolores: feito. Liguei o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${descricao}. Se estiver errado, me diga.`, grupoId: g.id };
+    // QA E11 (M2): o interruptor do grupo nasce ligado como sempre foi para grupo confirmado pelo dono — e a linha diz que lá ela só
+    // responde quando marcada (o interruptor geral continua valendo por cima)
+    if (leadId) return { ok: true, texto: `Dolores: feito. Liguei o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${descricao}. ${FRASE_SO_QUANDO_MARCADA}. Se estiver errado, me diga.`, grupoId: g.id };
     return { ok: true, texto: `Dolores: anotado. O grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) agora é: ${descricao}.`, grupoId: g.id };
   } catch (e) {
     console.error("[dolores/grupos-decisao] falha ao gravar a decisão", erroParaLog(e));
@@ -224,6 +240,30 @@ export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<Orig
 }
 
 /**
+ * QA E11 (M3) — a proposta de ligar um grupo de TERCEIRO ao cliente que o nome aponta: o MESMO item da fila e a MESMA pergunta do sistema
+ * da conversa (resumo exato + hash; "pode"/"sim" confirma — `tratarConfirmacao`). Falhou → null (quem chama segue a pergunta pelo nome).
+ */
+async function proporVinculo(g: DoloresGrupo, leadId: number, origem: OrigemDecisao): Promise<{ pergunta: string; pendenciaId: number; nome: string | null } | null> {
+  if (origem.via !== "whatsapp") return null;
+  try {
+    const [{ prepararClassificarGrupo }, { porNaFila }, { abrirPendencia }, { usuarioDolores }, { VALIDADE_ITEM_CONFIRMAVEL_MS }] = await Promise.all([
+      import("./acoes/grupos-config.js"), import("./aprovacoes.js"), import("./pendencia.js"), import("./perfil.js"), import("../../shared/dolores/confirmacao.js")]);
+    const agora = origem.agora ?? new Date();
+    const autorId = origem.autor ?? await usuarioDolores();
+    const ctx = { agora, autorId, mensagemId: origem.mensagemId, pedidoId: `wa:${origem.mensagemId}`, aprovacaoId: null, motivoContaminacao: null, validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS };
+    const preparo = await prepararClassificarGrupo({ grupoId: g.id, tipo: "cliente", leadId }, ctx);
+    const criados = await porNaFila("classificar_grupo", preparo, ctx);
+    const p = await abrirPendencia({ mensagemId: origem.mensagemId, codigos: criados.map(c => c.codigo), agora, autor: autorId });
+    if (!p) return null;
+    const [l] = await getDb().select({ nome: leads.name }).from(leads).where(eq(leads.id, leadId)).limit(1);
+    return { pergunta: p.pergunta, pendenciaId: p.id, nome: l?.nome ?? null };
+  } catch (e) {
+    console.error("[dolores/grupos-decisao] não consegui propor o vínculo do grupo de terceiro", erroParaLog(e));
+    return null;
+  }
+}
+
+/**
  * EPIC-025 E11 — a pergunta "de qual cliente é?" (texto do SISTEMA): com candidatos, os NOMES para ele escolher (nunca o nº do CRM);
  * sem candidato, uma pergunta curta. A resposta só com o nome vale por 30 min (`decidirPeloNome`).
  */
@@ -253,7 +293,10 @@ export async function decidirPeloNome(r: { palavras: string[]; tipo: "cliente" |
   const esperando = await gruposEsperandoTipo(origem.agora);
   if (esperando.length !== 1) return null;
   const [g] = esperando;
-  const candidatos = (await clientesPelasPalavras(r.palavras)).filter(c => {
+  const achados = await clientesPelasPalavras(r.palavras);
+  // QA E11 (B2): passou do teto → ambíguo (nunca "único" por corte)
+  if (achados.cortado) return null;
+  const candidatos = achados.clientes.filter(c => {
     const nome = new Set((c.nome ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" "));
     return r.palavras.every(p => nome.has(p));
   });

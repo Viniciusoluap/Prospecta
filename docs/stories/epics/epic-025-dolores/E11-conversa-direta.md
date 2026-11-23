@@ -59,6 +59,23 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 - **Intactos:** interruptores (IA, resposta em grupo geral e por grupo, só quando marcada), tetos de gasto e de ações por comando,
   filtros de saída e mascaramentos, aceitar grupo de terceiro só pelo dono, `exigeConfirmoNoCodigo` para nota fiscal.
 
+
+## Portão de QA E11 (commit 8ae99b9 → FAIL) — correções aplicadas
+
+| Achado | Correção |
+|---|---|
+| I1 — par grupo↔cliente sem conferência | O cliente só é provado por: (a) "cliente N"/"nº N" escrito; (b) o ÚNICO cliente que o nome do grupo aponta (grupo de terceiro: só o nome inteiro); (c) as palavras que escolheram o grupo estão no nome do cliente, apontam UM cliente só, e nenhum outro cliente pontua com as palavras dele que estão fora do nome do grupo. Caiu a regra "as palavras dele apontam um cliente" sozinha. |
+| I1b — janela de 15 min | Removida: verbo e alvos saem da MESMA mensagem. "pode"/"sim" soltos nunca são ordem direta: confirmam só o que o sistema perguntou. |
+| I2 — troca por ordem direta | `preparadoPodeIrDireto`: classificar só com `troca === false` (montado pelo servidor). Troca de cliente/tipo vai para UMA confirmação com "hoje: …". **O dono listou "inclusive troca"; a segurança prevaleceu (decisão do portão de QA, 23/11).** |
+| M1 — negação | `negaAcao`: "não/nem/nunca/jamais/sem" até 3 palavras antes do verbo → sem ordem direta (cerebro.ts e `intencaoDaFuncao`). |
+| M2 — resposta no grupo ligada calada | Mantido o comportamento que já existia para grupo confirmado pelo dono (interruptor do grupo nasce ligado; o geral continua valendo por cima; ela só fala quando marcada — regras de 17/11 e 19/11). A linha agora diz: "Lá eu só respondo quando me marcarem." |
+| M3 — grupo de terceiro ligado pelo nome | Grupo em que outra pessoa (ou não se sabe quem) pôs a Dolores: depois do "aceitar" (e em "grupo X 1"), o nome só SUGERE — UMA pergunta do sistema ("Pelo nome, ele parece ser de «…». Posso fazer isto?"), confirmada com "sim"/"pode". Na entrada, o nível nome + sobrenome vale só para grupo do dono. Na ordem direta, a regra (b) usa só o nome inteiro para grupo de terceiro. |
+| M4 — "confirmo todos" | "todos" só para itens de REGISTRO da proposta ABERTA; item sério só pelo "confirmo" da proposta aberta (ou nomeado nela); sério de proposta substituída nunca (inclui nota fiscal). |
+| B2 — corte em 300 | `clientesPelasPalavras` devolve `cortado`; passou do teto → ambíguo. |
+| B1/B3 | Registrados (sem mudança de código nesta rodada; ver relatório do QA). |
+| Qualidade — dois grupos numa mensagem | O grupo é provado pelas palavras dele que estão no nome DAQUELE grupo (cada par em separado). |
+| Qualidade — "desfaz" | Por código: diz em UMA linha como desfazer a última ação feita pelo WhatsApp nos últimos 15 min (não reverte sozinha: voltar um vínculo pede o cliente certo, e "ignorar" desliga tudo). |
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -108,4 +125,5 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 
 ## Change Log
 
+- 23/11/2026 — @dev (Dex): achados do portão de QA E11 (I1, I1b, I2, M1–M4, B2, qualidade) corrigidos; regressões no e11.
 - 23/11/2026 — @dev (Dex): story escrita com as causas confirmadas no código; Ready → InProgress → InReview (implementação + testes).

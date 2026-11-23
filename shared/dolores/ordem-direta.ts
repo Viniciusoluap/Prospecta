@@ -68,7 +68,7 @@ const TIPOS_DIRETOS = new Set(["cliente", "pos_atendimento", "engenharia"]);
 
 /**
  * Lista FECHADA do que pode rodar sem o "pode" quando o dono manda (E11). Lê os argumentos como o modelo pediu E como o servidor
- * preparou (os dois passam por aqui). Qualquer outra função, ou argumento fora do esperado → false (segue a confirmação de sempre).
+ * preparou (os dois passam por aqui; o preparado passa também por `preparadoPodeIrDireto`). Qualquer outra função, ou argumento fora do esperado → false (segue a confirmação de sempre).
  * `aceitar_grupo` só com o código do grupo digitado pelo dono (conferido no servidor: `exigeCodigoDigitado`).
  */
 export function podeExecutarPorOrdemDireta(funcao: string, argumentos: unknown): boolean {
@@ -92,10 +92,31 @@ const INTENCAO: Readonly<Record<string, RegExp>> = {
   ligar_resposta_grupo: /\b(?:deslig\w*|par\w* de respond\w*|nao respond\w*|cal(?:ar|a|e|ada))\b/,
 };
 export function intencaoDaFuncao(funcao: string, textoDoDono: string | null | undefined): boolean {
+  if (negaAcao(textoDoDono)) return false;
   const r = INTENCAO[funcao];
   if (!r) return false;
   const t = String(textoDoDono ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   return r.test(t);
+}
+
+/**
+ * Portão de QA E11 (M1): o dono NEGA uma ação ("não vincula…", "nunca ignore…", "nem anota", "jamais", "sem criar")? Por código: a
+ * negação até 3 palavras antes de um verbo de ação. Com negação, nada roda pela ordem direta (no máximo, a confirmação de sempre).
+ */
+const NEGACAO = /\b(?:nao|nem|nunca|jamais|sem)\b(?: \S+){0,3}? (?:cri\w*|anot\w*|registr\w*|lembr\w*|guard\w*|corrig\w*|esquec\w*|silenci\w*|vincul\w*|lig\w*|ignor\w*|aceit\w*|deslig\w*|classific\w*|defin\w*|fa(?:z|ca|zer)|marc\w*|agend\w*|coloc\w*|troc\w*|associ\w*|junt\w*|par\w*)\b/;
+export function negaAcao(textoDoDono: string | null | undefined): boolean {
+  return NEGACAO.test(normalizarNome(textoDoDono));
+}
+
+/**
+ * Portão de QA E11 (I2): o item PREPARADO pode rodar sem confirmação? Além da lista fechada, classificar só na PRIMEIRA definição
+ * (`troca` literalmente false, montado pelo servidor): trocar o cliente ou o tipo de um grupo já definido vai SEMPRE para UMA
+ * confirmação mostrando o "hoje: …". (O dono listou "inclusive troca"; a segurança prevaleceu — registrado na story.)
+ */
+export function preparadoPodeIrDireto(funcao: string, argumentosPreparados: unknown): boolean {
+  if (!podeExecutarPorOrdemDireta(funcao, argumentosPreparados)) return false;
+  const a = (argumentosPreparados && typeof argumentosPreparados === "object" ? argumentosPreparados : {}) as Record<string, unknown>;
+  return funcao !== "classificar_grupo" || a.troca === false;
 }
 
 /** Tipo pedido coerente com as palavras: engenharia só se ele disse "engenharia"; pós só se disse "pós". Cliente é o padrão. */
@@ -168,3 +189,23 @@ export function linhaDoFeito(frases: readonly string[]): string | null {
   if (!limpas.length) return null;
   return `Feito: ${limpas.join("; ")}. Se algo estiver errado, me diga que eu corrijo.`;
 }
+
+/** "desfaz", "desfaça", "desfaz isso", "pode desfazer" — a mensagem inteira, por código. */
+export function ehPedidoDeDesfazer(texto: string | null | undefined): boolean {
+  const n = normalizarNome(texto);
+  return /^(?:dolores )?(?:pode )?(?:desfaz|desfaca|desfazer|desfaz isso|desfaca isso|desfazer isso|volta atras|desfaz o ultimo|desfaz a ultima)$/.test(n);
+}
+
+/** Como desfazer, por função (só onde existe um jeito de verdade). Texto do SISTEMA. */
+export function comoDesfazer(funcao: string, argumentos?: unknown, codigoDoGrupo?: string | null): string | null {
+  const a = (argumentos && typeof argumentos === "object" ? argumentos : {}) as Record<string, unknown>;
+  switch (funcao) {
+    case "classificar_grupo": return codigoDoGrupo ? `se não for esse, me diga o cliente certo; para eu sair de lá, «grupo ${codigoDoGrupo} ignorar»` : "se não for esse, me diga o cliente certo";
+    case "ignorar_grupo": return "para voltar, me peça para ligar o grupo de novo";
+    case "ligar_resposta_grupo": return a.ligado === false ? "para voltar, me peça para ligar a resposta de novo" : null;
+    default: return null;
+  }
+}
+
+/** Portão de QA E11 (M2): o que a linha "Feito" diz quando liga um grupo (a resposta lá continua só quando marcada). */
+export const FRASE_SO_QUANDO_MARCADA = "Lá eu só respondo quando me marcarem";

@@ -27,7 +27,7 @@ import { VALIDADE_ITEM_CONFIRMAVEL_MS } from "../../shared/dolores/confirmacao.j
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
 import { acoesDoPedido, decidir, porNaFila } from "./aprovacoes.js";
-import { podeExecutarPorOrdemDireta } from "../../shared/dolores/ordem-direta.js";
+import { FRASE_SO_QUANDO_MARCADA, comoDesfazer, podeExecutarPorOrdemDireta, preparadoPodeIrDireto } from "../../shared/dolores/ordem-direta.js";
 import { provarAlvosDoDono } from "./ordem-direta.js";
 import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
@@ -414,11 +414,18 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
     // fila (`decidir`: pausa, usuária, revalidação, conferência, auditoria). Só os itens cujos argumentos PREPARADOS continuam na lista
     // fechada (ex.: classificar com tipo simples; desligar, nunca ligar). O resto continua esperando a resposta do dono.
     if (ordemDireta) {
-      const diretos = criados.filter((x, i) => podeExecutarPorOrdemDireta(funcao, cabem[i]?.argumentos)).map(x => x.codigo);
+      // QA E11 (I2): troca de tipo/vínculo nunca vai direto — UMA confirmação, com o "hoje: …" no resumo
+      const diretos = criados.filter((x, i) => !x.jaAguardava && preparadoPodeIrDireto(funcao, cabem[i]?.argumentos)).map(x => x.codigo);
       const inicio = Date.now();
       const resultados = diretos.length ? await decidir(diretos, "aprovar", { via: "whatsapp", userId: null, agora: c.agora, mensagemId: c.mensagemId,
         prazoFinal: inicio + c.prazoMs, relogio: () => Date.now(), confirmado: true, motivo: "ordem direta do dono" }) : [];
-      const feitos = resultados.filter(r => r.ok).map(r => String(r.natural ?? r.texto));
+      // QA E11 (M2): ligar um grupo diz que lá ela só responde quando marcada; cada frase leva como desfazer, quando existe
+      const argsDe = new Map(criados.map((x, i) => [x.codigo, cabem[i]?.argumentos]));
+      const feitos = resultados.filter(r => r.ok).map(r => {
+        const frase = String(r.natural ?? r.texto).trim().replace(/\.+$/, "");
+        const desfazer = comoDesfazer(funcao, argsDe.get(r.codigo));
+        return `${frase}${funcao === "classificar_grupo" ? `. ${FRASE_SO_QUANDO_MARCADA}` : ""}${desfazer ? ` (${desfazer})` : ""}`;
+      });
       const naoFeitos = resultados.filter(r => !r.ok && r.situacao !== "aguardando").map(r => String(r.natural ?? r.texto));
       const esperando = new Set(resultados.filter(r => r.situacao === "aguardando").map(r => r.codigo));
       const resto = criados.filter(x => !diretos.includes(x.codigo) || esperando.has(x.codigo));

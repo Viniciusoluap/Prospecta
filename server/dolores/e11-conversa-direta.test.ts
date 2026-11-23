@@ -16,9 +16,9 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  escolherPorNome, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, podeExecutarPorOrdemDireta,
+  ehPedidoDeDesfazer, escolherPorNome, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
-import { definirClienteModelo, palavrasDoDonoParaOrdem, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
+import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
 import { esquecerUsuarioDolores } from "./perfil.js";
 import { definirDependenciasPonte } from "./ponte.js";
@@ -153,32 +153,41 @@ describe("regras puras (E11)", () => {
     expect(intencaoDaFuncao("ignorar_grupo", "me diz o que chegou no grupo da emily")).toBe(false);
     expect(linhaDoFeito(["liguei o grupo «X»."])).toBe("Feito: liguei o grupo «X». Se algo estiver errado, me diga que eu corrijo.");
   });
-  it("palavras do dono: um \"pode\" solto usa as mensagens que ELE digitou nos últimos 15 min (nunca aviso, resposta ou encaminhada)", () => {
-    const t0 = new Date(AGORA);
-    const h = { referencias: [], itens: [
-      { papel: "dono" as const, origem: "mensagem" as const, criadoEm: new Date(t0.getTime() - 20 * 60_000), texto: "velha" },
-      { papel: "dono" as const, origem: "encaminhada" as const, criadoEm: new Date(t0.getTime() - 60_000), texto: "encaminhada" },
-      { papel: "sistema" as const, origem: "aviso" as const, criadoEm: new Date(t0.getTime() - 60_000), texto: "aviso" },
-      { papel: "dono" as const, origem: "mensagem" as const, criadoEm: new Date(t0.getTime() - 60_000), texto: "vincular o grupo da emily" },
-    ] };
-    expect(palavrasDoDonoParaOrdem("pode", h, t0)).toBe("vincular o grupo da emily\npode");
-    expect(palavrasDoDonoParaOrdem("vincula o grupo da maria", h, t0)).toBe("vincula o grupo da maria");
+  it("QA E11: negação (M1), troca nunca direta (I2) e o pedido de desfazer", () => {
+    for (const t of ["não vincula o grupo da emily ainda", "nunca ignore o grupo da emily", "nem anota isso", "jamais liga esse grupo", "sem classificar o grupo"]) expect(negaAcao(t), t).toBe(true);
+    for (const t of ["vincula o grupo da emily", "liga o grupo da maria"]) expect(negaAcao(t), t).toBe(false);
+    expect(intencaoDaFuncao("classificar_grupo", "não vincula o grupo da emily ainda")).toBe(false);
+    expect(preparadoPodeIrDireto("classificar_grupo", { tipo: "cliente", troca: false })).toBe(true);
+    expect(preparadoPodeIrDireto("classificar_grupo", { tipo: "cliente", troca: true })).toBe(false);
+    expect(preparadoPodeIrDireto("classificar_grupo", { tipo: "cliente" })).toBe(false);
+    for (const t of ["desfaz", "Desfaça!", "desfaz isso", "pode desfazer"]) expect(ehPedidoDeDesfazer(t), t).toBe(true);
+    expect(ehPedidoDeDesfazer("desfaz a tarefa da bianca e cria outra")).toBe(false);
   });
 });
 
 describe("roteiros da conversa real (23/11) — por código, sem a IA", () => {
-  it("1) \"Grupo AA7W aceitar\" com o nome que bate com UM cliente: aceito e LIGADO na hora, uma linha, sem pedir nº do CRM", async () => {
+  it("1) \"Grupo AA7W aceitar\" (o dono não provou que foi ele): aceito + UMA pergunta com o cliente que o nome aponta (QA M3); \"sim\" liga", async () => {
     await grupo({ codigo: "AA7W", nome: "MARIA DAYANE OBRA PROSPECTA IMP", adicionadoPor: "desconhecido", prova: "sem_prova" });
     await dono("Grupo AA7W aceitar");
-    expect(await grupoPorCodigo("AA7W")).toMatchObject({ tipo: "cliente", lead_id: MARIA, situacao_confirmacao: "confirmado", prova_adicao: "aceito_pelo_dono" });
-    expect(ultima()).toMatch(/^Dolores: aceito\. Liguei o grupo «MARIA DAYANE OBRA PROSPECTA IMP» \(AA7W\) como cliente «MARIA DAYANE SILVA SOUSA» \(nº 5\)\. Se estiver errado, me diga\.$/);
+    expect((await grupoPorCodigo("AA7W")).lead_id).toBeNull(); // grupo de terceiro: o nome é texto de terceiro, nunca liga sozinha
+    expect(ultima()).toMatch(/^Dolores: aceito o grupo «MARIA DAYANE OBRA PROSPECTA IMP»\. Pelo nome, ele parece ser de «MARIA DAYANE SILVA SOUSA»\.\n\*Posso fazer isto\?\*/);
     expect(ultima()).not.toMatch(/nº do cliente no CRM|De que tipo/);
+    await dono("sim");
+    expect(await grupoPorCodigo("AA7W")).toMatchObject({ tipo: "cliente", lead_id: MARIA, situacao_confirmacao: "confirmado", prova_adicao: "aceito_pelo_dono" });
+    expect(pedidosModelo).toHaveLength(0);
+  });
+
+  it("1') grupo em que o DONO pôs a Dolores, \"grupo AA7W aceitar\": ligado na hora, uma linha, \"só quando me marcarem\" (QA M2)", async () => {
+    await grupo({ codigo: "AA7W", nome: "MARIA DAYANE OBRA PROSPECTA IMP", situacao: "recusado", adicionadoPor: "dono", prova: "evento_add" });
+    await dono("Grupo AA7W aceitar");
+    expect(await grupoPorCodigo("AA7W")).toMatchObject({ tipo: "cliente", lead_id: MARIA, situacao_confirmacao: "confirmado" });
+    expect(ultima()).toMatch(/^Dolores: aceito\. Liguei o grupo «MARIA DAYANE OBRA PROSPECTA IMP» \(AA7W\) como cliente «MARIA DAYANE SILVA SOUSA» \(nº 5\)\. Lá eu só respondo quando me marcarem\. Se estiver errado, me diga\.$/);
     expect(pedidosModelo).toHaveLength(0);
   });
 
   it("1b) aceitar com o nome que bate com DOIS clientes: aceito e UMA pergunta com os nomes; a resposta com o nome liga", async () => {
     await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('MARIA DAYANE COSTA LIMA', '99955556666', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
-    await grupo({ codigo: "AA7W", nome: "MARIA DAYANE OBRA PROSPECTA IMP", adicionadoPor: "desconhecido", prova: "sem_prova" });
+    await grupo({ codigo: "AA7W", nome: "MARIA DAYANE OBRA PROSPECTA IMP", situacao: "recusado", adicionadoPor: "dono", prova: "evento_add" });
     await dono("grupo AA7W aceitar");
     expect(ultima()).toMatch(/De qual cliente é o grupo: «MARIA DAYANE SILVA SOUSA» ou «MARIA DAYANE COSTA LIMA»\? Responda com o nome\./);
     await dono("Maria Dayane Silva");
@@ -220,7 +229,7 @@ describe("roteiros da conversa real (23/11) — pela IA, com a ordem direta", ()
     expect(mensagensDoDono()).toBe(1);
     expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "cliente", lead_id: EMILY, situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" });
     expect(await pendenciasAbertas()).toEqual([]);
-    expect(ultima()).toMatch(/^Feito: o grupo «EMILY VICTORIA BRITO» \(grupo nº \d+\) agora é do tipo cliente de «EMILY VICTORIA BRITO SOUSA» \(cliente nº 6\)\. Se algo estiver errado, me diga que eu corrijo\.$/);
+    expect(ultima()).toMatch(/^Feito: o grupo «EMILY VICTORIA BRITO» \(grupo nº \d+\) agora é do tipo cliente de «EMILY VICTORIA BRITO SOUSA» \(cliente nº 6\)\. Lá eu só respondo quando me marcarem \(se não for esse, me diga o cliente certo\)\. Se algo estiver errado, me diga que eu corrijo\.$/);
     expect(ultima()).not.toMatch(/Posso fazer isto|Pedido surgido durante a leitura|responda "pode"|logo abaixo/i);
     // o item passou pela fila (resumo + hash + auditoria) e foi executado uma vez
     expect((await fila()).map((i: any) => [i.funcao, i.situacao])).toEqual([["classificar_grupo", "executada"]]);
@@ -228,14 +237,16 @@ describe("roteiros da conversa real (23/11) — pela IA, com a ordem direta", ()
     expect(JSON.stringify(pedidosModelo[1].mensagens)).toContain("KHMN");
   });
 
-  it("4b) \"pode\" solto depois de \"vamos vincular o grupo da emily\" (o modelo só perguntou): faz na hora, sem segunda pergunta", async () => {
+  it("4b) QA I1b: \"pode\" solto não soma as palavras da mensagem anterior — vira UMA pergunta do sistema; o \"pode\" a ela faz", async () => {
     const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
     roteiro.push(() => texto("É um grupo de cliente ou de engenharia?"));
     await dono("Vamos vincular o grupo da emily");
-    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Pronto."));
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Vou ligar."));
     await dono("Pode");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    expect(respostasAoDono().filter(m => /Posso fazer isto/.test(m.texto))).toHaveLength(1);
+    await dono("pode");
     expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "cliente", lead_id: EMILY });
-    expect(respostasAoDono().filter(m => /Posso fazer isto|confirmação por escrito/.test(m.texto))).toEqual([]);
   });
 
   it("5) alvo que NÃO saiu das palavras dele (\"esse grupo\") pede UMA confirmação; \"o grupo da maria Dayane pode\" e \"Grupo da emily pode\" confirmam cada um", async () => {
@@ -275,6 +286,86 @@ describe("roteiros da conversa real (23/11) — pela IA, com a ordem direta", ()
     await dono("confirmo");
     expect(ultima()).toMatch(/já fiz/);
     expect((await q<any>("SELECT * FROM dolores_acoes WHERE funcao = 'grupo_decisao' AND resultado = 'ok'"))).toHaveLength(1);
+  });
+});
+
+describe("regressões do portão de QA E11", () => {
+  it("I1: \"vincula o grupo da emily, ela é prima da maria dayane silva\" + modelo pedindo MARIA → não liga; \"Posso fazer isto?\"", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: MARIA }]), () => texto("Vou ligar."));
+    await dono("vincula o grupo da emily, ela é prima da maria dayane silva");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    expect(ultima()).toMatch(/Posso fazer isto\?/);
+  });
+
+  it("I1b: pergunta sobre a Maria, depois \"vincula o grupo da emily\" (modelo só pergunta), depois \"pode\" com modelo pedindo MARIA → não liga", async () => {
+    await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    const g = await grupoPorCodigo("KHMN");
+    roteiro.push(() => texto("A obra da Maria Dayane está em andamento."));
+    await dono("como está a obra da maria dayane silva sousa?");
+    roteiro.push(() => texto("É de cliente?"));
+    await dono("vincula o grupo da emily");
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: MARIA }]), () => texto("Vou ligar."));
+    await dono("pode");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+  });
+
+  it("I2: grupo já da EMILY chamado «MARIA DAYANE SILVA OBRA», \"liga o grupo da maria dayane\" + modelo pedindo MARIA → continua EMILY e pergunta", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "MARIA DAYANE SILVA OBRA", tipo: "cliente", leadId: EMILY, situacao: "confirmado" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: MARIA }]), () => texto("Vou trocar."));
+    await dono("liga o grupo da maria dayane");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+    expect(ultima()).toMatch(/confirmação por escrito|Posso fazer isto/);
+    expect(ultima()).toMatch(/hoje: tipo cliente de «EMILY VICTORIA BRITO SOUSA»/);
+  });
+
+  it("M1: \"não vincula o grupo da emily ainda\" e \"nunca ignore o grupo da emily\" → nada muda", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Certo."));
+    await dono("não vincula o grupo da emily ainda");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Certo."));
+    await dono("nunca ignore o grupo da emily");
+    expect((await grupoPorCodigo("KHMN")).ativo).toBe(true);
+  });
+
+  it("M4: administrativo pedido numa proposta, outra proposta depois, \"confirmo todos\" → o administrativo NÃO é aplicado", async () => {
+    const a = await grupo({ codigo: "KHMN", nome: "Sócios" });
+    const b = await grupo({ codigo: "KRVA", nome: "Obra um" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: a.id, tipo: "administrativo" }]), () => texto("Vou marcar."));
+    await dono("classifica esse grupo como administrativo");
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: b.id, tipo: "cliente", leadId: MARIA }]), () => texto("Vou ligar."));
+    await dono("liga aquele outro também");
+    await dono("confirmo todos");
+    expect((await grupoPorCodigo("KHMN")).tipo).toBe("indefinido");
+    await dono("confirmo o dos socios");
+    expect((await grupoPorCodigo("KHMN")).tipo).toBe("indefinido");
+  });
+
+  it("M3: grupo de terceiro aceito com \"grupo CÓDIGO 1\": pergunta, não liga", async () => {
+    await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO SOUSA", adicionadoPor: "outra_pessoa", prova: "aceito_pelo_dono" });
+    await dono("grupo KHMN 1");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    expect(ultima()).toMatch(/parece ser de «EMILY VICTORIA BRITO SOUSA»\.\n\*Posso fazer isto\?\*/);
+  });
+
+  it("qualidade: \"liga o grupo da Emily e o da Maria Dayane\" liga os DOIS (cada par provado separado)", async () => {
+    const e = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    const m = await grupo({ codigo: "AA7W", nome: "MARIA DAYANE OBRA PROSPECTA IMP" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: e.id, tipo: "cliente", leadId: EMILY }], ["classificar_grupo", { grupoId: m.id, tipo: "cliente", leadId: MARIA }]), () => texto(""));
+    await dono("liga o grupo da Emily e o da Maria Dayane");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+    expect((await grupoPorCodigo("AA7W")).lead_id).toBe(MARIA);
+  });
+
+  it("qualidade: \"desfaz\" logo depois do \"Feito\" diz em uma linha como desfazer (com o código do grupo), sem a IA", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto(""));
+    await dono("vincula o grupo da emily");
+    const chamadas = pedidosModelo.length;
+    await dono("desfaz");
+    expect(ultima()).toMatch(/^Dolores: para desfazer o último \(.*\): se não for esse, me diga o cliente certo; para eu sair de lá, «grupo KHMN ignorar»\.$/);
+    expect(pedidosModelo).toHaveLength(chamadas);
   });
 });
 

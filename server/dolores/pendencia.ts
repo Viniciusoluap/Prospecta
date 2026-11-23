@@ -337,9 +337,10 @@ export const MAX_ITENS_CONFIRMACAO_NOMEADA = 30;
  */
 export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Contexto): Promise<RespostaDaConfirmacao | null> {
   if (!ctx.enviadaEm || Number.isNaN(ctx.enviadaEm.getTime())) return null;
-  let mostradas: Array<{ id: number; aprovacaoIds: number[]; perguntaEnviadaEm: Date | null }>;
+  let mostradas: Array<{ id: number; aprovacaoIds: number[]; perguntaEnviadaEm: Date | null; situacao: string }>;
   try {
-    mostradas = await getDb().select({ id: doloresConversaPendencia.id, aprovacaoIds: doloresConversaPendencia.aprovacaoIds, perguntaEnviadaEm: doloresConversaPendencia.perguntaEnviadaEm })
+    mostradas = await getDb().select({ id: doloresConversaPendencia.id, aprovacaoIds: doloresConversaPendencia.aprovacaoIds, perguntaEnviadaEm: doloresConversaPendencia.perguntaEnviadaEm,
+      situacao: doloresConversaPendencia.situacao })
       .from(doloresConversaPendencia).where(and(sql`${doloresConversaPendencia.perguntaEnviadaEm} IS NOT NULL`, inArray(doloresConversaPendencia.situacao, ["aberta", "substituida"]),
         sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`)).orderBy(desc(doloresConversaPendencia.id)).limit(20);
   } catch (e) {
@@ -347,22 +348,32 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
     return null;
   }
   // só os itens cuja pergunta saiu ANTES de ele escrever (segundo inteiro, estritamente depois)
-  const vistos = new Set(mostradas.filter(m => m.perguntaEnviadaEm && segundo(ctx.enviadaEm!) > segundo(m.perguntaEnviadaEm)).flatMap(m => m.aprovacaoIds));
+  const antesDela = mostradas.filter(m => m.perguntaEnviadaEm && segundo(ctx.enviadaEm!) > segundo(m.perguntaEnviadaEm));
+  const vistos = new Set(antesDela.flatMap(m => m.aprovacaoIds));
+  // Portão de QA E11 (M4): só os itens da proposta ABERTA valem para "todos" e para o que é SÉRIO
+  const daAberta = new Set(antesDela.filter(m => m.situacao === "aberta").flatMap(m => m.aprovacaoIds));
   if (!vistos.size) return null;
   const candidatos = (await itens(Array.from(vistos).slice(-MAX_ITENS_CONFIRMACAO_NOMEADA)))
     .filter(i => i.situacao === "aguardando" && i.venceEm.getTime() > ctx.agora.getTime());
   if (!candidatos.length) return null;
   let escolhidos: ItemDaPendencia[];
   if (c.todos) {
-    escolhidos = c.tipo === "confirmo" ? candidatos : candidatos.filter(i => nivelDoItem(i.funcao, i.argumentos) === "registro");
+    // "pode todos"/"confirmo todos": só os de REGISTRO da proposta aberta (sério nunca vai em lote; de proposta substituída, nunca)
+    escolhidos = candidatos.filter(i => daAberta.has(i.id) && nivelDoItem(i.funcao, i.argumentos) === "registro");
     if (!escolhidos.length) {
-      const funcoes = candidatos.map(paraMotivo);
-      return { pendenciaId: null, codigos: candidatos.map(i => i.codigo), situacao: "falta_confirmo", texto: fraseFaltaConfirmo(funcoes) };
+      const serios = candidatos.filter(i => daAberta.has(i.id));
+      if (!serios.length) return null;
+      return { pendenciaId: null, codigos: serios.map(i => i.codigo), situacao: "falta_confirmo", texto: `${fraseFaltaConfirmo(serios.map(paraMotivo))} (um por vez, à pergunta do sistema; "todos" vale só para registro).` };
     }
   } else {
     const escolha = escolherPorNome(c.referencia, candidatos.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
     const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
     if (!item) return null;
+    // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova
+    if (nivelDoItem(item.funcao, item.argumentos) === "serio" && !daAberta.has(item.id)) {
+      await auditar("recusada", "confirmação nomeada de item sério de proposta substituída; nada foi feito", { itens: 1 }, ctx);
+      return { pendenciaId: null, codigos: [item.codigo], situacao: "falta_confirmo", texto: "Essa proposta ficou de lado e é das que pedem confirmação por escrito; nada foi feito. Me peça de novo e responda \"confirmo\" à pergunta nova." };
+    }
     escolhidos = [item];
   }
   const nivel = nivelDosItens(escolhidos);

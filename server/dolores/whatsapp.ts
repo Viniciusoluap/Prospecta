@@ -60,7 +60,8 @@ import { ALFABETO_CODIGO } from "../../shared/dolores/fila.js";
 import { ALFABETO_CODIGO_GRUPO } from "../../shared/dolores/grupos-tipo.js";
 import type { ReferenciaConversa } from "../../drizzle/schema-dolores-conversa.js";
 import { FRASE_ERRO_CONFIRMACAO, lerConfirmacao } from "../../shared/dolores/confirmacao.js";
-import { lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito } from "../../shared/dolores/ordem-direta.js";
+import { ehPedidoDeDesfazer, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito } from "../../shared/dolores/ordem-direta.js";
+import { comoDesfazerAUltima } from "./ordem-direta.js";
 import { enviarAlertasPendentes } from "./operacao-gasto.js";
 import { abrirPendencia, cancelarPendencia, marcarForaDeOrdem, marcarPerguntaEnviada, tratarConfirmacao, tratarConfirmacaoNomeada } from "./pendencia.js";
 import { FRASE_SEM_TAREFA, criarTarefaDemorada, fraseVouLevantar, retomarTarefaDemorada, type ResultadoCriacao, type ResultadoRetomada } from "./tarefa-demorada.js";
@@ -553,7 +554,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const { codigo, ...d } = decisaoDeGrupo;
     const r = await decidirGrupo({ codigo }, d, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
-    await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal, memoria: { codigos: [codigo] } });
+    await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: d.tipo, ok: r.ok }, prazoFinal, memoria: { codigos: [codigo] }, pendenciaId: ("pendenciaId" in r ? r.pendenciaId : null) ?? null });
     await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo: ${d.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
     return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
   }
@@ -564,7 +565,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
     const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pela opção", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
     if (r) {
-      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal, memoria: { codigos: [] } });
+      await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal, memoria: { codigos: [] }, pendenciaId: ("pendenciaId" in r ? r.pendenciaId : null) ?? null });
       await atualizarMensagem(msg.id, { situacao: r.ok ? "respondida" : "bloqueada", motivo: `decisão de grupo pela opção: ${opcao.tipo}${r.ok ? "" : " (não aplicada)"}`, respondidaEm: deps.agora() });
       return `grupo-decisao:${r.ok ? "ok" : "recusada"}`;
     }
@@ -580,6 +581,16 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
       await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { confirmacao: confirmacao.tipo, situacao: r.situacao }, prazoFinal, pendenciaId: r.pendenciaId, memoria: { codigos: r.codigos } });
       await atualizarMensagem(msg.id, { situacao: r.situacao === "erro" ? "erro" : "respondida", motivo: `resposta à proposta: ${r.situacao}`, respondidaEm: deps.agora() });
       return `confirmacao:${r.situacao}`;
+    }
+  }
+  // Portão de QA E11 (qualidade) — "desfaz" logo depois de um "Feito": por código, diz em UMA linha como desfazer a última ação feita
+  // (não reverte sozinha: trocar de volta tipo/vínculo de grupo pede o cliente certo, e "ignorar" desliga tudo — decisão do dono)
+  if (!msg.temMidia && ehPedidoDeDesfazer(msg.texto)) {
+    const t = await comoDesfazerAUltima(deps.agora()).catch(() => null);
+    if (t) {
+      await responderAoDono(cfg, msg.numero, t, { mensagemId: msg.id, autor, resumo: { desfazer: true }, prazoFinal });
+      await atualizarMensagem(msg.id, { situacao: "respondida", motivo: "pedido de desfazer: dito como desfazer", respondidaEm: deps.agora() });
+      return "desfazer";
     }
   }
   // EPIC-025 E11 — a resposta que NOMEIA o que ele confirma ("o grupo da Emily pode", "pode todos"), por CÓDIGO: só os itens que

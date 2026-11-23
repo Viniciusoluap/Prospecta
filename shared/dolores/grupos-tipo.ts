@@ -173,7 +173,9 @@ export function clientesPeloNomeESobrenome(nucleo: string, clientes: readonly Cl
  * Descobre o tipo do grupo pelo NOME do WhatsApp. Puro e determinístico. `clientes` = clientes ATIVOS do CRM (id e nome).
  * Homônimos, mais de um cliente casando, nome curto ou nada casando → "indefinido" (nunca liga sozinho na dúvida).
  */
-export function descobrirTipoDoGrupo(nomeDoGrupo: string | null | undefined, clientes: readonly ClienteParaTipo[]): TipoDescoberto {
+export function descobrirTipoDoGrupo(nomeDoGrupo: string | null | undefined, clientes: readonly ClienteParaTipo[],
+  /** E11 (portão de QA, M3): o 2º nível (nome + sobrenome) só para grupo que o DONO pôs a Dolores; de terceiro, só o nome inteiro. */
+  o: { parcial?: boolean } = {}): TipoDescoberto {
   const n = normalizarNome(nomeDoGrupo);
   if (!n) return { tipo: "indefinido", leadId: null, motivo: "grupo sem nome" };
   const ps = palavras(n);
@@ -194,7 +196,7 @@ export function descobrirTipoDoGrupo(nomeDoGrupo: string | null | undefined, cli
   if (casados.size > 1) return { tipo: "indefinido", leadId: null, motivo: "o nome bate com mais de um cliente do CRM", candidatos: Array.from(casados) };
   if (casados.size === 0) {
     // EPIC-025 E11: nenhum nome inteiro — o par nome + sobrenome de UM cliente (mais de um → indefinido, com os candidatos)
-    const parciais = clientesPeloNomeESobrenome(nucleo, clientes);
+    const parciais = o.parcial === false ? [] : clientesPeloNomeESobrenome(nucleo, clientes);
     if (parciais.length > 1) return { tipo: "indefinido", leadId: null, motivo: "o nome bate com mais de um cliente do CRM", candidatos: parciais };
     if (parciais.length === 1) {
       return { tipo: pos ? "pos_atendimento" : "cliente", leadId: parciais[0], motivo: pos ? "nome e sobrenome de um único cliente, com pós-atendimento" : "nome e sobrenome de um único cliente do CRM" };
