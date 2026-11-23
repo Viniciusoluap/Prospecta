@@ -48,6 +48,8 @@ const ENTRADA: EntradaDps = {
   valorCentavos: 1_234_56,
   regimeTributario: "simples_nacional", // decisão do dono (22/11): todas as empresas no Simples Nacional
   aliquotaIss: "5.0000",
+  // S-8: emissor do Simples leva a alíquota calculada pelo sistema (aqui, fixa para o teste do XML).
+  aliquotaSimples: { aliquotaIss: "5.00", falta: null, receitaCompleta: true, inicioAtividadeInformado: true },
   parametros: PARAMETROS,
 };
 const ID = "DPS210530221122233300018100001000000000000042";
@@ -155,8 +157,9 @@ describe("DPS — montagem pura por fixture", () => {
       tipoServico: { codigoTributacaoNacional: "280101", codigoNbs: null, itemLc116: "28.01", codigoAtividadeSimples: "9", aliquotaIss: "2.0000" },
     } as unknown as NotaDetalhada;
     const emissor = { cnpj: "11222333000181", ambiente: "producao_restrita", serieDps: "1", inscricaoMunicipal: null, municipioIbge: "2105302" } as unknown as FiscalEmissor;
-    const e = entradaDaNota(nota, emissor, { numero: 1, emitidoEm: ENTRADA.emitidoEm, parametros: PARAMETROS });
-    expect(e).toMatchObject({ regimeTributario: "simples_nacional", competencia: "2026-11-20", valorCentavos: 50_000, serie: "1", tomador: { nome: "Fulano" }, aliquotaIss: "2.0000",
+    const e = entradaDaNota(nota, emissor, { numero: 1, emitidoEm: ENTRADA.emitidoEm, parametros: PARAMETROS,
+      aliquotaSimples: { aliquotaIss: "3.33", falta: null, receitaCompleta: false } });
+    expect(e).toMatchObject({ regimeTributario: "simples_nacional", competencia: "2026-11-20", valorCentavos: 50_000, serie: "1", tomador: { nome: "Fulano" }, aliquotaIss: "2.0000", aliquotaSimples: { aliquotaIss: "3.33" },
       servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "280101", itemLc116: "28.01", codigoAtividadeSimples: "9", descricao: "Regularização" } });
     expect(faltasDps(e)).toEqual([]);
   });

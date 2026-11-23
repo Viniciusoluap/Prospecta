@@ -11,6 +11,8 @@ import { tokenPrimeiroAcessoAindaValido } from "../shared/session.js";
 import { hashPassword } from "./_core/auth-utils.js";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc.js";
 import { getDb } from "./db.js";
+import { DOLORES_OPEN_ID, DOLORES_PERFIL, ehContaDoSistema } from "./dolores/perfil.js";
+import { registrarAcao } from "./dolores/auditoria.js";
 import { lixeiraDaEntidade } from "./drive-organizacao.js";
 import { VERSAO_DO_TERMO } from "../shared/termo-consentimento.js";
 import { aceitesDoUsuario, aparelhoDoUserAgent, conferirAceite, createdAtEmUtc, ehPrimeiroAcesso, gravarSenhaComAceite, semConfundirFalhaDoBanco, situacaoDoTermo, VALIDADE_DO_LINK_MS } from "./consentimento.js";
@@ -64,6 +66,16 @@ async function ensureAnotherAdmin(userId: number) {
   }
 }
 
+/**
+ * 22/11/2026 (achado em produção): a conta da Dolores ("sistema:dolores") foi editada nesta tela — o perfil "user" aparecia como
+ * "Cliente", virou "Colaborador" com 16 módulos, e a Dolores parou. É uma conta do SISTEMA: perfil, módulos, nome, senha e exclusão são
+ * recusados aqui no servidor; só ativar/desativar (o botão de parada do administrador), por `definirContaDoSistemaAtiva`.
+ */
+export const FRASE_CONTA_DO_SISTEMA = "Esta é a conta do sistema da Dolores: perfil, módulos, nome e senha não podem ser alterados (e ela não pode ser excluída). Aqui só dá para ativar ou desativar.";
+const recusarContaDoSistema = (u: { openId?: string | null }) => {
+  if (ehContaDoSistema(u.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
+};
+
 export const configuracoesRouter = router({
   listUsers: adminProcedure.query(async () => getDb().select({
     id: users.id,
@@ -85,6 +97,8 @@ export const configuracoesRouter = router({
     // EPIC-023 (S-A): dados do cadastro de corretor (antiga tela "Corretores").
     notes: brokerProfiles.notes,
     defaultCommissionPct: brokerProfiles.defaultCommissionPct,
+    // 22/11/2026: a conta do sistema da Dolores aparece como "Conta do sistema — não editável" (só ativar/desativar)
+    contaDoSistema: sql<boolean>`coalesce(${users.openId} = ${DOLORES_OPEN_ID}, false)`,
   }).from(users).leftJoin(leads, eq(users.leadId, leads.id))
     .leftJoin(brokerProfiles, eq(brokerProfiles.userId, users.id))
     .leftJoin(engineerProfiles, eq(engineerProfiles.userId, users.id)).orderBy(users.name)),
@@ -193,6 +207,7 @@ export const configuracoesRouter = router({
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    recusarContaDoSistema(current);
     if (input.id === ctx.user.id && (!input.active || input.role !== "admin")) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode remover seu próprio acesso administrativo" });
     }
@@ -240,6 +255,45 @@ export const configuracoesRouter = router({
     return updated;
   }),
 
+  /**
+   * QA S-3b: o caminho do produto para devolver a conta do sistema ao padrão depois de uma edição indevida — perfil "user", módulos "[]",
+   * sem senha. Não mexe em "ativo" (o botão de parada segue como estava). Só para a conta do sistema; idempotente (sem diferença, não
+   * grava nada além da auditoria); auditoria curta, só com os NOMES dos campos que voltaram ao padrão (nunca os valores).
+   */
+  restaurarContaDoSistema: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    const db = getDb();
+    const [current] = await db.select({ id: users.id, openId: users.openId, role: users.role, permissions: users.permissions, passwordHash: users.passwordHash, active: users.active })
+      .from(users).where(eq(users.id, input.id)).limit(1);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    if (!ehContaDoSistema(current.openId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Só a conta do sistema da Dolores tem \"Restaurar conta padrão\"." });
+    const campos = [
+      ...(current.role !== DOLORES_PERFIL ? ["perfil"] : []),
+      ...(current.permissions && current.permissions !== "[]" ? ["modulos"] : []),
+      ...(current.passwordHash ? ["senha"] : []),
+    ];
+    if (campos.length) {
+      await db.update(users).set({ role: DOLORES_PERFIL, permissions: "[]", passwordHash: null, sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: new Date() })
+        .where(eq(users.id, input.id));
+    }
+    await registrarAcao({ funcao: "conta_do_sistema_restaurada", resultado: "ok", motivo: campos.length ? "conta da Dolores restaurada ao padrão" : "conta da Dolores já estava no padrão",
+      autorUserId: ctx.user.id, canal: "tela", resumo: { campos } });
+    return { id: current.id, restaurada: campos.length > 0, campos, active: current.active };
+  }),
+
+  /** 22/11/2026: a única mudança aceita na conta do sistema da Dolores — ativar/desativar (o botão de parada). Só para ela. */
+  definirContaDoSistemaAtiva: adminProcedure.input(z.object({ id: z.number().int().positive(), active: z.boolean() })).mutation(async ({ input }) => {
+    const db = getDb();
+    const [current] = await db.select({ id: users.id, openId: users.openId, active: users.active }).from(users).where(eq(users.id, input.id)).limit(1);
+    if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    if (!ehContaDoSistema(current.openId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Só a conta do sistema usa este botão; as demais se editam em Gerenciar acesso." });
+    const [updated] = await db.update(users).set({
+      active: input.active,
+      ...(current.active && !input.active ? { sessionVersion: sql`${users.sessionVersion} + 1` } : {}),
+      updatedAt: new Date(),
+    }).where(eq(users.id, input.id)).returning({ id: users.id, active: users.active });
+    return updated;
+  }),
+
   // O admin não digita mais a nova senha de outra pessoa: dispara um link de
   // redefinição por email, e o próprio usuário define a senha real. sessionVersion é
   // incrementado na hora (não só quando o link é usado) - qualquer sessão JWT já
@@ -247,9 +301,10 @@ export const configuracoesRouter = router({
   // imediatamente, sem esperar o reset ser concluído - ver _core/context.ts / shared/session.ts.
   resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email })
+      const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email, openId: users.openId })
         .from(users).where(eq(users.id, input.id)).limit(1);
       if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+      recusarContaDoSistema(current);
       if (!current.email) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Usuário sem email cadastrado - não é possível enviar o link" });
 
       await getDb().update(users).set({
@@ -266,6 +321,7 @@ export const configuracoesRouter = router({
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    recusarContaDoSistema(current);
     if (current.role === "admin" && current.active) await ensureAnotherAdmin(input.id);
     await db.delete(users).where(eq(users.id, input.id));
     // Pedido de 29/10: Equipe/<Nome (nº id)> (documentos do usuário) vai para a lixeira do Drive.

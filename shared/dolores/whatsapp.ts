@@ -210,7 +210,7 @@ export function mensagemAntiga(enviadaEm: Date | null, agora: Date, maxMs = IDAD
 export const mesFortaleza = (d: Date) => new Date(d.getTime() - 3 * 60 * 60_000).toISOString().slice(0, 7);
 
 export type MotivoBloqueio =
-  | "pausada" | "usuaria_desativada" | "ia_desligada" | "sem_chave" | "sem_modelo" | "sem_limite" | "limite_mensal" | "indisponivel"
+  | "pausada" | "usuaria_desativada" | "conta_alterada" | "ia_desligada" | "sem_chave" | "sem_modelo" | "sem_limite" | "limite_mensal" | "indisponivel"
   /** EPIC-027 C5-E5: a PARTE do mês desta função acabou (só ela para; as outras seguem). */
   | "limite_da_funcao";
 
@@ -223,6 +223,7 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
   switch (motivo) {
     case "pausada": return `Dolores: estou pausada${detalhe ? ` (${detalhe.slice(0, 120)})` : ""}.${fim}`;
     case "usuaria_desativada": return `Dolores: minha usuária está desativada em Usuários e acesso.${fim}`;
+    case "conta_alterada": return FRASE_CONTA_ALTERADA;
     case "ia_desligada": return `Dolores: estou desligada. Para me ligar, um administrador abre Configurações › Integrações › Dolores e toca em "Ligar a IA".${fim}`;
     case "sem_chave": return `Dolores: estou desligada — falta a chave da Anthropic em Integrações › Anthropic.${fim}`;
     case "sem_modelo": return `Dolores: estou desligada — falta escolher o modelo em Integrações › Anthropic (modelo preferencial).${fim}`;
@@ -232,6 +233,13 @@ export function fraseDeBloqueio(motivo: MotivoBloqueio, detalhe?: string | null)
     case "limite_da_funcao": return FRASE_LIMITE_DA_CONVERSA;
   }
 }
+
+/**
+ * 22/11/2026: a conta da Dolores foi editada em "Usuários e acesso" (perfil, módulos ou senha) — ela para e diz onde restaurar.
+ * QA S-3b: a frase diz "login" e não "senha" de propósito — o filtro de saída do WhatsApp (sempre ligado) corta o que vem depois da palavra
+ * "senha" ("senha [senha omitida]…") e o filtro não é afrouxado por uma frase do sistema (teste em conta-alterada.test.ts).
+ */
+export const FRASE_CONTA_ALTERADA = "Dolores: minha conta foi alterada em Usuários e acesso (perfil, módulos ou login), e por segurança eu parei. Para me liberar, um administrador abre Configurações › Usuários e acesso › Dolores › Restaurar conta padrão.";
 
 export const FRASE_ENCAMINHADA = "Dolores: recebi uma mensagem encaminhada. Mensagem encaminhada não vale como pedido: escreva o pedido com as suas palavras, por favor. Nada foi consultado.";
 export const FRASE_SO_TEXTO = "Dolores: nesta etapa eu só entendo mensagens de texto. Escreva o pedido, por favor. Nada foi consultado.";

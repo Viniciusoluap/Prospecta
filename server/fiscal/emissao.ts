@@ -14,7 +14,11 @@ import { fiscalEmissores, fiscalEventos, fiscalNotas, fiscalTiposServico, type F
 import { PARAMETROS_VAZIOS, type ParametrosContador } from "../../shared/fiscal/dps-campos.js";
 import { AVISO_EMISSAO_INDISPONIVEL, EMISSAO_DISPONIVEL } from "../../shared/fiscal/status.js";
 import type { DrizzleDb } from "../db.js";
-import { resolverAliquotaIss, FONTES_ALIQUOTA } from "./aliquota.js";
+import { registrarFonteSimples, resolverAliquotaIss, FONTES_ALIQUOTA } from "./aliquota.js";
+import { fonteSimplesDaS8 } from "./simples.js";
+
+// S-8 ligada: o emissor do Simples usa a alíquota CALCULADA (RBT12 × anexo); sem cálculo, a emissão recusa com a frase da S-8.
+registrarFonteSimples(fonteSimplesDaS8);
 import { ErroCertificado } from "./certificado.js";
 import { entradaDaNota, ErroDps, idDps, montarDps } from "./dps.js";
 import { dentroDoPrazo, ErroEvento, limparJustificativa, montarPedidoCancelamento, MOTIVOS_CANCELAMENTO, PRAZO_MAXIMO_CANCELAMENTO_DIAS, problemaDaJustificativa } from "./evento.js";
@@ -201,7 +205,7 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number;
   // lista da operação (shared/fiscal/municipios.ts). Fora da lista e sem IBGE → a DPS recusa (nada é presumido).
   const ibgeIncidencia = nota.municipioIncidenciaIbge ?? (nota.municipio.fonte === "emissor" ? emissor.municipioIbge : ibgeDoMunicipio(nota.municipio.nome, nota.municipio.uf));
   const aliq = await resolverAliquotaIss(nota.emissor?.regime ?? null, {
-    emissorCnpj: emissor.cnpj, competencia: nota.dataEvento, municipioIncidenciaIbge: ibgeIncidencia,
+    emissorCnpj: emissor.cnpj, competencia: nota.dataEvento, municipioIncidenciaIbge: ibgeIncidencia, nota, db,
     // QA S-7 (I2): só a alíquota lida no MESMO ambiente da emissão (a da produção restrita nunca vale em produção, e vice-versa).
     municipal: await aliquotaMunicipalVigente(db, ibgeIncidencia, nota.tipoServico?.codigoTributacaoNacional ?? null, emissor.ambiente),
     tipoServico: nota.tipoServico ? { id: nota.tipoServico.id, itemLc116: nota.tipoServico.itemLc116, codigoAtividadeSimples: nota.tipoServico.codigoAtividadeSimples, aliquotaIss: nota.tipoServico.aliquotaIss } : null,
@@ -209,11 +213,13 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number;
   // Série: a do emissor; sem série cadastrada, a padrão do aplicativo próprio ("1" = 00001, faixa 1–49999, regra E0010),
   // gravada no emissor na reserva (abaixo) para todas as notas seguirem a mesma.
   const serie = emissor.serieDps ?? SERIE_PADRAO_API;
-  const previa = entradaDaNota(nota, { ...emissor, serieDps: serie }, { numero: atual.numeroDps ?? 1, emitidoEm: agora, parametros });
+  const previa = entradaDaNota(nota, { ...emissor, serieDps: serie }, { numero: atual.numeroDps ?? 1, emitidoEm: agora, parametros, aliquotaSimples: "simples" in aliq ? aliq.simples ?? null : null });
   previa.ambiente = emissor.ambiente;
   previa.servico.municipioIncidenciaIbge = ibgeIncidencia;
   if (aliq.aliquota == null) throw new ErroDps([aliq.falta]);
   previa.aliquotaIss = aliq.aliquota;
+  // Fonte do Simples que devolveu só o número (teste): vale como cálculo, com a receita tida como incompleta (a produção recusa).
+  if (nota.emissor?.regime === "simples_nacional" && !previa.aliquotaSimples) previa.aliquotaSimples = { aliquotaIss: aliq.aliquota, falta: null, receitaCompleta: false };
   montarDps(previa); // recusa com a lista do que falta, antes de abrir o certificado
   const sessao = await sessaoDoEmissor(db, { id: emissor.id, ambiente: emissor.ambiente }, d);
 

@@ -152,12 +152,24 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
   `cancelarNota` exige também o emissor com ambiente de emissão e `emissao_liberada`; a tela mostra o botão desabilitado com o motivo
   (`FRASE_CANCELAMENTO_DESLIGADO` no servidor). O cancelamento continua indo ao ambiente em que a nota foi emitida.
 
+### Merge da S-8 (23/11/2026, @dev Dex) — alíquota do Simples ligada na emissão
+- `origin/main` com a S-8 (#321) mesclada. Conflitos resolvidos por união: `dps.ts` (cAtvSN continua fora do `regTrib` v1.01;
+  `pAliq` pelo `aliquotaDaDps` da S-8, 2 casas; formato do leiaute conferido também na alíquota do Simples; faltas da S-8 mantidas),
+  `router.ts` (`emissores.salvarSimples` da S-8 dentro de `emissores`, junto de `ambiente`/`parametros`), `schema-fiscal.ts`,
+  `whatsapp.ts` (teto de leitura da S-3b + DANFSe da S-7), telas `DadosFiscaisDoPerfil`/`NotasADecidir` (os dois lados).
+- **Ligação**: `emissao.ts` chama `registrarFonteSimples(fonteSimplesDaS8)` (`server/fiscal/simples.ts`, que roda
+  `paraDps(aliquotaSimplesDaNota(db, nota))`). Emissor do Simples → `pAliq` = a alíquota CALCULADA (nunca a digitada); sem cálculo →
+  recusa com a frase da S-8 (`alíquota do Simples: …`), sem rede e sem reservar número; produção ainda exige receita completa e início
+  de atividade (regras da S-8 no `faltasDps`). Regime `a_confirmar`/desconhecido → recusa. `resolverAliquotaIss` aceita da fonte o
+  número (testes) ou o resultado completo da S-8.
+- Testes de ponta a ponta em `s7-qa.test.ts` ("S-7 × S-8"): Simples → DPS enviada com o `pAliq` da S-8; sem tabela do período → recusa
+  da S-8; `a_confirmar` → recusa; fonte registrada = a da S-8. `s8-qa`/`simples-servidor` passaram a aplicar a 0167 (o schema lê as colunas da emissão).
+
 ### Testes
 - Depois das correções do portão de QA e do merge da main (23/11): `server/fiscal/*` 11 arquivos / 265 testes OK (`s7-qa` com 32:
   os 4 achados viraram `it` + testes de I1, M1, M2, B1–B8); `server/dolores/{s3-fiscal,s3-fiscal-qa,acoes,acoes-whatsapp,c5-e2-resolve}`
   + `server/{auth-session,imports-esm}` 7 arquivos / 119 OK; `tsc --noEmit` OK; `vite build` OK. Merge: conflitos só nos arquivos do
-  Jurídico (cadeia ICP), resolvidos com a versão da main (já com o portão de QA do Jurídico). A S-8 (alíquota do Simples) ainda não
-  está na main: `registrarFonteSimples` continua sem fonte ligada.
+  Jurídico (cadeia ICP), resolvidos com a versão da main (já com o portão de QA do Jurídico). (Depois: S-8 mesclada e ligada — ver acima.)
 - Automáticos: `server/fiscal/emissao-s7.test.ts` (28: Sefin simulada com mTLS local — sucesso, rejeição, queda depois/antes de
   gerar, 5xx, concorrência, produção; gatilho; cancelamento; DANFSe pelo texto do PDF; XSD válido/inválido; alíquota; parâmetros
   municipais; certificado). Ajustados: `emissao-fundacao`, `certificado`, `emissao-qa`, `rascunhos*`, `s3-fiscal*`, `acoes`.
@@ -175,5 +187,6 @@ próprio interruptor `emissao_liberada` (falso por padrão, sem rota que o ligue
 
 ## Change Log
 - 22/11/2026 — @dev: story criada (Draft→InProgress) e implementada; InProgress → InReview (aguarda portão de QA).
+- 23/11/2026 — @dev: merge da S-8 (#321) e alíquota do Simples ligada na emissão (`registrarFonteSimples(fonteSimplesDaS8)`).
 - 23/11/2026 — @dev: correções do portão de QA (CONCERNS): I1, I2, M1, M2 e B1–B8 (ver "Correções do portão de QA"); merge da main.
 - 23/11/2026 — @dev: cadeia do A1 completada por `completarCadeiaIcp` do Jurídico (cherry-pick 981ea52), sem recusar o .pfx sem intermediários.

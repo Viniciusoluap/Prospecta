@@ -41,7 +41,7 @@ const TABELAS = [
   "financialTransactions", "taxProfiles", "taxObligations", "retProjects",
 ];
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
-const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql"), M0171 = ler("0171_fiscal_historico_sem_xml.sql");
+const M0154 = ler("0154_fiscal_notas.sql"), M0162 = ler("0162_fiscal_certificados.sql"), M0167 = ler("0167_fiscal_emissao.sql"), M0171 = ler("0171_fiscal_historico_sem_xml.sql"), M0168 = ler("0168_fiscal_folha_fator_r.sql");
 
 const pasta = pastaDeTeste();
 let ddl = "";
@@ -194,6 +194,9 @@ import { aliquotaMunicipalVigente, aliquotaUnica } from "./parametros-municipais
 import { entradaEmitirAprovado, executarCancelarAprovado, executarEmitirAprovado, FRASE_EMISSAO_MUDOU } from "../dolores/acoes/fiscal.js";
 import { FRASE_AMBIENTE_MUDOU, FRASE_CANCELAMENTO_DESLIGADO, marcarVerificarManualmente, ORCAMENTO_EMISSAO_MS } from "./emissao.js";
 import { semValidadeJuridica } from "./danfse.js";
+import { aliquotaSimplesDaNota, fonteSimplesDaS8, paraDps } from "./simples.js";
+import { FONTES_ALIQUOTA } from "./aliquota.js";
+import { carregarNota } from "./notas.js";
 import { ARQUIVOS_DO_VALIDADOR, ErroLeiaute, pastaRealDoValidador } from "./leiaute.js";
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -541,6 +544,45 @@ describe("QA S-7 — baixos (B1, B3, B4, B5, B6, B7, B8)", () => {
     await expect(cancelarNota(getDb(), pedido, deps())).rejects.toThrow(FRASE_CANCELAMENTO_DESLIGADO);
     expect(recebidos.length).toBe(antes);
     expect((await nota(n.id)).status).toBe("EMITIDA");
+  });
+});
+
+describe("S-7 × S-8 — alíquota do Simples calculada pelo sistema na emissão (ponta a ponta)", () => {
+  const simples = async () => {
+    await pg.exec(M0168);
+    await pg.exec(`UPDATE tax_profiles SET regime = 'simples_nacional'`);
+    await pg.exec(`UPDATE fiscal_emissores SET parametros_dps = '{"opSimpNac":"3","regApTribSN":"1","regEspTrib":"0"}'`);
+    await pg.exec(`UPDATE fiscal_tipos_servico SET codigo_atividade_simples = '9' WHERE nome = 'Assessoria e honorários (BPO)'`);
+  };
+  it("emissor do Simples: a DPS enviada leva no pAliq a alíquota da S-8 (2 casas), não a digitada no tipo", async () => {
+    await simples();
+    const n = await rascunho();
+    const esperado = paraDps(await aliquotaSimplesDaNota(getDb(), await carregarNota(getDb(), n.id)));
+    expect(esperado?.falta ?? null).toBeNull();
+    expect(esperado?.aliquotaIss).toMatch(/^\d+\.\d{2}$/);
+    expect(esperado?.aliquotaIss).not.toBe("5.00");
+    expect((await emitirNota(getDb(), { ...n, ...autor }, deps())).situacao).toBe("emitida");
+    expect(dpsEnviada()).toContain(`<pAliq>${esperado!.aliquotaIss}</pAliq>`);
+    expect(dpsEnviada()).not.toContain("<cAtvSN>"); // v1.01: fora do regTrib
+  });
+  it("Simples sem cálculo possível (sem tabela do período) recusa com a frase da S-8, sem rede e sem reservar", async () => {
+    await simples();
+    const n = await rascunho();
+    await q(`UPDATE fiscal_notas SET data_evento = '2017-06-01' WHERE id = $1`, [n.id]);
+    const v = (await nota(n.id)).versao as number;
+    await expect(emitirNota(getDb(), { id: n.id, versao: v, ...autor }, deps())).rejects.toThrow(/alíquota do Simples/);
+    expect((await nota(n.id)).numero_dps).toBeNull();
+    expect(recebidos).toHaveLength(0);
+  });
+  it("regime a_confirmar: recusa (a DPS não é montada), sem rede e sem número", async () => {
+    await pg.exec(`UPDATE tax_profiles SET regime = 'a_confirmar'`);
+    const n = await rascunho();
+    await expect(emitirNota(getDb(), { ...n, ...autor }, deps())).rejects.toThrow(/regime tributário/);
+    expect((await nota(n.id)).numero_dps).toBeNull();
+    expect(recebidos).toHaveLength(0);
+  });
+  it("a fonte registrada é a da S-8", () => {
+    expect(FONTES_ALIQUOTA.simples).toBe(fonteSimplesDaS8);
   });
 });
 

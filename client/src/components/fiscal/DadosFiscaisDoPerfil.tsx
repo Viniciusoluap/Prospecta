@@ -10,12 +10,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { formatCurrency } from "@/lib/format";
 import { SEDE } from "@shared/empresa";
 
 const REGIMES: Record<string, string> = {
   simples_nacional: "Simples Nacional", lucro_presumido: "Lucro Presumido", lucro_real: "Lucro Real", ret: "RET", outro: "Outro",
 };
 const AMBIENTE: Record<string, string> = { desligado: "desligado (sem emissão)", producao_restrita: "produção restrita", producao: "produção" };
+
+const mesBr = (m: string | null) => (m ? m.split("-").reverse().join("/") : "—");
+const dataBr = (d: string | null) => (d ? d.split("-").reverse().join("/") : "não informado");
 
 function formatarCnpj(c: string) {
   return c.length === 14 ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}` : c;
@@ -39,6 +44,17 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
     },
     onError: e => toast.error(e.message),
   });
+  // S-8: folha dos 12 meses (Fator R) e início de atividade — da EMPRESA (raiz do CNPJ: vale para matriz e filiais).
+  const [simples, setSimples] = useState<{ cnpj: string; titulo: string; folha: number; folhaAte: string; inicioAtividade: string } | null>(null);
+  const salvarSimples = trpc.fiscal.emissores.salvarSimples.useMutation({
+    onSuccess: () => {
+      toast.success("Dados do Simples salvos.");
+      setSimples(null);
+      void utils.fiscal.emissores.listar.invalidate();
+      void utils.fiscal.notas.aliquotaSimples.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   return (
     <Card className="bg-[#2C3E50] border-[#C9A961]/20 text-gray-100">
@@ -55,6 +71,13 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
                   ? `Município ${p.emissor.municipioNome ?? "—"}/${p.emissor.municipioUf ?? ""} • inscrição municipal ${p.emissor.inscricaoMunicipal ?? "a preencher"} • série ${p.emissor.serieDps ?? "1 (padrão do aplicativo próprio)"} • ambiente ${AMBIENTE[p.emissor.ambiente] ?? p.emissor.ambiente} • emissão ${p.emissor.emissaoLiberada ? "liberada" : "não liberada"}`
                   : "Dados fiscais ainda não preenchidos."}
               </p>
+              {p.regime === "simples_nacional" && (
+                <p className="text-xs text-gray-400">
+                  Simples (empresa toda): folha dos 12 meses {p.simples?.folha12mCentavos != null ? `${formatCurrency(p.simples.folha12mCentavos / 100)} até ${mesBr(p.simples.folhaAte)}`
+                    : p.simples?.folhaOculta ? `informada até ${mesBr(p.simples.folhaAte)}` : "a informar (Fator R usa o Anexo V)"}
+                  {" • "}início de atividade {dataBr(p.simples?.inicioAtividade ?? null)}
+                </p>
+              )}
             </div>
             {podeEditar && p.emissor && (
               <div className="flex flex-wrap gap-1">
@@ -71,6 +94,12 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
                 municipioNome: p.emissor?.municipioNome ?? SEDE.cidade, municipioUf: p.emissor?.municipioUf ?? SEDE.uf,
                 municipioIbge: p.emissor?.municipioIbge ?? "", inscricaoMunicipal: p.emissor?.inscricaoMunicipal ?? "", serieDps: p.emissor?.serieDps ?? "",
               })}>{p.emissor ? "Editar dados fiscais" : "Preencher dados fiscais"}</Button>
+            )}
+            {podeEditar && p.regime === "simples_nacional" && (
+              <Button size="sm" variant="outline" onClick={() => setSimples({
+                cnpj: p.cnpj, titulo: p.razaoSocial, folha: (p.simples?.folha12mCentavos ?? 0) / 100,
+                folhaAte: p.simples?.folhaAte ?? "", inicioAtividade: p.simples?.inicioAtividade ?? "",
+              })}>Folha e início (Simples)</Button>
             )}
           </div>
         ))}
@@ -151,6 +180,43 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
               ))}
               <Button className="bg-[#C9A961] text-[#1A2332]" disabled={salvarCod.isPending}
                 onClick={() => salvarCod.mutate({ emissorId: cod.emissorId, opSimpNac: cod.opSimpNac || null, regApTribSN: cod.regApTribSN || null, regEspTrib: cod.regEspTrib || null })}>Salvar códigos</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(simples)} onOpenChange={o => !o && setSimples(null)}>
+        <DialogContent className="bg-[#1A2332] border-[#C9A961]/20 text-white">
+          <DialogHeader><DialogTitle className="text-[#C9A961]">Simples — {simples?.titulo}</DialogTitle></DialogHeader>
+          {simples && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <p className="sm:col-span-2 text-xs text-gray-400">
+                Vale para a empresa toda (matriz e filiais). A folha decide o Fator R dos serviços de cAtvSN 9: 28% ou mais da receita dos 12 meses → Anexo III; abaixo → Anexo V.
+                Sem folha (ou desatualizada), o sistema usa o Anexo V, o lado de pagar mais.
+              </p>
+              <div>
+                <Label htmlFor="fiscal-sn-folha">Folha dos 12 meses (salários, pró-labore, FGTS e INSS patronal)</Label>
+                <CurrencyInput id="fiscal-sn-folha" value={simples.folha} onChange={v => setSimples({ ...simples, folha: v })} className="mt-1 bg-[#2C3E50]" />
+              </div>
+              <div>
+                <Label htmlFor="fiscal-sn-ate">Último mês incluído na folha</Label>
+                <Input id="fiscal-sn-ate" type="month" value={simples.folhaAte} onChange={e => setSimples({ ...simples, folhaAte: e.target.value })} className="mt-1 bg-[#2C3E50]" />
+              </div>
+              <p className="sm:col-span-2 text-xs text-gray-400">A folha vale para as notas do mês seguinte ao último mês incluído (ex.: folha até 10/2026 → notas de 11/2026).</p>
+              <div className="sm:col-span-2">
+                <Label htmlFor="fiscal-sn-inicio">Início de atividade (para empresa com menos de 12 meses)</Label>
+                <Input id="fiscal-sn-inicio" type="date" value={simples.inicioAtividade} onChange={e => setSimples({ ...simples, inicioAtividade: e.target.value })} className="mt-1 bg-[#2C3E50]" />
+              </div>
+              <Button className="sm:col-span-2 bg-[#C9A961] text-[#1A2332]" disabled={salvarSimples.isPending || (simples.folha > 0 && !simples.folhaAte)}
+                onClick={() => {
+                  const temFolha = Boolean(simples.folhaAte);
+                  salvarSimples.mutate({
+                    cnpj: simples.cnpj,
+                    folha12mCentavos: temFolha ? Math.round(simples.folha * 100) : null,
+                    folhaAte: temFolha ? simples.folhaAte : null,
+                    inicioAtividade: simples.inicioAtividade || null,
+                  });
+                }}>Salvar</Button>
             </div>
           )}
         </DialogContent>
