@@ -94,18 +94,32 @@ function certificadosDer(der: Buffer): Certificate[] {
     return (new SignedData({ schema: cms.content }).certificates || []).filter((c): c is Certificate => c instanceof Certificate).slice(0, MAX_CERTS_PACOTE);
   } catch { return []; }
 }
+/** PEM só é lido nos primeiros 256 KB e com até 32 marcadores BEGIN (um pacote real tem poucos certificados). */
+const MAX_PEM_BYTES = 256 * 1024, MAX_PEM_BLOCOS = 32;
+const PEM_ACEITOS = /^(?:X509 |TRUSTED )?CERTIFICATE$|^PKCS ?#?7$|^CMS$/;
 /**
  * Lê o que o AIA devolve: certificado DER ou PEM, pacote PKCS#7 "certs-only" (.p7b/.p7c) em DER ou PEM, ou vários
  * blocos PEM no mesmo arquivo. No máximo 10 certificados. Nunca lança (conteúdo ilegível = lista vazia).
+ * O PEM é percorrido com indexOf (tempo linear): o conteúdo vem de endereço escolhido por quem fabrica o certificado,
+ * e uma expressão regular com retrocesso podia travar o processo (achado I-1 do portão de QA, 23/11).
  */
 export function certificadosPublicos(bytes: Buffer): Certificate[] {
-  const inicio = bytes.subarray(0, 256).toString("latin1");
-  if (!inicio.includes("-----BEGIN")) return certificadosDer(bytes);
+  if (!bytes.subarray(0, 256).toString("latin1").includes("-----BEGIN")) return certificadosDer(bytes);
+  const texto = bytes.subarray(0, MAX_PEM_BYTES).toString("latin1");
   const certs: Certificate[] = [];
-  for (const bloco of Array.from(bytes.toString("latin1").matchAll(/-----BEGIN ([A-Z0-9 #]+)-----([\s\S]*?)-----END \1-----/g))) {
-    if (!/^(?:X509 |TRUSTED )?CERTIFICATE$|^PKCS ?#?7$|^CMS$/.test(bloco[1])) continue;
-    certs.push(...certificadosDer(Buffer.from(bloco[2].replace(/\s/g, ""), "base64")));
-    if (certs.length >= MAX_CERTS_PACOTE) break;
+  let pos = 0;
+  for (let blocos = 0; blocos < MAX_PEM_BLOCOS && certs.length < MAX_CERTS_PACOTE; blocos++) {
+    const inicio = texto.indexOf("-----BEGIN ", pos);
+    if (inicio < 0) break;
+    const fimRotulo = texto.indexOf("-----", inicio + 11);
+    if (fimRotulo < 0 || fimRotulo - inicio > 64) { pos = inicio + 11; continue; }
+    const rotulo = texto.slice(inicio + 11, fimRotulo);
+    const marcaFim = `-----END ${rotulo}-----`;
+    const fim = texto.indexOf(marcaFim, fimRotulo + 5);
+    if (fim < 0) { pos = fimRotulo + 5; continue; } // BEGIN sem END: pula (o laço é limitado por MAX_PEM_BLOCOS)
+    pos = fim + marcaFim.length;
+    if (!PEM_ACEITOS.test(rotulo)) continue;
+    certs.push(...certificadosDer(Buffer.from(texto.slice(fimRotulo + 5, fim).replace(/\s/g, ""), "base64")));
   }
   return certs.slice(0, MAX_CERTS_PACOTE);
 }

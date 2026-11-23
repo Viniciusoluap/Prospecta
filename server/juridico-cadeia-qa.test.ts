@@ -177,11 +177,11 @@ describe("QA (3) PKCS#7/PEM hostil", () => {
     expect(certificadosPublicos(pki.der.inter.subarray(0, 100))).toEqual([]);
     expect(certificadosPublicos(Buffer.from("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----"))).toEqual([]);
   });
-  // ACHADO IMPORTANTE (regressão desta mudança): a regex PEM com retrovisor (\1) e `[\s\S]*?` é quadrática quando o
+  // ACHADO I-1 (corrigido: leitura linear com indexOf e limites de tamanho/blocos). Era: a regex PEM com retrovisor (\1) e `[\s\S]*?` é quadrática quando o
   // arquivo tem muitos "-----BEGIN X-----" sem o END. O AIA pode trazer até 10 MB (LIMITES_PKI.bytesPorResposta) de um
   // endereço escolhido por quem fabrica o certificado (basta O=ICP-Brasil no emissor) — o regex síncrono trava o
   // processo muito além do prazo da sessão PKI. ~340 KB já levam segundos; 10 MB levaria horas.
-  it.fails("PEM malicioso (muitos BEGIN sem END, ~340 KB) é lido em menos de 1 s", () => {
+  it("PEM malicioso (muitos BEGIN sem END, ~340 KB) é lido em menos de 1 s", () => {
     const hostil = Buffer.from("-----BEGIN CERTIFICATE-----\n" + "-----BEGIN A-----".repeat(20_000));
     const t = Date.now();
     certificadosPublicos(hostil);

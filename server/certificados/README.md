@@ -16,8 +16,13 @@ AC SAFEWEB RFB v5 não diz onde está a AC Secretaria da Receita Federal do Bras
 parava no 2º salto e a conferência marcava "não pertence a uma cadeia ICP-Brasil reconhecida".
 
 **Não são âncoras de confiança.** Cada intermediária só é usada se a assinatura dela conferir, salto a salto, até
-uma raiz de `icp-raizes.json` (o PKIjs refaz a conferência completa a cada assinatura). Um item cujo SHA-256 não
-bata com o registrado é descartado ao carregar (`intermediariasIcp` em `server/juridico-pki.ts`).
+uma raiz de `icp-raizes.json` (o PKIjs refaz a conferência completa a cada assinatura).
+
+**O SHA-256 de cada item protege contra corrupção, não prova autenticidade.** Quem editar o arquivo pode trocar o DER e
+o hash juntos; por isso o hash não é a fonte de confiança. A autenticidade vem só da assinatura de cada AC conferida até
+as raízes oficiais: uma AC forjada (mesmo nome, outra chave), mesmo com hash coerente, não valida ninguém (testes em
+`server/juridico-cadeia-qa.test.ts`). Item cujo SHA-256 não bata com o registrado é descartado ao carregar
+(`intermediariasIcp` em `server/juridico-pki.ts`).
 
 **O que entra** (`scripts/icp-intermediarias.mjs`): certificado de AC (`CA:TRUE`), conferido por assinatura até as
 raízes RSA v5/v10/v11/v12/v13, vigente na data da geração, de assinatura de documentos (ficam fora SSL, code signing,
