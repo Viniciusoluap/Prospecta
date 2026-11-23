@@ -1,34 +1,86 @@
 // EPIC-029 S-7 (22/11/2026) — validação do leiaute contra o XSD OFICIAL antes de qualquer envio à Sefin Nacional.
 // XSD em shared/fiscal/xsd/ (versão, URL de origem e SHA-256 no README da pasta), um conjunto por ambiente:
 // produção = v1.01 de 09/02/2026; produção restrita = v1.01 de 20/10/2026 (NT 009). O validador é o libxml2 compilado para
-// WebAssembly (`xmllint-wasm`, MIT): JS/WASM puro, sem binário do sistema, roda na função da Vercel.
+// WebAssembly (`xmllint-wasm` 5.3.0, MIT, cópia em shared/fiscal/xsd/vendor/): JS/WASM puro, sem binário do sistema.
 // Regras:
 // - FALHA FECHADA: validador indisponível, XSD ausente ou erro inesperado → ErroLeiaute ("nada foi enviado");
 // - as mensagens devolvidas citam só o NOME do campo e o tipo do problema — nunca o valor (CPF, nome, descrição…);
 // - nada é logado.
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-// QA S-7 (B7): o validador é carregado SOB DEMANDA (import dinâmico dentro do try). Se o pacote não entrar na função da Vercel
-// (pnpm guarda o pacote em node_modules/.pnpm/… e node_modules/xmllint-wasm é só um link), só a validação falha — FECHADA, com
-// ErroLeiaute —, sem derrubar o carregamento do servidor inteiro. Os arquivos que o pacote lê por __dirname (o .wasm e o
-// worker) são conferidos no caminho REAL antes de validar; `vercel.json` inclui esse caminho real (glob de node_modules/.pnpm).
-type ValidateXml = typeof import("xmllint-wasm").validateXML;
-export const ARQUIVOS_DO_VALIDADOR = ["xmllint.wasm", "xmllint-node.js", "index-node.js"] as const;
+// Correção do deploy (23/11/2026): o validador NÃO vem mais de node_modules. O pnpm guarda o pacote em node_modules/.pnpm/… e
+// node_modules/xmllint-wasm é só um link — incluir esse caminho no `includeFiles` gera "invalid deployment package … symlinked
+// directories" na Vercel (publicação do #324). Os arquivos de Node do xmllint-wasm 5.3.0 estão copiados, sem alteração, em
+// shared/fiscal/xsd/vendor/xmllint-wasm/ (origem e SHA-256 no README da pasta), que entra na função pelo glob
+// `shared/fiscal/xsd/**` junto com os XSD. Carregado SOB DEMANDA (require dentro do try): se a cópia faltar ou não bater com
+// o SHA-256 conhecido, só a validação falha — FECHADA, com ErroLeiaute —, sem derrubar o servidor.
+type ResultadoXmllint = { valid: boolean; errors: { message: string }[] };
+type ValidateXml = (o: { xml: { fileName: string; contents: string }[]; schema: { fileName: string; contents: string }[]; preload: { fileName: string; contents: string }[] }) => Promise<ResultadoXmllint>;
 
-/** Pasta REAL (links resolvidos) do pacote xmllint-wasm. Lança se não achar. */
-export function pastaRealDoValidador(): string {
-  return dirname(realpathSync(createRequire(import.meta.url).resolve("xmllint-wasm")));
-}
-
-/** Confere que os arquivos do validador existem na pasta; `pasta` só para teste. Lança ErroLeiaute (falha fechada). */
-export function conferirArquivosDoValidador(pasta?: string): void {
-  let dir: string;
-  try { dir = pasta ?? pastaRealDoValidador(); } catch { throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL); }
-  for (const f of ARQUIVOS_DO_VALIDADOR) if (!existsSync(join(dir, f))) throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
-}
+/** Subpasta (dentro de shared/fiscal/xsd/) com a cópia do validador. */
+export const SUBPASTA_DO_VALIDADOR = "vendor/xmllint-wasm";
+/** SHA-256 de cada arquivo da cópia (iguais aos do .tgz 5.3.0 do npm). Arquivo diferente → validador indisponível. */
+export const SHA256_DO_VALIDADOR = {
+  "index-node.js": "f67ca560eb11541b29caf3104747c4e8cb9605b2f3789b0fc45e976aa88421b9",
+  "xmllint-node.js": "135ef53a1f3be23e850ab262e39c15732c4b19df5538e6e15891aa64c7bc0f30",
+  "xmllint.wasm": "4e3cc21a67e8dd40ccb59822e4193fd1923b4cda08b40fe8ff8973de5eed9515",
+} as const;
+/** Arquivos que precisam existir na pasta do validador (o package.json marca os .js como CommonJS). */
+export const ARQUIVOS_DO_VALIDADOR = [...Object.keys(SHA256_DO_VALIDADOR), "package.json"] as readonly string[];
 export const FRASE_VALIDADOR_INDISPONIVEL = "Não foi possível conferir o leiaute agora (validador indisponível). Nada foi enviado.";
+
+/**
+ * Pastas onde shared/fiscal/xsd/ pode estar, em ordem: relativa a este arquivo (server/fiscal/ → ../../shared/fiscal/xsd/,
+ * como no código-fonte e na função da Vercel) e relativa a `process.cwd()` (raiz do projeto; vale também para o servidor
+ * empacotado em dist/).
+ */
+export function pastasCandidatasDoXsd(): string[] {
+  const lista: string[] = [];
+  try { lista.push(fileURLToPath(new URL("../../shared/fiscal/xsd/", import.meta.url))); } catch { /* sem import.meta.url */ }
+  lista.push(resolve(process.cwd(), "shared/fiscal/xsd"));
+  return Array.from(new Set(lista.map(p => resolve(p))));
+}
+
+/** Pasta da cópia do validador: a primeira candidata com todos os arquivos. Lança ErroLeiaute (falha fechada) se nenhuma. */
+export function pastaDoValidador(): string {
+  for (const raiz of pastasCandidatasDoXsd()) {
+    const dir = join(raiz, SUBPASTA_DO_VALIDADOR);
+    if (ARQUIVOS_DO_VALIDADOR.every(f => existsSync(join(dir, f)))) return dir;
+  }
+  throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
+}
+
+const conferidas = new Set<string>();
+/** Confere que os arquivos do validador existem e batem com o SHA-256; `pasta` só para teste. Lança ErroLeiaute. */
+export function conferirArquivosDoValidador(pasta?: string): string {
+  const dir = pasta ?? pastaDoValidador();
+  if (conferidas.has(dir)) return dir;
+  for (const f of ARQUIVOS_DO_VALIDADOR) if (!existsSync(join(dir, f))) throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
+  for (const [f, sha] of Object.entries(SHA256_DO_VALIDADOR)) {
+    if (createHash("sha256").update(readFileSync(join(dir, f))).digest("hex") !== sha) throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
+  }
+  conferidas.add(dir);
+  return dir;
+}
+
+/** Carrega `validateXML` da cópia em shared/fiscal/xsd/vendor/xmllint-wasm/ (nunca de node_modules). */
+export function carregarValidador(pasta?: string): ValidateXml {
+  const dir = conferirArquivosDoValidador(pasta);
+  const mod = createRequire(import.meta.url)(join(dir, "index-node.js")) as { validateXML?: unknown };
+  if (typeof mod.validateXML !== "function") throw new ErroLeiaute(FRASE_VALIDADOR_INDISPONIVEL);
+  return mod.validateXML as ValidateXml;
+}
+
+/** Pasta do XSD do ambiente: a primeira candidata em que ela existe (a primeira da lista, se nenhuma). */
+function pastaDoXsd(ambiente: AmbienteLeiaute): URL {
+  const candidatas = pastasCandidatasDoXsd();
+  const achada = candidatas.find(r => existsSync(join(r, PASTA_DO_AMBIENTE[ambiente]))) ?? candidatas[0]!;
+  return pathToFileURL(join(achada, PASTA_DO_AMBIENTE[ambiente]) + "/");
+}
 
 export type DocumentoLeiaute = "dps" | "pedRegEvento";
 export type AmbienteLeiaute = "producao" | "producao_restrita";
@@ -62,7 +114,7 @@ function esquemas(ambiente: AmbienteLeiaute, pastaBase?: URL) {
   const chave = `${ambiente}|${pastaBase?.href ?? ""}`;
   const pronto = cache.get(chave);
   if (pronto) return pronto;
-  const base = pastaBase ?? new URL(`../../shared/fiscal/xsd/${PASTA_DO_AMBIENTE[ambiente]}/`, import.meta.url);
+  const base = pastaBase ?? pastaDoXsd(ambiente);
   const lidos = ARQUIVOS.map(nome => {
     // BOM tirado: o conteúdo vai para o sistema de arquivos em memória do validador como texto UTF-8.
     const texto = readFileSync(new URL(nome, base), "utf8").replace(/^﻿/, "");
@@ -97,10 +149,9 @@ export async function validarLeiaute(xml: string, documento: DocumentoLeiaute, a
   if (ambiente !== "producao" && ambiente !== "producao_restrita") throw new ErroLeiaute("Ambiente sem leiaute para validar. Nada foi enviado.");
   if (!xml || xml.length > TAMANHO_MAXIMO_XML) throw new ErroLeiaute("Documento vazio ou grande demais para validar. Nada foi enviado.");
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) return { valido: false, erros: ["documento: DOCTYPE/ENTITY não é aceito"] };
-  let r: Awaited<ReturnType<ValidateXml>>;
+  let r: ResultadoXmllint;
   try {
-    conferirArquivosDoValidador(o.pastaValidador);
-    const validateXML = o.carregar ? await o.carregar() : (await import("xmllint-wasm")).validateXML;
+    const validateXML = o.carregar ? await o.carregar() : carregarValidador(o.pastaValidador);
     if (typeof validateXML !== "function") throw new Error("validador");
     const todos = esquemas(ambiente, o.pastaBase);
     const raiz = todos.find(f => f.fileName === RAIZ[documento])!;
