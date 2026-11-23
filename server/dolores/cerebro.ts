@@ -374,8 +374,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // Portão 2 (I-B) + ajuste antes da 3ª revisão: verbo, função, código e alvos só do trecho ANTES do ":"; o texto ditado depois do ":"
   // só vale como CONTEÚDO de registro (tarefa, anotação, lembrança). Aspas, ">", quebra de linha, mais de um ":", ditado longo, "?" ou
   // negação antes do ":" → nada de ordem direta (confirmação de sempre). Ver shared/dolores/ordem-direta.ts#partesDaOrdem.
-  const partes = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando) ? partesDaOrdem(p.comando) : null;
-  const ordemDireta = partes ? { texto: partes.antes, mensagem: p.comando.trim(), comDoisPontos: partes.depois !== null } : null;
+  // Portão 3: porta de caracteres (lista permitida), todos os ":" contados e a negação — tudo dentro de `partesDaOrdem` (uma função só)
+  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando) ? partesDaOrdem(p.comando) : null;
   const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
   const previasRecusadas = new Set<number>();

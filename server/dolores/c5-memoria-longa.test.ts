@@ -350,7 +350,8 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
     await banco.pg.exec("DELETE FROM dolores_conversa");
     roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }], ["criar_tarefa", { titulo: "Pagar o fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar."));
     await dono("cria uma tarefa para a Bianca ligar para o João");
-    expect(await q("SELECT title FROM tasks WHERE title IN ('Ligar para o João', 'Pagar o fornecedor')")).toEqual([{ title: "Ligar para o João" }]);
+    // portão 3: o título gravado é o trecho do próprio dono ("ligar para o João")
+    expect(await q("SELECT title FROM tasks WHERE title IN ('ligar para o João', 'Ligar para o João', 'Pagar o fornecedor')")).toEqual([{ title: "ligar para o João" }]);
     const [item] = (await fila()).filter((i: any) => i.situacao === "aguardando");
     expect(item).toMatchObject({ funcao: "criar_tarefa" });
     expect(item.resumo).toMatch(/criar a tarefa "Pagar o fornecedor"/);

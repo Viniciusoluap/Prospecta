@@ -120,6 +120,35 @@ cartório amanhã"). Substitui a decisão do portão 2 (I-B) de desligar tudo co
 - Testes novos no e11 (8): regras puras, os dois roteiros em uma mensagem, A3 com aspas, a variante sem aspas (só a anotação é
   gravada), cliente citado só depois do ":", negação ditada × inventada, grupo/aviso com ":" → confirmação. e11: 63 testes.
 
+
+## Portão de segurança E11 — 3ª rodada (sobre 6074e4e → FAIL) — regra ESTRUTURAL, que falha fechada
+
+A conferência do texto por palavras (subsequência) virou "gato e rato" e foi trocada por uma regra estrutural.
+
+| Achado (reproduzido pelo webhook) | Correção |
+|---|---|
+| Subsequência: "não pagar…" → "pagar o boleto"; 1.300 → 300; 15/12 → 12; memória invertida; mistura antes/depois do ":" | (4) TEXTO GRAVADO = TEXTO DO DONO: com ditado, o texto do modelo (normalizado só em caixa, espaços e pontuação nas pontas) tem de ser IGUAL ao ditado inteiro e grava-se o DITADO; sem ":", tem de ser trecho CONTÍNUO da mensagem (caractere a caractere, em fronteira de palavra) e grava-se o TRECHO do dono. `textoGravadoDoDono`; a prova devolve os argumentos com o texto do dono no lugar do do modelo (ponte.ts). |
+| Caracteres que a normalização apagava (emoji, cirílico, chinês, "-300%") | (1) PORTA DE CARACTERES por LISTA PERMITIDA (`passaNaPortaDeCaracteres`): depois de NFKC, só letras latinas do português, dígitos, espaço comum e `. , ; : ! - / ( ) % $ @ + #`; espaços "parecidos" (NBSP, tipográficos, ideográfico, invisíveis) barrados antes do NFKC. Qualquer outro caractere → "pode". |
+| ":" parecidos (： ꞉ ∶ ﹕, "1:1", "://") | (2) Depois da porta só existe o ":" ASCII (os de largura total viram ":" no NFKC; os outros são barrados pela porta) e TODOS contam: mais de um → "pode". Um único ":" entre dígitos (hora) vale como texto só se nada depois dele for verbo de ação. |
+| Aspas fora da lista antiga, travessão de fala | Barrados pela porta (lista permitida). |
+| "？", "¿", "n cria", "ñ cria", "n​ão cria" | "？" vira "?" e é barrado; "¿", "ñ" e o invisível são barrados pela porta; (3) negação por TOKEN (`temNegacao`: não, n, naum, num, nem, nunca, jamais, nada) no trecho antes do ":" (ou na mensagem inteira). |
+| Prazo/prioridade conferiam só o assunto | (5) Calculados pelo CÓDIGO: prazo direto só quando a data inequívoca tirada da mensagem ("hoje", "amanhã", "dd/mm", "dd/mm/aaaa", "dia dd") é igual à do modelo (hora só se ele escreveu); prioridade direta só "média" ou "alta" com "urgente" e nenhuma negação em parte alguma. Senão → "pode". |
+| `bloqueiaOrdemDireta` exportada mas sem uso na produção | Removida; uma função só (`partesDaOrdem`, que chama a porta, os ":" e `temNegacao`) é a usada por cerebro.ts. |
+
+Mantidos: verbo/função/código/alvos só do trecho antes do ":"; `unicoComPonto`; lista fechada; troca de grupo nunca direta; B-b;
+contagem como único retorno ao modelo.
+
+**Roteiros que passaram a pedir "pode" por causa da regra nova (não afrouxado):**
+- tarefa em que o modelo reescreve o título ("Cobrar certidão no cartório" a partir de "cobrar a certidão do João no cartório");
+- com ditado, o modelo que resume o ditado ("cria tarefa pro João: ligar pro cartório amanhã" → título "Ligar pro cartório"): só vai
+  direto se o título for o ditado inteiro ("ligar pro cartório amanhã");
+- mensagem com hora e outro ":", aspas, apóstrofo ("d'água"), travessão, "?", "não/nada" em qualquer ponto antes do ":";
+- prazo/prioridade que o código não consegue tirar da mensagem.
+- O título gravado agora tem a caixa do dono ("ligar para o João", minúsculo como ele escreveu).
+
+Testes: e11 com 71 (8 da 3ª rodada, com as frases exatas, e a propriedade "o que foi gravado é substring exata do que o dono escreveu"
+verificada no banco).
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -165,7 +194,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Testes
 
-- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":").
+- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":"; 71 com o portão 3).
 - Ajustados (mudança de regra autorizada): `grupos-automaticos.test.ts` e `c3-categorias-grupos.test.ts` — "grupo K7HM cliente"
   e "1" sem o nº passaram a valer; `c5-e1-voz.test.ts` — a trava do texto do sistema agora exige as frases da E11 (e continua < 6.500
   caracteres).
@@ -191,6 +220,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 23/11/2026 — @dev (Dex): portão de segurança E11, 3ª rodada — regra estrutural (porta de caracteres, ':' ASCII, negação por token, texto do dono, prazo pelo código).
 - 23/11/2026 — @dev (Dex): ajuste antes da 3ª revisão — ditado depois de ":" como conteúdo de registro.
 - 23/11/2026 — @dev (Dex): portão de segurança E11, 2ª rodada (I-A, I-B, M-A–M-D, B-a, B-b, B-d) corrigido; regressões no e11.
 - 23/11/2026 — @dev (Dex): E11b — ordem direta para tarefa, anotação, memória e aviso; testes do "pode" migrados de veículo.

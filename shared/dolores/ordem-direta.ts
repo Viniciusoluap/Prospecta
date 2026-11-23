@@ -224,49 +224,6 @@ export const FRASE_SO_QUANDO_MARCADA = "Lá eu só respondo quando me marcarem";
 
 // ── E11b: texto do dono, aviso e como desfazer ──
 
-/** Negação explícita (palavra inteira, normalizada). */
-const NEGACAO_SOLTA = /\b(?:nao|nem|nunca|jamais)\b/;
-
-/**
- * Portão de segurança E11, 2ª rodada (I-A) — o texto que será GRAVADO (título, descrição, anotação, lembrança, correção) saiu das
- * palavras do dono? Regra simples e estrita: TODA palavra do texto (normalizada; inclusive as curtas, os números — exatos — e a
- * "moldura") está na mensagem dele, NA MESMA ORDEM (subsequência). "pagar o boleto de 300" nunca vira "Não pagar boleto 900";
- * "prefere contato à tarde" nunca vira "não prefere… nunca". Negação no texto que ele não escreveu → não saiu dele.
- */
-export function textoSaiuDoDono(texto: string | null | undefined, textoDoDono: string): boolean {
-  const t = normalizarNome(texto).split(" ").filter(Boolean);
-  if (!t.length) return true;
-  const d = normalizarNome(textoDoDono).split(" ").filter(Boolean);
-  if (t.some(p => NEGACAO_SOLTA.test(p)) && !d.some(p => NEGACAO_SOLTA.test(p))) return false;
-  let i = 0;
-  for (const p of d) if (i < t.length && p === t[i]) i++;
-  return i === t.length;
-}
-
-/**
- * Portão de segurança E11, 2ª rodada (M-A) — a mensagem não serve de ORDEM DIRETA quando é pergunta ("?" em qualquer ponto) ou tem
- * negação em qualquer posição ("não/nem/nunca/jamais"), além da negação antes do verbo ("sem criar…", `negaAcao`). Vai para a
- * confirmação de sempre. Errar para o lado de perguntar é o combinado.
- */
-export function bloqueiaOrdemDireta(textoDoDono: string | null | undefined): boolean {
-  const bruto = String(textoDoDono ?? "");
-  return bruto.includes("?") || NEGACAO_SOLTA.test(normalizarNome(bruto)) || negaAcao(bruto);
-}
-
-/** B-a: prazo só se ele disse quando (dia, data, hora); prioridade diferente de "média" só se ele disse. */
-export function prazoDitoPeloDono(textoDoDono: string | null | undefined): boolean {
-  return /\b(?:hoje|amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana|mes|dia \d{1,2}|ate \d{1,2}|\d{1,2} \d{1,2}(?: \d{2,4})?|\d{1,2}h|\d{1,2} horas?)\b/
-    .test(normalizarNome(String(textoDoDono ?? "").replace(/[/:]/g, " ")));
-}
-export function prioridadeDitaPeloDono(prioridade: unknown, textoDoDono: string | null | undefined): boolean {
-  if (prioridade === undefined || prioridade === null || prioridade === "media") return true;
-  const n = normalizarNome(textoDoDono);
-  if (prioridade === "alta" || prioridade === "critica") return /\b(?:urgent\w*|prioridade alta|alta prioridade|critic\w*|importante)\b/.test(n);
-  if (prioridade === "baixa") return /\b(?:sem pressa|baixa prioridade|prioridade baixa)\b/.test(n);
-  return false;
-}
-
-/** silenciar_aviso: a direção (parar / voltar) bate com o que ele escreveu. */
 /**
  * Portão de segurança E11, 2ª rodada (M-B) — direção do aviso por VERBOS explícitos ("para de me avisar", "pare de avisar", "silencia",
  * "deixa de me avisar"; "volta a me avisar", "religa"). "para eu acompanhar" (preposição) não conta. As duas direções na mesma
@@ -298,34 +255,150 @@ export function comoDesfazer(funcao: string, argumentos?: unknown, codigoDoGrupo
   }
 }
 
+// ── Portão de segurança E11, 3ª rodada: regra ESTRUTURAL, que falha fechada ──
+
 /** Teto do texto ditado depois do ":". */
 export const MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS = 200;
-/** Aspas de qualquer tipo (inclusive apóstrofo e crase). */
-const ASPAS = /["'`“”‘’«»„‟]/;
-
-export type PartesDaOrdem = { antes: string; depois: string | null };
 
 /**
- * E11 (ajuste antes da 3ª revisão) — separa a mensagem do dono em ANTES do ":" (verbo, função, código e alvos) e o texto DITADO depois
- * dele (só conteúdo de registro). null = a mensagem não serve de ordem direta: aspas de qualquer tipo, ">", quebra de linha, mais de
- * um ":" (o de hora "14:30" e o de "http://" não contam), ditado com mais de 200 caracteres, "?" em qualquer ponto, ou negação ANTES do
- * ":" (M-A). Negação DEPOIS do ":" é conteúdo ditado (o texto gravado precisa reproduzi-la igual — `textoSaiuDoDono`).
+ * (1) PORTA DE CARACTERES — LISTA PERMITIDA (nunca lista de bloqueio): depois de NFKC, só letras latinas do português (com acento),
+ * dígitos, espaço comum e `. , ; : ! - / ( ) % $ @ + #`. Qualquer outro caractere — aspas de qualquer tipo, apóstrofo, crase, "?",
+ * "¿", ">", "<", quebra de linha, emoji, outro alfabeto, invisível, NBSP, travessão, "：" e parecidos que sobrarem — tira a ordem
+ * direta da mensagem inteira (vai para o "pode").
  */
-export function partesDaOrdem(mensagem: string | null | undefined): PartesDaOrdem | null {
-  const m = String(mensagem ?? "").trim();
-  if (!m || ASPAS.test(m) || m.includes(">") || /[\r\n]/.test(m) || m.includes("?")) return null;
-  // ":" que contam: nem o de hora (dígito:dígito) nem o de "://"
+const PERMITIDOS = /^[0-9A-Za-zÁÀÂÃÉÊÍÓÔÕÚÜÇáàâãéêíóôõúüç .,;:!\-/()%$@+#]*$/;
+/** Espaços "parecidos" que o NFKC transformaria em espaço comum (NBSP, espaços tipográficos, ideográfico): barrados ANTES do NFKC. */
+const ESPACOS_PARECIDOS = /[\u00A0\u1680\u2000-\u200F\u2028-\u202F\u205F-\u206F\u3000\uFEFF]/;
+export function passaNaPortaDeCaracteres(mensagem: string | null | undefined): boolean {
+  if (ESPACOS_PARECIDOS.test(String(mensagem ?? ""))) return false;
+  const m = String(mensagem ?? "").normalize("NFKC");
+  return m.trim().length > 0 && PERMITIDOS.test(m);
+}
+
+/** (3) Negação, por TOKEN ("ñ" vira "n"; "n", "naum", "num", "nada"…). Uma função só, usada pela produção (partesDaOrdem). */
+const TOKENS_DE_NEGACAO = new Set(["nao", "n", "naum", "num", "nem", "nunca", "jamais", "nada"]);
+export function temNegacao(texto: string | null | undefined): boolean {
+  const n = normalizarNome(String(texto ?? "").replace(/ñ/gi, "n"));
+  return n.split(" ").some(t => TOKENS_DE_NEGACAO.has(t)) || negaAcao(texto);
+}
+
+export type PartesDaOrdem = { mensagem: string; antes: string; depois: string | null };
+
+/** Verbos de ação (a mesma ideia de `intencaoDeAcao`): depois de um "hh:mm" não pode vir pedido. */
+const VERBO_DE_ACAO = /\b(?:cri\w*|anot\w*|registr\w*|lembr\w*|guard\w*|esquec\w*|corrig\w*|silenci\w*|avis\w*|vincul\w*|lig\w*|ignor\w*|aceit\w*|deslig\w*|classific\w*|defin\w*|marc\w*|agend\w*|coloc\w*|troc\w*|cobr\w*|prepar\w*|ger\w*|salv\w*)\b/;
+
+/**
+ * Separa a mensagem do dono (já pela porta de caracteres) em ANTES do ":" (verbo, função, código e alvos) e o DITADO depois dele (só
+ * conteúdo de registro). null = sem ordem direta. (2) Só existe o ":" ASCII e TODOS contam: mais de um → null. Um único ":" entre dois
+ * dígitos ("14:30") vale como texto comum se nada depois dele for verbo de ação; senão → null. (3) negação no trecho antes do ":"
+ * (ou na mensagem inteira, sem ":") → null. Ditado vazio ou com mais de 200 caracteres → null.
+ */
+export function partesDaOrdem(mensagemBruta: string | null | undefined): PartesDaOrdem | null {
+  if (!passaNaPortaDeCaracteres(mensagemBruta)) return null;
+  const mensagem = String(mensagemBruta).normalize("NFKC").replace(/ +/g, " ").trim();
   const pos: number[] = [];
-  for (let i = 0; i < m.length; i++) {
-    if (m[i] !== ":") continue;
-    if (/\d/.test(m[i - 1] ?? "") && /\d/.test(m[i + 1] ?? "")) continue;
-    if (m.slice(i, i + 3) === "://") continue;
-    pos.push(i);
-  }
+  for (let i = 0; i < mensagem.length; i++) if (mensagem[i] === ":") pos.push(i);
   if (pos.length > 1) return null;
-  const antes = (pos.length ? m.slice(0, pos[0]) : m).trim();
-  const depois = pos.length ? m.slice(pos[0] + 1).trim() : null;
-  if (!antes || (depois !== null && (!depois || depois.length > MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS))) return null;
-  if (NEGACAO_SOLTA.test(normalizarNome(antes)) || negaAcao(antes)) return null;
-  return { antes, depois };
+  let antes = mensagem;
+  let depois: string | null = null;
+  if (pos.length === 1) {
+    const i = pos[0];
+    const hora = /\d/.test(mensagem[i - 1] ?? "") && /\d/.test(mensagem[i + 1] ?? "");
+    if (hora) {
+      if (VERBO_DE_ACAO.test(normalizarNome(mensagem.slice(i + 1)))) return null;
+    } else {
+      antes = mensagem.slice(0, i).trim();
+      depois = mensagem.slice(i + 1).trim();
+      if (!antes || !depois || depois.length > MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS) return null;
+    }
+  }
+  if (temNegacao(antes)) return null;
+  return { mensagem, antes, depois };
+}
+
+/** Normalização da comparação do texto gravado: só caixa, espaços repetidos e pontuação nas pontas. */
+const PONTAS = /^[\s.,;:!\-]+|[\s.,;:!\-]+$/g;
+const comparavel = (t: string) => t.toLowerCase().replace(/\s+/g, " ").replace(PONTAS, "");
+
+/**
+ * (4) TEXTO GRAVADO = TEXTO DO DONO. Devolve o texto a gravar (sempre um pedaço do que ELE escreveu) ou null (→ confirmação).
+ * - Com ditado: o texto do modelo (normalizado só em caixa, espaços e pontuação nas pontas) tem de ser IGUAL ao ditado inteiro; grava-se
+ *   o ditado do dono, aparado.
+ * - Sem ":": o texto do modelo tem de ser um trecho CONTÍNUO da mensagem dele (mesma normalização; comparação caractere a caractere,
+ *   começando e terminando em fronteira de palavra); grava-se o trecho do próprio dono.
+ */
+export function textoGravadoDoDono(textoDoModelo: string | null | undefined, partes: PartesDaOrdem): string | null {
+  const alvo = comparavel(String(textoDoModelo ?? ""));
+  if (!alvo) return null;
+  if (partes.depois !== null) return comparavel(partes.depois) === alvo ? partes.depois.replace(PONTAS, "") : null;
+  // mapa: posição na forma comparável → posição na mensagem (a mensagem já tem espaços simples e só caracteres permitidos)
+  const m = partes.mensagem;
+  const minus = m.toLowerCase();
+  if (minus.length !== m.length) return null;
+  const fronteira = (c: string | undefined) => c === undefined || /[\s.,;!]/.test(c);
+  for (let i = minus.indexOf(alvo); i >= 0; i = minus.indexOf(alvo, i + 1)) {
+    if (fronteira(minus[i - 1]) && fronteira(minus[i + alvo.length])) return m.slice(i, i + alvo.length);
+  }
+  return null;
+}
+
+/**
+ * (5) PRAZO calculado pelo CÓDIGO: a data inequívoca da mensagem do dono ("hoje", "amanhã", "dd/mm", "dd/mm/aaaa", "dia dd" → o próximo
+ * dia dd), como "AAAA-MM-DD" no horário de Imperatriz. Mais de uma data, ou nenhuma → null.
+ */
+export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | null {
+  const n = normalizarNome(mensagem.replace(/\//g, " / "));
+  const [ano, mes, dia] = hojeIso.split("-").map(Number);
+  const iso = (a: number, m: number, d: number) => {
+    const dt = new Date(Date.UTC(a, m - 1, d));
+    return dt.getUTCFullYear() === a && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? `${a}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}` : null;
+  };
+  const achadas: Array<string | null> = [];
+  if (/\bhoje\b/.test(n)) achadas.push(hojeIso);
+  if (/\bamanha\b/.test(n)) achadas.push(iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
+  const barra = String(mensagem).normalize("NFKC").matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g);
+  for (const x of Array.from(barra)) {
+    const d = Number(x[1]); const m = Number(x[2]);
+    let a = x[3] ? Number(x[3].length === 2 ? `20${x[3]}` : x[3]) : ano;
+    let r = iso(a, m, d);
+    if (r && !x[3] && r < hojeIso) { a += 1; r = iso(a, m, d); }
+    achadas.push(r);
+  }
+  for (const x of Array.from(n.matchAll(/\bdia (\d{1,2})\b/g))) {
+    const d = Number(x[1]);
+    let r = d >= dia ? iso(ano, mes, d) : null;
+    if (!r) r = mes === 12 ? iso(ano + 1, 1, d) : iso(ano, mes + 1, d);
+    achadas.push(r);
+  }
+  const unicas = Array.from(new Set(achadas));
+  return unicas.length === 1 && unicas[0] ? unicas[0] : null;
+}
+
+/** Hora escrita pelo dono ("14:30", "14h", "14h30") como "HH:MM"; mais de uma, ou nenhuma → null. */
+export function horaDitaPeloDono(mensagem: string): string | null {
+  const achadas = Array.from(String(mensagem).normalize("NFKC").matchAll(/\b(\d{1,2})(?::(\d{2})|h(\d{2})?)\b/g)).map(x => {
+    const h = Number(x[1]); const mm = Number(x[2] ?? x[3] ?? 0);
+    return h <= 23 && mm <= 59 ? `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}` : null;
+  });
+  const unicas = Array.from(new Set(achadas));
+  return unicas.length === 1 && unicas[0] ? unicas[0] : null;
+}
+
+/**
+ * Prazo do modelo confere com o que o CÓDIGO tirou da mensagem? Sem prazo do modelo → sim (cria sem prazo). Com prazo: o dia tem de ser
+ * a data inequívoca da mensagem e, com hora no prazo, a hora tem de ser a que ele escreveu.
+ */
+export function prazoConfere(prazoDoModelo: unknown, mensagem: string, hojeIso: string): boolean {
+  if (prazoDoModelo === undefined || prazoDoModelo === null || prazoDoModelo === "") return true;
+  const m = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?$/.exec(String(prazoDoModelo));
+  if (!m) return false;
+  if (dataDitaPeloDono(mensagem, hojeIso) !== m[1]) return false;
+  return m[2] ? horaDitaPeloDono(mensagem) === m[2] : true;
+}
+
+/** Prioridade direta: só "média" (padrão) ou "alta" com "urgente" e nenhuma negação em parte alguma da mensagem. */
+export function prioridadeConfere(prioridade: unknown, mensagem: string): boolean {
+  if (prioridade === undefined || prioridade === null || prioridade === "media") return true;
+  if (prioridade !== "alta") return false;
+  return /\burgente\b/.test(normalizarNome(mensagem)) && !normalizarNome(String(mensagem).replace(/ñ/gi, "n")).split(" ").some(t => TOKENS_DE_NEGACAO.has(t));
 }

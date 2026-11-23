@@ -28,7 +28,7 @@ import { VALIDADE_ITEM_CONFIRMAVEL_MS } from "../../shared/dolores/confirmacao.j
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao, type FuncaoAcao } from "./acoes/comum.js";
 import { acoesDoPedido, decidir, porNaFila } from "./aprovacoes.js";
-import { FRASE_SO_QUANDO_MARCADA, comoDesfazer, podeExecutarPorOrdemDireta, preparadoPodeIrDireto } from "../../shared/dolores/ordem-direta.js";
+import { FRASE_SO_QUANDO_MARCADA, comoDesfazer, podeExecutarPorOrdemDireta, preparadoPodeIrDireto, type PartesDaOrdem } from "../../shared/dolores/ordem-direta.js";
 import { provarAlvosDoDono, type Prova } from "./ordem-direta.js";
 import { emTransacaoDeEscrita, foiPrazoDaTransacao } from "./escrita.js";
 
@@ -223,7 +223,7 @@ export type OpcoesExecucao = {
    * cujos alvos saíram dessas palavras (server/dolores/ordem-direta.ts) executa NA HORA, pelo mesmo item da fila (resumo + hash +
    * revalidação + auditoria de `decidir`), sem o "pode". Ausente, ou alvo que não saiu das palavras dele → a confirmação de sempre.
    */
-  ordemDireta?: { texto: string; mensagem?: string; comDoisPontos?: boolean } | null;
+  ordemDireta?: PartesDaOrdem | null;
   /** EPIC-025 E11: recebe a frase (montada pelo sistema) de cada ação feita na hora por ordem direta — para a linha "Feito: …". */
   aoExecutar?: (frases: string[]) => void;
 };
@@ -325,7 +325,7 @@ export async function executarFuncao(corpo: unknown, opcoes: OpcoesExecucao): Pr
     contaminado: opcoes.contaminado === true, motivoContaminacao: opcoes.motivoContaminacao ?? null, prazoMs, aoPorNaFila: opcoes.aoPorNaFila,
     exigirConfirmacao: opcoes.exigirConfirmacao === true, confirmacaoNatural: opcoes.confirmacaoNatural === true, pedidoDeMemoria: opcoes.pedidoDeMemoria ?? null,
     pedidoDeMesa: opcoes.pedidoDeMesa ?? null, pedidoFiscal: opcoes.pedidoFiscal ?? null,
-    ordemDireta: opcoes.canal === "whatsapp" && typeof opcoes.ordemDireta?.texto === "string" && opcoes.ordemDireta.texto.trim() ? opcoes.ordemDireta : null, aoExecutar: opcoes.aoExecutar });
+    ordemDireta: opcoes.canal === "whatsapp" && typeof opcoes.ordemDireta?.antes === "string" && opcoes.ordemDireta.antes.trim() ? opcoes.ordemDireta : null, aoExecutar: opcoes.aoExecutar });
   try {
     const r = await comPrazo(emTransacaoSomenteLeitura(() => leitura!.executar(args.data as never, { agora, canal: opcoes.canal, ...(leitura!.soConversaDoDono ? { pedidoDoDono: opcoes.pedidoDoDono ?? null } : {}) })), prazoMs);
     // Toda string da resposta passa pelo filtro (texto livre: anotações, mensagens, títulos): senhas, chaves e dados
@@ -356,15 +356,17 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
   exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null; pedidoDeMesa: ContextoAcao["pedidoDeMesa"];
   pedidoFiscal: ContextoAcao["pedidoFiscal"];
-  ordemDireta?: { texto: string; mensagem?: string; comDoisPontos?: boolean } | null; aoExecutar?: (frases: string[]) => void;
+  ordemDireta?: PartesDaOrdem | null; aoExecutar?: (frases: string[]) => void;
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   // EPIC-025 E11: ordem direta do dono — a ação reversível da lista fechada cujos ALVOS saíram das palavras dele (conferência no
   // servidor, por código). Provado, o resumo não leva o aviso de "pedido surgido durante a leitura" (o alvo não veio da leitura).
   const prova = c.ordemDireta && podeExecutarPorOrdemDireta(funcao, args)
-    ? await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto, { mensagem: c.ordemDireta.mensagem, comDoisPontos: c.ordemDireta.comDoisPontos }), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" } as Prova))
+    ? await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta, c.agora), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" } as Prova))
     : null;
   const ordemDireta = prova?.ok === true;
+  // Portão 3 (4): provado, o que vai para a fila e é gravado é o TEXTO DO DONO (não a string do modelo)
+  if (prova?.ok === true && prova.argumentos) args = prova.argumentos;
   // E11b: o nome que ele digitou aponta mais de um cliente/responsável → pergunta curta com os nomes (nada vai para a fila)
   if (prova && !prova.ok && prova.pergunta) {
     await registrar("recusada", { funcao, argumentos: args, motivo: `ordem direta: ${prova.motivo}; perguntado qual`, pedidoId: c.pedidoId });

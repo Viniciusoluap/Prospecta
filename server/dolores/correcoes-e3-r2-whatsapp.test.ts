@@ -130,15 +130,16 @@ describe("R2-N1 invertido — texto de terceiro COLADO na mensagem do dono não 
   it("GARANTIA (E11b): pedido curto e direto do dono grava na hora; tarefa cujo texto não saiu das palavras dele espera o \"pode\"", async () => {
     roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("")];
     await chamar(aviso({ texto: "cria uma tarefa para a Bianca ligar para o João amanhã" }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João"]);
+    // portão 3: grava o trecho do PRÓPRIO dono (a caixa dele)
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João"]);
     expect((await fila()).map(i => i.situacao)).toEqual(["executada"]);
-    expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "Ligar para o João"/);
+    expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "ligar para o João"/);
     roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Cobrar o boleto do fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar.")];
     await chamar(aviso({ texto: "cria aquela outra tarefa para a Bianca" }));
     expect(await tarefasDolores()).toHaveLength(1);
     expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
     await chamar(aviso({ texto: "pode" }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para o João", "Cobrar o boleto do fornecedor"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João", "Cobrar o boleto do fornecedor"]);
     expect(ultimaResposta()).toMatch(/^Pronto: /);
   });
 });
@@ -155,7 +156,7 @@ describe("R2-N2 invertido — texto de dados que volta de AÇÃO contamina (ou n
     // E11b: feita na hora (ordem direta); o resultado ao modelo continua sem o nome do cadastro (só a contagem do que foi feito)
     expect(resultadosAoModelo(1)).not.toContain("SISTEMA");
     expect(resultadosAoModelo(1)).not.toContain("Bianca Souza");
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Revisar o contrato"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["revisar o contrato"]);
   });
 
   it("recusa 422 com a lista de NOMES da equipe contamina: o registrar_acompanhamento seguinte vai para a FILA, nada gravado direto", async () => {

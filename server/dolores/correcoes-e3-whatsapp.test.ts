@@ -111,8 +111,9 @@ describe("achado 1 (A8) — dado de terceiro não induz ação: regra de contami
       () => texto("Criei a tarefa e aqui está o histórico."),
     ];
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para a Maria amanhã e me mostra o histórico dela." }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para a Maria amanhã"]);
-    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "Ligar para a Maria amanhã"/);
+    // portão 3: grava o trecho do PRÓPRIO dono (a caixa dele)
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para a Maria amanhã"]);
+    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "ligar para a Maria amanhã"/);
     expect(ultimaResposta()).not.toMatch(/Posso fazer isto\?/);
   });
 
