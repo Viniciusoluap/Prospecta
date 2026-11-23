@@ -113,7 +113,8 @@ export const FUNCOES_DE_GRUPO = ["classificar_grupo", "aceitar_grupo", "ignorar_
  */
 export const exigeConfirmoNoCodigo = (funcao: string, argumentos: unknown) =>
   // EPIC-027 C5-COM: trocar o link da maquete também (o link anterior deixa de abrir); C5 mesas: a aprovação de uma mesa
-  ([...FUNCOES_DE_GRUPO, "gerar_link_maquete_lote", "propor_aprovacao_mesa"] as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
+  // EPIC-029 S-7 (revisão do Codex, PR #331): emitir e cancelar nota fiscal — com a emissão liberada, "aprovar CÓDIGO" sozinho não basta
+  ([...FUNCOES_DE_GRUPO, "gerar_link_maquete_lote", "propor_aprovacao_mesa", "emitir_nota_fiscal", "cancelar_nota_fiscal"] as readonly string[]).includes(funcao) && nivelDoItem(funcao, argumentos) === "serio";
 
 type ItemParaMotivo = string | { funcao: string; argumentos?: unknown };
 const ehTroca = (i: ItemParaMotivo) => typeof i !== "string" && i.funcao === "classificar_grupo" &&
