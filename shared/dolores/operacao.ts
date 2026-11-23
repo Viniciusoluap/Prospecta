@@ -257,7 +257,7 @@ export function montarRelatorio(p: {
     sec("Documentos dos grupos", linhas);
   }
   if (t.notas) {
-    sec("Notas de obra", [`${n(t.notas.semConfirmacao)} sem confirmação do empreiteiro, ${n(t.notas.confirmadasSemConciliacao)} confirmada(s) sem conciliação com o banco, ${n(t.notas.correcao)} com pedido de correção, ${n(t.notas.naoLidas)} não lida(s)/ilegível(is).`]);
+    sec("Notas de obra", [`${n(t.notas.semConfirmacao)} sem confirmação do empreiteiro, ${n(t.notas.confirmadasSemConciliacao)} confirmada(s) sem conciliação com o banco (inclui as recebidas pelo ADN), ${n(t.notas.correcao)} com pedido de correção, ${n(t.notas.naoLidas)} não lida(s)/ilegível(is).`]);
   }
   if (t.banco) sec("Banco", [`${n(t.banco.sincronizadas24h)} movimentação(ões) sincronizada(s) nas últimas 24 h; ${n(t.banco.aClassificar)} a classificar no BPO.`]);
   if (t.feitos24h) {

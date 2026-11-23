@@ -34,6 +34,7 @@ import {
 } from "./classificacao.js";
 import { liberarReservaClassificacao, registrarConsumo, registrarConsumoDaClassificacao, reservarClassificacao } from "./consumo.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { divergenciasEntreOrigens } from "../fiscal/nfse-recebida.js";
 import { grupoAtivo, lerConfigGrupos, textoDeGrupoParaGravar } from "./grupos.js";
 import { bloqueioDaOperacao } from "./operacao.js";
 
@@ -85,10 +86,11 @@ export async function empreiteiroDaObra(obraId: number, conexao: Pick<ReturnType
 }
 
 /** Grava a nota (rascunho) com a conferência de duplicidade, numa transação travada (uma gravação de nota por vez). */
-async function gravarNota(p: {
+/** Exportada para os testes (EPIC-029 S-5b: duplicada × mesma nota por outra origem). */
+export async function gravarNota(p: {
   grupoId: number; mensagemId: number; obraId: number | null; sha256: string | null; mime: string | null; bytes: number | null;
   leitura: LeituraConferida; modelo: string | null; lidaEm: Date | null; extraAlertas?: string[];
-}): Promise<{ id: number; duplicadaDe: number | null } | null> {
+}): Promise<{ id: number; duplicadaDe: number | null; outraOrigemDe: number | null } | null> {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(250005)`);
     const l = p.leitura;
@@ -100,8 +102,11 @@ async function gravarNota(p: {
     const numero = numeroComparavel(l.numero);
     const porSha = p.sha256 ? await maisAntiga(eq(obraNotas.arquivoSha256, p.sha256)) : [];
     const porChave = l.chaveAcesso ? await maisAntiga(eq(obraNotas.chaveAcesso, l.chaveAcesso)) : [];
-    const porNumero = l.emitenteDocumento && numero ? await maisAntiga(and(eq(obraNotas.emitenteDocumento, l.emitenteDocumento),
-      sql`regexp_replace(regexp_replace(coalesce(${obraNotas.numero}, ''), '[^0-9]', '', 'g'), '^0+([0-9])', '\\1') = ${numero}`) as never) : [];
+    const mesmoNumero = l.emitenteDocumento && numero ? and(eq(obraNotas.emitenteDocumento, l.emitenteDocumento),
+      sql`regexp_replace(regexp_replace(coalesce(${obraNotas.numero}, ''), '[^0-9]', '', 'g'), '^0+([0-9])', '\\1') = ${numero}`) : undefined;
+    // EPIC-029 S-5b: duplicada é só dentro da MESMA origem (outra nota de grupo); a NFS-e igual já recebida pelo ADN é a "mesma
+    // nota por outra origem" — esta fica com o arquivo do grupo (pode ir ao Drive), mas a conciliação fica na do ADN
+    const porNumero = mesmoNumero ? await maisAntiga(and(mesmoNumero, eq(obraNotas.origem, "grupo")) as never) : [];
     const candidatas = [...porSha, ...porChave, ...porNumero].sort((a, b) => a.id - b.id);
     let duplicadaDe: number | null = null;
     let motivo: string | null = null;
@@ -109,6 +114,10 @@ async function gravarNota(p: {
       motivo = motivoDuplicidade({ arquivoSha256: p.sha256, chaveAcesso: l.chaveAcesso, emitenteDocumento: l.emitenteDocumento, numero: l.numero }, c);
       if (motivo) { duplicadaDe = c.id; break; }
     }
+    // S-5b: sem duplicata no grupo, a mesma nota já recebida pelo ADN (se houver; e se ela já foi cancelada, esta nasce cancelada)
+    const [doAdn] = !duplicadaDe && mesmoNumero ? await tx.select({ id: obraNotas.id, canceladaEm: obraNotas.canceladaEm, cancelamentoTipo: obraNotas.cancelamentoTipo,
+      valorCentavos: obraNotas.valorCentavos, dataEmissao: obraNotas.dataEmissao })
+      .from(obraNotas).where(and(mesmoNumero, eq(obraNotas.origem, "adn"))).orderBy(asc(obraNotas.id)).limit(1) : [];
     // empreiteiro da obra: só SUGERIDO quando o CPF/CNPJ lido confere com o cadastro dele
     let empreiteiroUserId: number | null = null;
     const duvidas = [...l.duvidas];
@@ -117,16 +126,23 @@ async function gravarNota(p: {
       if (emp && l.emitenteDocumento && emp.cpf === l.emitenteDocumento) empreiteiroUserId = emp.id;
       else if (l.categoria === "empreiteiro") duvidas.push("categoria \"empreiteiro\" sugerida, mas o CPF/CNPJ da nota não é o do empreiteiro cadastrado na obra: confira");
     }
-    const alertas = [...(p.extraAlertas ?? []), ...(duplicadaDe ? [`nota DUPLICADA: ${motivo} (não é conciliada)`] : []), ...l.alertas];
-    const situacao = l.situacao === "rascunho" && (duplicadaDe || duvidas.length) ? "confira" : l.situacao;
+    const cancelada = doAdn?.canceladaEm ? { em: doAdn.canceladaEm, tipo: doAdn.cancelamentoTipo } : null;
+    // QA S-5b (médio): valor/data diferentes da NFS-e oficial → "confira" com o alerta; a conciliação fica na oficial (do ADN)
+    const divergencias = doAdn ? divergenciasEntreOrigens(doAdn, l) : [];
+    const alertas = [...(p.extraAlertas ?? []), ...(duplicadaDe ? [`nota DUPLICADA: ${motivo} (não é conciliada)`] : []),
+      ...(doAdn ? [`mesma nota já recebida pelo ADN (nota ${doAdn.id}, mesmo número e mesmo emitente): a conciliação fica na nota ${doAdn.id}; o arquivo desta pode ir ao Drive`] : []),
+      ...(divergencias.length ? [`DIVERGE da nota oficial ${doAdn!.id} recebida pelo ADN (${divergencias.join("; ")}): vale a oficial`] : []),
+      ...(cancelada ? [`NFS-e CANCELADA (evento ${cancelada.tipo} do ADN): não pode ser paga nem conciliada`] : []), ...l.alertas];
+    const situacao = l.situacao === "rascunho" && (duplicadaDe || cancelada || divergencias.length || duvidas.length) ? "confira" : l.situacao;
     const [linha] = await tx.insert(obraNotas).values({
       grupoId: p.grupoId, mensagemId: p.mensagemId, obraId: p.obraId, arquivoSha256: p.sha256, arquivoMime: p.mime?.slice(0, 60) ?? null,
       arquivoBytes: p.bytes, situacao, tipo: l.tipo, emitenteNome: l.emitenteNome, emitenteDocumento: l.emitenteDocumento, numero: l.numero,
       dataEmissao: l.dataEmissao, valorCentavos: l.valorCentavos, descricao: l.descricao, itens: l.itens, chaveAcesso: l.chaveAcesso,
       categoria: l.categoria, etapa: l.etapa, empreiteiroUserId, confianca: l.confianca, duvidas: duvidas.slice(0, 20), alertas: alertas.slice(0, 12),
       duplicadaDe, modelo: p.modelo?.slice(0, 120) ?? null, lidaEm: p.lidaEm,
+      outraOrigemDe: doAdn?.id ?? null, canceladaEm: cancelada?.em ?? null, cancelamentoTipo: cancelada?.tipo ?? null,
     }).onConflictDoNothing().returning({ id: obraNotas.id });
-    return linha ? { id: linha.id, duplicadaDe } : null;
+    return linha ? { id: linha.id, duplicadaDe, outraOrigemDe: doAdn?.id ?? null } : null;
   });
 }
 
