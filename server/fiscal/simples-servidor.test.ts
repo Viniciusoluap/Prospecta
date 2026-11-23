@@ -112,7 +112,7 @@ describe("RBT12 da empresa (raiz do CNPJ)", () => {
     expect(r.rbt12).toEqual({ centavos: R$(500_000), regra: "doze_meses", meses: 12 });
     // Anexo IV, R$ 500.000: efetiva 7,7160%, ISS 3,0864% (ALIQUOTAS.md §3.5).
     expect(r.calculo).toMatchObject({ anexo: { anexo: "IV" }, faixa: 3, efetiva: 77_160, iss: 30_864 });
-    expect(r.aliquotaDps).toBe("3.0864");
+    expect(r.aliquotaDps).toBe("3.09"); // pAliq com 2 casas (CASAS_PALIQ), meio para cima
     // Sem a conta por empresa (S-6), o BPO não entra e a tela avisa.
     expect(r.receita).toEqual({ completo: false, notasEmitidas: R$(500_000), bpo: null });
     expect(r.avisos).toContain(AVISO_BPO_SEM_CONTA_POR_EMPRESA);
@@ -155,6 +155,7 @@ describe("Fator R e anexo", () => {
   beforeEach(() => preparar());
 
   it("cAtvSN 9 sem folha → Anexo V (a informar); com folha ≥ 28% até o mês anterior → III; folha desatualizada → V", async () => {
+    await pg.exec("ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14)"); // receita completa (com ela incompleta, III vira V)
     await emitida(1, "2026-02-10", R$(500_000));
     const id = await rascunho(1, 102);
     let r = await calcular(id);
@@ -230,10 +231,10 @@ describe("regime, vigência e DPS", () => {
     if (!r.aplica) throw new Error("devia aplicar");
     expect(r.ok).toBe(false);
     expect(r.erro).toMatch(/2027/);
-    expect(paraDps(r)).toEqual({ aliquotaIss: null, falta: expect.stringMatching(/alíquota do Simples: .*2027/), receitaCompleta: false });
+    expect(paraDps(r)).toEqual({ aliquotaIss: null, falta: expect.stringMatching(/alíquota do Simples: .*2027/), receitaCompleta: false, inicioAtividadeInformado: false });
   });
 
-  it("6ª faixa: ISS fora do DAS → pAliq volta a ser a alíquota municipal do tipo", async () => {
+  it("sublimite ultrapassado no ano anterior: ISS fora do DAS → pAliq volta a ser a alíquota municipal do tipo", async () => {
     const id = await rascunho(1, 101);
     const db = drizzle(pg) as never;
     const r = await aliquotaSimplesDaNota(db, await carregarNota(db, id), {
@@ -241,19 +242,24 @@ describe("regime, vigência e DPS", () => {
     });
     if (!r.aplica) throw new Error("devia aplicar");
     expect(r.calculo?.iss).toBeNull();
-    expect(r.aliquotaDps).toBe("5.0000");
-    expect(paraDps(r)).toEqual({ aliquotaIss: "5.0000", falta: null, receitaCompleta: true });
+    expect(r.aliquotaDps).toBe("5.00");
+    expect(r.sublimite).toMatchObject({ issNoDas: false });
+    expect(paraDps(r)).toEqual({ aliquotaIss: "5.00", falta: null, receitaCompleta: true, inicioAtividadeInformado: false });
   });
 
   it("DPS: Simples usa a alíquota calculada; sem cálculo, falta; produção exige receita completa; outro regime usa a do tipo", () => {
     const base = { ambiente: "producao_restrita", regimeTributario: "simples_nacional", aliquotaIss: "5.0000", competencia: "2026-11-20",
       servico: { codigoAtividadeSimples: "13" }, parametros: PARAMETROS_VAZIOS, prestador: {}, tomador: null } as unknown as EntradaDps;
-    expect(aliquotaDaDps({ ...base, aliquotaSimples: { aliquotaIss: "3.0864", falta: null, receitaCompleta: true } })).toBe("3.0864");
+    expect(aliquotaDaDps({ ...base, aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: true } })).toBe("3.09");
     expect(aliquotaDaDps({ ...base, aliquotaSimples: null })).toBeNull();
-    expect(aliquotaDaDps({ ...base, regimeTributario: "lucro_presumido", aliquotaSimples: { aliquotaIss: "3.0864", falta: null, receitaCompleta: true } })).toBe("5.0000");
+    expect(aliquotaDaDps({ ...base, regimeTributario: "lucro_presumido", aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: true } })).toBe("5.00");
     expect(faltasDps({ ...base, aliquotaSimples: null })).toContain("alíquota do Simples calculada pelo sistema (RBT12 × anexo do tipo de serviço)");
     expect(faltasDps({ ...base, aliquotaSimples: { aliquotaIss: null, falta: "alíquota do Simples: x", receitaCompleta: true } })).toContain("alíquota do Simples: x");
-    expect(faltasDps({ ...base, ambiente: "producao", aliquotaSimples: { aliquotaIss: "3.0864", falta: null, receitaCompleta: false } }).join(";"))
+    // QA S-8 (M4): produção também exige a data de início de atividade; produção restrita só avisa.
+    expect(faltasDps({ ...base, ambiente: "producao", aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: true } }).join(";")).toMatch(/início de atividade/);
+    expect(faltasDps({ ...base, ambiente: "producao", aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: true, inicioAtividadeInformado: true } }).join(";")).not.toMatch(/início de atividade/);
+    expect(faltasDps({ ...base, aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: true } }).join(";")).not.toMatch(/início de atividade/);
+    expect(faltasDps({ ...base, ambiente: "producao", aliquotaSimples: { aliquotaIss: "3.09", falta: null, receitaCompleta: false } }).join(";"))
       .toMatch(/receita dos 12 meses completa/);
     expect(faltasDps({ ...base, regimeTributario: "lucro_presumido", aliquotaSimples: null }).join(";")).not.toMatch(/alíquota do Simples/);
   });
@@ -290,5 +296,77 @@ describe("rota da folha (salvarSimples)", () => {
     if (!r.aplica) throw new Error("devia aplicar");
     expect(r.folha.situacao).toBe("a_informar");
     expect((await caller("admin").fiscal.emissores.listar())[0]?.simples).toBeNull();
+  });
+});
+
+describe("QA S-8 — correções (M1 a M4 e Fator R com receita incompleta)", () => {
+  beforeEach(() => preparar());
+  const db = () => drizzle(pg) as never;
+  /** Fonte falsa por período: RBT12 (12 meses), ano anterior e ano em curso. */
+  const fonte = (rbt12: number, anoAnterior: number, anoAtual: number) => ({
+    receitaDoPeriodo: async (_raiz: string, de: string, ate: string) => {
+      const centavos = de.endsWith("-01-01") && ate.endsWith("-12-31") ? anoAnterior : de.endsWith("-01-01") ? anoAtual : rbt12;
+      return { centavos, fontes: { notasEmitidas: centavos, bpo: 0 }, completo: true, avisos: [] };
+    },
+  });
+
+  it("M3: ano anterior acima do sublimite tira o ISS do DAS mesmo com RBT12 baixo (5ª faixa ou menos)", async () => {
+    const id = await rascunho(1, 101, "2026-06-10");
+    const r = await aliquotaSimplesDaNota(db(), await carregarNota(db(), id), fonte(R$(500_000), R$(3_600_000) + 1, R$(100_000)));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.calculo).toMatchObject({ faixa: 3, iss: null, reparticao: { issDentroDoDas: false } });
+    expect(r.aliquotaDps).toBe("5.00"); // municipal do tipo
+  });
+
+  it("M3: ano em curso acima do sublimite em mais de 20% → ISS fora; em até 20% → no DAS, com aviso para o ano seguinte", async () => {
+    const id = await rascunho(1, 101, "2026-06-10");
+    let r = await aliquotaSimplesDaNota(db(), await carregarNota(db(), id), fonte(R$(3_000_000), R$(2_000_000), R$(4_320_000) + 1));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.calculo?.iss).toBeNull();
+    r = await aliquotaSimplesDaNota(db(), await carregarNota(db(), id), fonte(R$(3_000_000), R$(2_000_000), R$(4_320_000)));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.calculo?.iss).toBe(50_000); // 5ª faixa, teto
+    expect(r.avisos.join(" ")).toMatch(/janeiro de 2027/);
+  });
+
+  it("M3: RBT12 na 6ª faixa sem excesso no ano → ISS no DAS pela fórmula da 5ª faixa (Anexo IV: 12,5%+ → teto)", async () => {
+    const id = await rascunho(1, 101, "2026-02-10");
+    const r = await aliquotaSimplesDaNota(db(), await carregarNota(db(), id), fonte(R$(3_700_000), R$(3_500_000), R$(300_000)));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.calculo).toMatchObject({ faixa: 6, iss: 50_000, reparticao: { issDentroDoDas: true } });
+    expect(r.aliquotaDps).toBe("5.00");
+  });
+
+  it("M2: colaborador vê a situação da folha e o anexo, nunca o valor (nem pela nota, nem pela lista)", async () => {
+    await pg.exec("ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14)");
+    await emitida(1, "2026-02-10", R$(500_000));
+    await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: R$(150_000), folhaAte: "2026-10", inicioAtividade: null });
+    const id = await rascunho(1, 102);
+    const colab = await caller("colaborador").fiscal.notas.aliquotaSimples({ id });
+    if (!colab.aplica) throw new Error("devia aplicar");
+    expect(colab.folha).toMatchObject({ situacao: "valida", folha12mCentavos: null, folhaOculta: true });
+    expect(colab.fatorR?.r).toBeNull();
+    expect(colab.calculo?.anexo.anexo).toBe("III");
+    const adm = await caller("admin").fiscal.notas.aliquotaSimples({ id });
+    if (!adm.aplica) throw new Error("devia aplicar");
+    expect(adm.folha.folha12mCentavos).toBe(R$(150_000));
+    const lista = await caller("colaborador").fiscal.emissores.listar();
+    expect(lista.find(p => p.cnpj === "41865900000189")?.simples).toMatchObject({ folha12mCentavos: null, folhaOculta: true, folhaAte: "2026-10" });
+  });
+
+  it("Fator R com receita incompleta: r ≥ 28% não vira Anexo III (usa o V, o lado de pagar mais)", async () => {
+    await emitida(1, "2026-02-10", R$(500_000));
+    await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: R$(150_000), folhaAte: "2026-10", inicioAtividade: null });
+    const r = await calcular(await rascunho(1, 102));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.receita.completo).toBe(false);
+    expect(r.calculo?.anexo).toMatchObject({ anexo: "V", fatorR: "a_informar" });
+    expect(r.fatorR?.motivo).toMatch(/incompleta/);
+  });
+
+  it("M4: paraDps leva se o início de atividade foi informado", async () => {
+    await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: null, folhaAte: null, inicioAtividade: "2021-05-07" });
+    const r = await calcular(await rascunho(1, 101));
+    expect(paraDps(r)).toMatchObject({ inicioAtividadeInformado: true });
   });
 });

@@ -314,7 +314,7 @@ describe("QA S-8 — servidor: RBT12 por raiz e janela", () => {
     expect(r.receita).toEqual({ completo: true, notasEmitidas: 0, bpo: R$(1_000) });
   });
 
-  it.fails("ACHADO M1: reembolso de despesa do cliente não é receita bruta (art. 3º §1º) — não pode inflar o RBT12", async () => {
+  it("ACHADO M1: reembolso de despesa do cliente não é receita bruta (art. 3º §1º) — não pode inflar o RBT12", async () => {
     await pg.exec(`ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14);
       INSERT INTO bank_accounts (id, banco, conta, empresa_cnpj) VALUES (1, 'Banco', '1', '41865900000189');
       INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 50000, '2026-03-10', 'cartório');
@@ -377,7 +377,7 @@ describe("QA S-8 — servidor: permissões e vazamento", () => {
     expect(String(e.message)).not.toMatch(/select|from|fiscal_notas/i);
   });
 
-  it.fails("ACHADO M2: colaborador (não admin) não deveria receber o valor da folha (salários + pró-labore) da empresa", async () => {
+  it("ACHADO M2: colaborador (não admin) não deveria receber o valor da folha (salários + pró-labore) da empresa", async () => {
     await caller("admin").fiscal.emissores.salvarSimples({ cnpj: "41865900000189", folha12mCentavos: R$(123_456), folhaAte: "2026-10", inicioAtividade: null });
     const id = await rascunho(1, 102);
     const pelaNota = await caller("colaborador").fiscal.notas.aliquotaSimples({ id });
@@ -390,7 +390,7 @@ describe("QA S-8 — servidor: permissões e vazamento", () => {
 describe("QA S-8 — servidor: sublimite e DPS", () => {
   beforeEach(() => preparar());
 
-  it.fails("ACHADO M3: RBT12 > R$ 3,6 mi SEM excesso de sublimite no ano → ISS continua no DAS (fórmula da 5ª faixa, Res. CGSN 140) [confirmar com o contador]", async () => {
+  it("ACHADO M3: RBT12 > R$ 3,6 mi SEM excesso de sublimite no ano → ISS continua no DAS (fórmula da 5ª faixa, Res. CGSN 140) [confirmar com o contador]", async () => {
     // Ano anterior com R$ 3,5 mi (não passou o sublimite) e RBT12 de R$ 3,7 mi: a empresa não está impedida de recolher o ISS
     // no Simples. A conta da Receita usa a 5ª faixa: (3,7 mi × 21% − 125.640)/3,7 mi × 33,5% = 5,897% → teto 5%.
     const id = await rascunho(1, 101, "2026-02-10");

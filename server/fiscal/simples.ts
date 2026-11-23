@@ -12,8 +12,8 @@
 import { sql } from "drizzle-orm";
 import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import {
-  ErroSimples, calcularSimples, fatorR, mesAntes, mesesDeAtividadeAntes, percentualDecimal, rbt12Proporcional, ultimoDiaDoMes,
-  type CalculoSimples, type FatorR, type RegraRbt12,
+  ErroSimples, aliquotaTextoParaDps, calcularSimples, fatorR, mesAntes, mesesDeAtividadeAntes, percentualDps, rbt12Proporcional, sublimiteDoIss,
+  ultimoDiaDoMes, type CalculoSimples, type FatorR, type RegraRbt12, type Sublimite,
 } from "../../shared/fiscal/simples.js";
 import type { AliquotaSimplesDps } from "../../shared/fiscal/dps-campos.js";
 import type { DrizzleDb } from "../db.js";
@@ -74,7 +74,8 @@ export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
       const notasEmitidas = detalhadas.reduce((a, n) => a + n.valorCentavos, 0);
       const jaNaNota = Array.from(new Set(detalhadas.map(n => n.origem?.bpoLancamentoId).filter((x): x is number => x != null)));
 
-      // (b) BPO nas contas da empresa — só com a conta por empresa (S-6, 0164).
+      // (b) BPO nas contas da empresa — só com a conta por empresa (S-6, 0164). QA S-8 (M1): só receita de verdade
+      //     (honorário e receita); reembolso de despesa do cliente não é receita bruta (LC 123, art. 3º §1º).
       if (!(await temColuna(db, "bank_accounts", "empresa_cnpj"))) {
         return { centavos: notasEmitidas, fontes: { notasEmitidas, bpo: null }, completo: false, avisos: [AVISO_BPO_SEM_CONTA_POR_EMPRESA] };
       }
@@ -82,7 +83,7 @@ export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
       const [r] = linhas(await db.execute(sql`
         SELECT coalesce(sum(l.valor), 0) AS total
         FROM bpo_lancamentos l JOIN bank_transactions bt ON bt.id = l.bank_transaction_id JOIN bank_accounts ba ON ba.id = bt.account_id
-        WHERE l.tipo <> 'despesa' AND l.pago = true AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL
+        WHERE l.tipo IN ('honorario', 'receita') AND l.pago = true AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL
           AND left(upper(regexp_replace(coalesce(ba.empresa_cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz}
           AND l.pago_em >= ${meiaNoiteBrasilia(de)}::timestamp AND l.pago_em < ${meiaNoiteBrasilia(diaSeguinte(ate))}::timestamp ${fora}`));
       const bpo = centavos(r?.total);
@@ -92,6 +93,16 @@ export function fonteReceitaMinima(db: DrizzleDb): FonteReceita {
 }
 
 export type DadosSimplesEmpresa = { folha12mCentavos: number | null; folhaAte: string | null; inicioAtividade: string | null };
+/**
+ * QA S-8 (M2): a folha (salários + pró-labore) é dado sensível da empresa — só o admin vê o valor. Os outros veem a situação
+ * (válida / a informar / desatualizada) e o anexo resultante; o r também sai (com o RBT12, revelaria a folha).
+ */
+export function semValorDaFolha<T extends ResultadoSimplesNota>(r: T): T {
+  if (!r.aplica) return r;
+  return { ...r, folha: { ...r.folha, folha12mCentavos: null, folhaOculta: r.folha.folha12mCentavos != null },
+    fatorR: r.fatorR ? { ...r.fatorR, r: null } : null };
+}
+
 const SEM_DADOS: DadosSimplesEmpresa = { folha12mCentavos: null, folhaAte: null, inicioAtividade: null };
 
 /** Folha e início de atividade da empresa (0168). Sem a tabela ou sem a linha → tudo "a informar". */
@@ -137,7 +148,11 @@ export type ResultadoSimplesNota =
     periodo: { de: string; ate: string };
     rbt12: { centavos: number; regra: RegraRbt12; meses: number };
     receita: { completo: boolean; notasEmitidas: number; bpo: number | null };
-    folha: DadosSimplesEmpresa & { situacao: "nao_se_aplica" | "a_informar" | "desatualizada" | "valida" };
+    /** QA S-8 (M3): sublimite pela receita do ano-calendário (anterior e em curso até o mês anterior). */
+    sublimite: (Sublimite & { rbaAnoAnterior: number; rbaAnoAtual: number; completo: boolean }) | null;
+    /** QA S-8 (M4): sem a data, a DPS de produção é recusada. */
+    inicioAtividadeInformado: boolean;
+    folha: DadosSimplesEmpresa & { situacao: "nao_se_aplica" | "a_informar" | "desatualizada" | "valida"; folhaOculta?: boolean };
     fatorR: FatorR | null;
     calculo: CalculoSimples | null;
     /** O que vai em `pAliq` da DPS: a parte do ISS (Simples) ou, na 6ª faixa, a alíquota municipal do tipo. */
@@ -210,6 +225,17 @@ export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, 
   }
   avisos.push(...receita.avisos);
 
+  // QA S-8 (M3): sublimite pela receita do ANO-CALENDÁRIO (anterior inteiro; em curso, de janeiro ao mês anterior).
+  const ano = Number(competencia.slice(0, 4));
+  const anterior = await fonte.receitaDoPeriodo(raiz, `${ano - 1}-01-01`, `${ano - 1}-12-31`);
+  const mesNum = Number(competencia.slice(5, 7));
+  const atual = mesNum > 1
+    ? await fonte.receitaDoPeriodo(raiz, `${ano}-01-01`, ultimoDiaDoMes(mesAntes(competencia, 1)))
+    : { centavos: 0, fontes: { notasEmitidas: 0, bpo: 0 }, completo: true, avisos: [] };
+  const sub = sublimiteDoIss({ competencia, rbaAnoAnterior: anterior.centavos, rbaAnoAtualAteMesAnterior: atual.centavos, inicioAtividade: dados.inicioAtividade });
+  const sublimite = { ...sub, rbaAnoAnterior: anterior.centavos, rbaAnoAtual: atual.centavos, completo: anterior.completo && atual.completo };
+  if (sub.aviso) avisos.push(sub.aviso);
+
   // Fator R (só para o cAtvSN 9). A folha vale para a competência seguinte ao último mês que ela inclui.
   let situacao: "nao_se_aplica" | "a_informar" | "desatualizada" | "valida" = "nao_se_aplica";
   let r: FatorR | null = null;
@@ -227,6 +253,10 @@ export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, 
     } else {
       situacao = "valida";
       r = fatorR(dados.folha12mCentavos, receitaBaseFatorR);
+      // QA S-8 (baixo): receita incompleta deixa o r ACIMA do real (denominador menor). Se daria Anexo III, usa o V.
+      if (r.atinge && !receita.completo) {
+        r = { r: r.r, atinge: null, motivo: "receita dos 12 meses incompleta: o fator r pode estar acima do real — usado o Anexo V até a receita fechar" };
+      }
     }
   }
 
@@ -234,15 +264,18 @@ export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, 
     aplica: true as const, competencia, raiz, periodo,
     rbt12: { centavos: rbt.rbt12, regra: rbt.regra, meses: rbt.meses },
     receita: { completo: receita.completo, notasEmitidas: receita.fontes.notasEmitidas, bpo: receita.fontes.bpo },
+    sublimite, inicioAtividadeInformado: dados.inicioAtividade != null,
     folha: { ...dados, situacao }, fatorR: r,
   };
   try {
-    const calculo = calcularSimples({ competencia, cAtvSN, rbt12: rbt.rbt12, fatorR: r });
+    const calculo = calcularSimples({ competencia, cAtvSN, rbt12: rbt.rbt12, fatorR: r, issForaDoDas: !sub.issNoDas });
     let aliquotaDps: string | null;
-    if (calculo.iss != null) aliquotaDps = percentualDecimal(calculo.iss);
-    else {
-      aliquotaDps = nota.tipoServico?.aliquotaIss ?? null;
-      avisos.push("RBT12 acima de R$ 3,6 milhões (6ª faixa): o ISS sai do DAS e é pago ao município pela alíquota municipal do tipo de serviço.");
+    if (calculo.iss != null) {
+      aliquotaDps = percentualDps(calculo.iss);
+      if (calculo.faixa === 6) avisos.push("RBT12 na 6ª faixa sem excesso de sublimite no ano: o ISS continua no DAS pela fórmula da 5ª faixa, com teto de 5% (conferir com o contador).");
+    } else {
+      aliquotaDps = aliquotaTextoParaDps(nota.tipoServico?.aliquotaIss);
+      avisos.push(`Sublimite: ${sub.motivo}. A nota leva a alíquota municipal do tipo de serviço.`);
     }
     if (calculo.anexo.fatorR === "a_informar") avisos.push("Folha dos 12 meses a informar: usado o Anexo V (o lado de pagar mais).");
     if (calculo.anexo.anexo === "IV") avisos.push("Anexo IV: a CPP (INSS patronal) fica fora do DAS e é paga à parte sobre a folha.");
@@ -256,10 +289,13 @@ export async function aliquotaSimplesDaNota(db: DrizzleDb, nota: NotaDetalhada, 
 /** O que a DPS precisa do cálculo (pAliq e a falta, se não calculou). null = regime fora do Simples. */
 export function paraDps(r: ResultadoSimplesNota): AliquotaSimplesDps | null {
   if (!r.aplica) return null;
-  if (!r.ok) return { aliquotaIss: null, falta: `alíquota do Simples: ${r.erro}`, receitaCompleta: r.receita.completo };
+  const receitaCompleta = r.receita.completo && (r.sublimite?.completo ?? true);
+  const inicioAtividadeInformado = r.inicioAtividadeInformado;
+  if (!r.ok) return { aliquotaIss: null, falta: `alíquota do Simples: ${r.erro}`, receitaCompleta, inicioAtividadeInformado };
   return {
     aliquotaIss: r.aliquotaDps,
-    falta: r.aliquotaDps ? null : "alíquota municipal do ISS no tipo de serviço (6ª faixa do Simples: ISS fora do DAS)",
-    receitaCompleta: r.receita.completo,
+    falta: r.aliquotaDps ? null : "alíquota municipal do ISS no tipo de serviço (sublimite do Simples ultrapassado: ISS fora do DAS)",
+    receitaCompleta,
+    inicioAtividadeInformado,
   };
 }

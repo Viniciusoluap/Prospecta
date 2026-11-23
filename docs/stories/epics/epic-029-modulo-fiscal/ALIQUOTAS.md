@@ -192,6 +192,19 @@ e dá 100,00%. **Marca geral da seção: [NÃO CONFIRMADO no Planalto], confian�
 - **Acima de R$ 3,6 milhões (sublimite, LC 123, art. 13-A e art. 19):** o ISS sai do DAS e é pago ao município pela
   alíquota municipal. Por isso a 6ª faixa não tem ISS na repartição.
 
+### 3.1-A Sublimite do ISS: vale a receita do ANO-CALENDÁRIO, não o RBT12 (acréscimo do portão de QA da S-8, 23/11/2026)
+**Fontes:** LC 123/2006, arts. 13-A, 19 e 20 (sublimite de R$ 3,6 milhões para ISS/ICMS no DAS) e art. 3º §§ 2º, 10 e 12 (limite
+proporcional no ano de início e efeitos do excesso); Res. CGSN 140/2018, arts. 9º a 13 (efeitos da ultrapassagem) e art. 25
+(cálculo do ISS de quem tem RBT12 acima de R$ 3,6 milhões sem estar impedido). **[NÃO CONFIRMADO no texto oficial nesta sessão —
+conferir com o contador.]**
+- **Ano anterior** com receita bruta acima de R$ 3,6 mi → o ISS sai do DAS no ano seguinte inteiro (é pago ao município).
+- **Ano em curso** acima de R$ 3,6 mi: excesso de **até 20%** (até R$ 4,32 mi) → efeito só no ano seguinte (o ISS continua no DAS);
+  **acima de 20%** → efeito a partir do mês seguinte ao do excesso.
+- **Ano de início de atividade:** limite proporcional, R$ 300 mil × meses entre o início e dezembro.
+- **RBT12 acima de R$ 3,6 mi sem excesso no ano** → o ISS continua no DAS: percentual de ISS calculado pela alíquota nominal,
+  parcela a deduzir e percentual de ISS da **5ª faixa**, limitado a 5%; os federais seguem a 6ª faixa.
+- Regra no código: `sublimiteDoIss` e `issNaSextaFaixa` em `shared/fiscal/simples.ts`.
+
 ### 3.2 Anexo III — serviços (inclui os do Fator R quando r ≥ 28%)
 
 | Faixa | RBT12 (R$) | Alíq. nominal | Parcela a deduzir (R$) |

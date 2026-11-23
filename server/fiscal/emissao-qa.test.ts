@@ -192,7 +192,7 @@ describe("QA — DPS e assinatura", () => {
     tomador: { documento: "12345678909", nome: "Cliente Teste" },
     servico: { municipioIncidenciaIbge: "2105302", codigoTributacaoNacional: "070201", codigoNbs: "114011000", itemLc116: "7.02", codigoAtividadeSimples: "13", descricao: "Obra", cno: "900012345678" },
     valorCentavos: 100_00, regimeTributario: "simples_nacional", aliquotaIss: "5.0000",
-    aliquotaSimples: { aliquotaIss: "5.0000", falta: null, receitaCompleta: true }, // S-8
+    aliquotaSimples: { aliquotaIss: "5.00", falta: null, receitaCompleta: true, inicioAtividadeInformado: true }, // S-8
     parametros: { opSimpNac: "3", regApTribSN: "1", regEspTrib: "0", tribIssqn: "1", tpRetIssqn: "1", indTotTrib: "0",
       ibscbs: { indFinal: "0", cIndOp: "100301", indDest: "0", cst: "000", cClassTrib: "000001" } },
   };

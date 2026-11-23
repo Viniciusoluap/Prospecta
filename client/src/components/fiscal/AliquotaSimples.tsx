@@ -57,6 +57,9 @@ export function AliquotaSimples({ notaId }: { notaId: number }) {
         <Linha rotulo="RBT12 (matriz + filiais)" valor={`${dinheiro(r.rbt12.centavos)} — ${REGRA[r.rbt12.regra]}`} />
         <Linha rotulo="… notas emitidas" valor={dinheiro(r.receita.notasEmitidas)} />
         <Linha rotulo="… receitas do BPO" valor={r.receita.bpo == null ? "não disponível ainda" : dinheiro(r.receita.bpo)} />
+        {r.sublimite && (
+          <Linha rotulo="Sublimite do ISS (ano-calendário)" valor={`${r.competencia.slice(0, 4)}: ${dinheiro(r.sublimite.rbaAnoAtual)} até o mês anterior; ano anterior ${dinheiro(r.sublimite.rbaAnoAnterior)} — ${r.sublimite.motivo}`} />
+        )}
         {c && (
           <>
             <Linha rotulo="Anexo" valor={`${c.anexo.anexo} — ${c.anexo.motivo}`} />
@@ -70,7 +73,8 @@ export function AliquotaSimples({ notaId }: { notaId: number }) {
         )}
         <Linha rotulo="Folha dos 12 meses (Fator R)" valor={
           r.folha.situacao === "nao_se_aplica" ? FOLHA.nao_se_aplica
-            : `${FOLHA[r.folha.situacao]}${r.folha.folha12mCentavos != null ? ` — ${dinheiro(r.folha.folha12mCentavos)} até ${mesBr(r.folha.folhaAte ?? "")}` : ""}`
+            : `${FOLHA[r.folha.situacao]}${r.folha.folha12mCentavos != null ? ` — ${dinheiro(r.folha.folha12mCentavos)} até ${mesBr(r.folha.folhaAte ?? "")}`
+              : r.folha.folhaOculta ? ` até ${mesBr(r.folha.folhaAte ?? "")} (valor só para o administrador)` : ""}`
         } />
         {r.fatorR && <Linha rotulo="Fator r" valor={r.fatorR.r != null ? `${percentualTexto(r.fatorR.r)} (${r.fatorR.motivo})` : r.fatorR.motivo} />}
       </div>

@@ -11,6 +11,7 @@ import {
   TP_EMIT_PRESTADOR, VARIANTE_DO_AMBIENTE, VERSAO_APLICATIVO, VERSAO_LEIAUTE_DPS,
   type AliquotaSimplesDps, type EntradaDps, type ParametrosContador, type VarianteLeiaute,
 } from "../../shared/fiscal/dps-campos.js";
+import { aliquotaTextoParaDps } from "../../shared/fiscal/simples.js";
 import type { NotaDetalhada } from "./notas.js";
 
 export class ErroDps extends Error {
@@ -115,6 +116,7 @@ export function faltasDps(e: EntradaDps): string[] {
     else {
       if (a.falta) f.push(a.falta);
       if (e.ambiente === "producao" && !a.receitaCompleta) f.push("receita dos 12 meses completa para o RBT12 (contas bancárias por empresa — S-6)");
+      if (e.ambiente === "producao" && a.inicioAtividadeInformado !== true) f.push("data de início de atividade da empresa (Dados fiscais do perfil › Folha e início)");
     }
   }
   // 7.02/7.05 (construção): ISS no local da obra e grupo "obra" obrigatório (Anexo I, MUN.INCID INFO.SERV.). Hoje o
@@ -147,7 +149,8 @@ const CATVSN_EM_REGTRIB = true;
 
 /** pAliq: emissor do Simples usa a alíquota calculada (S-8); os outros regimes, a alíquota do tipo de serviço. */
 export function aliquotaDaDps(e: Pick<EntradaDps, "regimeTributario" | "aliquotaIss" | "aliquotaSimples">): string | null {
-  return e.regimeTributario === "simples_nacional" ? e.aliquotaSimples?.aliquotaIss ?? null : e.aliquotaIss;
+  // QA S-8 (baixo): 2 casas no pAliq (CASAS_PALIQ, shared/fiscal/simples.ts), nos dois casos.
+  return aliquotaTextoParaDps(e.regimeTributario === "simples_nacional" ? e.aliquotaSimples?.aliquotaIss ?? null : e.aliquotaIss);
 }
 
 const tag = (nome: string, valor: string | null | undefined) => (vazio(valor) ? "" : `<${nome}>${escaparXml(String(valor).trim())}</${nome}>`);

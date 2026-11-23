@@ -303,6 +303,11 @@ export type EntradaSimples = {
   rbt12: number;
   /** Fator r já calculado (o servidor sabe a folha e a receita do mesmo período). null = sem folha. */
   fatorR: FatorR | null;
+  /**
+   * QA S-8 (M3): o ISS sai do DAS pelo SUBLIMITE (receita do ano-calendário — `sublimiteDoIss`), e não pela faixa do RBT12.
+   * true = ISS fora do DAS (pago ao município pela alíquota municipal). Ausente/false = ISS no DAS.
+   */
+  issForaDoDas?: boolean;
 };
 
 export type CalculoSimples = {
@@ -325,12 +330,95 @@ export function calcularSimples(e: EntradaSimples): CalculoSimples {
   if (!tabela.anexos) throw new ErroSimples(tabela.lacuna ?? `a tabela ${tabela.id} ainda não foi cadastrada`);
   const anexo = anexoDoServico(e.cAtvSN, e.fatorR);
   const ef = aliquotaEfetiva(e.rbt12, anexo.anexo, tabela);
-  const rep = reparticao(e.rbt12, anexo.anexo, tabela);
+  let rep = reparticao(e.rbt12, anexo.anexo, tabela);
+  if (e.issForaDoDas) {
+    // Sublimite ultrapassado: o ISS sai do DAS em qualquer faixa.
+    const { iss: _fora, ...federais } = rep.partes;
+    rep = { partes: federais, issDentroDoDas: false, tetoAplicado: false };
+  } else if (!rep.issDentroDoDas) {
+    // 6ª faixa SEM excesso de sublimite no ano: o ISS continua no DAS, pela fórmula da 5ª faixa, com o teto de 5%.
+    const iss = issNaSextaFaixa(e.rbt12, anexo.anexo, tabela);
+    rep = { partes: { ...rep.partes, iss: iss.iss }, issDentroDoDas: true, tetoAplicado: iss.tetoAplicado };
+  }
   return {
     tabela: { id: tabela.id, vigenteDe: tabela.vigenteDe, vigenteAte: tabela.vigenteAte, fonte: tabela.fonte },
     anexo, rbt12: e.rbt12, faixa: ef.faixa, nominal: ef.nominal, deduzirCentavos: ef.deduzirCentavos, efetiva: ef.efetiva,
     reparticao: rep, iss: rep.issDentroDoDas ? rep.partes.iss ?? null : null,
   };
+}
+
+/** Teto do ISS (LC 116, art. 8º, II: alíquota máxima de 5%). */
+export const ISS_MAXIMO = p(5);
+
+/**
+ * QA S-8 (M3) — ISS de quem está na 6ª faixa do RBT12 mas NÃO ultrapassou o sublimite no ano-calendário: continua no DAS,
+ * calculado com a alíquota nominal, a parcela a deduzir e o percentual de ISS da 5ª faixa, limitado a 5% (Res. CGSN 140/2018,
+ * art. 25 e Anexo; LC 123, art. 18 §1º-B) — [NÃO CONFIRMADO no texto oficial nesta sessão; conferir com o contador].
+ * Os tributos federais seguem a repartição da 6ª faixa sobre a efetiva da 6ª faixa.
+ */
+export function issNaSextaFaixa(rbt12: number, anexo: Anexo, tabela: TabelaSimples = TABELA_LC155): { iss: number; tetoAplicado: boolean } {
+  conferirRbt12(rbt12);
+  const quinta = faixasDo(anexo, tabela)[4]!;
+  const ef = efetivaExata(rbt12, quinta);
+  const pct = BigInt(quinta.reparticao.iss!);
+  const maximo = BigInt(quinta.teto?.issMaximo ?? ISS_MAXIMO);
+  if (ef.num * pct > maximo * ef.den * BigInt(U_TOTAL)) return { iss: Number(maximo), tetoAplicado: true };
+  return { iss: arredondar({ num: ef.num * pct, den: ef.den * BigInt(U_TOTAL) }), tetoAplicado: false };
+}
+
+/** Sublimite do ISS e do ICMS no Simples (LC 123, art. 19): R$ 3,6 milhões no ano-calendário. */
+export const SUBLIMITE_ANUAL = reais(3_600_000);
+/** Limite proporcional por mês de atividade no ano de início (LC 123, art. 3º §2º/§10; R$ 3,6 mi ÷ 12). */
+export const SUBLIMITE_MENSAL = reais(300_000);
+
+export type Sublimite = {
+  /** false = ISS fora do DAS (pago ao município pela alíquota municipal). */
+  issNoDas: boolean;
+  motivo: string;
+  /** Excesso de até 20% no ano em curso: o efeito é só no ano seguinte (aviso, não muda a nota). */
+  aviso: string | null;
+  limiteAnoAnterior: number;
+  limiteAnoAtual: number;
+};
+
+/** Limite do ano (centavos): integral, ou R$ 300 mil × meses entre o início de atividade e dezembro, no ano do início. */
+function limiteDoAno(ano: number, inicioAtividade: string | null | undefined): number {
+  if (!inicioAtividade || !/^\d{4}-\d{2}/.test(inicioAtividade)) return SUBLIMITE_ANUAL;
+  const [ai, mi] = inicioAtividade.slice(0, 7).split("-").map(Number) as [number, number];
+  if (ai < ano) return SUBLIMITE_ANUAL;
+  if (ai > ano) return 0;
+  return SUBLIMITE_MENSAL * (12 - mi + 1);
+}
+
+/**
+ * QA S-8 (M3) — o ISS sai do DAS pela RECEITA DO ANO-CALENDÁRIO (RBA), não pelo RBT12 (LC 123, arts. 13-A, 19 e 20;
+ * Res. CGSN 140/2018, arts. 9º a 13 — [conferir com o contador]). Duas direções:
+ * - ano ANTERIOR acima do sublimite → ISS fora do DAS no ano todo da competência (o excesso de até 20% produz efeito a partir
+ *   de janeiro; acima de 20% já tinha produzido no mês seguinte ao excesso e continua);
+ * - ano EM CURSO (janeiro até o mês anterior à competência) acima do sublimite em MAIS de 20% → ISS fora do DAS a partir do
+ *   mês seguinte ao do excesso (logo, na competência); em ATÉ 20% → continua no DAS e o efeito fica para o ano seguinte (aviso).
+ * Com RBT12 acima de R$ 3,6 mi mas sem excesso no ano, o ISS continua no DAS (`issNaSextaFaixa`).
+ * No ano de início de atividade, o sublimite é proporcional (R$ 300 mil × meses até dezembro). "Ultrapassar" = estritamente maior.
+ */
+export function sublimiteDoIss(e: { competencia: string; rbaAnoAnterior: number; rbaAnoAtualAteMesAnterior: number; inicioAtividade?: string | null }): Sublimite {
+  conferirRbt12(e.rbaAnoAnterior);
+  conferirRbt12(e.rbaAnoAtualAteMesAnterior);
+  const ano = Number(e.competencia.slice(0, 4));
+  const limiteAnoAnterior = limiteDoAno(ano - 1, e.inicioAtividade);
+  const limiteAnoAtual = limiteDoAno(ano, e.inicioAtividade);
+  const base = { limiteAnoAnterior, limiteAnoAtual };
+  if (limiteAnoAnterior > 0 && e.rbaAnoAnterior > limiteAnoAnterior) {
+    return { ...base, issNoDas: false, aviso: null, motivo: `receita de ${ano - 1} acima do sublimite: o ISS sai do DAS em ${ano} (pago ao município)` };
+  }
+  // Mais de 20% acima: 5 × RBA > 6 × limite (conta exata em centavos).
+  if (limiteAnoAtual > 0 && 5 * e.rbaAnoAtualAteMesAnterior > 6 * limiteAnoAtual) {
+    return { ...base, issNoDas: false, aviso: null, motivo: `receita de ${ano} passou o sublimite em mais de 20%: o ISS sai do DAS a partir do mês seguinte ao excesso` };
+  }
+  if (limiteAnoAtual > 0 && e.rbaAnoAtualAteMesAnterior > limiteAnoAtual) {
+    return { ...base, issNoDas: true, motivo: "sublimite ultrapassado em até 20% no ano: o ISS continua no DAS neste ano",
+      aviso: `A receita de ${ano} passou o sublimite de R$ 3,6 milhões em até 20%: o ISS sai do DAS a partir de janeiro de ${ano + 1}.` };
+  }
+  return { ...base, issNoDas: true, aviso: null, motivo: "receita do ano dentro do sublimite: ISS no DAS" };
 }
 
 /** u → "7,7160%" (4 casas, vírgula). */
@@ -339,7 +427,30 @@ export function percentualTexto(u: number): string {
   return `${s.replace(".", ",")}%`;
 }
 
-/** u → "7.7160" (ponto decimal, 4 casas) — formato do campo de alíquota da DPS. */
+/**
+ * Casas decimais do `pAliq` da DPS: 2. Os percentuais do leiaute nacional são decimais de 2 casas (tipo TSDec1V2 do XSD
+ * `tiposSimples`) — [NÃO CONFIRMADO linha a linha: o XSD não está no repositório; a fixture sintética da S-5 usa "5.00"].
+ * Ajustar só aqui se o XSD disser outro número.
+ */
+export const CASAS_PALIQ = 2;
+
+/** u → "3.09" (ponto decimal, CASAS_PALIQ casas, meio para cima) — formato do `pAliq` da DPS. */
+export function percentualDps(u: number): string {
+  if (!Number.isSafeInteger(u) || u < 0) throw new ErroSimples("alíquota inválida");
+  const passo = 10 ** (4 - CASAS_PALIQ);
+  const arred = Math.floor((u + passo / 2) / passo) * passo;
+  return (arred / U_POR_PONTO).toFixed(CASAS_PALIQ);
+}
+
+/** Texto de alíquota ("5.0000", "5") → formato do `pAliq` (null se vazio ou inválido). */
+export function aliquotaTextoParaDps(texto: string | null | undefined): string | null {
+  if (texto == null || String(texto).trim() === "") return null;
+  const n = Number(texto);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return percentualDps(Math.round(n * U_POR_PONTO));
+}
+
+/** u → "7.7160" (ponto decimal, 4 casas). */
 export function percentualDecimal(u: number): string {
   return (u / U_POR_PONTO).toFixed(4);
 }

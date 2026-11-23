@@ -19,7 +19,7 @@ import {
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
-import { aliquotaSimplesDaNota, dadosSimplesPorRaiz, raizDoCnpj } from "./simples.js";
+import { aliquotaSimplesDaNota, dadosSimplesPorRaiz, raizDoCnpj, semValorDaFolha } from "./simples.js";
 
 /**
  * QA S-2 (B6): erro inesperado (ex.: CHECK/gatilho do banco) nunca chega ao cliente com o SQL nem com o texto do banco —
@@ -64,6 +64,12 @@ function paraQuemVe<T extends { tomador: { documento: string | null } }>(nota: T
 const textoOpcional = (max: number) => z.string().trim().max(max).nullable().optional();
 const ORIGEM_DO_MAPA = new RegExp(`^(${ORIGENS_NOTA.join("|")}):([a-z0-9_]{1,40}|\\*)$`);
 
+/** QA S-8 (M2): o valor da folha da empresa só vai para o admin; os outros veem só se está informada e até quando. */
+function soAdminVeFolha<T extends { folha12mCentavos: number | null }>(d: T | null, papel: string): (T & { folhaOculta?: boolean }) | null {
+  if (!d || papel === "admin") return d;
+  return { ...d, folha12mCentavos: null, folhaOculta: d.folha12mCentavos != null };
+}
+
 export const fiscalRouter = router({
   resumo: fiscalProcedure.input(z.object({ emissorId: id.nullable().optional() }).optional()).query(async ({ input, ctx }) => {
     const db = getDb();
@@ -90,7 +96,7 @@ export const fiscalRouter = router({
 
   emissores: router({
     /** Um item por CNPJ de perfil tributário, com o complemento fiscal (se já cadastrado). Razão social e regime: do perfil. */
-    listar: fiscalProcedure.query(async () => {
+    listar: fiscalProcedure.query(async ({ ctx }) => {
       await ensureTaxSchema();
       const db = getDb();
       const perfis = ((await db.execute(sql`
@@ -104,7 +110,7 @@ export const fiscalRouter = router({
       return perfis.map(p => {
         const e = complementos.find(c => c.cnpj === p.cnpj) ?? null;
         return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e,
-          simples: simples.get(raizDoCnpj(String(p.cnpj))) ?? null };
+          simples: soAdminVeFolha(simples.get(raizDoCnpj(String(p.cnpj))) ?? null, ctx.user.role) };
       });
     }),
     salvar: adminPorPapel
@@ -225,9 +231,11 @@ export const fiscalRouter = router({
     ver: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role)),
     historico: fiscalProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
     /** S-8: alíquota do Simples da nota e "como foi calculada" (RBT12, anexo, faixa, Fator R, fontes). Só valores da empresa. */
-    aliquotaSimples: fiscalProcedure.input(z.object({ id })).query(async ({ input }) => {
+    aliquotaSimples: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
       const db = getDb();
-      return aliquotaSimplesDaNota(db, await carregarNota(db, input.id));
+      const r = await aliquotaSimplesDaNota(db, await carregarNota(db, input.id));
+      // QA S-8 (M2): o valor da folha (e o r, que com o RBT12 a revelaria) só para o admin.
+      return ctx.user.role === "admin" ? r : semValorDaFolha(r);
     }),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */
     previa: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {

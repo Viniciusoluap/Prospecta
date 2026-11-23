@@ -140,8 +140,14 @@ export type EntradaDps = {
 
 /**
  * EPIC-029 S-8 — o que a DPS do emissor do Simples recebe do cálculo (RBT12 × anexo, shared/fiscal/simples.ts).
- * `aliquotaIss` ("3.0864") vai em `pAliq`: a parte do ISS dentro do DAS ou, na 6ª faixa (ISS fora do DAS), a alíquota
+ * `aliquotaIss` ("3.09", 2 casas — CASAS_PALIQ) vai em `pAliq`: a parte do ISS dentro do DAS ou, na 6ª faixa (ISS fora do DAS), a alíquota
  * municipal do tipo. Formato e regra do `pAliq` para optante ME/EPP: [NÃO CONFIRMADO no XSD] — se a Sefin recusar, a mensagem
  * dela volta à tela. `receitaCompleta` false = RBT12 só com parte das fontes (até a S-6): a produção exige receita completa.
  */
-export type AliquotaSimplesDps = { aliquotaIss: string | null; falta: string | null; receitaCompleta: boolean };
+export type AliquotaSimplesDps = {
+  aliquotaIss: string | null;
+  falta: string | null;
+  receitaCompleta: boolean;
+  /** QA S-8 (M4): sem a data de início de atividade, a produção recusa (o RBT12 proporcional pode estar errado). */
+  inicioAtividadeInformado?: boolean;
+};

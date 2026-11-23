@@ -67,7 +67,8 @@ export function DadosFiscaisDoPerfil({ podeEditar }: { podeEditar: boolean }) {
               </p>
               {p.regime === "simples_nacional" && (
                 <p className="text-xs text-gray-400">
-                  Simples (empresa toda): folha dos 12 meses {p.simples?.folha12mCentavos != null ? `${formatCurrency(p.simples.folha12mCentavos / 100)} até ${mesBr(p.simples.folhaAte)}` : "a informar (Fator R usa o Anexo V)"}
+                  Simples (empresa toda): folha dos 12 meses {p.simples?.folha12mCentavos != null ? `${formatCurrency(p.simples.folha12mCentavos / 100)} até ${mesBr(p.simples.folhaAte)}`
+                    : p.simples?.folhaOculta ? `informada até ${mesBr(p.simples.folhaAte)}` : "a informar (Fator R usa o Anexo V)"}
                   {" • "}início de atividade {dataBr(p.simples?.inicioAtividade ?? null)}
                 </p>
               )}

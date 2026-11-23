@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ErroSimples, TABELAS_SIMPLES, TABELA_LC155, U_TOTAL, aliquotaEfetiva, anexoDoServico, calcularSimples, centavosDaAliquota, faixaDoRbt12, fatorR,
-  mesAntes, mesesDeAtividadeAntes, parteDoIss, percentualDecimal, percentualTexto, rbt12Proporcional, reparticao, tabelaDoPeriodo, ultimoDiaDoMes,
+  aliquotaTextoParaDps, issNaSextaFaixa, mesAntes, mesesDeAtividadeAntes, parteDoIss, percentualDecimal, percentualDps, percentualTexto, sublimiteDoIss, rbt12Proporcional, reparticao, tabelaDoPeriodo, ultimoDiaDoMes,
   type Anexo,
 } from "../../shared/fiscal/simples.js";
 
@@ -161,5 +161,40 @@ describe("formatos e datas", () => {
     expect(mesAntes("2026-11-20", 12)).toBe("2025-11");
     expect(ultimoDiaDoMes("2024-02")).toBe("2024-02-29");
     expect(ultimoDiaDoMes("2026-12")).toBe("2026-12-31");
+  });
+});
+
+describe("QA S-8 — sublimite (M3) e pAliq com 2 casas", () => {
+  it("ano anterior acima de R$ 3,6 mi → ISS fora no ano todo; igual ao limite → no DAS", () => {
+    expect(sublimiteDoIss({ competencia: "2026-01", rbaAnoAnterior: R$(3_600_000) + 1, rbaAnoAtualAteMesAnterior: 0 }).issNoDas).toBe(false);
+    expect(sublimiteDoIss({ competencia: "2026-01", rbaAnoAnterior: R$(3_600_000), rbaAnoAtualAteMesAnterior: 0 }).issNoDas).toBe(true);
+  });
+  it("ano em curso: até 20% acima → no DAS com aviso; mais de 20% → fora", () => {
+    const ate20 = sublimiteDoIss({ competencia: "2026-08", rbaAnoAnterior: 0, rbaAnoAtualAteMesAnterior: R$(4_320_000) });
+    expect(ate20).toMatchObject({ issNoDas: true, aviso: expect.stringMatching(/janeiro de 2027/) });
+    expect(sublimiteDoIss({ competencia: "2026-08", rbaAnoAnterior: 0, rbaAnoAtualAteMesAnterior: R$(4_320_000) + 1 }).issNoDas).toBe(false);
+  });
+  it("ano de início de atividade: sublimite proporcional (R$ 300 mil × meses até dezembro)", () => {
+    // Início em julho/2026: 6 meses → R$ 1,8 mi; 20% acima = R$ 2,16 mi.
+    const s = sublimiteDoIss({ competencia: "2026-11", rbaAnoAnterior: 0, rbaAnoAtualAteMesAnterior: R$(2_160_000) + 1, inicioAtividade: "2026-07-10" });
+    expect(s).toMatchObject({ issNoDas: false, limiteAnoAtual: R$(1_800_000) });
+    // Início em outubro/2025: limite de 2025 = R$ 900 mil.
+    expect(sublimiteDoIss({ competencia: "2026-03", rbaAnoAnterior: R$(900_000) + 1, rbaAnoAtualAteMesAnterior: 0, inicioAtividade: "2025-10-01" }).issNoDas).toBe(false);
+  });
+  it("6ª faixa sem excesso: ISS pela 5ª faixa com teto de 5% (III, IV e V)", () => {
+    expect(issNaSextaFaixa(R$(3_700_000), "III")).toEqual({ iss: 50_000, tetoAplicado: true });
+    expect(issNaSextaFaixa(R$(3_700_000), "IV")).toEqual({ iss: 50_000, tetoAplicado: true });
+    expect(issNaSextaFaixa(R$(3_700_000), "V")).toEqual({ iss: 50_000, tetoAplicado: true }); // 21,3216% × 23,5% = 5,0106% → 5%
+    const c = calcularSimples({ competencia: "2026-02", cAtvSN: "13", rbt12: R$(3_700_000), fatorR: null });
+    expect(c).toMatchObject({ faixa: 6, iss: 50_000 });
+    expect(calcularSimples({ competencia: "2026-02", cAtvSN: "13", rbt12: R$(500_000), fatorR: null, issForaDoDas: true }).iss).toBeNull();
+  });
+  it("pAliq com 2 casas, meio para cima", () => {
+    expect(percentualDps(30_864)).toBe("3.09");
+    expect(percentualDps(32_450)).toBe("3.25");
+    expect(percentualDps(32_449)).toBe("3.24");
+    expect(percentualDps(50_000)).toBe("5.00");
+    expect(aliquotaTextoParaDps("5.0000")).toBe("5.00");
+    expect(aliquotaTextoParaDps(null)).toBeNull();
   });
 });
