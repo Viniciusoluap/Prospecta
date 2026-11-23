@@ -8,8 +8,8 @@ import { readPrivateDocument } from "./drive-documents.js";
 import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
 import { proximaTentativa, relatorioRetorno, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
 import type { Certificate } from "pkijs";
-import { PDF, PdfDict, PdfRef } from "@libpdf/core";
-import { paginaComMarca } from "./juridico-marca-conferencia.js";
+import { PDF, PdfDict, PdfRef, PdfStream } from "@libpdf/core";
+import { decodificarEstrito, paginaComMarca, paginaSoGanhouFonteSemUso } from "./juridico-marca-conferencia.js";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
@@ -81,7 +81,7 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
       const v=obj as {type:string;toString():string;value?:unknown;bytes?:Uint8Array;toArray?:()=>unknown[];getDecodedData?:()=>Uint8Array;[Symbol.iterator]?:()=>Iterator<[unknown,unknown]>};
       if(v.type==="ref"){const target=pdf.getObject(obj as never);if(ignorePages&&target instanceof PdfDict&&target.getName("Type")?.value==="Page")return "[page]";const key=v.toString();if(seen.has(key))return key;const next=new Set(seen);next.add(key);return serial(pdf,target,next,ignorePages);}
       if(v.type==="array")return v.toArray!().map(x=>serial(pdf,x,seen,ignorePages));
-      if(v.type==="dict"||v.type==="stream")return {data:v.getDecodedData?Buffer.from(v.getDecodedData()).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(nome(k)))).map(([k,val])=>[nome(k),serial(pdf,val,seen,ignorePages)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
+      if(v.type==="dict"||v.type==="stream")return {data:obj instanceof PdfStream?Buffer.from(decodificarEstrito(obj,{imagem:obj.getName("Subtype")?.value==="Image"})).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(nome(k)))).map(([k,val])=>[nome(k),serial(pdf,val,seen,ignorePages)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
       return v.bytes?Buffer.from(v.bytes).toString("hex"):v.value??String(v);
     };
     const novosWidgets=new Set(b.getForm()?.getSignatureFields().filter(f=>f.isSigned()).flatMap(f=>f.getWidgets().map(w=>w.dict))||[]);
@@ -94,19 +94,72 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
         const index=restantes.findIndex(current=>JSON.stringify(serial(b,current,new Set(),true))===digest);
         if(index<0)return false;restantes.splice(index,1);
       }
-      if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")))return false;
+      // Portão de QA de 23/11/2026 (4ª revisão): o widget novo de assinatura precisa ser INVISÍVEL (retângulo de área zero ou
+      // marcado como oculto). Carimbo visível pode cobrir cláusulas com outro texto: não conserva — vai para conferência humana.
+      const invisivel=(w:PdfDict)=>{
+        const f=w.getNumber("F")?.value??0;if((f&2)===2)return true;
+        const r=w.getArray("Rect")?.toArray().map(n=>(n as {type?:string;value?:unknown}).type==="number"?Number((n as {value:number}).value):NaN);
+        return !!r&&r.length===4&&r.every(Number.isFinite)&&(r[0]===r[2]||r[1]===r[3]);
+      };
+      if(restantes.some(item=>!(item instanceof PdfDict)||item.getName("Subtype")?.value!=="Widget"||!novosWidgets.has(item)||item.has("A")||item.has("AA")||!invisivel(item)))return false;
     }
     // Páginas citadas pelo catálogo (ex.: OpenAction do jsPDF) são comparadas à parte, abaixo.
-    if(["OCProperties","OpenAction","AA","Perms"].some(k=>JSON.stringify(serial(a,a.getCatalog().get(k),new Set(),true))!==JSON.stringify(serial(b,b.getCatalog().get(k),new Set(),true))))return false;
+    // Portão de QA de 23/11/2026 (5ª revisão): o catálogo inteiro precisa continuar igual (XFA, JavaScript de abertura e
+    // afins trocam o que o leitor mostra). Só pode mudar o que uma assinatura muda: os campos e o SigFlags do /AcroForm, e
+    // os dados de validação de longo prazo (/DSS, /Extensions). A árvore de páginas é comparada à parte.
+    const igual=(pa:PDF,va:unknown,pb:PDF,vb:unknown)=>JSON.stringify(serial(pa,va,new Set(),true))===JSON.stringify(serial(pb,vb,new Set(),true));
+    const chaves=(d:PdfDict|undefined|null)=>d?Array.from(d as unknown as Iterable<[unknown,unknown]>).map(([k])=>nome(k).replace(/^\//,"")):[];
+    const dic=(pdf:PDF,v:unknown)=>{const o=v instanceof PdfRef?pdf.getObject(v):v;return o instanceof PdfDict?o:null;};
+    const ca=a.getCatalog(),cb=b.getCatalog();
+    for(const k of Array.from(new Set([...chaves(ca),...chaves(cb)]))){
+      if(["Pages","AcroForm","DSS","Extensions"].includes(k))continue;
+      if(!igual(a,ca.get(k),b,cb.get(k)))return false;
+    }
+    const PADRAO14=new Set(["Helvetica","Helvetica-Bold","Helvetica-Oblique","Helvetica-BoldOblique","Times-Roman","Times-Bold","Times-Italic","Times-BoldItalic","Courier","Courier-Bold","Courier-Oblique","Courier-BoldOblique","ZapfDingbats","Symbol"]);
+    const drPadrao=(dr:PdfDict|null)=>{
+      if(!dr||chaves(dr).some(k=>k!=="Font"))return false;
+      const fontes=dic(b,dr.get("Font"));if(!fontes)return false;
+      return Array.from(fontes as unknown as Iterable<[unknown,unknown]>).every(([,v])=>{const f=dic(b,v);
+        return !!f&&chaves(f).every(k=>["Type","Subtype","BaseFont"].includes(k))&&f.getName("Subtype")?.value==="Type1"&&PADRAO14.has(f.getName("BaseFont")?.value||"");});
+    };
+    const fa=dic(a,ca.get("AcroForm")),fb=dic(b,cb.get("AcroForm"));
+    if(fa&&!fb||(ca.get("AcroForm")||cb.get("AcroForm"))&&!fb)return false;
+    for(const k of Array.from(new Set([...chaves(fa),...chaves(fb)]))){
+      if(k==="Fields"||k==="SigFlags")continue;
+      // O assinador, ao CRIAR o /AcroForm (a origem não tinha), põe o /DR padrão: só fontes Type1 padrão, sem mais nada.
+      if(!fa&&k==="DR"&&drPadrao(dic(b,fb?.get(k))))continue;
+      // …e o /DA padrão ("/Helv 0 Tf 0 g"), que só vale para campos de formulário; assinatura não tem aparência regerada.
+      if(!fa&&k==="DA"&&JSON.stringify(serial(b,fb?.get(k),new Set(),true))===JSON.stringify(Buffer.from("/Helv 0 Tf 0 g").toString("hex")))continue;
+      if(!fa&&k==="NeedAppearances"&&JSON.stringify(serial(b,fb?.get(k),new Set(),true))==="false")continue;
+      if(!igual(a,fa?.get(k),b,fb?.get(k)))return false;
+    }
+    // Portão de QA de 23/11/2026 (6ª revisão): o dicionário de cada página e os nós da árvore de páginas também precisam
+    // continuar iguais (/CropBox ou /Rotate herdados escondem cláusulas; /AA roda script ao abrir a página). Anotações,
+    // conteúdo e recursos são conferidos à parte.
+    const mesmasChaves=(da:PdfDict,db:PdfDict,fora:string[])=>Array.from(new Set([...chaves(da),...chaves(db)])).every(k=>fora.includes(k)||igual(a,da.get(k),b,db.get(k)));
+    for(let i=0;i<ap.length;i++){
+      if(!mesmasChaves(ap[i].dict,bp[i].dict,["Annots","Contents","Resources","Parent"]))return false;
+      let na=dic(a,ap[i].dict.get("Parent")),nb=dic(b,bp[i].dict.get("Parent"));
+      for(let nivel=0;na||nb;nivel++){
+        if(!na||!nb||nivel>50||!mesmasChaves(na,nb,["Kids","Count","Parent"]))return false;
+        na=dic(a,na.get("Parent"));nb=dic(b,nb.get("Parent"));
+      }
+    }
     if(ap.some((p,i)=>!p.dict.get("Resources")||!bp[i].dict.get("Resources")))return false;
     const caixa=(p:typeof ap[number])=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation]);
     const iguais=ap.map((p,i)=>JSON.stringify([caixa(p),serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([caixa(bp[i]),serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));
     if(iguais.every(Boolean))return true;
-    const diferentes=iguais.map((ok,i)=>ok?-1:i).filter(i=>i>=0);
-    if(!marca||diferentes.length!==1)return false;
-    const i=diferentes[0];
+    if(!marca)return false;
+    // Só UMA página pode ter o conteúdo mudado (a da marca). As demais podem diferir apenas por terem "ganhado" a fonte
+    // padrão da marca quando o PDF usa um dicionário de recursos comum a todas as páginas (jsPDF, contrato de várias páginas).
+    const txt=(pdf:PDF,v:unknown)=>JSON.stringify(serial(pdf,v));
+    const conteudoMudou=ap.map((p,i)=>caixa(p)!==caixa(bp[i])||txt(a,p.dict.get("Contents"))!==txt(b,bp[i].dict.get("Contents")));
+    const comMarca=conteudoMudou.map((mudou,i)=>mudou?i:-1).filter(i=>i>=0);
+    if(comMarca.length!==1)return false;
+    const i=comMarca[0];
     if(caixa(ap[i])!==caixa(bp[i]))return false;
-    return paginaComMarca(a,ap[i],b,bp[i],marca.titular,(pdf,v)=>JSON.stringify(serial(pdf,v)));
+    for(let j=0;j<ap.length;j++)if(j!==i&&!iguais[j]&&!paginaSoGanhouFonteSemUso(a,ap[j],b,bp[j],txt))return false;
+    return paginaComMarca(a,ap[i],b,bp[i],marca.titular,txt);
   }catch{return false;}
 }
 export async function confirmarTodasAssinaturas(id:number,role:string) {

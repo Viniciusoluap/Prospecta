@@ -46,6 +46,30 @@ export function lerConteudo(texto: string): Token[] {
   return tokens;
 }
 
+/**
+ * Decodificação ESTRITA (portão de QA de 23/11/2026, re-revisão): a biblioteca não resolve `/Filter` indireto e devolveria os
+ * bytes comprimidos como se fossem o conteúdo — um leitor de PDF resolve e desenha outra coisa. Aqui `/Filter` e
+ * `/DecodeParms` precisam estar escritos direto no fluxo (nome, ou array só de nomes/dicionários diretos); qualquer
+ * referência indireta, ou descompressão que devolve vazio para entrada não vazia, lança (quem chama recusa o vínculo).
+ */
+export function decodificarEstrito(stream: PdfStream, opcoes: { imagem?: boolean } = {}): Uint8Array {
+  // Preditor (TIFF/PNG) só existe em imagem. Em fluxo de conteúdo a biblioteca e os leitores divergem na linha incompleta
+  // (3ª revisão do QA): a biblioteca devolve zeros e o leitor desenha o texto. Fora de imagem, qualquer preditor é recusado.
+  if (!opcoes.imagem) {
+    const parms = stream.get("DecodeParms");
+    const lista = parms instanceof PdfArray ? parms.toArray() : parms ? [parms] : [];
+    for (const item of lista) if (item instanceof PdfDict && item.has("Predictor") && item.getNumber("Predictor")?.value !== 1) throw new Error("preditor em fluxo de conteúdo");
+  }
+  const direto = (v: unknown, aceito: (x: unknown) => boolean) => v === undefined || v === null || aceito(v) || (v instanceof PdfArray && v.toArray().every(aceito));
+  const tipo = (x: unknown) => (x as { type?: string } | null)?.type;
+  if (!direto(stream.get("Filter"), x => tipo(x) === "name")) throw new Error("filtro indireto");
+  if (!direto(stream.get("DecodeParms"), x => tipo(x) === "dict" || tipo(x) === "null")) throw new Error("parâmetros de filtro indiretos");
+  for (const k of ["F", "FFilter", "FDecodeParms"]) if (stream.has(k)) throw new Error("fluxo em arquivo externo");
+  const dados = stream.getDecodedData();
+  if (!dados.length && stream.has("Filter") && stream.data.length > 0) throw new Error("fluxo ilegível");
+  return dados;
+}
+
 function fluxos(pdf: PDF, pagina: Pagina): string[] | null {
   const bruto = pagina.dict.get("Contents");
   const itens = bruto instanceof PdfArray ? bruto.toArray() : bruto ? [bruto] : [];
@@ -53,7 +77,7 @@ function fluxos(pdf: PDF, pagina: Pagina): string[] | null {
   for (const item of itens) {
     const obj = item instanceof PdfRef ? pdf.getObject(item) : item;
     if (!(obj instanceof PdfStream)) return null;
-    out.push(Buffer.from(obj.getDecodedData()).toString("latin1"));
+    out.push(Buffer.from(decodificarEstrito(obj)).toString("latin1"));
   }
   return out;
 }
@@ -84,6 +108,89 @@ function recursosSoComFontePadrao(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial
     if (!f || f.getName("Subtype")?.value !== "Type1" || !STANDARD14.has(f.getName("BaseFont")?.value || "") || f.has("FontDescriptor") || f.has("Widths")) return false;
   }
   return true;
+}
+
+/** Nomes das fontes que entraram nos recursos da página (existem em `pb` e não em `pa`). */
+function fontesNovas(a: PDF, pa: Pagina, b: PDF, pb: Pagina): { nome: string; fonte: PdfDict | null }[] {
+  const lista = (pdf: PDF, pg: Pagina) => {
+    const r = dict(pdf, pg.dict.get("Resources")), f = r && r.has("Font") ? dict(pdf, r.get("Font")) : null;
+    return f ? Array.from(f as unknown as Iterable<[unknown, unknown]>).map(([k, v]) => ({ nome: chave(k), fonte: dict(pdf, v) })) : [];
+  };
+  const antigas = new Set(lista(a, pa).map(f => f.nome));
+  return lista(b, pb).filter(f => !antigas.has(f.nome));
+}
+/** Só a fonte que o assinador usa: Helvetica padrão, sem arquivo, larguras, ToUnicode ou codificação fora do comum. */
+function fonteDaMarca(pdf: PDF, fonte: PdfDict | null): boolean {
+  if (!fonte) return false;
+  const encoding = fonte.get("Encoding");
+  return fonte.getName("Subtype")?.value === "Type1" && fonte.getName("BaseFont")?.value === "Helvetica"
+    && !fonte.has("FontDescriptor") && !fonte.has("Widths") && !fonte.has("ToUnicode")
+    && (!encoding || ["WinAnsiEncoding", "StandardEncoding"].includes(fonte.getName("Encoding")?.value || ""));
+}
+const nomeDecodificado = (bruto: string) => bruto.replace(/#([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+/**
+ * Portão de QA de 23/11/2026 (achados 1 a 3): "referência adormecida". O documento de ORIGEM não pode citar, em nenhum
+ * fluxo alcançável a partir da página (conteúdo, Form XObjects, padrões, CharProcs de Type3, aparências de anotações), o
+ * nome de uma fonte que só passa a existir depois da assinatura — senão um texto invisível na origem aparece no assinado.
+ * Conservador de propósito: procura o nome (com `#xx` decodificado) em qualquer lugar do fluxo, inclusive dentro de
+ * strings, e também na emenda entre fluxos do mesmo conteúdo. Imagens ficam de fora (não são fluxo de conteúdo).
+ */
+export function origemCitaNome(pdf: PDF, pagina: Pagina, nomes: string[]): boolean {
+  if (!nomes.length) return false;
+  const alvo = new Set(nomes);
+  const cita = (texto: string) => { for (const m of Array.from(texto.matchAll(/\/([^\s\0/[\]()<>{}%]*)/g))) if (alvo.has(nomeDecodificado(m[1]))) return true; return false; };
+  const vistos = new Set<unknown>();
+  let visitados = 0;
+  // `podeSerImagem`: só o valor direto de um dicionário /XObject (o que o operador Do chama) pode ser pulado como imagem.
+  // Aparência de anotação, padrão, CharProc e conteúdo são executados como conteúdo pelo leitor, diga o /Subtype o que disser.
+  const andar = (valor: unknown, podeSerImagem = false): boolean => {
+    const obj = valor instanceof PdfRef ? pdf.getObject(valor) : valor;
+    if (!obj || typeof obj !== "object") return false;
+    if (++visitados > 20_000) throw new Error("documento grande demais para conferir");
+    if (obj instanceof PdfStream && podeSerImagem && (obj.get("Subtype") as { type?: string; value?: string } | undefined)?.type === "name" && obj.getName("Subtype")?.value === "Image") {
+      // Imagem chamada por Do: os dados não são conteúdo. Máscaras e afins (dicionário da imagem) ainda são percorridos abaixo.
+      for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) if (["SMask", "Mask", "Alternates", "OPI"].includes(chave(k)) && andar(v, true)) return true;
+      return false;
+    }
+    if (vistos.has(obj)) return false;
+    vistos.add(obj);
+    // Volta para a árvore de páginas (Parent de página, /P de anotação, destino de link): corta pelo TIPO do objeto, nunca pelo
+    // nome da chave — um padrão chamado /P ou /Parent é conteúdo e precisa ser varrido (revisão do Codex, PR #330).
+    if (obj instanceof PdfDict && !(obj instanceof PdfStream) && obj !== pagina.dict && ["Page", "Pages"].includes(obj.getName("Type")?.value || "")) return false;
+    if (obj instanceof PdfArray) return obj.toArray().some(v => andar(v));
+    if (obj instanceof PdfStream && cita(Buffer.from(decodificarEstrito(obj)).toString("latin1"))) return true;
+    if (obj instanceof PdfDict) {
+      for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) {
+        const nome = chave(k);
+        if (nome === "XObject") {
+          const xo = dict(pdf, v);
+          if (xo) { for (const [, x] of Array.from(xo as unknown as Iterable<[unknown, unknown]>)) if (andar(x, true)) return true; continue; }
+        }
+        if (andar(v)) return true;
+      }
+    }
+    return false;
+  };
+  const conteudo = fluxos(pdf, pagina);
+  if (!conteudo) throw new Error("conteúdo ilegível");
+  // Nome partido entre dois fluxos do mesmo conteúdo (leitores que emendam sem separador).
+  if (cita(conteudo.join("")) || cita(conteudo.join("\n"))) return true;
+  return andar(pagina.dict);
+}
+
+/**
+ * Página que NÃO recebeu a marca, num PDF em que as páginas dividem o mesmo dicionário de recursos (jsPDF): desenhar a
+ * marca numa página acrescenta a fonte padrão ao dicionário comum, e todas as outras "ganham" essa fonte sem mudar de
+ * conteúdo. Aceito só isso: recursos antigos intactos, entrada nova = a Helvetica da marca, e nada na origem cita o nome
+ * da fonte nova — fonte que ninguém usa não desenha nada.
+ */
+export function paginaSoGanhouFonteSemUso(a: PDF, pa: Pagina, b: PDF, pb: Pagina, serial: (pdf: PDF, v: unknown) => string): boolean {
+  try {
+    if (!recursosSoComFontePadrao(a, pa, b, pb, serial)) return false;
+    const novas = fontesNovas(a, pa, b, pb);
+    if (novas.some(f => !fonteDaMarca(b, f.fonte))) return false;
+    return !origemCitaNome(a, pa, novas.map(f => f.nome));
+  } catch { return false; }
 }
 
 /** Os fluxos acrescentados desenham só a marca: um retângulo de borda e texto do vocabulário da marca dentro dele. */
@@ -181,6 +288,8 @@ export function paginaComMarca(a: PDF, pa: Pagina, b: PDF, pb: Pagina, titular: 
     if (depois[0].trim() !== "q" || depois[antes.length + 1].trim() !== "Q") return false;
     for (let i = 0; i < antes.length; i++) if (depois[i + 1] !== antes[i]) return false;
     if (!recursosSoComFontePadrao(a, pa, b, pb, serial)) return false;
+    // A origem não pode já citar a fonte que a marca traz (texto escondido que apareceria depois de assinar).
+    if (origemCitaNome(a, pa, fontesNovas(a, pa, b, pb).map(f => f.nome))) return false;
     const recursos = dict(b, pb.dict.get("Resources"));
     const fontes = recursos && dict(b, recursos.get("Font"));
     const permitidas = new Set<string>();
