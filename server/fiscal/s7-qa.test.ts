@@ -197,7 +197,7 @@ import { semValidadeJuridica } from "./danfse.js";
 import { aliquotaSimplesDaNota, fonteSimplesDaS8, paraDps } from "./simples.js";
 import { FONTES_ALIQUOTA } from "./aliquota.js";
 import { carregarNota } from "./notas.js";
-import { ARQUIVOS_DO_VALIDADOR, ErroLeiaute, pastaRealDoValidador } from "./leiaute.js";
+import { ARQUIVOS_DO_VALIDADOR, ErroLeiaute, pastaDoValidador } from "./leiaute.js";
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -521,14 +521,15 @@ describe("QA S-7 — baixos (B1, B3, B4, B5, B6, B7, B8)", () => {
     expect(JSON.stringify(hist)).not.toMatch(/<DPS|<NFSe/);
     await pg.exec(M0171); // idempotente
   });
-  it("B7: validador — arquivos no caminho REAL, vercel.json inclui esse caminho, e a falta do pacote falha FECHADA", async () => {
-    const real = pastaRealDoValidador();
-    for (const f of ARQUIVOS_DO_VALIDADOR) expect(existsSync(join(real, f))).toBe(true);
+  it("B7: validador — cópia em shared/fiscal/xsd/vendor (sem node_modules no vercel.json), e a falta dele falha FECHADA", async () => {
+    const dir = pastaDoValidador();
+    for (const f of ARQUIVOS_DO_VALIDADOR) expect(existsSync(join(dir, f))).toBe(true);
+    const raiz = fileURLToPath(new URL("../../", import.meta.url));
+    expect(relative(raiz, dir).split(sep).join("/")).toBe("shared/fiscal/xsd/vendor/xmllint-wasm");
     const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8")) as { functions: Record<string, { includeFiles: string }> };
     const inc = vercel.functions["api/index.ts"]!.includeFiles;
-    expect(inc).toContain("node_modules/.pnpm/xmllint-wasm@*/node_modules/xmllint-wasm/**");
-    const raiz = fileURLToPath(new URL("../../", import.meta.url));
-    expect(relative(raiz, real).split(sep).join("/")).toMatch(/^node_modules\/(\.pnpm\/xmllint-wasm@[^/]+\/node_modules\/)?xmllint-wasm$/);
+    expect(inc).toContain("shared/fiscal/xsd/**");
+    expect(inc).not.toMatch(/node_modules/);
     await expect(validarLeiaute("<a/>", "dps", "producao_restrita", { pastaValidador: pasta.dir })).rejects.toThrow(ErroLeiaute);
     await expect(validarLeiaute("<a/>", "dps", "producao_restrita", { carregar: async () => { throw new Error("Cannot find module"); } })).rejects.toThrow(/validador indisponível/);
   });
