@@ -200,9 +200,11 @@ produção foi restaurada por SQL pelo coordenador em 23/11 (perfil `user`, mód
   `municipio.fonte`, `emissor.ambiente`, `status`…), e não pelo nome da chave em qualquer nível. Passado o `MAX_PREVIAS_POR_PEDIDO`, o
   resultado que o modelo lê perde `previaFiscal` e recebe `AVISO_PREVIA_ACIMA_DO_TETO` (nada de "o sistema manda o PDF").
 
-Testes: `server/dolores/conta-alterada.test.ts` (14), `server/dolores/s3b-qa.test.ts` (11; os 4 `it.fails` viraram `it`),
+Testes: `server/dolores/conta-alterada.test.ts` (13), `server/dolores/s3b-qa.test.ts` (11; os 4 `it.fails` viraram `it`),
 `server/dolores/s3-fiscal-revisao.test.ts` (8, inclusive o teto de prévias). `server/dolores/ponte.test.ts`: o teste de conta alterada
-agora espera "recusada" com a frase nova.
+agora espera "recusada" com a frase nova. Rodados em lotes (`--maxWorkers=2`), depois do merge da `main`: s3* + conta-alterada (78),
+ponte + c5-integracao2* + leitura-somente (77), operacao* + admin-permissions + drive-exclusoes (75) — 230 testes, todos passam;
+`npx tsc --noEmit` e `npx vite build` sem erro.
 
 ### Arquivos (S-3b)
 - `server/dolores/whatsapp.ts` (ordem da marcação, teto da leitura, filtro total do PDF, memória da prévia)
