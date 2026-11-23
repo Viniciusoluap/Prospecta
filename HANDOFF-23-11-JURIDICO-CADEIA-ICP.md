@@ -15,8 +15,14 @@ sem retentativa). Mesma causa no envio da cadeia antes de assinar (o PDF saiu se
 - "Conferir novamente" (admin): `juridico.revalidarDocumento({documentId, manual:true})` reconfere documento pendente OU
   inválido pelos mesmos bytes (SHA-256), 1x/minuto; botão em `ValidacaoAssinatura`.
 
+## Portão de QA (FAIL → corrigido)
+- I-1: `certificadosPublicos` lê PEM com indexOf (linear), só os primeiros 256 KB e até 32 BEGIN; PEM hostil de 10 MB < 1 s.
+- M-1: inválido com arquivo que mudou continua inválido (só ganha o aviso). M-2: reconferência manual só com papel admin.
+- M-3: reconferência manual que muda o resultado zera tentativas/primeira_em. B-1: README (hash = integridade, não autenticidade).
+- B-3: a tela usa `reconferida` devolvido pela rota. B-4: timeouts maiores nos dois testes lentos.
+
 ## Testes
-- (a) automáticos: `server/juridico*` 10 arquivos / 120 testes OK (novo `server/juridico-cadeia-icp-real.test.ts`, 16, com a
+- (a) automáticos (depois do portão de QA e do merge da main): `server/juridico*` 11 arquivos / 143 testes OK, em dois lotes. Antes: 10 arquivos / 120 testes OK (novo `server/juridico-cadeia-icp-real.test.ts`, 16, com a
   cadeia real; teste de reconferência manual em `server/juridico-validacao.test.ts`); `tsc --noEmit` OK; `vite build` OK.
 - (b) manuais: nenhum.
 - (c) pendente em produção: abrir "Contrato - Maylanne" e clicar "Conferir novamente". Esperado: cadeia conferida. A LCR

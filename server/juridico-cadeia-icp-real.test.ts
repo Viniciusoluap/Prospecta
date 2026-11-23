@@ -128,6 +128,17 @@ describe("AIA em DER, PEM e PKCS#7 (.p7b/.p7c)", () => {
     expect(certificadosPublicos(Buffer.from("<html>erro</html>"))).toEqual([]);
     expect(certificadosPublicos(Buffer.from("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"))).toEqual([]);
   });
+  it("PEM hostil de 10 MB (BEGIN sem END, rótulos enormes) é recusado em tempo linear", () => {
+    for (const hostil of [
+      Buffer.from("-----BEGIN CERTIFICATE-----\n" + "-----BEGIN A-----".repeat(600_000)),
+      Buffer.from("-----BEGIN " + "X".repeat(10 * 1024 * 1024)),
+      Buffer.from("-----BEGIN CERTIFICATE-----\n" + "A".repeat(10 * 1024 * 1024)),
+    ]) {
+      const t = Date.now();
+      expect(certificadosPublicos(hostil)).toEqual([]);
+      expect(Date.now() - t).toBeLessThan(1_000);
+    }
+  });
 });
 
 describe("ICP sintética: o .p7b do AIA alimenta os saltos seguintes e as embarcadas completam a verificação", () => {

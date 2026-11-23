@@ -76,8 +76,8 @@ export default function AdminJuridico() {
     onSuccess: async r => {
       await utils.juridico.getById.invalidate();
       if (!r) toast.error("A conferência não está disponível agora.");
-      // O servidor aceita no máximo uma nova conferência por minuto por documento; sem nova gravação, o resultado é o anterior.
-      else if (Date.now() - new Date(r.verificadoEm).getTime() > 30_000) toast.info("Conferido há pouco: aguarde um minuto para conferir de novo.");
+      // O servidor aceita no máximo uma nova conferência por minuto por documento; quando recusa, devolve reconferida=false.
+      else if (r.reconferida === false) toast.info("Conferido há pouco: aguarde um minuto para conferir de novo.");
       else if (r.estado === "valida") toast.success("Conferência refeita: assinatura válida.");
       else toast.warning(`Conferência refeita: ${r.estado === "pendente" ? "pendente" : "inválida"}. ${r.motivo}`);
     },
