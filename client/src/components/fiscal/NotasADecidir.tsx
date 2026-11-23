@@ -363,7 +363,7 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
               <p className="text-sm text-gray-300">{emitirConf.tomador.nome ?? "Sem tomador"} — {dinheiro(emitirConf.valorCentavos)} — {emitirConf.emissor?.razaoSocial ?? ""}</p>
               <p className="text-xs text-gray-400">Clicar de novo nunca gera outra nota: o sistema consulta a Sefin antes de reenviar.</p>
               <Button className="w-full bg-[#C9A961] text-[#1A2332]" disabled={emitir.isPending}
-                onClick={() => emitir.mutate({ id: emitirConf.id, versao: emitirConf.versao })}>{emitir.isPending ? "Emitindo..." : "Confirmar emissão"}</Button>
+                onClick={() => emitir.mutate({ id: emitirConf.id, versao: emitirConf.versao, ambienteEsperado: emitirConf.emissor?.ambiente === "producao" ? "producao" : "producao_restrita" })}>{emitir.isPending ? "Emitindo..." : "Confirmar emissão"}</Button>
             </div>
           )}
         </DialogContent>

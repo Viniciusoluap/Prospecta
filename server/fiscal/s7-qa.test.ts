@@ -233,7 +233,7 @@ describe("QA S-7 — travas (nada sai com qualquer uma fechada)", () => {
   it("rotas: colaborador não emite, não cancela, não baixa XML/DANFSe e não troca ambiente; nenhuma rede", async () => {
     const n = await rascunho();
     const c = como("colaborador");
-    await expect(c.fiscal.notas.emitir(n)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(c.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(c.fiscal.notas.cancelar({ ...n, motivo: 1, justificativa: "Justificativa de teste longa" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(c.fiscal.notas.xml({ id: n.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(c.fiscal.notas.danfse({ id: n.id })).rejects.toMatchObject({ code: "FORBIDDEN" });

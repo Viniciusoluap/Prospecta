@@ -19,7 +19,10 @@ export function AliquotasOficiais({ tipoServicoId, emissorId, podeEditar }: { ti
   });
   const escolher = trpc.fiscal.parametrosMunicipais.escolher.useMutation({ onSuccess: () => { toast.success("Escolha gravada."); invalidar(); }, onError: e => toast.error(e.message) });
   // A mais recente por município (é a que vale na nota)
-  const vigentes = Array.from(new Map(linhas.filter(l => l.consulta === "aliquota").map(l => [l.municipioIbge, l] as const)).values());
+  // (a lista vem do mais novo para o mais antigo: fica o PRIMEIRO de cada município — revisão do Codex no #324)
+  const porMunicipio = new Map<string, (typeof linhas)[number]>();
+  for (const l of linhas) if (l.consulta === "aliquota" && !porMunicipio.has(l.municipioIbge)) porMunicipio.set(l.municipioIbge, l);
+  const vigentes = Array.from(porMunicipio.values());
   return (
     <div className="mt-2 rounded border border-[#C9A961]/20 p-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">

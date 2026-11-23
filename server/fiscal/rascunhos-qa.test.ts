@@ -98,7 +98,7 @@ describe("QA — permissões e superfícies de ataque (devem passar)", () => {
     await lancamento();
     await gerarRascunhos(getDb(), { origem: "botao", agora: AGORA });
     const [n] = await notas();
-    await expect(admin().fiscal.notas.emitir({ id: n!.id, versao: n!.versao })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(admin().fiscal.notas.emitir({ id: n!.id, versao: n!.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     for (const s of ["EMITINDO", "EMITIDA", "CANCELADA", "ERRO"]) {
       await expect(pg.query(`INSERT INTO fiscal_notas (origem_tipo, origem_id, data_evento, status) VALUES ('avaliacao', 9${s.length}, '2026-11-10', $1)`, [s]))
         .rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);

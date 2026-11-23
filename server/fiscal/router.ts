@@ -356,7 +356,7 @@ export const fiscalRouter = router({
      * S-7: emitir pela Sefin Nacional — só com as três travas abertas (EMISSAO_DISPONIVEL, interruptor do emissor, ambiente).
      * Repetir o pedido nunca gera outra nota (Id da DPS fixo + consulta antes de reenviar).
      */
-    emitir: adminPorPapel.input(z.object({ id, versao: z.number().int().positive() }))
+    emitir: adminPorPapel.input(z.object({ id, versao: z.number().int().positive(), ambienteEsperado: z.enum(["producao_restrita", "producao"]) }).strict())
       .mutation(({ input, ctx }) => comFrase(() => emitirNota(getDb(), { ...input, usuarioId: ctx.user.id, via: "tela" }))),
     /** S-7: cancelar (e101101) — motivo 1/2/9 e justificativa de 15 a 255 caracteres. */
     cancelar: adminPorPapel

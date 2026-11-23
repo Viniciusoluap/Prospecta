@@ -206,7 +206,7 @@ describe("travas — nada sai com qualquer uma fechada", () => {
     const n = await rascunho();
     const app = router({ fiscal: fiscalRouter });
     const admin = app.createCaller({ user: { id: 1, role: "admin", active: true, permissions: "[]" }, req: { headers: {} }, res: {} } as never);
-    await expect(admin.fiscal.notas.emitir(n)).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: AVISO_EMISSAO_INDISPONIVEL });
+    await expect(admin.fiscal.notas.emitir({ ...n, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: AVISO_EMISSAO_INDISPONIVEL });
     expect(recebidos).toHaveLength(0);
   });
   it("gatilho da 0167: EMITINDO só com emissor liberado; EMITIDA só de EMITINDO com chave/XML; Id da DPS não muda; emitida não muda", async () => {

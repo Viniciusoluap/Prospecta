@@ -299,7 +299,7 @@ describe("status, motivo e histórico", () => {
 
   it("Emitir é recusado no servidor (rota e banco) e nada vai à rede", async () => {
     const n = await umaNota();
-    await expect(admin().fiscal.notas.emitir({ id: n.id, versao: n.versao })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(admin().fiscal.notas.emitir({ id: n.id, versao: n.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(pg.query("UPDATE fiscal_notas SET status = 'EMITIDA' WHERE id = $1", [n.id])).rejects.toThrow(/FISCAL_EMISSAO_INDISPONIVEL/);
     expect((await notas())[0]!.status).toBe("A_DECIDIR");
   });
@@ -340,7 +340,7 @@ describe("permissões", () => {
     await expect(colab.fiscal.notas.editar({ id: n!.id, versao: n!.versao, descricao: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.notas.atualizar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(colab.fiscal.config.salvar({ ligado: true, inicioEm: "2026-11-01" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(colab.fiscal.notas.emitir({ id: n!.id, versao: n!.versao })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(colab.fiscal.notas.emitir({ id: n!.id, versao: n!.versao, ambienteEsperado: "producao_restrita" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("colaborador", ["obras"]).fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("corretor").fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller("colaborador", ["bpo"], false).fiscal.notas.listar()).rejects.toMatchObject({ code: "FORBIDDEN" });
