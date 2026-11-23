@@ -282,8 +282,8 @@ export function validarParametrosMassa(p: ParametrosMassa): string | null {
   if (p.percentInstitucional + p.percentAreaVerde >= 1) {
     return "A soma de % institucional e % área verde deve ser menor que 100%.";
   }
-  if (!Number.isFinite(p.precoM2Lote) || p.precoM2Lote <= 0) {
-    return "Preço do lote (R$/m²) deve ser um número maior que 0.";
+  if (!Number.isFinite(p.precoM2Lote) || p.precoM2Lote < 0) {
+    return "Preço legado do lote (R$/m²) não pode ser negativo.";
   }
   if (p.tipologia !== undefined && !TIPOLOGIAS_MASSA.some((t) => t.value === p.tipologia)) {
     return "Tipologia do cenário inválida (use grid, cul-de-sac, rua simples ou vias públicas).";

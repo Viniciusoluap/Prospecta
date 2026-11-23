@@ -16,6 +16,8 @@ import {
   urbanismoDoCenario,
   appDaViabilidade,
   defaultsMix,
+  referenciasDePreco,
+  resolverPrecoProduto,
   montarViabilidade,
   type PremissasForm,
 } from "@shared/incorporacao/premissas-loteamento";
@@ -107,13 +109,15 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   const lotesOrigem = origemUrbanismo?.lotes ?? [];
   const areaMediaLote = lotesOrigem.length > 0 ? Math.round((lotesOrigem.reduce((s, l) => s + (l.areaM2 || 0), 0) / lotesOrigem.length) * 100) / 100 : 0;
   const [mixBase, setMix] = useState<ItemMixProduto[]>(() => {
-    if (salvo?.itensMix && Array.isArray(salvo.itensMix) && salvo.itensMix.length > 0) {
+    if (salvo?.itensMix && Array.isArray(salvo.itensMix)) {
       return salvo.itensMix as ItemMixProduto[];
     }
     return defaultsMix(estudo);
   });
 
-  const mix = form.mixModo === "cenario" ? defaultsMix(estudo) : mixBase;
+  const refs = useMemo(() => referenciasDePreco(estudo), [estudo]);
+  const mixEditavel = useMemo(() => form.mixModo === "cenario" ? defaultsMix(estudo) : mixBase, [estudo, form.mixModo, mixBase]);
+  const mix = useMemo(() => mixEditavel.map(item => resolverPrecoProduto(item, refs)), [mixEditavel, refs]);
 
   const [cenarioAtivo, setCenarioAtivo] = useState<CenarioId>("ideal");
 
@@ -125,12 +129,12 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
 
   function addProduto() {
     setForm({ ...form, mixModo: "manual" });
-    setMix([...mix, { nome: "Novo produto", quantidade: 0, areaUnidadeM2: 0, precoM2: 0 }]);
+    setMix([...mixEditavel, { nome: "Novo produto", quantidade: 0, areaUnidadeM2: 0, precoM2: 0 }]);
   }
   function updProduto(i: number, campo: keyof ItemMixProduto, valor: string | number | boolean) {
     setForm({ ...form, mixModo: "manual" });
     setMix(() => {
-      const novo = [...mix];
+      const novo = [...mixEditavel];
       // alternar "Casa pronta" só muda a forma de cálculo: área, R$/m² e valor por unidade ficam preservados
       novo[i] = { ...novo[i], [campo]: campo === "nome" || campo === "casaPronta" || campo === "apartamento" ? valor : (typeof valor === "number" ? valor : parseFloat(String(valor)) || 0) };
       if (campo === "apartamento" && valor === true) novo[i] = { ...novo[i], casaPronta: false,
@@ -145,7 +149,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   }
   function removerProduto(i: number) {
     setForm({ ...form, mixModo: "manual" });
-    setMix(mix.filter((_, j) => j !== i));
+    setMix(mixEditavel.filter((_, j) => j !== i));
   }
 
   // APP: SEMPRE calculada automaticamente a partir do mapa (aba Terreno) — nunca
@@ -163,6 +167,8 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
   const unidadesMix = mix.reduce((s, p) => s + (Number.isFinite(p.quantidade) ? p.quantidade : 0), 0);
   const temCasaPronta = mix.some((p) => p.casaPronta);
   const temApartamento = mix.some((p) => p.apartamento);
+  const temLote = mix.some(p => !p.casaPronta && !p.apartamento);
+  const temResidencial = temCasaPronta || temApartamento;
   const temLoteSeparado = mix.some((p) => !p.casaPronta && !p.apartamento && /lote/i.test(p.nome));
   const ocupacao = conferirTerrenoMix(mix, r.urbanistico.areaVendavelM2, origemUrbanismo?.lotes);
   const setFonte = (campo: "custoInfraFonte" | "marketingFonte" | "terrenoFonte") => (v: ModoFonte) => { setForm({ ...form, [campo]: v }); };
@@ -184,7 +190,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
     const premissas = sincronizarUrbanismo(estudo, snapshot.formBase);
     const itensMix = premissas.mixModo === "cenario" ? defaultsMix(estudo) : snapshot.mixBase;
     const app = premissas.areaBrutaM2 > 0 ? appDaViabilidade(estudo, premissas) / premissas.areaBrutaM2 : 0;
-    const { config } = montarViabilidade(estudo, premissas, itensMix, app).fontes;
+    const { config } = montarViabilidade(estudo, premissas, itensMix.map(item => resolverPrecoProduto(item, refs)), app).fontes;
     exigirResultado(await salvarViabilidade(estudo.id, JSON.stringify({
       ...premissas, custoInfraFonte: config.custoInfraFonte, marketingFonte: config.marketingFonte,
       terrenoFonte: config.terrenoFonte, considerarCaptacao: config.considerarCaptacao, itensMix,
@@ -257,7 +263,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
                 </div> : <label className="col-span-2 text-[10px] font-bold text-gray-400 uppercase" title="Área do LOTE de cada casa (não a área construída): base do custo de infraestrutura por m².">Área do lote (m²)
                   <NumeroBRField value={p.areaUnidadeM2} onValueChange={(v) => updProduto(i, "areaUnidadeM2", v)} className={`w-full text-sm border px-2 py-1.5 font-normal text-gray-800 ${p.areaUnidadeM2 > 0 ? "border-gray-200" : "border-red-400"}`} placeholder="m² do lote" /></label>}
                 <label className="col-span-3 text-[10px] font-bold text-gray-400 uppercase">Valor de venda por unidade (R$)
-                  <NumeroBRField value={p.precoUnidade ?? 0} onValueChange={(v) => updProduto(i, "precoUnidade", v)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder="R$ por unidade" /></label>
+                  <NumeroBRField value={mixEditavel[i].precoUnidade ?? 0} onValueChange={(v) => updProduto(i, "precoUnidade", v)} className="w-full text-sm border border-gray-200 px-2 py-1.5 font-normal text-gray-800" placeholder={p.precoUnidade ? formatCurrency(p.precoUnidade) : "R$ por unidade"} /></label>
                 <button type="button" onClick={() => removerProduto(i)}
                   className="col-span-1 text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
               </div>
@@ -269,12 +275,18 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
                   className="col-span-2 text-sm border border-gray-200 px-2 py-1.5" placeholder="Qtd" />
                 <NumeroBRField value={p.areaUnidadeM2} onValueChange={(v) => updProduto(i, "areaUnidadeM2", v)}
                   className="col-span-2 text-sm border border-gray-200 px-2 py-1.5" placeholder="Área m²" />
-                <NumeroBRField value={p.precoM2} onValueChange={(v) => updProduto(i, "precoM2", v)}
-                  className="col-span-2 text-sm border border-gray-200 px-2 py-1.5" placeholder="R$/m²" />
+                <NumeroBRField value={mixEditavel[i].precoM2} onValueChange={(v) => updProduto(i, "precoM2", v)}
+                  className="col-span-2 text-sm border border-gray-200 px-2 py-1.5" placeholder={p.precoM2 ? formatCurrency(p.precoM2) : "R$/m²"} />
                 <button type="button" onClick={() => removerProduto(i)}
                   className="col-span-1 text-gray-300 hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
               </div>
               )}
+              {(p.casaPronta || p.apartamento) && (p.apartamento ? refs.apartamento : refs.casa) > 0 &&
+                <Num label={p.apartamento ? "Área privativa por apartamento" : "Área construída por casa"} sufixo="m²"
+                  value={p.areaPrivativaM2 ?? 0} onChange={v => updProduto(i, "areaPrivativaM2", v)} />}
+              {(p.quantidade > 0 && !(vgvItemMix(p) > 0)) && <p className="text-xs text-amber-800">Informe o preço deste produto para incluí-lo no VGV.</p>}
+              {(p.casaPronta || p.apartamento) && !mixEditavel[i].precoUnidade && !!p.precoUnidade &&
+                <p className="text-xs text-gray-600">Preço sugerido: {formatCurrency(p.precoUnidade)} por unidade, {((p.apartamento ? refs.apartamento : refs.casa) > 0 && (p.areaPrivativaM2 ?? 0) > 0) ? "pela referência residencial e a área informada" : "pela referência de lote e a área do lote"}. Informe o preço de venda para substituí-lo.</p>}
               {p.apartamento && <div className="space-y-2 border-t border-gray-100 pt-2">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   <Num label="Apartamentos por andar" value={p.apartamentosPorAndar ?? 6} onChange={v => updProduto(i, "apartamentosPorAndar", v)} />
@@ -322,7 +334,7 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
             {origemUrbanismo?.quadroAreas && <>
               <p className="mt-1">Área pública total: {fmtM2(origemUrbanismo.quadroAreas.areaPublicaTotalM2)} · Institucional: {fmtM2(origemUrbanismo.quadroAreas.areaInstitucionalM2)} · Vendável: {fmtM2(origemUrbanismo.quadroAreas.areaLiquidaVendavelM2)}</p>
               <p className="mt-1">Supressão: {fmtM2(origemUrbanismo.quadroAreas.supressaoVegetalM2)} · Transmissão: {fmtM2(origemUrbanismo.quadroAreas.faixaTransmissaoM2)} · Servidão: {fmtM2(origemUrbanismo.quadroAreas.faixaServidaoM2)} · Outras restrições: {fmtM2(origemUrbanismo.quadroAreas.outrasNaoParcelaveisM2)}</p>
-              <button type="button" className="mt-2 font-bold underline" onClick={() => { if (form.urbanismoModo !== "manual" || confirm("Substituir os ajustes manuais pelas áreas do cenário selecionado?")) { setForm({ ...form, urbanismoModo: "cenario", mixModo: "cenario" }); } }}>Usar cenário selecionado</button>
+              <button type="button" className="mt-2 font-bold underline" onClick={() => { if (form.urbanismoModo !== "manual" || confirm("Substituir os ajustes manuais pelas áreas do cenário selecionado?")) { setForm({ ...form, urbanismoModo: "cenario" }); } }}>Usar cenário selecionado</button>
             </>}
           </div>
           <Num label="Área bruta" sufixo="m²" value={form.areaBrutaM2} onChange={set("areaBrutaM2")} step={100} />
@@ -350,13 +362,21 @@ export function ViabilidadeTab({ estudo }: { estudo: EstudoData }) {
               {PERFIS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
-          <Num label="Entrada" sufixo="%" value={form.entradaPct} onChange={set("entradaPct")} step={0.5} />
-          <Num label="Parcelamento" sufixo="meses" value={form.prazoParcelamentoMeses} onChange={set("prazoParcelamentoMeses")} />
-          <Num label="Juros ao cliente" sufixo="% a.m." value={form.jurosClienteMensal} onChange={set("jurosClienteMensal")} step={0.01} />
-          <Num label="Correção (IPCA)" sufixo="% a.m." value={form.indexacaoMensal} onChange={set("indexacaoMensal")} step={0.01} />
-          <Num label="Vendas à vista" sufixo="%" value={form.vendasAVistaPct} onChange={set("vendasAVistaPct")} step={0.5} />
-          <Num label="Desconto à vista" sufixo="%" value={form.descontoAVistaPct} onChange={set("descontoAVistaPct")} step={0.5} />
-          <Num label="Inadimplência" sufixo="%" value={form.inadimplenciaPct} onChange={set("inadimplenciaPct")} step={0.5} />
+          {temResidencial && <>
+            <p className="col-span-full text-xs text-gray-700">Casas e apartamentos: 80% do banco no mês da venda. Os outros 20% são recebidos à vista do cliente ou parcelados pela construtora.</p>
+            <Num label="Prazo dos 20% do cliente (0 = à vista)" sufixo="meses" value={form.prazoRecursosPropriosMeses} onChange={v => set("prazoRecursosPropriosMeses")(Math.min(360, Math.max(0, Math.round(v))))} />
+            {form.prazoRecursosPropriosMeses > 0 && <Num label="Juros nos 20% do cliente" sufixo="% a.m." value={form.jurosRecursosPropriosMensal} onChange={set("jurosRecursosPropriosMensal")} />}
+          </>}
+          {temLote && <>
+            {temResidencial && <p className="col-span-full text-xs font-semibold text-gray-700">Condições dos lotes</p>}
+            <Num label="Entrada" sufixo="%" value={form.entradaPct} onChange={set("entradaPct")} step={0.5} />
+            <Num label="Parcelamento" sufixo="meses" value={form.prazoParcelamentoMeses} onChange={set("prazoParcelamentoMeses")} />
+            <Num label="Juros ao cliente" sufixo="% a.m." value={form.jurosClienteMensal} onChange={set("jurosClienteMensal")} step={0.01} />
+            <Num label="Correção (IPCA)" sufixo="% a.m." value={form.indexacaoMensal} onChange={set("indexacaoMensal")} step={0.01} />
+            <Num label="Vendas à vista" sufixo="%" value={form.vendasAVistaPct} onChange={set("vendasAVistaPct")} step={0.5} />
+            <Num label="Desconto à vista" sufixo="%" value={form.descontoAVistaPct} onChange={set("descontoAVistaPct")} step={0.5} />
+            <Num label="Inadimplência" sufixo="%" value={form.inadimplenciaPct} onChange={set("inadimplenciaPct")} step={0.5} />
+          </>}
           <Num label="Comissão" sufixo="% VGV" value={form.comissaoPctVgv} onChange={set("comissaoPctVgv")} step={0.5} />
           <Num label="Despesas gerais" sufixo="% VGV" value={form.despesasGeraisPctVgv} onChange={set("despesasGeraisPctVgv")} step={0.5} />
           <Num label="Impostos" sufixo="% VGV" value={form.impostosPctVgv} onChange={set("impostosPctVgv")} step={0.01} />
