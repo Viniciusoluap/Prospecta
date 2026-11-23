@@ -106,6 +106,37 @@ describe("calcularLoteamento", () => {
   });
 });
 
+describe("recebimentos de casas e apartamentos", () => {
+  const base = { ...premissasBase(), duracaoVendasMeses: 1, inicioVendasMes: 6 };
+  const casa = { nome: "Casa", quantidade: 1, areaUnidadeM2: 100, precoM2: 0, precoUnidade: 100_000, casaPronta: true };
+  const apartamento = { nome: "Apartamento", quantidade: 1, areaUnidadeM2: 0, precoM2: 0, precoUnidade: 100_000, apartamento: true };
+
+  it.each([casa, apartamento])("recebe 80% no mês da venda e financia só os 20% para $nome", produto => {
+    const r = calcularLoteamento({
+      ...base, itensMix: [produto], prazoRecursosPropriosMeses: 2, jurosRecursosPropriosMensal: 0.01,
+    });
+    expect(r.vgvGross).toBe(100_000);
+    expect(r.fluxo.slice(5, 10).map(mes => mes.receitaBruta)).toEqual([0, 80_000, 10_150.25, 10_150.25, 0]);
+  });
+
+  it("recebe os 20% do cliente à vista quando o prazo está zerado", () => {
+    const r = calcularLoteamento({ ...base, itensMix: [casa], prazoRecursosPropriosMeses: 0 });
+    expect(r.fluxo.slice(6, 8).map(mes => mes.receitaBruta)).toEqual([100_000, 0]);
+  });
+
+  it("mantém as condições de lote e as combina com a receita habitacional no mix", () => {
+    const itensMix = [{ nome: "Lote", quantidade: 1, areaUnidadeM2: 100, precoM2: 500 }];
+    const p = { ...base, itensMix, prazoParcelamentoMeses: 2, prazoRecursosPropriosMeses: 3, jurosRecursosPropriosMensal: 0 };
+    const fluxoLote = calcularLoteamento(p).fluxo;
+    const r = calcularLoteamento({ ...p, itensMix: [...itensMix, apartamento] });
+    expect(r.vgvGross).toBe(150_000);
+    expect(r.fluxo[6].receitaBruta - fluxoLote[6].receitaBruta).toBe(80_000);
+    for (const mes of [7, 8, 9]) {
+      expect(r.fluxo[mes].receitaBruta - fluxoLote[mes].receitaBruta).toBeCloseTo(20_000 / 3, 1);
+    }
+  });
+});
+
 describe("calcularCenarios", () => {
   it("agressivo tem VGV maior que conservador (preço +10% vs -10%)", () => {
     const c = calcularCenarios(premissasBase());

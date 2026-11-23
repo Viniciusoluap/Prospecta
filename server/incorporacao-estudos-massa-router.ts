@@ -4,8 +4,7 @@ import { obterCenarioPrincipal, sincronizarUnidadesCenario } from "./incorporaca
 // Cada estudo salvo é uma linha própria (nome, versão, parâmetros, cenários,
 // poligonal de referência, cenário escolhido, indicadores, quadro de áreas,
 // autor, data, exclusão lógica). O estudo PRINCIPAL é espelhado nas colunas
-// legadas do estudo de incorporação (mass_scenarios_json, selected_scenario_id,
-// product_mix_json) para Viabilidade/Orçamento/Relatório continuarem lendo de lá.
+// legadas do estudo de incorporação (mass_scenarios_json e selected_scenario_id) para Viabilidade/Orçamento/Relatório continuarem lendo de lá.
 //
 // `obterCenarioPrincipal(studyId)` é a consulta do cenário principal (lotes e
 // quadro de áreas) usada pelas ondas seguintes (unidades, viabilidade, orçamento).
@@ -15,7 +14,7 @@ import { z } from "zod";
 import { incorporationMassStudies, incorporationStudies, incorporationUnits, users } from "../drizzle/schema.js";
 import type { CenarioMassa, ParametrosMassa } from "../shared/incorporacao/massa.js";
 import {
-  cenarioEscolhido, indicadoresDoCenario, mixDoCenario, motivoBloqueioExclusao,
+  cenarioEscolhido, indicadoresDoCenario, motivoBloqueioExclusao,
   proximaVersao, quadroAreasDoCenario, validarNomeEstudo, type EstudoMassaSalvo,
 } from "../shared/incorporacao/estudos-massa.js";
 import { requireModule } from "./_core/rbac.js";
@@ -126,7 +125,6 @@ async function marcarPrincipal(studyId: number, massId: number) {
   const params = parse<ParametrosMassa>(l.paramsJson);
   const c = cenarioEscolhido(cenarios, l.selectedScenarioId);
   const massa = JSON.stringify({ params, cenarios });
-  const mix = c && params ? JSON.stringify(mixDoCenario(c, params.precoM2Lote)) : null;
   const r = await getDb().execute(sql`WITH alvo AS (
       SELECT id FROM incorporation_mass_studies WHERE id = ${massId} AND study_id = ${studyId} AND deleted_at IS NULL
     ), troca AS (
@@ -135,7 +133,7 @@ async function marcarPrincipal(studyId: number, massId: number) {
       RETURNING id
     ), espelho AS (
       UPDATE incorporation_studies SET mass_scenarios_json = ${massa}, selected_scenario_id = ${c?.id ?? null},
-        product_mix_json = COALESCE(${mix}, product_mix_json), updated_at = now()
+        updated_at = now()
       WHERE id = ${studyId} AND EXISTS (SELECT 1 FROM alvo) RETURNING id
     ) SELECT (SELECT count(*) FROM espelho) AS n`);
   if (!Number((r.rows[0] as { n?: unknown } | undefined)?.n)) throw new TRPCError({ code: "CONFLICT", message: "O estudo salvo foi excluído por outra operação. Atualize a lista." });
