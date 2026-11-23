@@ -1,6 +1,6 @@
 # E10 — A Dolores cobra o colaborador e pede documentos ao cliente
 
-Status: InReview (implementação concluída pelo @dev em 23/11; aguarda o portão de QA de segurança do @qa)
+Status: InReview (portão de QA de segurança de 23/11 deu CONCERNS; achados M1, M2, M3, B1 e B2 corrigidos pelo @dev em 23/11 — aguarda a reconferência do @qa)
 Epic: EPIC-025 (Etapa 10). Regra do dono: CLAUDE.md, seção "Dolores cobra colaborador e pede documento a cliente — decisão do
 dono em 23/11/2026". Continuam valendo as regras de 16/11 (segurança é prioridade; dados pessoais), 17/11 (termo/LGPD), 19/11
 (grupos) e 20/11 (conexão única; atendimento de cliente cadastrado; mensagem de terceiro nunca é comando).
@@ -74,7 +74,9 @@ por outras frentes). NÃO aplicada no banco por esta etapa.
 - [x] Ligação nos crons (`server/dolores/rondas.ts`) e no webhook (`server/dolores/whatsapp.ts`)
 - [x] Tela `client/src/components/admin/DoloresCobrancasSecao.tsx` no cartão de operação
 - [x] Testes `server/dolores/e10-cobrancas.test.ts`
-- [ ] Portão de QA de segurança (@qa)
+- [x] Portão de QA de segurança (@qa) — CONCERNS, testes em `server/dolores/e10-qa.test.ts`
+- [x] Correção dos achados do portão (M1, M2, M3, B1, B2) — ver "Correções do portão"
+- [ ] Reconferência do @qa
 - [ ] Aplicar a 0169 no Neon, publicar e ligar conforme a decisão do dono
 
 ## Testes
@@ -99,6 +101,8 @@ por outras frentes). NÃO aplicada no banco por esta etapa.
 - `server/dolores/testes-banco.ts` (aplica a 0169 duas vezes)
 - `client/src/components/admin/DoloresOperacaoCard.tsx` (mostra a seção)
 - `docs/stories/epics/epic-025-dolores/EPIC.md` (etapa 10)
+- `server/dolores/e10-qa.test.ts` (portão de QA; achados viraram testes normais)
+- `server/whatsapp-conexao-empresa.ts` (M3: telefones dos usuários reservados na Central para quem não é admin)
 
 ## Dev Agent Record
 - Testes automáticos (23/11): `server/dolores/e10-cobrancas.test.ts` 25/25 (regras puras, interruptor desligado, horário,
@@ -113,5 +117,28 @@ por outras frentes). NÃO aplicada no banco por esta etapa.
   dono/da empresa antes do envio (`numero_reservado`), além da recusa que já existia na porta de envio.
 - Segurança: a resposta do colaborador chega ao dono por `enviarAvisoAoDono` com `textoNaMemoria` (opção nova): o texto do
   terceiro não entra na memória que a IA da conversa do dono lê (evita injeção por colaborador).
-- Observação para o QA: a mensagem de cobrança ao colaborador fica na Central (conexão da empresa), visível a admin e
-  colaborador, como as demais conversas da empresa.
+- Observação para o QA (substituída pela correção M3 abaixo): a mensagem de cobrança ao colaborador ficava na Central visível
+  a admin e colaborador.
+
+## Correções do portão (23/11, @dev)
+- M1 — `coletarCobrancas` (`server/dolores/cobrancas-automaticas.ts`): o nome gravado (tarefa, regularização, avaliação) é
+  conferido contra TODOS os usuários (qualquer papel, ativos e inativos). Um só usuário colaborador ativo → dele; um só usuário de
+  outro papel ou inativo → dessa pessoa, ninguém é cobrado; mais de um → ambíguo: ninguém é cobrado e o item entra no resumo do
+  dono como "responsável ambíguo" (só a fonte e o nome gravado, sem cliente). Nome vazio ou de ninguém → responsável do card no CRM.
+  [AUTO-DECISION] Nome de UM só usuário que não é colaborador ativo → não é "ambíguo" no resumo (o item é claramente daquela
+  pessoa e já aparece no relatório do dono). `coletarItensPorColaborador` continua existindo (só os itens por colaborador).
+- M2 — `semValores` (`shared/dolores/cobrancas.ts`): moeda antes ou depois do número (R$, US$, U$, BRL), "reais"/"contos",
+  escala sem moeda ("5 mil", "2 milhões", "30k"), número com vírgula e 2 casas ("1.500,00", "1500,00") e porcentagem ligada a
+  dinheiro (comissão, desconto, juros, entrada, sinal, taxa, multa, correção; "do valor", "de entrada", "ao mês"...).
+  [AUTO-DECISION] Ficam de propósito (documentado no código): porcentagem de andamento ("obra 80% concluída"), medidas
+  ("12,50 m²", "2 mil m²"), número sem vírgula nem moeda ("1.500" pode ser lote, protocolo ou matrícula) e datas.
+- M3 — `numerosReservadosDoPapel` (`server/whatsapp-conexao-empresa.ts`): para o colaborador (conexão da empresa, não admin), os
+  telefones de TODOS os usuários do sistema entram nos números reservados — a conversa da empresa com um usuário (cobrança e
+  resposta) some da lista, do histórico, da mídia, da exclusão e do envio pela Central; só o admin vê. O corretor usa a própria
+  conexão e nunca vê as conversas da empresa. Falha ao ler os usuários → fecha (nada listado), como o resto dos reservados.
+- B1 — `ehFeriadoNacional`/`domingoDePascoa`: feriados nacionais fixos (01/01, 21/04, 01/05, 07/09, 12/10, 02/11, 15/11,
+  20/11 — nacional desde a Lei 14.759/2023 —, 25/12) e móveis pela Páscoa (Carnaval segunda e terça, Sexta-feira Santa, Corpus
+  Christi) não são dia útil (nem cobrança nem resumo). Feriado estadual/municipal não é conhecido. O teste de fuso que usava a
+  sexta 20/11 passou para a sexta 27/11.
+- B2 — pedido de documentos: ao bater no registro único do dia (tentativa anterior que falhou soltou a vaga), a vaga do cliente
+  é solta de novo — no dia seguinte ele volta a ser elegível (antes ficava 3 dias preso).

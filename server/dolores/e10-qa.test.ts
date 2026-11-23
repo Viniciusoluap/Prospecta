@@ -1,5 +1,5 @@
 // QA (portão de segurança) — EPIC-025 E10: tentativas de quebrar a cobrança do colaborador e o pedido de documentos ao cliente.
-// Achado confirmado = it.fails (o teste descreve o comportamento CERTO e hoje falha). Nada de código de produção mudou.
+// Os achados M1, M2, M3, B1 e B2 do portão foram corrigidos pelo @dev em 23/11/2026: os testes deles descrevem o comportamento CERTO e passam.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()), getDb: vi.fn() }));
@@ -69,19 +69,37 @@ describe("QA 1 — mensagem a quem não deve / item para a pessoa errada", () =>
     const lista = await coletarItensPorColaborador(SEG_9H);
     expect(JSON.stringify(lista)).not.toContain("Tarefa homônima QA");
   });
-  // ACHADO M1: o mapa de nomes só conhece colaboradores ATIVOS; um corretor/admin (ou colaborador inativo) com o mesmo nome não
-  // torna o nome ambíguo — a tarefa dele vai para a colaboradora (com o nome do cliente dele).
-  it.fails("ACHADO M1: corretor homônimo de uma colaboradora — a tarefa DELE não pode ir para ela", async () => {
+  // CORRIGIDO M1 (era ACHADO): o nome é conferido contra TODOS os usuários (qualquer papel, ativos e inativos); bater com mais de um
+  // = ambíguo (ninguém é cobrado; vai ao resumo do dono sem o cliente).
+  it("CORRIGIDO M1: corretor homônimo de uma colaboradora — a tarefa DELE não pode ir para ela", async () => {
     await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('cor', 'Bianca Souza', 'corretor', true, 'h', '99944443333');
       INSERT INTO tasks (title, assigned_to, related_type, related_id, priority, status, due_at) VALUES ('Visita do corretor QA', 'Bianca Souza', 'lead', 3, 'low', 'pending', '2026-11-10 12:00')`);
     const lista = await coletarItensPorColaborador(SEG_9H);
     expect(JSON.stringify(lista)).not.toContain("Visita do corretor QA");
   });
-  it.fails("ACHADO M1b: colaborador INATIVO homônimo — o item antigo dele não pode ir para a ativa", async () => {
+  it("CORRIGIDO M1b: colaborador INATIVO homônimo — o item antigo dele não pode ir para a ativa", async () => {
     await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('bia-old', 'BIANCA  souza', 'colaborador', false, 'h', '99944443333');
       INSERT INTO tasks (title, assigned_to, priority, status, due_at) VALUES ('Item da antiga QA', 'BIANCA  souza', 'low', 'pending', '2026-11-10 12:00')`);
     const lista = await coletarItensPorColaborador(SEG_9H);
     expect(JSON.stringify(lista)).not.toContain("Item da antiga QA");
+  });
+  it("M1: item ambíguo entra no resumo do dono como 'responsável ambíguo', sem o nome do cliente", async () => {
+    await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('cor', 'Bianca Souza', 'corretor', true, 'h', '99944443333');
+      INSERT INTO tasks (title, assigned_to, related_type, related_id, priority, status, due_at) VALUES ('Visita ambígua QA', 'Bianca Souza', 'lead', 2, 'low', 'pending', '2026-11-10 12:00')`);
+    await ligar("colaborador_ligado = true");
+    await rodar(SEG_9H);
+    expect(paraContato(BIANCA).join("\n")).not.toContain("Visita ambígua QA");
+    await rodar(em("2026-11-16T20:30:00Z")); // 17h30 de Fortaleza: resumo
+    const resumo = paraDono().find(t => t.startsWith("Resumo das cobranças"))!;
+    // os itens do cenário com "Bianca Souza" também ficam ambíguos (o corretor tem o mesmo nome): só fonte + nome, nunca cliente
+    expect(resumo).toMatch(/responsável ambíguo[^\n]*: \d+ — [^\n]*Tarefa \(Bianca Souza\)/);
+    expect(resumo).not.toMatch(/João Atrasado|Visita ambígua/);
+  });
+  it("M1: nome que bate com UM só usuário que não é colaborador (corretor): é dele — ninguém é cobrado", async () => {
+    await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('cor', 'Carlos Corretor', 'corretor', true, 'h', '99944443333');
+      INSERT INTO tasks (title, assigned_to, priority, status, due_at) VALUES ('Tarefa do corretor QA', 'Carlos Corretor', 'low', 'pending', '2026-11-10 12:00')`);
+    const lista = await coletarItensPorColaborador(SEG_9H);
+    expect(JSON.stringify(lista)).not.toContain("Tarefa do corretor QA");
   });
   it("colaborador inativo não recebe nada", async () => {
     await banco.pg.exec("UPDATE users SET active = false WHERE id = 2");
@@ -126,8 +144,19 @@ describe("QA 1 — mensagem a quem não deve / item para a pessoa errada", () =>
 });
 
 describe("QA 2 — conteúdo", () => {
-  it.fails("ACHADO M2: valor sem 'R$' nem 'reais' passa ('1.500,00', '5 mil', '2.000 R$')", () => {
+  it("CORRIGIDO M2: valor sem 'R$' nem 'reais' passa ('1.500,00', '5 mil', '2.000 R$')", () => {
     for (const s of ["Cobrar 1.500,00 do cliente", "Sinal de 5 mil", "Devolver 2.000 R$", "Entrada BRL 3.000"]) expect(semValores(s), s).not.toMatch(/\d[\d.]*,\d{2}|\d+\s?mil\b|\d\s?R\$|BRL\s?\d/i);
+  });
+  it("M2: escala, moeda depois, BRL/US$/U$, vírgula com 2 casas e porcentagem de dinheiro saem; andamento e medidas ficam", () => {
+    const casos: Array<[string, RegExp]> = [
+      ["Cobrar 1500,00", /1500/], ["Entrada de 2 milhões", /2 milh/], ["Bônus 30k", /30k/], ["Pagar US$ 10 e U$5", /\d/],
+      ["Restam 3.000,00 BRL", /3\.000/], ["Sinal de 5 mil R$", /5 mil/], ["comissão de 5%", /5%/], ["20% do valor", /20%/],
+      ["juros 1% ao mês", /1%/], ["10% de entrada", /10%/],
+    ];
+    for (const [s, proibido] of casos) expect(semValores(s), s).not.toMatch(proibido);
+    expect(semValores("Obra 80% concluída")).toBe("Obra 80% concluída");
+    expect(semValores("Área 12,50 m² e 2 mil m²")).toBe("Área 12,50 m² e 2 mil m²");
+    expect(semValores("Lote 1.500, matrícula 12.345, vence 10/12")).toBe("Lote 1.500, matrícula 12.345, vence 10/12");
   });
   it("R$ / reais são retirados do título da tarefa", () => {
     expect(semValores("Pagar R$1.500 e mais 200 reais")).not.toMatch(/\d/);
@@ -165,14 +194,20 @@ describe("QA 2 — conteúdo", () => {
 });
 
 describe("QA 3 — tetos, horário, interruptor", () => {
-  it.fails("ACHADO B1: feriado nacional (Natal, sexta 25/12/2026) não é horário comercial", () => {
+  it("CORRIGIDO B1: feriado nacional (Natal, sexta 25/12/2026) não é horário comercial", () => {
     expect(dentroDoHorarioComercial(em("2026-12-25T13:00:00Z"))).toBe(false);
   });
-  it("fuso: 07h59 de Fortaleza ainda fora; 08h00 dentro; sexta 17h59 dentro; 18h fora", () => {
+  it("B1: feriados móveis de 2026 e 2027 pela Páscoa (Carnaval seg/ter, Sexta-feira Santa, Corpus Christi) e fixos; Quarta de Cinzas é útil", () => {
+    for (const dia of ["2026-02-16", "2026-02-17", "2026-04-03", "2026-06-04", "2027-02-08", "2027-02-09", "2027-03-26", "2027-05-27", "2026-11-20", "2027-01-01"])
+      expect(dentroDoHorarioComercial(em(`${dia}T13:00:00Z`)), dia).toBe(false);
+    expect(dentroDoHorarioComercial(em("2026-02-18T13:00:00Z"))).toBe(true);
+    expect(dentroDoHorarioComercial(em("2026-06-05T13:00:00Z"))).toBe(true);
+  });
+  it("fuso: 07h59 de Fortaleza ainda fora; 08h00 dentro; sexta 17h59 dentro; 18h fora (sexta 27/11; 20/11 é feriado nacional)", () => {
     expect(dentroDoHorarioComercial(em("2026-11-16T10:59:59Z"))).toBe(false);
     expect(dentroDoHorarioComercial(em("2026-11-16T11:00:00Z"))).toBe(true);
-    expect(dentroDoHorarioComercial(em("2026-11-20T20:59:00Z"))).toBe(true);
-    expect(dentroDoHorarioComercial(em("2026-11-20T21:00:00Z"))).toBe(false);
+    expect(dentroDoHorarioComercial(em("2026-11-27T20:59:00Z"))).toBe(true);
+    expect(dentroDoHorarioComercial(em("2026-11-27T21:00:00Z"))).toBe(false);
     // domingo 23h UTC = domingo 20h local; segunda 02h UTC = domingo 23h local
     expect(dentroDoHorarioComercial(em("2026-11-23T02:00:00Z"))).toBe(false);
   });
@@ -194,9 +229,8 @@ describe("QA 3 — tetos, horário, interruptor", () => {
   it("migração nasce desligada (os dois)", async () => {
     expect((await q("SELECT colaborador_ligado, documentos_ligado FROM dolores_cobrancas_config"))[0]).toEqual({ colaborador_ligado: false, documentos_ligado: false });
   });
-  // ACHADO B2: envio que falhou solta a vaga; a SEGUNDA chamada do mesmo dia (cron da tarde) reivindica a vaga de novo e, ao bater no
-  // registro do dia, faz `continue` SEM soltá-la — o cliente fica 3 dias sem o pedido (o comentário promete "amanhã tenta de novo").
-  it.fails("ACHADO B2: falha de envio + segunda chamada no mesmo dia não pode prender a vaga por 3 dias", async () => {
+  // CORRIGIDO B2 (era ACHADO): ao bater no registro do dia (tentativa anterior que falhou), a vaga do cliente é solta de novo.
+  it("CORRIGIDO B2: falha de envio + segunda chamada no mesmo dia não pode prender a vaga por 3 dias", async () => {
     await banco.pg.exec("UPDATE leads SET lgpd_consent = true WHERE id = 2");
     await ligar("documentos_ligado = true");
     enviarAoContato.mockImplementationOnce(async () => null);
@@ -275,5 +309,26 @@ describe("QA 6 — migração", () => {
     const sqlTexto = MIGRACAO_0169().replace(/--.*$/gm, "").replace(/ON DELETE (CASCADE|SET NULL)/g, "");
     expect(sqlTexto).not.toMatch(/\b(ALTER|DROP|DELETE|UPDATE|TRUNCATE)\b/i);
     for (const m of sqlTexto.match(/CREATE (UNIQUE )?(TABLE|INDEX)[^\n]*/g) ?? []) expect(m).toMatch(/IF NOT EXISTS/);
+  });
+});
+
+describe("QA 7 — Central: a conversa de cobrança com colaborador (M3)", () => {
+  it("CORRIGIDO M3: só o admin vê a conversa da empresa com um usuário do sistema; colaborador e corretor não", async () => {
+    await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", phone) VALUES ('cor', 'Carlos Corretor', 'corretor', true, 'h', '99944443333')`);
+    await ligar("colaborador_ligado = true");
+    await rodar(SEG_9H);
+    agora = em("2026-11-16T13:00:00Z");
+    await de(BIANCA, "vou resolver hoje");
+    const fim8 = (n: string) => n.replace(/\D/g, "").slice(-8);
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM whatsapp_messages WHERE right(regexp_replace(destinatario, '[^0-9]', '', 'g'), 8) = '${fim8(BIANCA)}'`))[0].n).toBeGreaterThanOrEqual(1);
+    const como = (role: string, id: number) => appRouter.createCaller({ user: { id, role, active: true, permissions: '["whatsapp"]' }, req: {}, res: {} } as never);
+    expect((await como("admin", 1).whatsapp.conversas()).some(c => fim8(c.numero) === fim8(BIANCA))).toBe(true);
+    for (const [role, id] of [["colaborador", 2], ["corretor", 3]] as const) {
+      const lista = await como(role, id).whatsapp.conversas().catch(() => []);
+      expect(lista.some(c => fim8(c.numero) === fim8(BIANCA)), role).toBe(false);
+      expect(await como(role, id).whatsapp.mensagensConversa({ numero: BIANCA }).catch(() => []), role).toEqual([]);
+    }
+    // e o colaborador não escreve a ela pela Central da empresa
+    await expect(como("colaborador", 2).whatsapp.responder({ numero: BIANCA, texto: "oi" })).rejects.toThrow(/usuário do sistema/);
   });
 });

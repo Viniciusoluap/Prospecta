@@ -23,9 +23,30 @@ export const FAIXAS_COBRANCAS = {
 export function diaDaSemana(agora: Date): number {
   return new Date(`${relogioBrasilia(agora).dia}T12:00:00Z`).getUTCDay();
 }
-const diaUtil = (agora: Date) => { const d = diaDaSemana(agora); return d >= 1 && d <= 5; };
+/** Domingo de Páscoa (calendário gregoriano, algoritmo de Meeus/Jones/Butcher), como AAAA-MM-DD. */
+export function domingoDePascoa(ano: number): string {
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+}
+/** Feriados nacionais fixos (MM-DD). 20/11 (Consciência Negra) é nacional desde a Lei 14.759/2023. */
+export const FERIADOS_FIXOS = ["01-01", "04-21", "05-01", "09-07", "10-12", "11-02", "11-15", "11-20", "12-25"] as const;
+/** Feriados móveis, em dias a partir do domingo de Páscoa: Carnaval (segunda e terça), Sexta-feira Santa e Corpus Christi. */
+export const FERIADOS_MOVEIS_DESDE_A_PASCOA = { carnavalSegunda: -48, carnavalTerca: -47, sextaFeiraSanta: -2, corpusChristi: 60 } as const;
+const somarDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+/** O dia (AAAA-MM-DD, no calendário de Fortaleza) é feriado nacional fixo ou móvel? Feriado estadual/municipal não é conhecido. */
+export function ehFeriadoNacional(dia: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return false;
+  if ((FERIADOS_FIXOS as readonly string[]).includes(dia.slice(5))) return true;
+  const pascoa = domingoDePascoa(Number(dia.slice(0, 4)));
+  return Object.values(FERIADOS_MOVEIS_DESDE_A_PASCOA).some(n => somarDias(pascoa, n) === dia);
+}
+/** Dia útil em Fortaleza: segunda a sexta e não é feriado nacional. */
+const diaUtil = (agora: Date) => { const d = diaDaSemana(agora); return d >= 1 && d <= 5 && !ehFeriadoNacional(relogioBrasilia(agora).dia); };
 
-/** Dentro do horário comercial (segunda a sexta, 08h–18h de Fortaleza)? */
+/** Dentro do horário comercial (segunda a sexta, 08h–18h de Fortaleza, fora dos feriados nacionais)? */
 export function dentroDoHorarioComercial(agora: Date): boolean {
   const { hora } = relogioBrasilia(agora);
   return diaUtil(agora) && hora >= HORA_INICIO_COMERCIAL && hora < HORA_FIM_COMERCIAL;
@@ -37,15 +58,38 @@ export function horaDoResumo(agora: Date): boolean {
 }
 export const diaDaCobranca = (agora: Date) => relogioBrasilia(agora).dia;
 
+/** Unidade de medida logo depois do número: aí não é dinheiro (área, distância, andamento). */
+const NAO_E_DINHEIRO = String.raw`(?!\s?(?:%|m²|m2\b|m\b|metros?\b|km\b|ha\b|hectares?\b|cm\b|mm\b|kg\b|t\b|un\b|unidades?\b|lotes?\b|vagas?\b|andares?\b|dias?\b|meses\b|anos?\b))`;
+const ESCALA = String.raw`(?:mil|milh(?:ão|ões|ao|oes)|bilh(?:ão|ões|ao|oes)|bi|k)`;
+const MOEDA = String.raw`(?:R|US|U)\s?\$|\bBRL\b`;
+const PADROES_DE_VALOR: ReadonlyArray<[RegExp, string]> = [
+  // R$ / US$ / U$ / BRL antes do número: "R$ 1.500,00", "US$10", "BRL 3.000", "R$ 2 mil"
+  [new RegExp(String.raw`(?:${MOEDA})\s?-?\s?\d(?:[\d.]|\s(?=\d))*(?:,\d+)?(?:\s?${ESCALA}\b)?`, "gi"), "[valor omitido]"],
+  // moeda depois do número: "2.000 R$", "3.000,00 BRL", "5 mil R$"
+  [new RegExp(String.raw`\b\d[\d.]*(?:,\d+)?(?:\s?${ESCALA})?\s?(?:${MOEDA})`, "gi"), "[valor omitido]"],
+  // "1.500 reais", "5 mil reais", "2 milhões de reais", "200 contos"
+  [new RegExp(String.raw`\b\d[\d.]*(?:,\d+)?\s?(?:${ESCALA}\s+(?:de\s+)?)?(?:reais|real|contos)\b`, "gi"), "[valor omitido]"],
+  // escala sem moeda: "5 mil", "1,2 milhão", "30k" (não quando segue unidade: "2 mil m²")
+  [new RegExp(String.raw`\b\d[\d.]*(?:,\d+)?\s?${ESCALA}\b${NAO_E_DINHEIRO}`, "gi"), "[valor omitido]"],
+  // número com vírgula e 2 casas: "1.500,00", "1500,00" (não "12,50 m²")
+  [new RegExp(String.raw`\b(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}\b${NAO_E_DINHEIRO}`, "g"), "[valor omitido]"],
+  // porcentagem ligada a dinheiro: "comissão de 5%", "juros de 2%", "20% do valor", "10% de entrada", "1% ao mês"
+  [/\b(comiss(?:ão|ao|oes|ões)|desconto|juros|entrada|sinal|taxa|multa|corre[çc][ãa]o)(\s+(?:de\s+)?)\d+(?:[.,]\d+)?\s?%/gi, "$1$2[valor omitido]"],
+  [/\b\d+(?:[.,]\d+)?\s?%\s?(?=(?:do valor|do preço|do preco|de entrada|de sinal|de comiss|de desconto|de juros|de multa|a\.\s?m\.|a\.\s?a\.|ao m[eê]s|ao ano)\b)/gi, "[valor omitido] "],
+];
+
 /**
- * Tira valores em dinheiro do texto (título de tarefa, nome de serviço): "R$ 1.500,00", "1.500 reais", "US$ 10", "5 mil reais".
- * O que sobra é dado descritivo. Regra do dono: a cobrança nunca leva valores.
+ * Tira valores em dinheiro do texto (título de tarefa, nome de serviço, nome de documento). Regra do dono: a cobrança nunca leva
+ * valores. Cobre: moeda antes ou depois do número (R$, US$, U$, BRL), "reais"/"contos", escala sem moeda ("5 mil", "1,2 milhão",
+ * "30k"), número com vírgula e duas casas ("1.500,00", "1500,00") e porcentagem ligada a dinheiro (comissão, desconto, juros,
+ * entrada, sinal, taxa, multa, correção; "do valor", "ao mês"...).
+ * NÃO tira (de propósito): porcentagem de andamento ("obra 80% concluída", "60% da documentação"), medidas ("12,50 m²",
+ * "2 mil m²"), número sem vírgula nem moeda ("1.500" pode ser protocolo, lote ou matrícula) e datas.
  */
 export function semValores(s: string): string {
-  return s
-    .replace(/(?:R|US)\s?\$\s?-?\s?\d[\d.\s]*(?:,\d+)?(?:\s?(?:mil|milh(?:ão|ões|ao|oes)|bi(?:lhão|lhões)?|k))?/gi, "[valor omitido]")
-    .replace(/\b\d[\d.]*(?:,\d+)?\s?(?:mil\s+)?(?:reais|real|contos)\b/gi, "[valor omitido]")
-    .replace(/\s+/g, " ").trim();
+  let t = s;
+  for (const [re, troca] of PADROES_DE_VALOR) t = t.replace(re, troca);
+  return t.replace(/\s+/g, " ").trim();
 }
 
 export type FonteItem = "tarefa" | "regularizacao" | "obra" | "financiamento" | "crm_card" | "crm_servico" | "avaliacao";
@@ -105,8 +149,11 @@ export function montarResumoDoDia(p: {
   dia: string;
   cobrancas: Array<{ nome: string | null; itens: number; situacao: string }>;
   pedidos: Array<{ nome: string | null; leadId: number; documentos: number; situacao: string }>;
+  /** Itens cujo responsável bate com mais de um usuário: só a fonte e o nome gravado (nunca o cliente). */
+  ambiguos?: ReadonlyArray<{ fonte: FonteItem; responsavel: string }>;
 }): string | null {
-  if (!p.cobrancas.length && !p.pedidos.length) return null;
+  const ambiguos = p.ambiguos ?? [];
+  if (!p.cobrancas.length && !p.pedidos.length && !ambiguos.length) return null;
   const nome = (s: string | null) => limparNomeDeTerceiro(String(s ?? ""), 60) || "(sem nome)";
   const enviadas = p.cobrancas.filter(c => c.situacao === "enviada" || c.situacao === "sem_confirmacao");
   const semTel = p.cobrancas.filter(c => c.situacao === "sem_telefone");
@@ -118,6 +165,7 @@ export function montarResumoDoDia(p: {
   partes.push(`- Colaboradores cobrados: ${enviadas.length}${enviadas.length ? ` — ${lista(enviadas.map(c => `${nome(c.nome)} (${c.itens} item(ns))`))}` : ""}.`);
   if (semTel.length) partes.push(`- Sem telefone válido no cadastro (não cobrados; confira em Usuários e acesso): ${lista(semTel.map(c => `${nome(c.nome)} (${c.itens} item(ns))`))}.`);
   if (falhas) partes.push(`- Cobranças que não saíram: ${falhas}.`);
+  if (ambiguos.length) partes.push(`- Itens com responsável ambíguo (o nome bate com mais de um usuário; ninguém foi cobrado — confira o responsável): ${ambiguos.length} — ${lista(ambiguos.map(a => `${ROTULO_FONTE[a.fonte]} (${nome(a.responsavel)})`))}.`);
   partes.push(`- Pedidos de documentos a clientes: ${pedidos.length}${pedidos.length ? ` — ${lista(pedidos.map(c => `${nome(c.nome)} (cliente ${c.leadId}, ${c.documentos} documento(s))`))}` : ""}.`);
   if (falhasPed) partes.push(`- Pedidos que não saíram: ${falhasPed}.`);
   partes.push("As conversas com os clientes estão na Central WhatsApp.");

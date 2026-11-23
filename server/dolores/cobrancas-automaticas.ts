@@ -68,25 +68,39 @@ export async function lerConfigCobrancas(): Promise<ConfigCobrancas | null> {
 
 type Colaborador = { id: number; name: string | null; phone: string | null };
 export type CobrancaDoColaborador = { colaborador: Colaborador; itens: ItemCobranca[] };
+/** Item cujo nome de responsável bate com MAIS DE UM usuário do sistema: não vai para ninguém; só a fonte e o nome gravado (sem cliente). */
+export type ItemAmbiguo = { fonte: ItemCobranca["fonte"]; chave: string; responsavel: string };
 
 /**
  * TODOS os itens atrasados (ou parados) de cada colaborador ativo (papel "colaborador"). Responsável = o nome gravado no registro
- * (tarefa, regularização, avaliação) quando é UM colaborador; senão o responsável do card do cliente no CRM, quando é colaborador.
- * Admin, corretor e nome que não bate com ninguém (ou com mais de um) ficam de fora: estão no relatório do dono.
+ * (tarefa, regularização, avaliação), conferido contra TODOS os usuários (qualquer papel, ativos e inativos):
+ * - bate com UM usuário que é colaborador ativo → é dele;
+ * - bate com UM usuário que não é colaborador ativo (corretor, admin, inativo) → é dessa pessoa: ninguém é cobrado;
+ * - bate com MAIS DE UM usuário → ambíguo: ninguém é cobrado e o item vai ao resumo do dono (sem o nome do cliente);
+ * - vazio ou não bate com ninguém → o responsável do card do cliente no CRM, quando é colaborador ativo.
  */
-export async function coletarItensPorColaborador(agora: Date): Promise<CobrancaDoColaborador[]> {
+export async function coletarCobrancas(agora: Date): Promise<{ porColaborador: CobrancaDoColaborador[]; ambiguos: ItemAmbiguo[] }> {
   return emTransacaoSomenteLeitura(async () => {
     const db = bancoDaLeitura();
-    const colabs = await db.select({ id: users.id, name: users.name, phone: users.phone }).from(users)
-      .where(and(eq(users.active, true), eq(users.role, "colaborador"))).orderBy(asc(users.id));
-    if (!colabs.length) return [];
+    const todos = await db.select({ id: users.id, name: users.name, phone: users.phone, role: users.role, active: users.active }).from(users).orderBy(asc(users.id));
+    const colabs = todos.filter(u => u.active === true && u.role === "colaborador").map(({ id, name, phone }) => ({ id, name, phone }));
+    if (!colabs.length) return { porColaborador: [], ambiguos: [] };
     const ids = new Set(colabs.map(c => c.id));
-    const porNome = new Map<string, number | null>();
-    for (const c of colabs) {
-      const k = nomeComparavel(c.name);
-      if (k) porNome.set(k, porNome.has(k) ? null : c.id); // nome repetido: ambíguo, ninguém
+    const porNome = new Map<string, number[]>();
+    for (const u of todos) {
+      const k = nomeComparavel(u.name);
+      if (k) porNome.set(k, [...(porNome.get(k) ?? []), u.id]);
     }
-    const doNome = (nome: string | null | undefined) => { const k = nomeComparavel(responsavelDaTarefa(nome)); return k ? porNome.get(k) ?? null : null; };
+    type DoNome = { tipo: "nenhum" } | { tipo: "usuario"; id: number } | { tipo: "ambiguo"; nome: string };
+    const doNome = (nome: string | null | undefined): DoNome => {
+      const r = responsavelDaTarefa(nome);
+      const k = nomeComparavel(r);
+      const achados = k ? porNome.get(k) ?? [] : [];
+      if (!achados.length) return { tipo: "nenhum" };
+      if (achados.length > 1) return { tipo: "ambiguo", nome: String(r ?? "") };
+      return { tipo: "usuario", id: achados[0] };
+    };
+    const ambiguos: ItemAmbiguo[] = [];
     const hoje = diaFortaleza(agora)!;
     const [tarefas, regs, obras, fins, cards, servicos, avals] = await Promise.all([
       db.select({ id: tasks.id, title: tasks.title, status: tasks.status, assignedTo: tasks.assignedTo, dueAt: tasks.dueAt, relatedType: tasks.relatedType, relatedId: tasks.relatedId })
@@ -120,14 +134,20 @@ export async function coletarItensPorColaborador(agora: Date): Promise<CobrancaD
       m.set(item.chave, item);
       porUsuario.set(userId, m);
     };
+    /** Pelo nome gravado; sem nome (ou nome de ninguém) → o responsável do card. Ambíguo ou de outra pessoa → ninguém. */
+    const porNomeOuLead = (nome: string | null | undefined, leadId: number | null | undefined, item: ItemCobranca) => {
+      const d = doNome(nome);
+      if (d.tipo === "ambiguo") { ambiguos.push({ fonte: item.fonte, chave: item.chave, responsavel: d.nome }); return; }
+      pôr(d.tipo === "usuario" ? d.id : doLead(leadId), item);
+    };
     for (const t of tarefas) {
       if (!tarefaAtrasada(t, agora)) continue;
       const cliente = t.relatedType === "lead" && t.relatedId ? leadsAtivos.get(t.relatedId)?.name ?? null : null;
-      pôr(doNome(t.assignedTo), { fonte: "tarefa", chave: `tarefa:${t.id}`, descricao: t.title, cliente, desde: diaFortaleza(t.dueAt), dias: diasEntre(t.dueAt, agora), parado: false });
+      porNomeOuLead(t.assignedTo, null, { fonte: "tarefa", chave: `tarefa:${t.id}`, descricao: t.title, cliente, desde: diaFortaleza(t.dueAt), dias: diasEntre(t.dueAt, agora), parado: false });
     }
     for (const p of regs) {
       if (p.encerrado || p.clienteExcluidoDoCrm || !(p.atrasado || p.parado)) continue;
-      pôr(doNome(p.responsavel) ?? doLead(p.leadId), { fonte: "regularizacao", chave: `regularizacao:${p.id}`, descricao: p.servico, cliente: p.cliente,
+      porNomeOuLead(p.responsavel, p.leadId, { fonte: "regularizacao", chave: `regularizacao:${p.id}`, descricao: p.servico, cliente: p.cliente,
         desde: p.atrasado ? p.prazo : null, dias: p.atrasado ? p.diasDeAtraso : p.diasSemMovimentacao, parado: !p.atrasado });
     }
     for (const o of obras) {
@@ -150,10 +170,14 @@ export async function coletarItensPorColaborador(agora: Date): Promise<CobrancaD
     }
     for (const a of avals) {
       if (a.leadId && !leadsAtivos.has(a.leadId)) continue;
-      pôr(doNome(a.avaliador) ?? doLead(a.leadId), { fonte: "avaliacao", chave: `avaliacao:${a.id}`, descricao: a.tipo, cliente: a.cliente, desde: diaFortaleza(a.prazo), dias: diasEntre(a.prazo, agora), parado: false });
+      porNomeOuLead(a.avaliador, a.leadId, { fonte: "avaliacao", chave: `avaliacao:${a.id}`, descricao: a.tipo, cliente: a.cliente, desde: diaFortaleza(a.prazo), dias: diasEntre(a.prazo, agora), parado: false });
     }
-    return colabs.filter(c => porUsuario.has(c.id)).map(c => ({ colaborador: c, itens: Array.from(porUsuario.get(c.id)!.values()) }));
+    return { porColaborador: colabs.filter(c => porUsuario.has(c.id)).map(c => ({ colaborador: c, itens: Array.from(porUsuario.get(c.id)!.values()) })), ambiguos };
   }, { tempoLimiteMs: TEMPO_DA_COLETA_MS });
+}
+/** Só os itens de cada colaborador (ver {@link coletarCobrancas}). */
+export async function coletarItensPorColaborador(agora: Date): Promise<CobrancaDoColaborador[]> {
+  return (await coletarCobrancas(agora)).porColaborador;
 }
 
 // ── Envio ──
@@ -174,7 +198,7 @@ export function destinoDoColaborador(phone: string | null | undefined, cfg: Pick
 async function cobrarColaboradores(c: Contexto): Promise<{ enviadas: number; semTelefone: number; falhas: number; parouPor: string | null }> {
   const r = { enviadas: 0, semTelefone: 0, falhas: 0, parouPor: null as string | null };
   const dia = diaDaCobranca(c.agora);
-  const lista = await coletarItensPorColaborador(c.agora);
+  const lista = (await coletarCobrancas(c.agora)).porColaborador;
   const db = getDb();
   for (const { colaborador, itens } of lista) {
     if (!comTempo(c)) { r.parouPor = "sem-tempo"; break; }
@@ -271,7 +295,12 @@ async function pedirDocumentos(c: Contexto): Promise<{ enviados: number; falhas:
     const texto = textoDoPedidoDeDocumentos({ nome: e.nome, documentos: e.documentos });
     const [linha] = await db.insert(doloresPedidosDocumentos).values({ dia, leadId, documentos: e.documentos.length, texto: registro(texto, 2000) })
       .onConflictDoNothing().returning({ id: doloresPedidosDocumentos.id });
-    if (!linha) continue;
+    if (!linha) {
+      // já há registro de hoje (uma tentativa anterior que não saiu soltou a vaga): hoje não tenta de novo, mas também não prende
+      // a vaga por N dias — solta de novo, e amanhã ele volta a ser elegível.
+      await db.delete(doloresPedidosDocumentosVaga).where(eq(doloresPedidosDocumentosVaga.leadId, leadId)).catch(() => undefined);
+      continue;
+    }
     const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, extra: Record<string, unknown> = {}) =>
       registrarAcao({ funcao: "pedido_documentos", resultado, motivo, autorUserId: c.autor, canal: "cron", pedidoId: `pedido-documentos:${linha.id}`,
         resumo: { leadId, documentos: e.documentos.length, ...extra } });
@@ -311,14 +340,18 @@ async function enviarResumoDoDia(c: Contexto): Promise<string> {
     .from(doloresCobrancasColaborador).innerJoin(users, eq(users.id, doloresCobrancasColaborador.userId)).where(eq(doloresCobrancasColaborador.dia, dia)).orderBy(asc(doloresCobrancasColaborador.id));
   const pedidos = await db.select({ nome: leads.name, leadId: doloresPedidosDocumentos.leadId, documentos: doloresPedidosDocumentos.documentos, situacao: doloresPedidosDocumentos.situacao })
     .from(doloresPedidosDocumentos).innerJoin(leads, eq(leads.id, doloresPedidosDocumentos.leadId)).where(eq(doloresPedidosDocumentos.dia, dia)).orderBy(asc(doloresPedidosDocumentos.id));
-  const texto = montarResumoDoDia({ dia, cobrancas, pedidos });
+  // itens com responsável ambíguo (nome de mais de um usuário): ninguém foi cobrado; vão ao dono, sem o nome do cliente
+  const ambiguos = c.config.colaboradorLigado
+    ? await coletarCobrancas(c.agora).then(r => r.ambiguos).catch(err => { console.error("[dolores/cobrancas] falha ao conferir os responsáveis ambíguos", erroParaLog(err)); return []; })
+    : [];
+  const texto = montarResumoDoDia({ dia, cobrancas, pedidos, ambiguos });
   if (!texto) return "resumo-vazio";
   if (c.prazoFinal - c.ms() < 6_000) return "resumo-sem-tempo";
   const [linha] = await db.insert(doloresCobrancasResumos).values({ dia, texto: registro(texto, 4000) }).onConflictDoNothing().returning({ id: doloresCobrancasResumos.id });
   if (!linha) return "resumo-ja-enviado";
   const { enviarAvisoAoDono } = await import("./whatsapp.js");
   const r = await enviarAvisoAoDono(texto, { funcao: "cobrancas_resumo", pedidoId: `cobrancas-resumo:${linha.id}`, autor: c.autor, prazoFinal: c.prazoFinal, canal: "cron",
-    resumo: { cobrancas: cobrancas.length, pedidos: pedidos.length } });
+    resumo: { cobrancas: cobrancas.length, pedidos: pedidos.length, ambiguos: ambiguos.length } });
   await db.update(doloresCobrancasResumos).set({ situacao: r.ok ? "enviado" : "falhou" }).where(eq(doloresCobrancasResumos.id, linha.id)).catch(() => undefined);
   return r.ok ? "resumo-enviado" : "resumo-falhou";
 }
