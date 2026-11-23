@@ -262,11 +262,11 @@ export const bancarioRouter = router({
         // Pedido de 25/10 (noite): grava a regra do titular e reclassifica as demais dele.
         aplicarATodasDoTitular: z.boolean().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
           return await classificarMovimentacao(input.id, {
             categoria: input.categoria, bpoClienteId: input.bpoClienteId, aplicarATodasDoTitular: input.aplicarATodasDoTitular,
-          });
+          }, ctx.user.id);
         }
         catch (e) { throw erro(e, "Não foi possível atualizar a movimentação."); }
       }),

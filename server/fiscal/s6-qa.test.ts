@@ -104,7 +104,9 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
     const perfis = [perfil(1, PROSPECTA, "simples_nacional", "2021-05-07"), perfil(2, VFX, "simples_nacional", "2021-05-07")];
     const contas = [contaP(1, PROSPECTA), contaP(2, PROSPECTA), contaP(3, VFX)];
     const a = apurar({ perfis, contas,
-      receitas: [rec(1, 10_000, "2026-11-10"), rec(1, 10_000, "2026-11-10"), rec(1, 7_000, "2026-11-10"), rec(1, 5_000, "2026-11-01"), rec(1, 3_000, "2026-11-10")],
+      // QA3 S-6 (Q1/Q2): transferência real = os DOIS lados marcados; só a entrada marcada pode sair da soma
+      receitas: [rec(1, 10_000, "2026-11-10", { marcadaTransferencia: true }), rec(1, 10_000, "2026-11-10", { marcadaTransferencia: true }),
+        rec(1, 7_000, "2026-11-10", { marcadaTransferencia: true }), rec(1, 5_000, "2026-11-01", { marcadaTransferencia: true }), rec(1, 3_000, "2026-11-10", { marcadaTransferencia: true })],
       // QA2 S-6 (N1): as saídas do cenário são transferências MARCADAS (só elas casam)
       debitos: [deb(2, 10_000, "2026-11-11", "transferencia"), deb(3, 7_000, "2026-11-10", "transferencia"), deb(2, 5_000, "2026-11-04", "transferencia"),
         deb(1, 3_000, "2026-11-10", "transferencia")] });
@@ -124,7 +126,10 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
     const a = apurar({ receitas: [rec(1, 10_000, "2026-11-10", { txDescricao: "PIX RECEBIDO MARIA SOUZA" })], debitos: [deb(2, 10_000, "2026-11-11", "despesa")] });
     expect(prospecta(a).receitaCentavos).toBe(10_000_00);
     // marcada como transferência continua casando (sem classificação NÃO casa — QA2 N1)
-    expect(prospecta(apurar({ receitas: [rec(1, 10_000, "2026-11-10")], debitos: [deb(2, 10_000, "2026-11-11", "transferencia")] })).receitaCentavos).toBe(0);
+    expect(prospecta(apurar({ receitas: [rec(1, 10_000, "2026-11-10", { marcadaTransferencia: true })], debitos: [deb(2, 10_000, "2026-11-11", "transferencia")] })).receitaCentavos).toBe(0);
+    // QA3 (Q2): entrada NÃO marcada (receita de cliente) nunca é anulada, nem por saída marcada — só fica para conferir
+    expect(prospecta(apurar({ receitas: [rec(1, 10_000, "2026-11-10")], debitos: [deb(2, 10_000, "2026-11-11", "transferencia")] })))
+      .toMatchObject({ receitaCentavos: 10_000_00, possiveisTransferencias: { entradas: 1 } });
   });
 
   it("escala do A1 (corrigido): 40 pagamentos de obra de R$ 100 mil (despesa lançada) NÃO escondem as parcelas recebidas; o teto aparece", () => {
@@ -164,7 +169,8 @@ describe("QA S-6 — 3. cálculo (função pura)", () => {
       receitas: [rec(1, 1_000, "2026-11-10", { tipo: "reembolso" }), rec(2, 2_000, "2026-11-10"), rec(3, 3_000, "2026-11-10"), rec(null, 4_000, "2026-11-10"),
         rec(1, 9_999, "2026-11-10", { tipo: "despesa" }), rec(1, 8_888, "2026-11-10", { categoria: "Transferência interna" })],
     });
-    expect(prospecta(a)).toMatchObject({ receitaCentavos: 1_000_00, reembolsosCentavos: 1_000_00 });
+    // QA3 (Q1): o lançamento marcado como Transferência interna sem saída correspondente CONTA (e fica para conferir)
+    expect(prospecta(a)).toMatchObject({ receitaCentavos: 1_000_00 + 8_888_00, reembolsosCentavos: 1_000_00, possiveisTransferencias: { centavos: 8_888_00, entradas: 1 } });
     expect(a.semEmpresa.receitaCentavos).toBe(5_000_00);
     expect(a.semEmpresa.contas.map(c => c.id).sort()).toEqual([2, 3]);
     expect(a.semConta).toEqual({ receitaCentavos: 4_000_00, lancamentos: 1 });
@@ -465,7 +471,8 @@ describe("QA S-6 — com banco", () => {
       const c1 = await conta(PROSPECTA);
       const c2 = await conta(PROSPECTA);
       await credito(c1, 10_000, "2026-10-10T12:00:00Z");
-      await credito(c1, 20_000, "2026-10-12T12:00:00Z");
+      // QA3 (Q1/Q2): transferência real tem a ENTRADA marcada também (sem lançamento)
+      await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED ENTRE CONTAS', 20000, 'credito', 'qa-c2', 'Transferência interna')`, [c1]);
       const [d1] = await q<{ id: number }>(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id) VALUES ($1, '2026-10-11T12:00:00Z', 'PIX ENVIADO EMPREITEIRO', 10000, 'debito', 'qa-d1') RETURNING id`, [c2]);
       await q(`INSERT INTO bpo_lancamentos (tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES ('despesa', 'Mão de obra', 10000, '2026-10-11', true, '2026-10-11', '2026-10', $1)`, [d1!.id]);
       await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED ENTRE CONTAS', 20000, 'debito', 'qa-d2', 'Transferência interna')`, [c2]);

@@ -87,7 +87,7 @@ describe("QA3 S-6 — receita que deixa de ser somada (com banco)", () => {
   // descrição/titular, e lancamentoDaMovimentacao devolve null → nem vai para "A classificar" (bpo-extrato.ts:87-99).
   // Contradiz o [AUTO-DECISION] da story ("Transferência vinda de OUTRA empresa → conta como receita"). Lado seguro: entrada marcada como TI
   // só sai da soma se casar com uma saída de outra conta da MESMA empresa; sem par, conta (ou ao menos entra na receita "possível").
-  it.fails("Q1: entrada marcada como Transferência interna SEM saída correspondente na mesma empresa continua na receita (possível)", async () => {
+  it("Q1: entrada marcada como Transferência interna SEM saída correspondente na mesma empresa continua na receita (possível)", async () => {
     const c1 = await conta();
     await mov(c1, "credito", 80_000, "2026-10-10T12:00:00Z", TI); // ex.: cliente, ou outra empresa, marcada "Transferência interna / ignorar"
     expect((await prospecta()).receitaPossivelCentavos).toBe(80_000_00);
@@ -104,7 +104,7 @@ describe("QA3 S-6 — receita que deixa de ser somada (com banco)", () => {
   // entrada TI nem entra em `receitas` (não tem lançamento), então a saída TI fica livre e casa com o 1º recebimento de cliente de MESMO
   // valor em até 2 dias numa terceira conta (shared/fiscal/regimes.ts:377-381): o recebimento sai da soma como "transferência". Valores
   // redondos (medição, parcela) tornam a coincidência plausível — o mesmo raciocínio que fez do A1 um achado importante.
-  it.fails("Q2: transferência real B→C (os dois lados marcados) não esconde o recebimento de cliente de mesmo valor na conta A", async () => {
+  it("Q2: transferência real B→C (os dois lados marcados) não esconde o recebimento de cliente de mesmo valor na conta A", async () => {
     const a = await conta(); const b = await conta(); const c = await conta();
     await lanc("receita", 50_000, "2026-10-10T12:00:00Z", await mov(a, "credito", 50_000, "2026-10-10T12:00:00Z"));
     await mov(b, "debito", 50_000, "2026-10-10T13:00:00Z", TI);
@@ -135,9 +135,45 @@ describe("QA3 S-6 — receita que deixa de ser somada (com banco)", () => {
     expect({ receita: p.receitaCentavos, aClassificar: p.aClassificar.centavos, semConta: r.semConta.receitaCentavos }).toEqual({ receita: 30_000_00, aClassificar: 0, semConta: 5_000_00 });
   });
 
+  it("Q3 (banco): 'ignorar' grava quem, quando, quantas e o valor; o painel mostra as excluídas por transferência e quem marcou", async () => {
+    await pg.exec(`UPDATE users SET name = 'Colaboradora Ana' WHERE id = 1`);
+    const b = await conta(); const c = await conta();
+    const saida = await mov(b, "debito", 40_000, "2026-10-10T13:00:00Z");
+    const entrada = await mov(c, "credito", 40_000, "2026-10-10T13:00:00Z");
+    const solta = await mov(c, "credito", 7_000, "2026-10-12T13:00:00Z"); // marcada sem par: CONTA
+    await q("UPDATE bank_transactions SET a_classificar = true");
+    const { ignorarMovimentacoes } = await import("../bpo-a-classificar.js");
+    await ignorarMovimentacoes([saida, entrada, solta], 1);
+    const auditoria = await q<{ lote: string; n: number; total: string; usuario_id: number; via: string }>(
+      "SELECT lote, count(*)::int AS n, sum(valor)::text AS total, min(usuario_id) AS usuario_id, min(via) AS via FROM bpo_transferencia_marcacoes GROUP BY lote");
+    expect(auditoria).toHaveLength(1);
+    expect(auditoria[0]).toMatchObject({ n: 3, total: "87000.00", usuario_id: 1, via: "ignorar" });
+    const p = await prospecta();
+    expect(p.receitaCentavos).toBe(7_000_00);
+    expect(p.foraDaSoma).toMatchObject({ transferencias: 1, transferenciasCentavos: 40_000_00 });
+    expect(p.transferenciasPorQuem).toEqual([{ quem: "Colaboradora Ana", entradas: 1, centavos: 40_000_00 }]);
+    expect(p.possiveisTransferencias).toEqual({ centavos: 7_000_00, entradas: 1 });
+  });
+
+  it("Q1: entrada marcada pela importação (sem registro) e sem par conta; com par marcado, sai e aparece 'sem registro'", async () => {
+    const a = await conta(); const b = await conta();
+    await mov(a, "credito", 15_000, "2026-10-10T12:00:00Z", TI, "PIX RECEBIDO JOAO SILVA aplicacao de textura");
+    expect((await prospecta()).receitaCentavos).toBe(15_000_00);
+    await mov(b, "debito", 15_000, "2026-10-10T14:00:00Z", TI);
+    const p = await prospecta();
+    expect(p.receitaCentavos).toBe(0);
+    expect(p.transferenciasPorQuem[0]!.quem).toMatch(/sem registro/);
+  });
+
+  it("Q4: dígitos de largura total e separadores '_' ',' viram •••final", () => {
+    expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Cora １２３４５６７８", conta: "1" })).toBe("Cora •••5678");
+    expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Cora 12,345,678", conta: "1" })).toBe("Cora •••5678");
+    expect(nomeSeguroDaConta({ banco: "Cora", apelido: "Obras 2026", conta: "1" })).toBe("Obras 2026");
+  });
+
   // ACHADO Q4 (baixo — N5 residual): o filtro do apelido só junta dígitos separados por . - / espaço. Com "_" ou "," o número inteiro
   // (8 dígitos, em dois blocos de 4) passa para a leitura da Dolores (shared/fiscal/regimes.ts:233).
-  it.fails("Q4: número de conta com '_' no apelido não chega inteiro à Dolores", async () => {
+  it("Q4: número de conta com '_' no apelido não chega inteiro à Dolores", async () => {
     await conta(PROSPECTA, "Cora 1234_5678");
     const leitura = JSON.stringify(sanitizarResposta((await consultarLimitesReceita({}, { agora: AGORA })).dados, { mascararDadosPessoais: false }));
     expect(leitura).not.toMatch(/1234_5678/);
@@ -149,8 +185,10 @@ describe("QA3 S-6 — quem pode tirar receita da soma", () => {
   // recebimento (saída que casa), mas é liberado a colaborador com o módulo BPO e não deixa rastro. Pelo mesmo motivo do A5 (trocar o
   // regime decide o limite → só admin), a marcação que tira receita da soma deveria ser só do admin — ou, no mínimo, auditada (quem, quando).
   // Hoje bancos.transacoes.atualizar já é só admin (router fora do mapa); bpo.aClassificar.ignorar não.
-  it.fails("Q3: colaborador com BPO não marca movimentação como Transferência interna (bpo.aClassificar.ignorar)", () => {
-    expect(canAccessAdminProcedure({ role: "colaborador", permissions: JSON.stringify(["bpo"]), active: true }, "bpo.aClassificar.ignorar")).toBe(false);
+  // Q3 — decisão do coordenador (3º portão): NÃO tirar a permissão do colaborador; com o Q1 a marcação sem par não esconde mais receita.
+  // A marcação passa a ser AUDITADA (teste "Q3 (banco)" acima). Este caso fixa que a permissão continua.
+  it("Q3: colaborador com BPO continua podendo marcar (ignorar) — a marcação é auditada e, sem par, não tira receita", () => {
+    expect(canAccessAdminProcedure({ role: "colaborador", permissions: JSON.stringify(["bpo"]), active: true }, "bpo.aClassificar.ignorar")).toBe(true);
   });
   it("controle: bancos.transacoes.atualizar (mudar categoria pela aba Bancos) já é só admin", () => {
     expect(canAccessAdminProcedure({ role: "colaborador", permissions: JSON.stringify(["bpo"]), active: true }, "bancos.transacoes.atualizar")).toBe(false);

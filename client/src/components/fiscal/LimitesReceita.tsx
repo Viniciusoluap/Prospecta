@@ -49,11 +49,19 @@ export function LimitesReceita() {
             <p className="text-xs text-gray-300">
               Contas: {e.contas.length ? e.contas.map(c => c.nome).join(", ") : "nenhuma conta vinculada"}
             </p>
+            {e.foraDaSoma.transferencias > 0 && (
+              <p className="text-xs text-gray-300">
+                {e.foraDaSoma.transferencias} entrada(s) ({dinheiro(e.foraDaSoma.transferenciasCentavos)}) fora da soma como transferência entre contas da
+                empresa (entrada e saída marcadas como "Transferência interna", mesmo valor, até 2 dias). Marcadas por:{" "}
+                {e.transferenciasPorQuem.map(x => `${x.quem} — ${x.entradas} (${dinheiro(x.centavos)})`).join("; ")}.
+              </p>
+            )}
             {e.possiveisTransferencias.entradas > 0 && (
               <p className="text-xs text-amber-200">
-                Conferir: {e.possiveisTransferencias.entradas} entrada(s) ({dinheiro(e.possiveisTransferencias.centavos)}) têm uma saída de mesmo valor, ainda sem
-                classificação, em outra conta desta empresa. Elas CONTAM na receita; se for transferência entre contas, marque a saída como
-                "Transferência interna" em <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.
+                Conferir: {e.possiveisTransferencias.entradas} entrada(s) ({dinheiro(e.possiveisTransferencias.centavos)}) podem ser transferência (marcadas
+                como "Transferência interna" sem a saída correspondente numa conta desta empresa, ou com uma saída de mesmo valor ainda sem par). Elas
+                CONTAM na receita; só saem quando entrada e saída estiverem marcadas, em contas da empresa, em{" "}
+                <Link href="/admin/bpo" className="underline">BPO › A classificar</Link>.
               </p>
             )}
             {e.aClassificar.movimentos > 0 && (

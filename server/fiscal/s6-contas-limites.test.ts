@@ -160,7 +160,9 @@ describe("S-6 — limites de receita por empresa (aba Contabilidade)", () => {
     const f = await contaManual("Sicoob", "4", { empresaCnpj: EFFICAZ_FILIAL });
     const solta = await contaManual("C6", "5");
     await entrada(a, 300_000);
-    await entrada(a, 10_000, "2026-11-11"); await saida(b, 10_000, "2026-11-11"); // da conta b para a conta a: mesma empresa → fora
+    // da conta b para a conta a: mesma empresa, os DOIS lados marcados como Transferência interna (QA3 Q1/Q2) → fora
+    await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, categoria, external_id) VALUES ($1, '2026-11-11T12:00:00Z', 'TED recebida', 10000, 'credito', 'Transferência interna', 'ext-tr-a')`, [a]);
+    await saida(b, 10_000, "2026-11-11");
     await entrada(a, 500, "2026-11-12", "ESTORNO PIX");
     await entrada(b, 1_000, "2026-11-13", "Reembolso cartório", "reembolso");
     await entrada(m, 2_000_000); await entrada(f, 1_600_000);

@@ -19,11 +19,18 @@ const txt = (v: unknown): string | null => (v === null || v === undefined || v =
  * Tabelas opcionais (de outras migrações) que a leitura usa se existirem. Conferir ANTES evita um erro que abortaria a transação SOMENTE
  * LEITURA da Dolores (bancos de teste antigos não têm todas).
  */
-async function tabelasOpcionais(db: Conexao): Promise<{ historico: boolean; recebimentos: boolean }> {
+async function tabelasOpcionais(db: Conexao): Promise<{ historico: boolean; recebimentos: boolean; marcacoes: boolean }> {
   const [r] = linhas(await db.execute(sql`
-    SELECT to_regclass('tax_profiles_historico') IS NOT NULL AS historico, to_regclass('bpo_recebimentos') IS NOT NULL AS recebimentos`));
-  return { historico: Boolean(r?.historico), recebimentos: Boolean(r?.recebimentos) };
+    SELECT to_regclass('tax_profiles_historico') IS NOT NULL AS historico, to_regclass('bpo_recebimentos') IS NOT NULL AS recebimentos,
+      to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS marcacoes`));
+  return { historico: Boolean(r?.historico), recebimentos: Boolean(r?.recebimentos), marcacoes: Boolean(r?.marcacoes) };
 }
+
+/** QA3 S-6 (Q3): quem marcou a movimentação como Transferência interna (última marcação auditada; null = sem registro). */
+const quemMarcou = (temMarcacoes: boolean, btId: ReturnType<typeof sql>) => temMarcacoes
+  ? sql`(SELECT CASE WHEN m.usuario_id IS NULL THEN 'automática (' || m.via || ')' ELSE coalesce(nullif(btrim(u.name), ''), 'usuário #' || m.usuario_id) END
+      FROM bpo_transferencia_marcacoes m LEFT JOIN users u ON u.id = m.usuario_id WHERE m.bank_transaction_id = ${btId} ORDER BY m.criado_em DESC, m.id DESC LIMIT 1)`
+  : sql`NULL::text`;
 
 /** Versões dos perfis tributários com CNPJ (para o regime vigente na data), com a última desativação do histórico (QA2 S-6, N4). */
 export async function lerPerfis(db: Conexao): Promise<PerfilParaRegime[]> {
@@ -65,7 +72,7 @@ export async function apurarLimites(db: Conexao, agora: Date = new Date()): Prom
   const inicio = inicioDoAnoEmBrasilia(ano);
   const fim = inicioDoAnoEmBrasilia(ano + 1);
   const [perfis, contas] = [await lerPerfis(db), await lerContas(db)];
-  const { recebimentos: temRecebimentos } = await tabelasOpcionais(db);
+  const { recebimentos: temRecebimentos, marcacoes: temMarcacoes } = await tabelasOpcionais(db);
   // QA2 S-6 (N2): baixa pela "divisão de pagamentos" (1 crédito → N cobranças, bpo_recebimentos.bank_transaction_id). A parte quitada pelo
   // banco entra pela CONTA do crédito (uma linha por baixa, na data dela); o resto da cobrança paga (baixa manual) fica sem conta. Nunca soma
   // a mesma cobrança duas vezes. Cobrança com movimentação própria (bank_transaction_id) não usa as baixas.
@@ -76,11 +83,23 @@ export async function apurarLimites(db: Conexao, agora: Date = new Date()): Prom
   const condicoes = sql`l.tipo <> 'despesa' AND l.a_classificar = false AND l.combinada_em_id IS NULL AND l.exclusao_lote_backup_id IS NULL`;
   // Mesmas condições da "Receita realizada" (tax-router#linhasDaReceitaRealizada) + fora o combinado em outra cobrança.
   const receitas: ReceitaParaSoma[] = linhas(await db.execute(sql`
-    SELECT l.id, l.tipo::text AS tipo, l.valor - ${pagoPeloBanco} AS valor, l.descricao, l.categoria, l.pago_em, bt.account_id, bt.descricao AS tx_descricao
+    SELECT l.id, l.tipo::text AS tipo, l.valor - ${pagoPeloBanco} AS valor, l.descricao, l.categoria, l.pago_em, bt.account_id, bt.descricao AS tx_descricao,
+      coalesce(bt.categoria, '') = 'Transferência interna' AS marcada, ${quemMarcou(temMarcacoes, sql`bt.id`)} AS marcada_por
     FROM bpo_lancamentos l LEFT JOIN bank_transactions bt ON bt.id = l.bank_transaction_id
     WHERE ${condicoes} AND l.pago = true AND l.pago_em >= ${inicio}::timestamp AND l.pago_em < ${fim}::timestamp`))
     .map(r => ({ lancamentoId: Number(r.id), contaId: r.account_id == null ? null : Number(r.account_id), tipo: String(r.tipo), valorCentavos: centavos(r.valor),
-      descricao: txt(r.descricao), categoria: txt(r.categoria), pagoEm: data(r.pago_em), txDescricao: txt(r.tx_descricao) }));
+      descricao: txt(r.descricao), categoria: txt(r.categoria), pagoEm: data(r.pago_em), txDescricao: txt(r.tx_descricao),
+      marcadaTransferencia: Boolean(r.marcada) || txt(r.categoria) === "Transferência interna", marcadaPor: txt(r.marcada_por) }));
+  // QA3 S-6 (Q1): ENTRADA marcada como Transferência interna (sem lançamento, por definição) — entra como receita marcada: só sai da soma
+  // casando com uma saída marcada de outra conta da mesma empresa (apurarReceitas). Sem par, conta. Vale também para a marcação automática
+  // da importação (sugerirCategoria): crédito de outro titular nunca é transferência sem par.
+  receitas.push(...linhas(await db.execute(sql`
+    SELECT bt.id, abs(bt.valor) AS valor, bt.data, bt.account_id, bt.descricao AS tx_descricao, ${quemMarcou(temMarcacoes, sql`bt.id`)} AS marcada_por
+    FROM bank_transactions bt
+    WHERE bt.tipo = 'credito' AND coalesce(bt.categoria, '') = 'Transferência interna' AND bt.data >= ${inicio}::timestamp AND bt.data < ${fim}::timestamp
+      AND NOT EXISTS (SELECT 1 FROM bpo_lancamentos l WHERE l.bank_transaction_id = bt.id AND l.exclusao_lote_backup_id IS NULL)`))
+    .map(r => ({ lancamentoId: -Number(r.id), contaId: Number(r.account_id), tipo: "receita", valorCentavos: centavos(r.valor), descricao: null,
+      categoria: "Transferência interna", pagoEm: data(r.data), txDescricao: txt(r.tx_descricao), marcadaTransferencia: true, marcadaPor: txt(r.marcada_por) })));
   if (temRecebimentos) {
     receitas.push(...linhas(await db.execute(sql`
       SELECT l.id, l.tipo::text AS tipo, r.valor, l.descricao, l.categoria, r.recebido_em, rbt.account_id, rbt.descricao AS tx_descricao

@@ -206,7 +206,8 @@ describe("QA2 S-6 — com banco", () => {
   // Controles (passam hoje): o que já está certo continua certo.
   it("controle: saída marcada como Transferência interna continua casando (transferência real fora da soma)", async () => {
     const c1 = await conta(); const c2 = await conta();
-    await lanc("receita", 20_000, "2026-10-12T12:00:00Z", await mov(c1, "credito", 20_000, "2026-10-12T12:00:00Z"));
+    // QA3 (Q1/Q2): transferência real = entrada E saída marcadas (a entrada marcada não tem lançamento)
+    await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED', 20000, 'credito', 'qa2-tc', 'Transferência interna')`, [c1]);
     await q(`INSERT INTO bank_transactions (account_id, data, descricao, valor, tipo, external_id, categoria) VALUES ($1, '2026-10-12T12:00:00Z', 'TED', -20000, 'debito', 'qa2-tr', 'Transferência interna')`, [c2]);
     const pro = (await apurarLimites(getDb() as never, AGORA)).empresas.find(e => e.raiz === "41865900")!;
     expect(pro.receitaCentavos).toBe(0);
@@ -230,7 +231,7 @@ describe("QA2 S-6 — correções (casos a mais)", () => {
     expect(semClass).toMatchObject({ receitaCentavos: 10_000_00, possiveisTransferencias: { centavos: 10_000_00, entradas: 1 }, foraDaSoma: { transferencias: 0 } });
     const despesa = apurarReceitas({ ...base, debitos: [deb(2, 10_000, "2026-11-10", "despesa")] }).empresas[0]!;
     expect(despesa).toMatchObject({ receitaCentavos: 10_000_00, possiveisTransferencias: { entradas: 0 } });
-    const marcada = apurarReceitas({ ...base, debitos: [deb(2, 10_000, "2026-11-10", "transferencia")] }).empresas[0]!;
+    const marcada = apurarReceitas({ ...base, receitas: [{ ...rec(1, 10_000, "2026-11-10"), marcadaTransferencia: true }], debitos: [deb(2, 10_000, "2026-11-10", "transferencia")] }).empresas[0]!;
     expect(marcada).toMatchObject({ receitaCentavos: 0, foraDaSoma: { transferencias: 1, transferenciasCentavos: 10_000_00 } });
   });
 

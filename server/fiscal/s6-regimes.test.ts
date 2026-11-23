@@ -143,7 +143,7 @@ describe("S-6 — soma por empresa (apurarReceitas)", () => {
       perfis: [perfil(1, PROSPECTA, "simples_nacional"), perfil(2, VFX, "lucro_presumido")],
       contas: [conta(1, PROSPECTA), conta(2, PROSPECTA), conta(3, VFX)],
       receitas: [
-        receita(1, 5000, "2026-04-01"),                    // entrou na conta 1 vindo da conta 2 (mesma empresa) → fora
+        receita(1, 5000, "2026-04-01", { marcadaTransferencia: true }), // entrou na conta 1 vindo da conta 2 (mesma empresa, os dois lados marcados) → fora
         receita(1, 5000, "2026-04-20"),                    // mesmo valor, mas sem saída casada → conta
         receita(1, 800, "2026-04-02", { descricao: "ESTORNO PIX ENVIADO", txDescricao: "ESTORNO PIX ENVIADO" }), // estorno (lançamento) → fora
         receita(1, 700, "2026-04-02", { descricao: "PIX recebido", txDescricao: "ESTORNO PIX ENVIADO" }), // QA S-6 (A2): só a movimentação diz → CONTA

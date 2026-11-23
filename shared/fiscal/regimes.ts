@@ -230,9 +230,10 @@ export const finalDaConta = (conta: string | null | undefined) => {
  */
 export function nomeSeguroDaConta(c: { apelido?: string | null; banco: string; conta?: string | null }): string {
   // QA2 S-6 (N5): o apelido é texto livre — sequência de 5+ dígitos (com ou sem pontuação) vira •••final (os 4 últimos), nunca vai inteira
-  const apelido = (c.apelido ?? "").trim().replace(/\d(?:[\d.\-\/ ]*\d)?/g, m => {
-    const d = m.replace(/\D/g, "");
-    return d.length >= 5 ? `•••${d.slice(-4)}` : m;
+  // QA3 (Q4): NFKC antes (dígitos de largura total/Unicode viram 0-9) e QUALQUER separador que não seja letra junta os blocos de dígitos
+  const apelido = (c.apelido ?? "").normalize("NFKC").trim().replace(new RegExp("\\p{Nd}(?:[^\\p{L}]*\\p{Nd})?", "gu"), m => {
+    const d = Array.from(m.replace(new RegExp("[^\\p{Nd}]", "gu"), ""));
+    return d.length >= 5 ? `•••${d.slice(-4).join("")}` : m;
   });
   if (apelido) return apelido;
   const final = finalDaConta(c.conta);
@@ -258,7 +259,16 @@ export type ContaParaSoma = { id: number; banco: string; apelido: string | null;
 export type ReceitaParaSoma = {
   lancamentoId: number; contaId: number | null; tipo: string; valorCentavos: number; descricao: string | null; categoria: string | null;
   pagoEm: Date; txDescricao?: string | null;
+  /**
+   * QA3 S-6 (Q1): entrada MARCADA como Transferência interna (na movimentação ou no lançamento — à mão ou pela importação). Só sai da soma
+   * se casar com uma saída também marcada de OUTRA conta da MESMA empresa (mesmo valor, até 2 dias); sem par, CONTA.
+   */
+  marcadaTransferencia?: boolean;
+  /** Quem marcou (auditoria da marcação; null = sem registro: marcação automática ou anterior à auditoria). Só para a tela. */
+  marcadaPor?: string | null;
 };
+/** Rótulo de quem marcou quando não há registro da marcação. */
+export const MARCADA_SEM_REGISTRO = "sem registro (marcação automática da importação/regra, ou anterior à auditoria)";
 /**
  * Saída do extrato. `classificacao` (QA S-6, A1): "despesa" = tem lançamento de despesa no BPO (pagamento a fornecedor/empreiteiro: NUNCA
  * casa com uma entrada); "transferencia" = marcada como Transferência interna; null = sem lançamento (ainda não classificada).
@@ -296,8 +306,13 @@ export type ApuracaoEmpresa = {
   /** receita + a classificar (lado seguro: o que a receita PODE ser). */
   receitaPossivelCentavos: number;
   foraDaSoma: { transferenciasCentavos: number; transferencias: number; estornosCentavos: number; estornos: number };
-  /** QA2 S-6 (N1): entradas que CONTAM na soma, mas têm uma saída de mesmo valor ainda sem classificação em outra conta dela (conferir). */
+  /**
+   * QA2 S-6 (N1) / QA3 (Q1, Q2): entradas que CONTAM na soma mas podem ser transferência (para o dono conferir): entrada marcada como
+   * Transferência interna SEM par, ou entrada comum com uma saída de mesmo valor (sem classificação ou marcada sem par) em outra conta dela.
+   */
   possiveisTransferencias: { centavos: number; entradas: number };
+  /** QA3 S-6 (Q3): entradas excluídas como transferência (par marcado × marcado), por quem marcou a ENTRADA. */
+  transferenciasPorQuem: { quem: string; entradas: number; centavos: number }[];
   projecaoCentavos: number; projecaoConfiavel: boolean;
   limites: ApuracaoLimite[];
 };
@@ -362,9 +377,20 @@ export function apurarReceitas(p: {
   let semContaN = 0;
 
   const ordenadas = [...p.receitas].sort((a, b) => a.pagoEm.getTime() - b.pagoEm.getTime() || a.lancamentoId - b.lancamentoId);
+  const porQuem = new Map<string, Map<string, { entradas: number; centavos: number }>>();
+  const casa = (r: ReceitaParaSoma, d: DebitoParaSoma) => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
+    && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS;
+  const contar = (acc: Acumulado, r: ReceitaParaSoma) => {
+    acc.receita += r.valorCentavos;
+    if (r.tipo === "reembolso") acc.reembolsos += r.valorCentavos;
+    acc.n++;
+  };
+  const marcada = (r: ReceitaParaSoma) => r.marcadaTransferencia === true || r.categoria === "Transferência interna";
+  // QA3 S-6 (Q2): 1ª passada — as entradas MARCADAS casam com as saídas MARCADAS (transferência real: os dois lados se anulam). Uma saída
+  // já usada nunca anula outra entrada.
+  const segunda: { r: ReceitaParaSoma; e: string }[] = [];
   for (const r of ordenadas) {
     if (r.tipo === "despesa" || !(r.valorCentavos > 0)) continue;
-    if (r.categoria === "Transferência interna") continue;
     if (r.contaId == null) {
       if (!ehEstorno(r.descricao)) { semContaReceita += r.valorCentavos; semContaN++; }
       continue;
@@ -374,17 +400,29 @@ export function apurarReceitas(p: {
     if (!e) { if (!ehEstorno(r.descricao)) semEmpresaReceita += r.valorCentavos; continue; }
     const acc = porEmpresa.get(e)!;
     if (ehEstorno(r.descricao)) { acc.esCent += r.valorCentavos; acc.es++; continue; }
-    const casa = (d: DebitoParaSoma) => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
-      && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS;
-    const saidas = debitosPorEmpresa.get(e) ?? [];
-    const par = saidas.find(d => d.classificacao === "transferencia" && casa(d));
-    if (par) { usados.add(par.txId); acc.trCent += r.valorCentavos; acc.tr++; continue; }
-    // sem classificação: CONTA na soma; só aponta para o dono conferir (a saída fica reservada para não apontar duas entradas)
-    const talvez = saidas.find(d => d.classificacao == null && casa(d));
+    if (marcada(r)) {
+      const par = (debitosPorEmpresa.get(e) ?? []).find(d => d.classificacao === "transferencia" && casa(r, d));
+      if (par) {
+        usados.add(par.txId); acc.trCent += r.valorCentavos; acc.tr++;
+        const quem = r.marcadaPor || MARCADA_SEM_REGISTRO;
+        const m = porQuem.get(e) ?? porQuem.set(e, new Map()).get(e)!;
+        const x = m.get(quem) ?? m.set(quem, { entradas: 0, centavos: 0 }).get(quem)!;
+        x.entradas++; x.centavos += r.valorCentavos;
+        continue;
+      }
+      // Q1: marcada SEM par numa conta da mesma empresa → CONTA (lado seguro) e fica para o dono conferir
+      contar(acc, r); acc.possCent += r.valorCentavos; acc.poss++;
+      continue;
+    }
+    segunda.push({ r, e });
+  }
+  // 2ª passada — entrada comum (receita de cliente) NUNCA é anulada (Q2, lado seguro): uma saída de mesmo valor que sobrou (sem
+  // classificação, ou marcada sem par) só a aponta como "possível transferência"; a saída fica reservada para não apontar duas entradas.
+  for (const { r, e } of segunda) {
+    const acc = porEmpresa.get(e)!;
+    const talvez = (debitosPorEmpresa.get(e) ?? []).find(d => (d.classificacao == null || d.classificacao === "transferencia") && casa(r, d));
     if (talvez) { usados.add(talvez.txId); acc.possCent += r.valorCentavos; acc.poss++; }
-    acc.receita += r.valorCentavos;
-    if (r.tipo === "reembolso") acc.reembolsos += r.valorCentavos;
-    acc.n++;
+    contar(acc, r);
   }
 
   // QA S-6 (A6): créditos a classificar/sem lançamento — nunca somem (pendência por empresa; sem empresa, na pendência geral)
@@ -420,6 +458,8 @@ export function apurarReceitas(p: {
       aClassificar: { centavos: pend.centavos, movimentos: pend.n }, receitaPossivelCentavos: possivel,
       foraDaSoma: { transferenciasCentavos: acc.trCent, transferencias: acc.tr, estornosCentavos: acc.esCent, estornos: acc.es },
       possiveisTransferencias: { centavos: acc.possCent, entradas: acc.poss },
+      transferenciasPorQuem: Array.from((porQuem.get(raiz) ?? new Map<string, { entradas: number; centavos: number }>()).entries())
+        .map(([quem, x]) => ({ quem, ...x })).sort((a, b) => b.centavos - a.centavos || a.quem.localeCompare(b.quem)),
       projecaoCentavos: proj.centavos, projecaoConfiavel: proj.confiavel,
       limites: limitesAcompanhados(regime).map(l => ({ ...l, percentual: percentualDe(acc.receita, l.valorCentavos), faixa: faixaDoLimite(acc.receita, l.valorCentavos, l.faixas),
         faltaCentavos: Math.max(0, l.valorCentavos - acc.receita), projecaoPercentual: percentualDe(proj.centavos, l.valorCentavos),
