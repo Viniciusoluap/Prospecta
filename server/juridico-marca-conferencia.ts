@@ -154,12 +154,14 @@ export function origemCitaNome(pdf: PDF, pagina: Pagina, nomes: string[]): boole
     }
     if (vistos.has(obj)) return false;
     vistos.add(obj);
+    // Volta para a árvore de páginas (Parent de página, /P de anotação, destino de link): corta pelo TIPO do objeto, nunca pelo
+    // nome da chave — um padrão chamado /P ou /Parent é conteúdo e precisa ser varrido (revisão do Codex, PR #330).
+    if (obj instanceof PdfDict && !(obj instanceof PdfStream) && obj !== pagina.dict && ["Page", "Pages"].includes(obj.getName("Type")?.value || "")) return false;
     if (obj instanceof PdfArray) return obj.toArray().some(v => andar(v));
     if (obj instanceof PdfStream && cita(Buffer.from(decodificarEstrito(obj)).toString("latin1"))) return true;
     if (obj instanceof PdfDict) {
       for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) {
         const nome = chave(k);
-        if (nome === "Parent" || nome === "P") continue;
         if (nome === "XObject") {
           const xo = dict(pdf, v);
           if (xo) { for (const [, x] of Array.from(xo as unknown as Iterable<[unknown, unknown]>)) if (andar(x, true)) return true; continue; }

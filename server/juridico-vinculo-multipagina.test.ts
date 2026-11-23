@@ -169,6 +169,14 @@ describe("vínculo com a origem — preditor e /Subtype /Image", () => {
       recursos.set("Pattern", PdfDict.of({ PQA: padrao }));
       noConteudo(pdf, 1, pdf.register(PdfStream.fromDict({}, texto("\nq /Pattern cs /PQA scn 0 0 600 900 re f Q\n"))));
     }],
+    // Revisão do Codex (PR #330): padrão chamado /P ou /Parent não pode ser pulado como se fosse a volta para a página.
+    ...["P", "Parent"].map(nomeDoPadrao => [`padrão (tiling) chamado /${nomeDoPadrao}`, (pdf: PDF) => {
+      const padrao = pdf.register(PdfStream.fromDict({ Type: PdfName.of("Pattern"), PatternType: PdfNumber.of(1),
+        PaintType: PdfNumber.of(1), TilingType: PdfNumber.of(1), BBox: caixa(), XStep: PdfNumber.of(600), YStep: PdfNumber.of(900) }, texto(OCULTO)));
+      const r = pdf.getPage(1)!.dict.get("Resources"); const recursos = (r instanceof PdfRef ? pdf.getObject(r) : r) as PdfDict;
+      recursos.set("Pattern", PdfDict.of({ [nomeDoPadrao]: padrao }));
+      noConteudo(pdf, 1, pdf.register(PdfStream.fromDict({}, texto(`\nq /Pattern cs /${nomeDoPadrao} scn 0 0 600 900 re f Q\n`))));
+    }] as [string, (pdf: PDF) => void]),
   ])("origem com texto escondido (%s): recusado", async (_nome, montar) => {
     const pdf = await PDF.load(new Uint8Array(contrato(30))); montar(pdf);
     const original = Buffer.from(await pdf.save());
