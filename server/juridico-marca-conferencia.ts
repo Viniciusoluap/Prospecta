@@ -46,6 +46,23 @@ export function lerConteudo(texto: string): Token[] {
   return tokens;
 }
 
+/**
+ * Decodificação ESTRITA (portão de QA de 23/11/2026, re-revisão): a biblioteca não resolve `/Filter` indireto e devolveria os
+ * bytes comprimidos como se fossem o conteúdo — um leitor de PDF resolve e desenha outra coisa. Aqui `/Filter` e
+ * `/DecodeParms` precisam estar escritos direto no fluxo (nome, ou array só de nomes/dicionários diretos); qualquer
+ * referência indireta, ou descompressão que devolve vazio para entrada não vazia, lança (quem chama recusa o vínculo).
+ */
+export function decodificarEstrito(stream: PdfStream): Uint8Array {
+  const direto = (v: unknown, aceito: (x: unknown) => boolean) => v === undefined || v === null || aceito(v) || (v instanceof PdfArray && v.toArray().every(aceito));
+  const tipo = (x: unknown) => (x as { type?: string } | null)?.type;
+  if (!direto(stream.get("Filter"), x => tipo(x) === "name")) throw new Error("filtro indireto");
+  if (!direto(stream.get("DecodeParms"), x => tipo(x) === "dict" || tipo(x) === "null")) throw new Error("parâmetros de filtro indiretos");
+  for (const k of ["F", "FFilter", "FDecodeParms"]) if (stream.has(k)) throw new Error("fluxo em arquivo externo");
+  const dados = stream.getDecodedData();
+  if (!dados.length && stream.has("Filter") && stream.data.length > 0) throw new Error("fluxo ilegível");
+  return dados;
+}
+
 function fluxos(pdf: PDF, pagina: Pagina): string[] | null {
   const bruto = pagina.dict.get("Contents");
   const itens = bruto instanceof PdfArray ? bruto.toArray() : bruto ? [bruto] : [];
@@ -53,7 +70,7 @@ function fluxos(pdf: PDF, pagina: Pagina): string[] | null {
   for (const item of itens) {
     const obj = item instanceof PdfRef ? pdf.getObject(item) : item;
     if (!(obj instanceof PdfStream)) return null;
-    out.push(Buffer.from(obj.getDecodedData()).toString("latin1"));
+    out.push(Buffer.from(decodificarEstrito(obj)).toString("latin1"));
   }
   return out;
 }
@@ -124,7 +141,7 @@ export function origemCitaNome(pdf: PDF, pagina: Pagina, nomes: string[]): boole
     if (++visitados > 20_000) throw new Error("documento grande demais para conferir");
     if (obj instanceof PdfArray) return obj.toArray().some(andar);
     if (obj instanceof PdfStream) {
-      if (obj.getName("Subtype")?.value !== "Image" && cita(Buffer.from(obj.getDecodedData()).toString("latin1"))) return true;
+      if (obj.getName("Subtype")?.value !== "Image" && cita(Buffer.from(decodificarEstrito(obj)).toString("latin1"))) return true;
     }
     if (obj instanceof PdfDict) {
       for (const [k, v] of Array.from(obj as unknown as Iterable<[unknown, unknown]>)) { if (chave(k) === "Parent" || chave(k) === "P") continue; if (andar(v)) return true; }

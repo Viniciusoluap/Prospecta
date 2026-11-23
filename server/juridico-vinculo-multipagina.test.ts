@@ -3,7 +3,8 @@
 // todas "ganhavam" a fonte da marca e a conferência dizia "o PDF assinado não corresponde ao documento de origem".
 import "fake-indexeddb/auto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PDF, P12Signer } from "@libpdf/core";
+import { deflateSync } from "node:zlib";
+import { PDF, P12Signer, PdfArray, PdfDict, PdfName, PdfNumber, PdfRef, PdfStream } from "@libpdf/core";
 import { criarPki, type Pki } from "./__fixtures__/juridico-pki-ca";
 import { gerarPdfModelo } from "../shared/contratos/pdf";
 import { mesmoConteudo } from "./juridico-workflow";
@@ -72,5 +73,70 @@ describe("vínculo com a origem — contrato de várias páginas", () => {
     const { assinado, titular } = await assinarComMarca(original, 0);
     expect(assinado.subarray(0, original.length).equals(original)).toBe(true);
     expect(await mesmoConteudo(original, assinado, { titular })).toBe(false);
+  }, 120_000);
+});
+
+// Portão de QA de 23/11/2026 (re-revisão): referência adormecida escondida em Form XObject e filtro indireto.
+describe("vínculo com a origem — XObject e filtro indireto", () => {
+  const OCULTO = "BT /F0 28 Tf 1 0 0 1 60 400 Tm (VALOR ALTERADO 999) Tj ET";
+  const fluxo = (pdf: PDF, entradas: Record<string, never>, dados: Uint8Array) => pdf.register(PdfStream.fromDict(entradas, dados));
+  const form = (extra: Record<string, unknown> = {}) => ({ Type: PdfName.of("XObject"), Subtype: PdfName.of("Form"),
+    BBox: PdfArray.of(PdfNumber.of(0), PdfNumber.of(0), PdfNumber.of(600), PdfNumber.of(900)), ...extra }) as Record<string, never>;
+  function acrescentar(pdf: PDF, pagina: number, conteudo: PdfRef, xobject?: PdfRef) {
+    const page = pdf.getPage(pagina)!;
+    if (xobject) {
+      const r = page.dict.get("Resources"); const res = (r instanceof PdfRef ? pdf.getObject(r) : r) as PdfDict;
+      const x = res.get("XObject"); let xo = (x instanceof PdfRef ? pdf.getObject(x) : x) as PdfDict | undefined;
+      if (!xo) { xo = PdfDict.of({}); res.set("XObject", xo); }
+      xo.set("FxQA", xobject);
+    }
+    const c = page.dict.get("Contents"); const lista = c instanceof PdfArray ? c : PdfArray.of(c as PdfRef);
+    lista.push(conteudo); page.dict.set("Contents", lista);
+  }
+  const chamaForm = (pdf: PDF) => fluxo(pdf, {}, new TextEncoder().encode("\nq /FxQA Do Q\n"));
+  it.each([
+    ["Form XObject sem /Resources (herda os da página)", (pdf: PDF) => acrescentar(pdf, 1, chamaForm(pdf), fluxo(pdf, form(), new TextEncoder().encode(OCULTO)))],
+    ["Form XObject aninhado", (pdf: PDF) => {
+      const dentro = fluxo(pdf, form(), new TextEncoder().encode(OCULTO));
+      acrescentar(pdf, 1, chamaForm(pdf), fluxo(pdf, form({ Resources: PdfDict.of({ XObject: PdfDict.of({ In: dentro }) }) }), new TextEncoder().encode("/In Do")));
+    }],
+    ["Form XObject com /Filter indireto", (pdf: PDF) => acrescentar(pdf, 1, chamaForm(pdf),
+      fluxo(pdf, form({ Filter: pdf.register(PdfName.of("FlateDecode")) }), new Uint8Array(deflateSync(Buffer.from(OCULTO)))))],
+    ["fluxo de página com /Filter indireto", (pdf: PDF) => acrescentar(pdf, 1,
+      fluxo(pdf, { Filter: pdf.register(PdfName.of("FlateDecode")) } as Record<string, never>, new Uint8Array(deflateSync(Buffer.from(`\n${OCULTO}\n`)))))],
+    ["fluxo da página da marca com /Filter indireto", (pdf: PDF) => acrescentar(pdf, 0,
+      fluxo(pdf, { Filter: PdfArray.of(pdf.register(PdfName.of("FlateDecode"))) } as Record<string, never>, new Uint8Array(deflateSync(Buffer.from(`\n${OCULTO}\n`)))))],
+  ])("origem com texto escondido (%s): recusado", async (_nome, montar) => {
+    const pdf = await PDF.load(new Uint8Array(contrato(30))); montar(pdf);
+    const original = Buffer.from(await pdf.save());
+    const { assinado, titular } = await assinarComMarca(original, 0);
+    expect(await mesmoConteudo(original, assinado, { titular })).toBe(false);
+  }, 120_000);
+
+  it("PDF assinado que troca o /Filter de um fluxo por referência indireta: recusado (com e sem marca)", async () => {
+    // Origem: fluxo que é só um comentário com o texto em hexadecimal (nada aparece). No assinado, o mesmo fluxo ganha
+    // /Filter -> objeto /ASCIIHexDecode; os bytes não mudam, mas o leitor (pdf.js) passa a desenhar o texto.
+    const pdf = await PDF.load(new Uint8Array(contrato(30)));
+    const alvo = fluxo(pdf, {}, new TextEncoder().encode(`%${Buffer.from("BT /F1 28 Tf 1 0 0 1 60 400 Tm (VALOR ALTERADO 999) Tj ET").toString("hex")}\n`));
+    acrescentar(pdf, 1, alvo);
+    const original = Buffer.from(await pdf.save());
+    const editado = await PDF.load(new Uint8Array(original));
+    (editado.getObject(alvo) as PdfStream).set("Filter", editado.register(PdfName.of("ASCIIHexDecode")));
+    const trocado = Buffer.from(await editado.save({ incremental: true }));
+    expect(trocado.subarray(0, original.length).equals(original)).toBe(true);
+    expect(await mesmoConteudo(original, trocado)).toBe(false);
+    const { assinado, titular } = await assinarComMarca(trocado, 0);
+    expect(await mesmoConteudo(original, assinado, { titular })).toBe(false);
+  }, 120_000);
+
+  it("troca do /Filter por nome DIRETO também é recusada (o conteúdo decodificado muda)", async () => {
+    const pdf = await PDF.load(new Uint8Array(contrato(30)));
+    const alvo = fluxo(pdf, {}, new TextEncoder().encode(`%${Buffer.from("BT /F1 28 Tf 1 0 0 1 60 400 Tm (VALOR ALTERADO 999) Tj ET").toString("hex")}\n`));
+    acrescentar(pdf, 1, alvo);
+    const original = Buffer.from(await pdf.save());
+    const editado = await PDF.load(new Uint8Array(original));
+    (editado.getObject(alvo) as PdfStream).set("Filter", PdfName.of("ASCIIHexDecode"));
+    const trocado = Buffer.from(await editado.save({ incremental: true }));
+    expect(await mesmoConteudo(original, trocado)).toBe(false);
   }, 120_000);
 });

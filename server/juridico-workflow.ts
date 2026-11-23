@@ -8,8 +8,8 @@ import { readPrivateDocument } from "./drive-documents.js";
 import type { OpcoesConferencia } from "./juridico-verificar-assinaturas.js";
 import { proximaTentativa, relatorioRetorno, resumir, sqlInserirValidacao, tabelaValidacoes } from "./juridico-validacao.js";
 import type { Certificate } from "pkijs";
-import { PDF, PdfDict, PdfRef } from "@libpdf/core";
-import { paginaComMarca, paginaSoGanhouFonteSemUso } from "./juridico-marca-conferencia.js";
+import { PDF, PdfDict, PdfRef, PdfStream } from "@libpdf/core";
+import { decodificarEstrito, paginaComMarca, paginaSoGanhouFonteSemUso } from "./juridico-marca-conferencia.js";
 
 export async function conteudoContrato(documento:{id:number;driveFileId:string|null}) {
   return (await readPrivateDbFile("contract",documento.id))??(documento.driveFileId?await readPrivateDocument(documento.driveFileId):null);
@@ -81,7 +81,7 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
       const v=obj as {type:string;toString():string;value?:unknown;bytes?:Uint8Array;toArray?:()=>unknown[];getDecodedData?:()=>Uint8Array;[Symbol.iterator]?:()=>Iterator<[unknown,unknown]>};
       if(v.type==="ref"){const target=pdf.getObject(obj as never);if(ignorePages&&target instanceof PdfDict&&target.getName("Type")?.value==="Page")return "[page]";const key=v.toString();if(seen.has(key))return key;const next=new Set(seen);next.add(key);return serial(pdf,target,next,ignorePages);}
       if(v.type==="array")return v.toArray!().map(x=>serial(pdf,x,seen,ignorePages));
-      if(v.type==="dict"||v.type==="stream")return {data:v.getDecodedData?Buffer.from(v.getDecodedData()).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(nome(k)))).map(([k,val])=>[nome(k),serial(pdf,val,seen,ignorePages)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
+      if(v.type==="dict"||v.type==="stream")return {data:obj instanceof PdfStream?Buffer.from(decodificarEstrito(obj)).toString("base64"):undefined,entries:Array.from(v as Iterable<[unknown,unknown]>).filter(([k])=>![/^\/?Length$/,/^\/?Filter$/,/^\/?DecodeParms$/].some(re=>re.test(nome(k)))).map(([k,val])=>[nome(k),serial(pdf,val,seen,ignorePages)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))};
       return v.bytes?Buffer.from(v.bytes).toString("hex"):v.value??String(v);
     };
     const novosWidgets=new Set(b.getForm()?.getSignatureFields().filter(f=>f.isSigned()).flatMap(f=>f.getWidgets().map(w=>w.dict))||[]);
