@@ -52,4 +52,25 @@ describe("vínculo com a origem — contrato de várias páginas", () => {
     const { assinado } = await assinarComMarca(original, 0);
     expect(await mesmoConteudo(original, assinado)).toBe(false);
   }, 120_000);
+
+  // Portão de QA de 23/11/2026: "referência adormecida" — a origem cita uma fonte que só passa a existir depois de assinar
+  // (o assinador sempre a chama de /F0), então um texto invisível na origem apareceria no PDF assinado.
+  const comTextoEscondido = (operadores: string, pagina: number) => {
+    const doc = gerarPdfModelo({ numero: "CT-1", titulo: "CONSTRUÇÃO ATC", data: new Date("2026-11-23"),
+      clausulas: Array.from({ length: 30 }, (_, i) => `CLÁUSULA ${i + 1}\n` + "Texto da cláusula. ".repeat(40)).join("\n"), assinaturas: ["PROSPECTA", "Cliente"] });
+    doc.setPage(pagina + 1);
+    (doc.internal as unknown as { write: (s: string) => void }).write(operadores);
+    return Buffer.from(doc.output("arraybuffer"));
+  };
+  it.each([
+    ["na página da marca, nome escrito normalmente", "BT /F0 28 Tf 50 700 Td (VALOR ALTERADO 999) Tj ET", 0],
+    ["em outra página, nome escrito normalmente", "BT /F0 28 Tf 50 700 Td (VALOR ALTERADO 999) Tj ET", 1],
+    ["em outra página, nome com escape #xx", "BT /#460 28 Tf 50 700 Td (VALOR ALTERADO 999) Tj ET", 1],
+    ["na página da marca, nome com escape #xx", "BT /F#30 28 Tf 50 700 Td (VALOR ALTERADO 999) Tj ET", 0],
+  ])("origem com texto escondido que cita a fonte da marca (%s): recusado", async (_nome, operadores, pagina) => {
+    const original = comTextoEscondido(operadores, pagina);
+    const { assinado, titular } = await assinarComMarca(original, 0);
+    expect(assinado.subarray(0, original.length).equals(original)).toBe(true);
+    expect(await mesmoConteudo(original, assinado, { titular })).toBe(false);
+  }, 120_000);
 });
