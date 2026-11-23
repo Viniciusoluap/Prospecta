@@ -734,3 +734,24 @@ Mesclar #304 e #305; receber S-3/S-4/S-5/S-6 dos agentes → portão de QA de ca
 **Testes:** (a) automáticos — s3*, conta-alterada, s3b-qa, ponte, c5-integracao2*, leitura-somente, operacao*, admin-permissions: todos verdes (64/64 nos centrais após o merge da main; rodada completa 185 + 208); (b) manual — dono confirmou a Dolores respondendo após a restauração (23/11 23:50 UTC); (c) pendente em produção — PDF da prévia chegando como documento no WhatsApp real.
 **Pendências:** nenhuma desta etapa.
 **Próximo passo exato:** merge do #320 após prévia da Vercel; seguir com #321 (S-8), S-6 (4º portão), S-7 (correções do portão) e E10 (correções do portão) — estado completo na atualização de 23/11 00:45 UTC no ramo `claude/dolores-cobrancas` (vai para a main com a E10).
+
+## Atualização de 23/11/2026 ~12:00 UTC — EPIC-029 (Módulo Fiscal) concluído em código; E10 ligada
+
+**Publicado (main + produção):** #318 S-5b (notas recebidas: cancelamento, outra origem), #319 Jurídico (cadeia ICP com intermediárias
+embarcadas + "Conferir novamente"), #320 S-3b (conta do sistema da Dolores travada + prévia fiscal), #321 S-8 (alíquota do Simples),
+#322 E10 (Dolores cobra colaborador e pede documentos — **LIGADA** em 23/11 ~11:04 UTC, por autorização do dono), #323 S-6 (contas por
+empresa, multi-regime, limites, apuração da receita), #324 S-7 (envio, cancelamento, DANFSe, XSD, alíquotas oficiais — este PR).
+**Neon:** aplicadas 0164, 0165, 0166, 0167, 0168, 0169, 0170, 0171 (todas aditivas). Emissor fiscal id 1 (Prospecta) com certificado A1
+ligado pelo dono; ambiente "desligado"; `emissao_liberada` = false.
+
+**Testes:** (a) automáticos — por frente nos PRs (fiscal 470+, Dolores 174+, E10 320, Jurídico 143); (b) manual — dono confirmou a Dolores
+respondendo (23/11) e ligou o certificado; (c) pendente em produção — "Conferir novamente" no contrato Maylanne; primeira emissão em
+PRODUÇÃO RESTRITA (homologação) com o A1; validador XSD carregando na Vercel (falha fechada se não); primeiras cobranças da E10.
+
+**Pendências / próximos passos:**
+1. Emissão de teste em produção restrita: admin liga o ambiente "producao_restrita" do emissor e `emissao_liberada` (hoje sem rota que
+   ligue — decidir com o dono como liberar, com confirmação explícita), "Buscar alíquotas oficiais" para Imperatriz/Canaã/Parauapebas,
+   série da DPS (padrão "1"), e emitir um rascunho de teste; conferir nomes dos campos JSON da Sefin (só confirmáveis com o A1).
+2. Folha de 12 meses + início de atividade em "Folha e início (Simples)" (sem a folha, Fator R usa o Anexo V).
+3. Contador: conferir regra do sublimite (ano-calendário) e casas do pAliq; CNO das obras (7.02/7.05 ainda recusadas).
+4. Paridade Santa Fé: correção da cadeia ICP do Jurídico (verificar se o Santa Fé tem o mesmo defeito). Módulo fiscal: o dono faz depois.
