@@ -432,10 +432,16 @@ export type LancamentoParaConciliar = {
 export type NotaParaConciliar = {
   id: number; obraId: number | null; valorCentavos: number | null; dataEmissao: string | null;
   emitenteDocumento: string | null; emitenteNome: string | null; duplicadaDe: number | null; bpoLancamentoId: number | null;
+  /** EPIC-029 S-5b: a NFS-e foi cancelada (evento do ADN) — nunca é apontada como válida. */
+  cancelada?: boolean;
+  /** EPIC-029 S-5b: a mesma nota já registrada pela outra origem (ADN × grupo) — a conciliação fica na outra. */
+  outraOrigemDe?: number | null;
 };
 export type Apontamento =
   | { situacao: "conciliada"; lancamentoId: number }
   | { situacao: "duplicada"; texto: string }
+  | { situacao: "cancelada"; texto: string }
+  | { situacao: "outra_origem"; texto: string }
   | { situacao: "sem_dados"; texto: string }
   | { situacao: "ja_lancado"; lancamentoId: number; podeConciliar: boolean; texto: string }
   | { situacao: "provavel_duplicata"; lancamentoId: number; notaLigada: number; texto: string }
@@ -444,7 +450,8 @@ export type Apontamento =
   | { situacao: "sem_lancamento"; texto: string };
 
 export const ROTULO_APONTAMENTO: Record<Apontamento["situacao"], string> = {
-  conciliada: "conciliada (vínculo aprovado pelo dono)", duplicada: "nota duplicada (não concilia)", sem_dados: "sem valor ou data lidos",
+  conciliada: "conciliada (vínculo aprovado pelo dono)", duplicada: "nota duplicada (não concilia)",
+  cancelada: "NFS-e cancelada (não concilia)", outra_origem: "mesma nota da outra origem (concilia na outra)", sem_dados: "sem valor ou data lidos",
   ja_lancado: "já lançado no BPO", provavel_duplicata: "provável duplicata (pagamento já ligado a outra nota)",
   varios: "mais de um pagamento possível", divergente: "divergente", sem_lancamento: "sem lançamento no BPO",
 };
@@ -463,8 +470,15 @@ function fornecedor(n: NotaParaConciliar, l: LancamentoParaConciliar): "confere"
  * cadastro do BPO ou o nome do titular) e obra. Só APONTA — nenhum lançamento é criado, ligado ou alterado aqui.
  */
 export function apontarConciliacao(n: NotaParaConciliar, lancamentos: readonly LancamentoParaConciliar[], janelaDias: number): Apontamento {
+  // EPIC-029 S-5b: cancelada vem ANTES de tudo — mesmo já ligada a um pagamento, ela não é mais válida (o dono confere)
+  if (n.cancelada) {
+    return { situacao: "cancelada", texto: n.bpoLancamentoId
+      ? `a NFS-e foi CANCELADA pelo emitente, mas está ligada ao lançamento #${n.bpoLancamentoId} do BPO: confira esse pagamento`
+      : "a NFS-e foi CANCELADA pelo emitente: não pode ser paga nem conciliada" };
+  }
   if (n.bpoLancamentoId) return { situacao: "conciliada", lancamentoId: n.bpoLancamentoId };
   if (n.duplicadaDe) return { situacao: "duplicada", texto: `esta nota repete a nota ${n.duplicadaDe}: não é conciliada` };
+  if (n.outraOrigemDe) return { situacao: "outra_origem", texto: `é a mesma nota ${n.outraOrigemDe}, registrada pela outra origem (ADN ou grupo): a conciliação fica na nota ${n.outraOrigemDe}` };
   if (!n.valorCentavos || !n.dataEmissao) return { situacao: "sem_dados", texto: "sem valor ou data lidos com segurança: a conciliação depende da conferência do dono" };
   const naJanela = lancamentos.filter(l => l.data && diasEntre(l.data, n.dataEmissao!) <= janelaDias);
   const avaliados = naJanela.map(l => {
