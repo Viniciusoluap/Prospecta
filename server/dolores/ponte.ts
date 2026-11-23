@@ -223,7 +223,7 @@ export type OpcoesExecucao = {
    * cujos alvos saíram dessas palavras (server/dolores/ordem-direta.ts) executa NA HORA, pelo mesmo item da fila (resumo + hash +
    * revalidação + auditoria de `decidir`), sem o "pode". Ausente, ou alvo que não saiu das palavras dele → a confirmação de sempre.
    */
-  ordemDireta?: { texto: string } | null;
+  ordemDireta?: { texto: string; mensagem?: string; comDoisPontos?: boolean } | null;
   /** EPIC-025 E11: recebe a frase (montada pelo sistema) de cada ação feita na hora por ordem direta — para a linha "Feito: …". */
   aoExecutar?: (frases: string[]) => void;
 };
@@ -356,13 +356,13 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
   contaminado: boolean; motivoContaminacao: MotivoContaminacao | null; prazoMs: number; aoPorNaFila?: (codigos: string[]) => void;
   exigirConfirmacao: boolean; confirmacaoNatural: boolean; pedidoDeMemoria: { texto: string } | null; pedidoDeMesa: ContextoAcao["pedidoDeMesa"];
   pedidoFiscal: ContextoAcao["pedidoFiscal"];
-  ordemDireta?: { texto: string } | null; aoExecutar?: (frases: string[]) => void;
+  ordemDireta?: { texto: string; mensagem?: string; comDoisPontos?: boolean } | null; aoExecutar?: (frases: string[]) => void;
 }): Promise<RespostaPonte> {
   const { funcao, registrar, responder } = { funcao: acao.nome, registrar: c.registrar, responder: c.responder };
   // EPIC-025 E11: ordem direta do dono — a ação reversível da lista fechada cujos ALVOS saíram das palavras dele (conferência no
   // servidor, por código). Provado, o resumo não leva o aviso de "pedido surgido durante a leitura" (o alvo não veio da leitura).
   const prova = c.ordemDireta && podeExecutarPorOrdemDireta(funcao, args)
-    ? await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" } as Prova))
+    ? await comPrazo(provarAlvosDoDono(funcao, args, c.ordemDireta.texto, { mensagem: c.ordemDireta.mensagem, comDoisPontos: c.ordemDireta.comDoisPontos }), c.prazoMs).catch(() => ({ ok: false as const, motivo: "sem tempo" } as Prova))
     : null;
   const ordemDireta = prova?.ok === true;
   // E11b: o nome que ele digitou aponta mais de um cliente/responsável → pergunta curta com os nomes (nada vai para a fila)

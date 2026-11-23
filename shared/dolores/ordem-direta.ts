@@ -297,3 +297,35 @@ export function comoDesfazer(funcao: string, argumentos?: unknown, codigoDoGrupo
     default: return null;
   }
 }
+
+/** Teto do texto ditado depois do ":". */
+export const MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS = 200;
+/** Aspas de qualquer tipo (inclusive apóstrofo e crase). */
+const ASPAS = /["'`“”‘’«»„‟]/;
+
+export type PartesDaOrdem = { antes: string; depois: string | null };
+
+/**
+ * E11 (ajuste antes da 3ª revisão) — separa a mensagem do dono em ANTES do ":" (verbo, função, código e alvos) e o texto DITADO depois
+ * dele (só conteúdo de registro). null = a mensagem não serve de ordem direta: aspas de qualquer tipo, ">", quebra de linha, mais de
+ * um ":" (o de hora "14:30" e o de "http://" não contam), ditado com mais de 200 caracteres, "?" em qualquer ponto, ou negação ANTES do
+ * ":" (M-A). Negação DEPOIS do ":" é conteúdo ditado (o texto gravado precisa reproduzi-la igual — `textoSaiuDoDono`).
+ */
+export function partesDaOrdem(mensagem: string | null | undefined): PartesDaOrdem | null {
+  const m = String(mensagem ?? "").trim();
+  if (!m || ASPAS.test(m) || m.includes(">") || /[\r\n]/.test(m) || m.includes("?")) return null;
+  // ":" que contam: nem o de hora (dígito:dígito) nem o de "://"
+  const pos: number[] = [];
+  for (let i = 0; i < m.length; i++) {
+    if (m[i] !== ":") continue;
+    if (/\d/.test(m[i - 1] ?? "") && /\d/.test(m[i + 1] ?? "")) continue;
+    if (m.slice(i, i + 3) === "://") continue;
+    pos.push(i);
+  }
+  if (pos.length > 1) return null;
+  const antes = (pos.length ? m.slice(0, pos[0]) : m).trim();
+  const depois = pos.length ? m.slice(pos[0] + 1).trim() : null;
+  if (!antes || (depois !== null && (!depois || depois.length > MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS))) return null;
+  if (NEGACAO_SOLTA.test(normalizarNome(antes)) || negaAcao(antes)) return null;
+  return { antes, depois };
+}

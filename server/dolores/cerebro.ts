@@ -12,7 +12,7 @@ import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type 
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
-import { bloqueiaOrdemDireta } from "../../shared/dolores/ordem-direta.js";
+import { partesDaOrdem } from "../../shared/dolores/ordem-direta.js";
 import { ACOES_FISCAIS, FERRAMENTAS_FISCAIS, intencaoFiscal } from "../../shared/dolores/fiscal.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
@@ -371,13 +371,11 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // texto colado, sem anexo e fora da retomada em segundo plano. Quem confere os alvos contra estas palavras é o servidor (ponte.ts).
   // Portão de QA E11 (I1b): verbo e alvos saem da MESMA mensagem (nunca somando mensagens anteriores; um "pode" solto só confirma o que
   // o SISTEMA perguntou, pela proposta). (M1): mensagem com negação antes do verbo ("não vincula…", "nunca ignore…") nunca é ordem direta.
-  // Portão 2 (I-B): verbo, código, alvos e texto só do TRECHO DO DONO — com qualquer marca de citação (aspas, ":" seguido de texto,
-  // ">", quebra de linha) a mensagem inteira deixa de ser ordem direta (vai para a confirmação): o que vem depois da marca pode ser fala
-  // de terceiro. (M-A): pergunta ("?") ou negação em qualquer posição também → confirmação.
-  const trecho = trechoDoDono(p.comando).trim();
-  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando)
-    && trecho.length > 0 && trecho === p.comando.trim() && !bloqueiaOrdemDireta(p.comando)
-    ? { texto: comando } : null;
+  // Portão 2 (I-B) + ajuste antes da 3ª revisão: verbo, função, código e alvos só do trecho ANTES do ":"; o texto ditado depois do ":"
+  // só vale como CONTEÚDO de registro (tarefa, anotação, lembrança). Aspas, ">", quebra de linha, mais de um ":", ditado longo, "?" ou
+  // negação antes do ":" → nada de ordem direta (confirmação de sempre). Ver shared/dolores/ordem-direta.ts#partesDaOrdem.
+  const partes = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando) ? partesDaOrdem(p.comando) : null;
+  const ordemDireta = partes ? { texto: partes.antes, mensagem: p.comando.trim(), comDoisPontos: partes.depois !== null } : null;
   const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
   const previasRecusadas = new Set<number>();

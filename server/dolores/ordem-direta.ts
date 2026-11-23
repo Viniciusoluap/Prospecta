@@ -133,14 +133,14 @@ async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<Pr
 }
 
 /** E11b — os registros (tarefa, anotação, memória, aviso): texto gravado e alvos das palavras do dono. */
-async function provarRegistro(funcao: string, a: Record<string, unknown>, textoDoDono: string, palavras: string[]): Promise<Prova> {
+async function provarRegistro(funcao: string, a: Record<string, unknown>, textoDoDono: string, palavras: string[], mensagem: string): Promise<Prova> {
   switch (funcao) {
     case "criar_tarefa": {
-      if (!textoSaiuDoDono(String(a.titulo ?? ""), textoDoDono)) return nao("o título da tarefa não saiu das palavras do dono");
-      if (a.descricao && !textoSaiuDoDono(String(a.descricao), textoDoDono)) return nao("a descrição não saiu das palavras do dono");
+      if (!textoSaiuDoDono(String(a.titulo ?? ""), mensagem)) return nao("o título da tarefa não saiu das palavras do dono");
+      if (a.descricao && !textoSaiuDoDono(String(a.descricao), mensagem)) return nao("a descrição não saiu das palavras do dono");
       // Portão 2 (B-a): prazo e prioridade só se ele disse
-      if (a.prazo && !prazoDitoPeloDono(textoDoDono)) return nao("prazo que o dono não disse");
-      if (!prioridadeDitaPeloDono(a.prioridade, textoDoDono)) return nao("prioridade que o dono não disse");
+      if (a.prazo && !prazoDitoPeloDono(mensagem)) return nao("prazo que o dono não disse");
+      if (!prioridadeDitaPeloDono(a.prioridade, mensagem)) return nao("prioridade que o dono não disse");
       const quem = await provarResponsavel(a.responsavel, palavras);
       if (!quem.ok) return quem;
       const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
@@ -148,19 +148,19 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, textoD
       return v.tipo === "cliente" ? provarCliente(v.id, textoDoDono, palavras) : v.tipo === "obra" ? provarObra(v.id, textoDoDono, palavras) : nao("vínculo inválido");
     }
     case "registrar_acompanhamento": {
-      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("a anotação não saiu das palavras do dono");
+      if (!textoSaiuDoDono(String(a.texto ?? ""), mensagem)) return nao("a anotação não saiu das palavras do dono");
       // "ligação" só quando ele disse que ligou
-      if (a.tipo === "ligacao" && !/\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(textoDoDono.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase())) return nao("o dono não disse que houve ligação");
+      if (a.tipo === "ligacao" && !/\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(mensagem.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase())) return nao("o dono não disse que houve ligação");
       return provarCliente(a.leadId, textoDoDono, palavras);
     }
     case "guardar_memoria": {
-      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("a lembrança não saiu das palavras do dono");
+      if (!textoSaiuDoDono(String(a.texto ?? ""), mensagem)) return nao("a lembrança não saiu das palavras do dono");
       if (a.leadId) return provarCliente(a.leadId, textoDoDono, palavras);
       if (a.obraId) return provarObra(a.obraId, textoDoDono, palavras);
       return SIM;
     }
     case "corrigir_memoria": {
-      if (!textoSaiuDoDono(String(a.texto ?? ""), textoDoDono)) return nao("o texto novo não saiu das palavras do dono");
+      if (!textoSaiuDoDono(String(a.texto ?? ""), mensagem)) return nao("o texto novo não saiu das palavras do dono");
       return provarMemoria(a.memoriaId, palavras);
     }
     case "esquecer_memoria": return provarMemoria(a.memoriaId, palavras);
@@ -179,12 +179,21 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, textoD
  * A ação reversível `funcao(argumentos)` (como o modelo pediu) tem a intenção e os alvos nas palavras do dono (`textoDoDono`)?
  * Nunca lança: falha → não provado (segue a confirmação).
  */
-export async function provarAlvosDoDono(funcao: string, argumentos: unknown, textoDoDono: string): Promise<Prova> {
+/** E11 (ajuste antes da 3ª revisão): funções de REGISTRO de texto em que o texto ditado depois de ":" pode ser o conteúdo gravado. */
+export const FUNCOES_COM_CONTEUDO_DITADO: ReadonlySet<string> = new Set(["criar_tarefa", "registrar_acompanhamento", "guardar_memoria", "corrigir_memoria"]);
+
+/**
+ * `textoDoDono` = SÓ o trecho antes do ":" (verbo, função, código e alvos). `o.mensagem` = a mensagem inteira dele (o texto gravado,
+ * prazo e prioridade podem sair dela). `o.comDoisPontos`: a mensagem tem o ":" de ditado — só as funções de registro de texto
+ * aceitam; as demais vão para a confirmação.
+ */
+export async function provarAlvosDoDono(funcao: string, argumentos: unknown, textoDoDono: string, o: { mensagem?: string; comDoisPontos?: boolean } = {}): Promise<Prova> {
   try {
     if (!podeExecutarPorOrdemDireta(funcao, argumentos)) return nao("função fora da lista da ordem direta");
     if (!intencaoDaFuncao(funcao, textoDoDono)) return nao("a mensagem do dono não tem o verbo desta ação");
     const a = (argumentos ?? {}) as { grupoId?: unknown; tipo?: unknown; leadId?: unknown; obraId?: unknown };
-    if (!String(funcao).endsWith("_grupo")) return await provarRegistro(funcao, a as Record<string, unknown>, textoDoDono, palavrasQueIdentificam(textoDoDono));
+    if (o.comDoisPontos && !FUNCOES_COM_CONTEUDO_DITADO.has(funcao)) return nao("mensagem com texto ditado depois de \":\": só registro de texto vai direto");
+    if (!String(funcao).endsWith("_grupo")) return await provarRegistro(funcao, a as Record<string, unknown>, textoDoDono, palavrasQueIdentificam(textoDoDono), o.mensagem ?? textoDoDono);
     const grupoId = Number(a.grupoId);
     if (!Number.isSafeInteger(grupoId) || grupoId <= 0) return nao("grupo inválido");
     const cfg = await lerConfigWhatsapp().catch(() => null);
