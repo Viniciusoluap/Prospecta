@@ -255,3 +255,26 @@ describe("vínculo com a origem — catálogo alterado no retorno", () => {
     expect(await mesmoConteudo(empresa, retorno)).toBe(false);
   }, 120_000);
 });
+
+// Portão de QA de 23/11/2026 (6ª revisão): dicionário da página e nó /Pages também precisam continuar iguais.
+describe("vínculo com a origem — página e árvore de páginas alteradas no retorno", () => {
+  it.each([
+    ["/AA com JavaScript ao abrir a página", (pdf: PDF) => pdf.getPage(1)!.dict.set("AA", PdfDict.of({ O: PdfDict.of({ S: PdfName.of("JavaScript"),
+      JS: PdfString.fromString("this.addAnnot({page:1,type:'FreeText',rect:[40,380,560,460],contents:'VALOR ALTERADO 999'});") }) }))],
+    ["/CropBox herdado do nó /Pages (esconde as cláusulas)", (pdf: PDF) => {
+      const r = pdf.getCatalog().get("Pages"); const nodo = (r instanceof PdfRef ? pdf.getObject(r) : r) as PdfDict;
+      nodo.set("CropBox", PdfArray.of(PdfNumber.of(0), PdfNumber.of(700), PdfNumber.of(595), PdfNumber.of(842)));
+    }],
+    ["/Rotate herdado do nó /Pages", (pdf: PDF) => {
+      const r = pdf.getCatalog().get("Pages"); const nodo = (r instanceof PdfRef ? pdf.getObject(r) : r) as PdfDict;
+      nodo.set("Rotate", PdfNumber.of(90));
+    }],
+  ])("retorno com %s: não conserva a revisão da empresa", async (_nome, mexer) => {
+    const { assinado: empresa } = await assinarComMarca(contrato(30), 0);
+    const pdf = await PDF.load(new Uint8Array(empresa)); mexer(pdf);
+    const passo = await PDF.load(await pdf.save({ incremental: true }));
+    const retorno = Buffer.from((await passo.sign({ signer })).bytes);
+    expect(retorno.subarray(0, empresa.length).equals(empresa)).toBe(true);
+    expect(await mesmoConteudo(empresa, retorno)).toBe(false);
+  }, 120_000);
+});

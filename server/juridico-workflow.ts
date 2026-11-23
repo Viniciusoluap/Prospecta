@@ -133,6 +133,18 @@ export async function mesmoConteudo(antes:Buffer,depois:Buffer,marca?:{titular:s
       if(!fa&&k==="NeedAppearances"&&JSON.stringify(serial(b,fb?.get(k),new Set(),true))==="false")continue;
       if(!igual(a,fa?.get(k),b,fb?.get(k)))return false;
     }
+    // Portão de QA de 23/11/2026 (6ª revisão): o dicionário de cada página e os nós da árvore de páginas também precisam
+    // continuar iguais (/CropBox ou /Rotate herdados escondem cláusulas; /AA roda script ao abrir a página). Anotações,
+    // conteúdo e recursos são conferidos à parte.
+    const mesmasChaves=(da:PdfDict,db:PdfDict,fora:string[])=>Array.from(new Set([...chaves(da),...chaves(db)])).every(k=>fora.includes(k)||igual(a,da.get(k),b,db.get(k)));
+    for(let i=0;i<ap.length;i++){
+      if(!mesmasChaves(ap[i].dict,bp[i].dict,["Annots","Contents","Resources","Parent"]))return false;
+      let na=dic(a,ap[i].dict.get("Parent")),nb=dic(b,bp[i].dict.get("Parent"));
+      for(let nivel=0;na||nb;nivel++){
+        if(!na||!nb||nivel>50||!mesmasChaves(na,nb,["Kids","Count","Parent"]))return false;
+        na=dic(a,na.get("Parent"));nb=dic(b,nb.get("Parent"));
+      }
+    }
     if(ap.some((p,i)=>!p.dict.get("Resources")||!bp[i].dict.get("Resources")))return false;
     const caixa=(p:typeof ap[number])=>JSON.stringify([p.getMediaBox(),p.getCropBox(),p.rotation]);
     const iguais=ap.map((p,i)=>JSON.stringify([caixa(p),serial(a,p.dict.get("Contents")),serial(a,p.dict.get("Resources"))])===JSON.stringify([caixa(bp[i]),serial(b,bp[i].dict.get("Contents")),serial(b,bp[i].dict.get("Resources"))]));

@@ -362,3 +362,13 @@ permanente — é porte adiado; a regra de paridade obrigatória continua valend
   Dolores (`limite_receita`, `consultar_limites_receita`) seguem a exceção da Dolores.
 - **Não portar:** S-3 (Dolores) e a origem `adn` em `obra_notas` como notas de obra da Dolores — seguem a exceção da Dolores
   (seção EPIC-025 acima). No Santa Fé, as notas recebidas precisam de um registro próprio, sem Dolores.
+
+## Dívida de segurança registrada — Jurídico, conferência "conserva o documento" (portão de QA de 23/11/2026)
+
+Depois de seis revisões do portão (correção do vínculo em contrato de várias páginas), ficaram anotadas, sem exploração demonstrada:
+- [ ] Retorno do cliente — diferenças entre a leitura da biblioteca (`@libpdf/core`) e a dos visualizadores: xref híbrida (`/XRefStm`),
+  object streams, número de objeto repetido, `/Length` errado, xref reconstruída. Mitigação: recusar quando a biblioteca reconstruir a
+  xref ou houver `/XRefStm`, e conferir que a atualização incremental só cria objetos novos ou redefine os esperados. (médio, teórico)
+- [ ] Campo novo que não é de assinatura com widget fora de `/Annots` (não é desenhado pelos leitores). (baixo)
+- [ ] Decisão do dono: carimbo VISÍVEL de outros assinadores (gov.br, Adobe) hoje vai para conferência humana e não conclui sozinho;
+  aceitar carimbos pequenos automaticamente só se ele pedir.
