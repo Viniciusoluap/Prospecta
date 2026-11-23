@@ -71,11 +71,9 @@ async function ensureAnotherAdmin(userId: number) {
  * recusados aqui no servidor; só ativar/desativar (o botão de parada do administrador), por `definirContaDoSistemaAtiva`.
  */
 export const FRASE_CONTA_DO_SISTEMA = "Esta é a conta do sistema da Dolores: perfil, módulos, nome e senha não podem ser alterados (e ela não pode ser excluída). Aqui só dá para ativar ou desativar.";
-
-async function recusarContaDoSistema(id: number) {
-  const [u] = await getDb().select({ openId: users.openId }).from(users).where(eq(users.id, id)).limit(1);
-  if (u && ehContaDoSistema(u.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
-}
+const recusarContaDoSistema = (u: { openId?: string | null }) => {
+  if (ehContaDoSistema(u.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
+};
 
 export const configuracoesRouter = router({
   listUsers: adminProcedure.query(async () => getDb().select({
@@ -208,7 +206,7 @@ export const configuracoesRouter = router({
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
-    if (ehContaDoSistema(current.openId)) throw new TRPCError({ code: "FORBIDDEN", message: FRASE_CONTA_DO_SISTEMA });
+    recusarContaDoSistema(current);
     if (input.id === ctx.user.id && (!input.active || input.role !== "admin")) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode remover seu próprio acesso administrativo" });
     }
@@ -277,10 +275,10 @@ export const configuracoesRouter = router({
   // imediatamente, sem esperar o reset ser concluído - ver _core/context.ts / shared/session.ts.
   resetPassword: adminProcedure.input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      await recusarContaDoSistema(input.id);
-      const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email })
+      const [current] = await getDb().select({ id: users.id, name: users.name, email: users.email, openId: users.openId })
         .from(users).where(eq(users.id, input.id)).limit(1);
       if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+      recusarContaDoSistema(current);
       if (!current.email) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Usuário sem email cadastrado - não é possível enviar o link" });
 
       await getDb().update(users).set({
@@ -294,10 +292,10 @@ export const configuracoesRouter = router({
 
   deleteUser: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     if (input.id === ctx.user.id) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Você não pode excluir sua própria conta" });
-    await recusarContaDoSistema(input.id);
     const db = getDb();
     const [current] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
     if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
+    recusarContaDoSistema(current);
     if (current.role === "admin" && current.active) await ensureAnotherAdmin(input.id);
     await db.delete(users).where(eq(users.id, input.id));
     // Pedido de 29/10: Equipe/<Nome (nº id)> (documentos do usuário) vai para a lixeira do Drive.

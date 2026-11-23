@@ -304,7 +304,9 @@ describe("usuária Dolores", () => {
     await banco.pg.exec(`UPDATE users SET role = 'admin' WHERE "openId" = '${DOLORES_OPEN_ID}'`);
     const r = await tratarChamada(pedido({ funcao: "listar_tarefas" }));
     expect(r.status).toBe(503);
-    expect((await acoes())[0]).toMatchObject({ resultado: "erro", autor_user_id: null });
+    // 22/11/2026: motivo próprio (DoloresContaAlterada) — recusada, com a frase de conta alterada (antes: "erro" genérico)
+    expect(r.body.erro).toMatch(/foi alterada em Usuários e acesso/);
+    expect((await acoes())[0]).toMatchObject({ resultado: "recusada", motivo: "conta da Dolores alterada em Usuários e acesso", autor_user_id: null });
   });
 });
 
