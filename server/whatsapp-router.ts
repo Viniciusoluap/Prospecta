@@ -199,12 +199,14 @@ function exigirAcessoConversas(ctx: { user: UsuarioConversa }) {
 async function planoExclusaoConversas(user: UsuarioConversa, connectionId: number, numeros: string[], reservados: NumerosReservados | null = null) {
   const db = getDb();
   // EPIC-026 C2: a conversa de número não identificado tem como chave o próprio "@lid" (nunca casa com telefone)
-  const chaves = new Set(numeros.map(chaveDaConversa).filter(c => c.length >= 10 || ehConversaSemNumero(c)));
+  const chaves = new Set(numeros
+    .map(n => /^tentativa:[1-9]\d*$/.test(n) ? n : chaveDaConversa(n))
+    .filter(c => c.length >= 10 || ehConversaSemNumero(c)));
   const todas = await db.select({ id: whatsappMessages.id, destinatario: whatsappMessages.destinatario, leadId: whatsappMessages.leadId })
     .from(whatsappMessages).where(eq(whatsappMessages.connectionId, connectionId));
   const porChave = new Map<string, { ids: number[]; gravado: number | null }>();
   for (const m of todas) {
-    const k = chaveDaConversa(m.destinatario);
+    const k = chaveDaConversa(m.destinatario) || `tentativa:${m.id}`;
     if (!chaves.has(k) || reservado(reservados, m.destinatario)) continue;
     const g = porChave.get(k) ?? { ids: [], gravado: null };
     g.ids.push(m.id);
@@ -717,7 +719,7 @@ export const whatsappRouter = router({
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) return { conversas: 0, mensagens: 0 };
     const r = await reservadosDoPapel(ctx.user.role);
-    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros.filter(n => !reservado(r, n)), r);
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros, r);
     return { conversas: p.conversas, mensagens: p.mensagens };
   }),
 
@@ -732,7 +734,7 @@ export const whatsappRouter = router({
     const conn = await conexaoParaPapel(ctx.user.id, ctx.user.role);
     if (!conn) throw new TRPCError({ code: "BAD_REQUEST", message: "WhatsApp não está conectado." });
     const r = await reservadosDoPapel(ctx.user.role);
-    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros.filter(n => !reservado(r, n)), r);
+    const p = await planoExclusaoConversas(ctx.user, conn.id, input.numeros, r);
     if (!p.ids.length) return { conversas: 0, apagadas: 0 };
     // Revisão do PR #180 (P2): como em excluirConversa, as cópias das mídias no Drive são coletadas antes
     // (whatsapp_midias sai por cascata) e vão para a lixeira depois da transação (falha → drive_trash_queue).
