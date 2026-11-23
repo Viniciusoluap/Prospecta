@@ -18,7 +18,7 @@ Sem isso o sistema calcula o Simples pelo Anexo V, o mais caro.
    (Se não souber os valores, peça ao contador o "extrato do PGDAS-D" e a folha.)
 
 ## 3. Primeira nota de teste (homologação, não vale como nota real) — 5 min
-**Só depois que eu avisar que o botão "Liberar emissão" foi publicado.**
+O botão "Liberar emissão desta empresa" já está publicado (23/11). A ordem importa: primeiro o ambiente, depois liberar (trocar o ambiente desliga a liberação).
 1. Abra https://www.prospectaconstrucoes.com/admin/contabilidade › **Dados fiscais do perfil** (empresa Prospecta).
 2. Em **Ambiente**, escolha **Produção restrita (teste)** e salve.
 3. Clique em **Liberar emissão desta empresa**, digite `LIBERAR EMISSÃO` e confirme.
