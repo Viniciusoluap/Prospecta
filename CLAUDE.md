@@ -384,3 +384,22 @@ Palavras do dono, depois da conferência do regime (`docs/stories/epics/epic-029
    próprios regimes delas com vínculos de suas contas e movimentações; o nosso sistema tem que abranger tudo isso". Cada empresa
    (CNPJ) tem o próprio regime (Simples, Presumido, Real ou "a confirmar"), as próprias contas bancárias vinculadas e a própria
    movimentação; limites e avisos seguem o regime de cada uma (story `docs/stories/epics/epic-029-modulo-fiscal/S-6-*.md`).
+
+## Módulo Fiscal — o que falta do contador: decisões do dono em 22/11/2026 (noite) (REGRA)
+
+Palavras do dono: "continue sem parar até concluir tudo em relação às informações do contador, alíquota de Imperatriz eu
+quero que você mesmo pesquise inclua, alíquota do simples também qualquer coisa consulte a PG[DAS] que tem no Drive, a
+confirmação dos códigos de serviço OK, a exclusão do simples da VFX já pedi pro contador verificar isso não é nenhum
+impeditivo para terminar nosso serviço aqui e a Efficaz também não". E: "pode ir no seu ritmo pra me entregar algo de qualidade".
+
+1. **Códigos de serviço confirmados** pelo dono (os de `CODIGOS-SERVICO.md`, já gravados em `fiscal_tipos_servico`).
+   A "descrição padrão" do tipo de serviço é o texto SUGERIDO NA NOTA — nunca colocar anotação interna nela.
+2. **Alíquotas: nós pesquisamos e incluímos**, com fonte oficial anotada (`ALIQUOTAS.md`): ISS de Imperatriz (e das cidades
+   das obras: Canaã dos Carajás e Parauapebas — ISS da obra é do local da obra) e as tabelas do Simples.
+3. **Alíquota do Simples calculada pelo sistema** (RBT12 dos 12 meses anteriores × anexo de cada tipo de serviço, LC 123),
+   e não um número fixo. No Drive, o único PGDAS-D da Prospecta (41.865.900) é o recibo de 10/2024, com receita zero —
+   não serve de base; o extrato mais recente, quando aparecer, é só conferência.
+4. **VFX (58.121.993) e Efficaz não bloqueiam** o término do módulo: o contador cuida do regime delas; o sistema segue
+   multi-regime (cada empresa com o seu, "a confirmar" enquanto não houver definição — e "a confirmar" não emite nota).
+5. Ritmo: qualidade antes de pressa — manter o portão de QA em cada etapa; delegar em paralelo pelo AIOX ("Utilize o aiox
+   para delegar várias funções").
