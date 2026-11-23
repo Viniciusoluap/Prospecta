@@ -115,6 +115,16 @@ describe("Estudo de Massa e preços da Viabilidade", () => {
     expect(simular(230_000).vgvGross).toBe(460_000);
   });
 
+  it("exige preço unitário ou área privativa ao converter um lote precificado em apartamento", () => {
+    const estudo = paraEstudoData(linha({
+      ...mercado,
+      lottingJson: JSON.stringify({ ...LOTEAMENTO, itensMix: [
+        { nome: "Apartamento", quantidade: 2, apartamento: true, areaUnidadeM2: 128, precoM2: 1400 },
+      ] }),
+    }));
+    expect(calcularLoteamento(montarPremissasLoteamento(estudo)!).vgvGross).toBe(0);
+  });
+
   it("recupera a referência legada ao marcar casa pronta sem preço unitário", () => {
     const estudo = paraEstudoData(linha({
       ...dadosCenario,

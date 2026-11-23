@@ -9,6 +9,6 @@
 
 ## Testes e publicação
 
-- (a) QA automatizado cobriu geração de cenários sem preço, recuperação do VGV, geometria com APP e fluxo de caixa para as três modalidades e mix. Rodar novamente após integrar com a main.
+- (a) QA automatizado cobriu geração de cenários sem preço, recuperação do VGV, geometria com APP e fluxo de caixa para as três modalidades e mix. 235 testes e a compilação passaram. A revisão do PR #317 identificou que um apartamento podia herdar a referência do lote. A correção exige preço unitário ou referência residencial com área privativa e tem teste de regressão.
 - (b) Conferência do código e da interface por revisão de implementação. Validação interativa com um empreendimento real pendente.
 - (c) Após a revisão GitHub do commit final e preview pronto, mesclar, confirmar publicação do SHA em produção e testar o endpoint de saúde.

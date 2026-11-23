@@ -239,9 +239,8 @@ export function referenciasDePreco(estudo: EstudoData) {
 export function resolverPrecoProduto(item: ItemMixProduto, refs: ReturnType<typeof referenciasDePreco>): ItemMixProduto {
   if (item.casaPronta || item.apartamento) {
     const precoResidencial = (item.apartamento ? refs.apartamento : refs.casa) * valorPositivo(item.areaPrivativaM2);
-    // Uma referência geral de terreno não é preço de venda de um apartamento.
-    const precoM2Anterior = valorPositivo(item.precoM2) || (item.apartamento ? 0 : refs.lote);
-    const valorEquivalente = precoM2Anterior * valorPositivo(item.areaUnidadeM2);
+    const valorEquivalente = item.apartamento ? 0
+      : (valorPositivo(item.precoM2) || refs.lote) * valorPositivo(item.areaUnidadeM2);
     const preco = valorPositivo(item.precoUnidade) || precoResidencial || valorEquivalente;
     return { ...item, precoUnidade: Math.round(preco * 100) / 100 };
   }
