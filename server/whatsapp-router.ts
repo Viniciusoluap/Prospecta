@@ -545,6 +545,9 @@ export const whatsappRouter = router({
       const cadastrados = await db.select({ id: leads.id, nome: leads.name, telefone: leads.phone }).from(leads)
         .where(and(inArray(leads.id, ids), isNull(leads.deletedAt), ehCorretor ? eq(leads.brokerId, ctx.user.id) : undefined));
       if (ehCorretor && cadastrados.length !== ids.length) return { success: false, error: "Destinatário fora dos seus leads", enviadas: 0, falhas: 0 };
+      if (cadastrados.some(d => !/^\d{8,15}$/.test((d.telefone ?? "").replace(/\D/g, "")))) {
+        return { success: false, error: "Cadastre um telefone válido no CRM antes de enviar.", enviadas: 0, falhas: 0 };
+      }
       const destinatarios = cadastrados;
       if (destinatarios.length === 0) return { success: false, error: "Nenhum destinatário válido (lead inexistente ou não pertence a você)", enviadas: 0, falhas: 0 };
       // QA-SEG E9 achado 1: pela conexão da empresa, nada sai para o número do dono nem para o da própria empresa (o telefone do lead
@@ -614,12 +617,12 @@ export const whatsappRouter = router({
     if (r === undefined) return [];
     const msgs = (await getDb().select().from(whatsappMessages).where(eq(whatsappMessages.connectionId, conn.id)).orderBy(desc(whatsappMessages.createdAt)).limit(2000))
       .filter(m => !reservado(r, m.destinatario));
-    const grupos: { numero: string; semNumero: boolean; provavel?: string | null; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
+    const grupos: { registroId: number; numero: string; semNumero: boolean; provavel?: string | null; nome: string | null; leadId: number | null; vinculo: "manual" | "telefone" | "mensagem" | null; ultima: string; quando: Date; naoLidas: number }[] = [];
     for (const m of msgs) {
       let g = grupos.find(x => mesmoTelefone(x.numero, m.destinatario));
       // EPIC-026 C2: conversa de número não identificado — a chave é o "@lid" (nunca um telefone tirado dos dígitos dele)
       const lid = idSemNumero(m.destinatario);
-      if (!g) { g = { numero: lid ?? m.destinatario.replace(/\D/g, ""), semNumero: !!lid, nome: m.nomeDestinatario, leadId: m.leadId, vinculo: null, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
+      if (!g) { g = { registroId: m.id, numero: lid ?? m.destinatario.replace(/\D/g, ""), semNumero: !!lid, nome: m.nomeDestinatario, leadId: m.leadId, vinculo: null, ultima: m.mensagem, quando: m.createdAt, naoLidas: 0 }; grupos.push(g); }
       if (!g.nome && m.nomeDestinatario) g.nome = m.nomeDestinatario;
       if (!g.leadId && m.leadId) g.leadId = m.leadId;
       if (m.direcao === "entrada" && !m.lida) g.naoLidas++;
