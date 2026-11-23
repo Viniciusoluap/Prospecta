@@ -125,6 +125,10 @@ export const fiscalDistribuicaoEstado = pgTable("fiscal_distribuicao_estado", {
   ultimoResultado: varchar("ultimo_resultado", { length: 12 }).$type<"ok" | "parcial" | "erro">(),
   documentosGravados: integer("documentos_gravados").default(0).notNull(),
   nsusIlegiveis: jsonb("nsus_ilegiveis").$type<number[]>().default([]).notNull(),
+  // EPIC-029 S-5b (0166): NSU cuja gravação deu exceção (na 3ª vez vira ilegível) e eventos de tipo desconhecido, a conferir
+  nsuComFalha: bigint("nsu_com_falha", { mode: "number" }),
+  tentativasNsuComFalha: integer("tentativas_nsu_com_falha").default(0).notNull(),
+  nsusAConferir: jsonb("nsus_a_conferir").$type<number[]>().default([]).notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -161,3 +165,15 @@ export const fiscalCertificadosHistorico = pgTable("fiscal_certificados_historic
   usuarioId: integer("usuario_id"),
   criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// EPIC-029 S-8 (22/11/2026) — folha dos 12 meses (Fator R) e início de atividade, por EMPRESA (raiz do CNPJ), migração
+// 0168_fiscal_folha_fator_r.sql. Lida com guarda (`to_regclass`) em server/fiscal/simples.ts: sem a tabela, folha "a informar".
+export const fiscalDadosSimples = pgTable("fiscal_dados_simples", {
+  raiz: varchar("raiz", { length: 8 }).primaryKey(),
+  folha12mCentavos: bigint("folha_12m_centavos", { mode: "number" }),
+  folhaAte: varchar("folha_ate", { length: 7 }),
+  inicioAtividade: date("inicio_atividade", { mode: "string" }),
+  atualizadoPor: integer("atualizado_por"),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).defaultNow().notNull(),
+});
+export type FiscalDadosSimples = typeof fiscalDadosSimples.$inferSelect;

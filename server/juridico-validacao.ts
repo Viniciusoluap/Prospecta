@@ -142,6 +142,8 @@ export type ResumoValidacao = {
   proximaTentativa: string | null; tentativas: number; aviso: string;
   titulares: { titular: string; documento: string; estado: EstadoPki }[];
   parteA?: RelatorioValidacao["parteA"]; vinculoOrigem?: RelatorioValidacao["vinculoOrigem"]; conservaEmpresa?: boolean | null;
+  /** Só na reconferência manual: false = recusada pelo intervalo mínimo (devolve o resultado anterior). */
+  reconferida?: boolean;
 };
 export function resumir(documentId: number, r: RelatorioValidacao, tentativas: number, proxima: string | Date | null): ResumoValidacao {
   return {

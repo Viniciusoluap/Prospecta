@@ -18,6 +18,22 @@ export class DoloresDesativada extends Error {
 }
 
 /**
+ * 22/11/2026 (achado em produção): a conta dela foi editada em "Usuários e acesso" (perfil virou colaborador, ganhou módulos) e toda
+ * conversa saía "indisponível", sem pista. Agora o motivo é próprio: as portas o mapeiam para "conta_alterada", com frase clara ao dono.
+ */
+export class DoloresContaAlterada extends Error {
+  constructor() { super("Conta da Dolores alterada fora da ponte (perfil, senha ou módulos); ponte bloqueada"); }
+}
+
+/** A conta da Dolores saiu do padrão (perfil "user", sem senha, sem módulos)? Regra num lugar só (perfil.ts e operacao.ts). */
+export function contaDaDoloresForaDoPadrao(u: { role: string | null; passwordHash: string | null; permissions: string | null }): boolean {
+  return u.role !== DOLORES_PERFIL || !!u.passwordHash || !!(u.permissions && u.permissions !== "[]");
+}
+
+/** A linha é a conta do sistema da Dolores (não editável em "Usuários e acesso": só ativar/desativar). */
+export const ehContaDoSistema = (openId: string | null | undefined) => openId === DOLORES_OPEN_ID;
+
+/**
  * Id da usuária Dolores; cria a linha na primeira vez (idempotente: openId único + ON CONFLICT DO NOTHING) e confere,
  * a cada chamada, que a conta continua sem senha, sem módulos e com o perfil sem acesso.
  */
@@ -33,8 +49,7 @@ export async function usuarioDolores(): Promise<number> {
   // Desativar a conta em "Usuários e acesso" é o botão de parada do administrador.
   if (!u.active) throw new DoloresDesativada();
   // Se alguém deu senha, outro perfil ou módulos à conta dela, a ponte para: ela não pode ganhar acesso por fora.
-  if (u.role !== DOLORES_PERFIL || u.passwordHash || (u.permissions && u.permissions !== "[]"))
-    throw new Error("Conta da Dolores alterada fora da ponte (perfil, senha ou módulos); ponte bloqueada");
+  if (contaDaDoloresForaDoPadrao(u)) throw new DoloresContaAlterada();
   cache = u.id;
   return u.id;
 }

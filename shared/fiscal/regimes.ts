@@ -285,6 +285,8 @@ export type ReceitaParaSoma = {
   /** QA4 S-6 (R4): quando foi a marcação auditada (null = sem registro). Só para a tela. */
   marcadaEm?: Date | null;
 };
+/** S-6 × S-8: entrada que a apuração SOMOU na receita de uma empresa (para a fonte do RBT12 não contar duas vezes com a nota emitida). */
+export type EntradaDaSoma = ReceitaParaSoma;
 /** Rótulo de quem marcou quando não há registro da marcação. */
 export const MARCADA_SEM_REGISTRO = "sem registro (marcação automática da importação/regra, ou anterior à auditoria)";
 /**
@@ -386,6 +388,10 @@ export const AVISO_APURACAO =
 export function apurarReceitas(p: {
   agora: Date; perfis: readonly PerfilParaRegime[]; contas: readonly ContaParaSoma[]; receitas: readonly ReceitaParaSoma[]; debitos: readonly DebitoParaSoma[];
   pendentes?: readonly CreditoPendente[]; financeiro?: { receitaCentavos: number; lancamentos: number };
+  /** S-6 × S-8: false = janela que não é o ano civil (RBT12): os pendentes já vêm filtrados pela janela. Padrão: só o ano de `agora`. */
+  filtrarAno?: boolean;
+  /** S-6 × S-8: chamado para cada entrada SOMADA na receita da empresa (raiz). */
+  aoSomar?: (raiz: string, r: ReceitaParaSoma) => void;
 }): Apuracao {
   const ano = anoEmBrasilia(p.agora);
   const { decorridos } = diasDoAno(p.agora);
@@ -420,7 +426,8 @@ export function apurarReceitas(p: {
   const porQuem = new Map<string, Map<string, PorQuem>>();
   const casa = (r: ReceitaParaSoma, d: DebitoParaSoma) => !usados.has(d.txId) && d.contaId !== r.contaId && d.valorCentavos === r.valorCentavos
     && Math.abs(d.data.getTime() - r.pagoEm.getTime()) <= JANELA_TRANSFERENCIA_MS;
-  const contar = (acc: Acumulado, r: ReceitaParaSoma) => {
+  const contar = (acc: Acumulado, r: ReceitaParaSoma, raiz: string) => {
+    p.aoSomar?.(raiz, r);
     acc.receita += r.valorCentavos;
     if (r.tipo === "reembolso") acc.reembolsos += r.valorCentavos;
     acc.n++;
@@ -456,7 +463,7 @@ export function apurarReceitas(p: {
         continue;
       }
       // Q1: marcada SEM par numa conta da mesma empresa → CONTA (lado seguro) e fica para o dono conferir
-      contar(acc, r); acc.possCent += r.valorCentavos; acc.poss++;
+      contar(acc, r, e); acc.possCent += r.valorCentavos; acc.poss++;
       continue;
     }
     segunda.push({ r, e });
@@ -467,13 +474,13 @@ export function apurarReceitas(p: {
     const acc = porEmpresa.get(e)!;
     const talvez = (debitosPorEmpresa.get(e) ?? []).find(d => (d.classificacao == null || d.classificacao === "transferencia") && casa(r, d));
     if (talvez) { usados.add(talvez.txId); acc.possCent += r.valorCentavos; acc.poss++; }
-    contar(acc, r);
+    contar(acc, r, e);
   }
 
   // QA S-6 (A6): créditos a classificar/sem lançamento — nunca somem (pendência por empresa; sem empresa, na pendência geral)
   const aClassificar = new Map<string, { centavos: number; n: number; difCent: number; dif: number }>();
   let semEmpresaAClassificar = 0;
-  const pendentesDoAno = (p.pendentes ?? []).filter(c => c.valorCentavos > 0 && anoEmBrasilia(c.data) === ano);
+  const pendentesDoAno = (p.pendentes ?? []).filter(c => c.valorCentavos > 0 && (p.filtrarAno === false || anoEmBrasilia(c.data) === ano));
   for (const c of pendentesDoAno) {
     const e = empresaDaConta(c.contaId);
     if (!e) { semEmpresaAClassificar += c.valorCentavos; continue; }

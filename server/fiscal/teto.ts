@@ -5,7 +5,7 @@
 import { sql } from "drizzle-orm";
 import {
   JANELA_TRANSFERENCIA_MS, anoEmBrasilia, apurarReceitas, cnpjDaEmpresa, type Apuracao, type ContaParaSoma, type CreditoPendente, type DebitoParaSoma,
-  type PerfilParaRegime, type ReceitaParaSoma,
+  type EntradaDaSoma, type PerfilParaRegime, type ReceitaParaSoma,
 } from "../../shared/fiscal/regimes.js";
 
 type Linha = Record<string, unknown>;
@@ -19,11 +19,19 @@ const txt = (v: unknown): string | null => (v === null || v === undefined || v =
  * Tabelas opcionais (de outras migrações) que a leitura usa se existirem. Conferir ANTES evita um erro que abortaria a transação SOMENTE
  * LEITURA da Dolores (bancos de teste antigos não têm todas).
  */
-async function tabelasOpcionais(db: Conexao): Promise<{ historico: boolean; recebimentos: boolean; marcacoes: boolean }> {
+async function tabelasOpcionais(db: Conexao): Promise<{ historico: boolean; recebimentos: boolean; marcacoes: boolean; apelido: boolean; empresaCnpj: boolean }> {
   const [r] = linhas(await db.execute(sql`
     SELECT to_regclass('tax_profiles_historico') IS NOT NULL AS historico, to_regclass('bpo_recebimentos') IS NOT NULL AS recebimentos,
-      to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS marcacoes`));
-  return { historico: Boolean(r?.historico), recebimentos: Boolean(r?.recebimentos), marcacoes: Boolean(r?.marcacoes) };
+      to_regclass('bpo_transferencia_marcacoes') IS NOT NULL AS marcacoes,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_accounts' AND column_name = 'apelido') AS apelido,
+      EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_accounts' AND column_name = 'empresa_cnpj') AS empresa_cnpj`));
+  return { historico: Boolean(r?.historico), recebimentos: Boolean(r?.recebimentos), marcacoes: Boolean(r?.marcacoes), apelido: Boolean(r?.apelido),
+    empresaCnpj: Boolean(r?.empresa_cnpj) };
+}
+
+/** S-6 × S-8: o banco já tem a conta por empresa (coluna `bank_accounts.empresa_cnpj`, migração 0164)? */
+export async function temContaPorEmpresa(db: Conexao): Promise<boolean> {
+  return (await tabelasOpcionais(db)).empresaCnpj;
 }
 
 /** QA3 S-6 (Q3): quem marcou a movimentação como Transferência interna (última marcação auditada; null = sem registro). */
@@ -56,7 +64,10 @@ export async function lerPerfis(db: Conexao): Promise<PerfilParaRegime[]> {
 }
 
 export async function lerContas(db: Conexao): Promise<ContaParaSoma[]> {
-  return linhas(await db.execute(sql`SELECT id, banco, apelido, descricao, conta, empresa_cnpj, ativo FROM bank_accounts ORDER BY id`))
+  // S-8 (junção): banco de teste/antigo só com parte da 0164 — a coluna que falta vem nula
+  const { apelido, empresaCnpj } = await tabelasOpcionais(db);
+  return linhas(await db.execute(sql`SELECT id, banco, ${apelido ? sql`apelido` : sql`NULL::text AS apelido`}, descricao, conta,
+    ${empresaCnpj ? sql`empresa_cnpj` : sql`NULL::text AS empresa_cnpj`}, ativo FROM bank_accounts ORDER BY id`))
     .map(r => ({ id: Number(r.id), banco: String(r.banco), apelido: txt(r.apelido), descricao: txt(r.descricao), conta: txt(r.conta),
       empresaCnpj: txt(r.empresa_cnpj), ativo: Boolean(r.ativo) }));
 }
@@ -76,8 +87,36 @@ export function inicioDoAnoEmBrasilia(ano: number): string {
 /** Soma do ano corrente (Brasília) por empresa. `db`: a conexão normal ou a de leitura da Dolores (transação somente leitura). */
 export async function apurarLimites(db: Conexao, agora: Date = new Date()): Promise<Apuracao> {
   const ano = anoEmBrasilia(agora);
-  const inicio = inicioDoAnoEmBrasilia(ano);
-  const fim = inicioDoAnoEmBrasilia(ano + 1);
+  const dados = await lerDadosDaSoma(db, inicioDoAnoEmBrasilia(ano), inicioDoAnoEmBrasilia(ano + 1));
+  return apurarReceitas({ agora, ...dados });
+}
+
+/**
+ * EPIC-029 S-6 × S-8: a mesma apuração numa janela QUALQUER (instantes UTC sem fuso, `inicio` incluso e `fim` excluso) — é a fonte de
+ * receita do RBT12 (server/fiscal/simples.ts#fonteReceitaDaApuracao). Devolve a apuração e, por empresa (raiz), cada entrada somada
+ * (para não contar duas vezes o que já está numa nota emitida) e os créditos pendentes (a classificar ou com diferença do extrato).
+ */
+export async function apurarPeriodo(db: Conexao, inicio: string, fim: string, agora: Date): Promise<{
+  apuracao: Apuracao; somadas: Map<string, EntradaDaSoma[]>; pendentes: Map<string, CreditoPendente[]>;
+}> {
+  const dados = await lerDadosDaSoma(db, inicio, fim);
+  const somadas = new Map<string, EntradaDaSoma[]>();
+  const apuracao = apurarReceitas({ agora, ...dados, filtrarAno: false,
+    aoSomar: (raiz, r) => { (somadas.get(raiz) ?? somadas.set(raiz, []).get(raiz)!).push(r); } });
+  const raizDaConta = new Map(dados.contas.map(c => [c.id, c.empresaCnpj ? cnpjDaEmpresa(c.empresaCnpj).slice(0, 8) : ""]));
+  const pendentes = new Map<string, CreditoPendente[]>();
+  for (const c of dados.pendentes) {
+    const raiz = raizDaConta.get(c.contaId);
+    if (raiz) (pendentes.get(raiz) ?? pendentes.set(raiz, []).get(raiz)!).push(c);
+  }
+  return { apuracao, somadas, pendentes };
+}
+
+/** Leitura (só SELECT) de tudo o que a soma usa, na janela [inicio, fim). */
+async function lerDadosDaSoma(db: Conexao, inicio: string, fim: string): Promise<{
+  perfis: PerfilParaRegime[]; contas: ContaParaSoma[]; receitas: ReceitaParaSoma[]; debitos: DebitoParaSoma[]; pendentes: CreditoPendente[];
+  financeiro: { receitaCentavos: number; lancamentos: number };
+}> {
   const [perfis, contas] = [await lerPerfis(db), await lerContas(db)];
   const { recebimentos: temRecebimentos, marcacoes: temMarcacoes } = await tabelasOpcionais(db);
   // QA2 S-6 (N2): baixa pela "divisão de pagamentos" (1 crédito → N cobranças, bpo_recebimentos.bank_transaction_id). A parte quitada pelo
@@ -163,5 +202,5 @@ export async function apurarLimites(db: Conexao, agora: Date = new Date()): Prom
     SELECT coalesce(sum(amount), 0) AS total, count(*)::int AS n FROM financial_transactions
     WHERE status = 'paid' AND type IN ('income', 'commission') AND paid_at >= ${inicio}::timestamp AND paid_at < ${fim}::timestamp`));
   const financeiro = { receitaCentavos: centavos(fin?.total), lancamentos: Number(fin?.n ?? 0) };
-  return apurarReceitas({ agora, perfis, contas, receitas, debitos, pendentes, financeiro });
+  return { perfis, contas, receitas, debitos, pendentes, financeiro };
 }

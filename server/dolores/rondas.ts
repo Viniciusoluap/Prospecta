@@ -62,8 +62,9 @@ export const tempoLimiteDaSecao = (restanteMs: number) =>
 /** Para enviar o relatório depois da ronda. */
 const MINIMO_PARA_RELATORIO_MS = 6_000;
 
-const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada") =>
-  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso" : "configuração indisponível";
+const motivoDoBloqueio = (m: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada") =>
+  m === "pausada" ? "Dolores pausada (pausa geral)" : m === "usuaria_desativada" ? "usuária Dolores desativada em Usuários e acesso"
+    : m === "conta_alterada" ? "conta da Dolores alterada em Usuários e acesso (perfil, senha ou módulos)" : "configuração indisponível";
 /** Nome de terceiro (cliente, responsável) guardado nos destaques: filtro do registro + limpeza de nome (sem formatação nem comando). */
 const limpo = (s: string | null | undefined) => limparNomeDeTerceiro(sanitizarTexto(String(s ?? ""), FILTRO_DO_REGISTRO));
 const contar = (v: unknown) => Number(v ?? 0) || 0;
@@ -151,16 +152,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n),
       classificadosSemAviso: contar(p?.n), obraExcluida: contar(o?.n) } } };
   })],
-  ["notas", lerSecao(async () => {
-    const [r] = await bancoDaLeitura().select({
-      // EPIC-029 S-5: confirmação do empreiteiro só existe para a nota de grupo (a do ADN não é respondida no grupo)
-      semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.origem} = 'grupo' and ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira'))`.mapWith(Number),
-      semConciliacao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'confirmada' and ${obraNotas.bpoLancamentoId} is null)`.mapWith(Number),
-      correcao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'correcao')`.mapWith(Number),
-      naoLidas: sql<number>`count(*) filter (where ${obraNotas.situacao} in ('nao_lida', 'ilegivel'))`.mapWith(Number),
-    }).from(obraNotas).where(isNull(obraNotas.duplicadaDe));
-    return { totais: { notas: { semConfirmacao: contar(r?.semConfirmacao), confirmadasSemConciliacao: contar(r?.semConciliacao), correcao: contar(r?.correcao), naoLidas: contar(r?.naoLidas) } } };
-  })],
+  ["notas", lerSecao(() => contarNotasDaRonda())],
   ["banco", lerSecao(async ({ agora }) => {
     const desde = new Date(agora.getTime() - 24 * 3_600_000);
     const [r] = await bancoDaLeitura().select({
@@ -200,9 +192,23 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
   })],
 ];
 
+/** Contagem das notas de obra para o relatório (exportada para o teste da S-5b). */
+export async function contarNotasDaRonda(conexao: Pick<ReturnType<typeof bancoDaLeitura>, "select"> = bancoDaLeitura()) {
+  const [r] = await conexao.select({
+    // EPIC-029 S-5: confirmação do empreiteiro só existe para a nota de grupo (a do ADN não é respondida no grupo)
+    semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.origem} = 'grupo' and ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira') and ${obraNotas.canceladaEm} is null)`.mapWith(Number),
+    // EPIC-029 S-5b: a nota do ADN (sem confirmação do empreiteiro) entra aqui quando ainda não foi conciliada; a cancelada não
+    // conta (não é mais válida); a mesma nota da outra origem também não (a conciliação fica na outra)
+    semConciliacao: sql<number>`count(*) filter (where ${obraNotas.bpoLancamentoId} is null and ${obraNotas.canceladaEm} is null and ${obraNotas.outraOrigemDe} is null and (${obraNotas.confirmacao} = 'confirmada' or (${obraNotas.origem} = 'adn' and ${obraNotas.situacao} in ('rascunho', 'confira'))))`.mapWith(Number),
+    correcao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'correcao')`.mapWith(Number),
+    naoLidas: sql<number>`count(*) filter (where ${obraNotas.situacao} in ('nao_lida', 'ilegivel'))`.mapWith(Number),
+  }).from(obraNotas).where(isNull(obraNotas.duplicadaDe));
+  return { totais: { notas: { semConfirmacao: contar(r?.semConfirmacao), confirmadasSemConciliacao: contar(r?.semConciliacao), correcao: contar(r?.correcao), naoLidas: contar(r?.naoLidas) } } };
+}
+
 export type ResultadoRonda =
   | { ok: true; ronda: DoloresRonda; nova: boolean }
-  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "desligada" | "erro"; detalhe?: string | null };
+  | { ok: false; motivo: "pausada" | "indisponivel" | "usuaria_desativada" | "conta_alterada" | "desligada" | "erro"; detalhe?: string | null };
 
 /**
  * Uma ronda na janela dada. Já existe → devolve a existente (nova = false), sem ler de novo. Pausa geral ou configuração que
@@ -322,7 +328,7 @@ export async function relatorioSobDemanda(p: { origem: "tela" | "whatsapp"; agor
     return { ok: false, situacao: "bloqueado", motivo: "não consegui conferir o limite diário de relatórios", relatorioId: null };
   }
   const r = await executarRonda({ janela, origem: p.origem, agora: p.agora, prazoFinal: p.prazoFinal, relogio: p.relogio, config });
-  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" ? "Dolores pausada (pausa geral)" : "não consegui fazer a ronda agora", relatorioId: null };
+  if (!r.ok) return { ok: false, situacao: "bloqueado", motivo: r.motivo === "pausada" || r.motivo === "indisponivel" || r.motivo === "usuaria_desativada" || r.motivo === "conta_alterada" ? motivoDoBloqueio(r.motivo) : "não consegui fazer a ronda agora", relatorioId: null };
   if (p.prazoFinal - p.relogio() < MINIMO_PARA_RELATORIO_MS) return { ok: false, situacao: "nao_enviado", motivo: "sem tempo para enviar dentro do prazo", relatorioId: null };
   return enviarRelatorio({ tipo: "sob_demanda", janela, origem: p.origem, ronda: r.ronda, agora: p.agora, prazoFinal: p.prazoFinal, config, pedidoPorUserId: p.pedidoPorUserId });
 }

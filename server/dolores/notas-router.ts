@@ -20,10 +20,10 @@ import { acaoPorNome } from "./acoes/registro.js";
 import { RecusaAcao, type ContextoAcao } from "./acoes/comum.js";
 import { porNaFila } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
-import { TEXTO_VINCULO_PERDIDO, apontarNotas, janelaDaConciliacao, notasDoBanco, pagamentosSemNotaDaObra, paraConciliar, respostasDasNotas, vinculoPerdido } from "./leitura/notas.js";
+import { TEXTO_VINCULO_PERDIDO, apontarNotas, janelaDaConciliacao, notasDoBanco, pagamentosSemNotaDaObra, paraConciliar, respostasDasNotas, textoCancelada, vinculoPerdido } from "./leitura/notas.js";
 import { CONFIG_NOTAS_PADRAO, lerConfigNotas, lerNotasPendentes } from "./notas-obra.js";
 import { funcaoLiberada } from "./permissoes.js";
-import { DoloresDesativada, usuarioDolores } from "./perfil.js";
+import { DoloresContaAlterada, DoloresDesativada, usuarioDolores } from "./perfil.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "./somente-leitura.js";
 import { credencialDaLeituraDeNota } from "./whatsapp.js";
 
@@ -54,7 +54,7 @@ async function propor(funcao: "conciliar_nota_obra" | "salvar_nota_obra", args: 
   if (!entrada.success) throw new TRPCError({ code: "BAD_REQUEST", message: "Dados inválidos." });
   let autorId: number;
   try { autorId = await usuarioDolores(); }
-  catch (e) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e instanceof DoloresDesativada ? "A usuária Dolores está desativada." : "Usuária Dolores indisponível." }); }
+  catch (e) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e instanceof DoloresDesativada ? "A usuária Dolores está desativada." : e instanceof DoloresContaAlterada ? "A conta da Dolores foi alterada em Usuários e acesso (perfil, senha ou módulos); restaure o perfil padrão, sem módulos." : "Usuária Dolores indisponível." }); }
   const ctx: ContextoAcao = { agora: new Date(), autorId, mensagemId: null, pedidoId: `tela:notas:${String(args.notaId)}`, aprovacaoId: null };
   try {
     const preparo = await fn.preparar(entrada.data as never, ctx);
@@ -97,6 +97,7 @@ export const notasRouter = router({
               valorCentavos: n.valorCentavos, descricao: n.descricao, itens: n.itens, chaveAcesso: n.chaveAcesso ?? n.chaveNfse,
               categoria: n.categoria ? ROTULO_CATEGORIA_NOTA[n.categoria] : null, etapa: n.etapa ? NOME_ETAPA[n.etapa] ?? n.etapa : null,
               empreiteiroConfere: n.empreiteiroUserId !== null, confianca: n.confianca, duvidas: n.duvidas, alertas: n.alertas, duplicadaDe: n.duplicadaDe,
+              cancelada: textoCancelada(n), outraOrigemDe: n.outraOrigemDe,
               confirmacao: n.confirmacao, rotuloConfirmacao: CONFIRMACAO[n.confirmacao], respostas: respostas.get(n.id) ?? [],
               conciliacao: ap ? { situacao: ap.situacao, rotulo: ROTULO_APONTAMENTO[ap.situacao], texto: "texto" in ap ? ap.texto : `ligada ao lançamento #${"lancamentoId" in ap ? ap.lancamentoId : ""} do BPO`,
                 podeConciliar: ap.situacao === "ja_lancado" && ap.podeConciliar } : null,

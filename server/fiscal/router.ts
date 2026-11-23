@@ -5,7 +5,7 @@
 import { TRPCError } from "@trpc/server";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { fiscalConfig, fiscalEmissores, fiscalTiposServico } from "../../drizzle/schema-fiscal.js";
+import { fiscalConfig, fiscalDadosSimples, fiscalEmissores, fiscalTiposServico } from "../../drizzle/schema-fiscal.js";
 import { MOTIVOS_SEM_NOTA } from "../../shared/fiscal/motivos.js";
 import { ORIGENS_NOTA } from "../../shared/fiscal/origens.js";
 import { STATUS_NOTA } from "../../shared/fiscal/status.js";
@@ -19,6 +19,7 @@ import {
 } from "./notas.js";
 import { gerarPreviaPdf } from "./previa-pdf.js";
 import { relatorioEmCsv, relatorioMensal } from "./relatorio-mensal.js";
+import { aliquotaSimplesDaNota, dadosSimplesPorRaiz, raizDoCnpj, semValorDaFolha } from "./simples.js";
 import { apurarLimites } from "./teto.js";
 
 /**
@@ -64,6 +65,12 @@ function paraQuemVe<T extends { tomador: { documento: string | null } }>(nota: T
 const textoOpcional = (max: number) => z.string().trim().max(max).nullable().optional();
 const ORIGEM_DO_MAPA = new RegExp(`^(${ORIGENS_NOTA.join("|")}):([a-z0-9_]{1,40}|\\*)$`);
 
+/** QA S-8 (M2): o valor da folha da empresa só vai para o admin; os outros veem só se está informada e até quando. */
+function soAdminVeFolha<T extends { folha12mCentavos: number | null }>(d: T | null, papel: string): (T & { folhaOculta?: boolean }) | null {
+  if (!d || papel === "admin") return d;
+  return { ...d, folha12mCentavos: null, folhaOculta: d.folha12mCentavos != null };
+}
+
 export const fiscalRouter = router({
   resumo: fiscalProcedure.input(z.object({ emissorId: id.nullable().optional() }).optional()).query(async ({ input, ctx }) => {
     const db = getDb();
@@ -90,7 +97,7 @@ export const fiscalRouter = router({
 
   emissores: router({
     /** Um item por CNPJ de perfil tributário, com o complemento fiscal (se já cadastrado). Razão social e regime: do perfil. */
-    listar: fiscalProcedure.query(async () => {
+    listar: fiscalProcedure.query(async ({ ctx }) => {
       await ensureTaxSchema();
       const db = getDb();
       const perfis = ((await db.execute(sql`
@@ -99,9 +106,12 @@ export const fiscalRouter = router({
         FROM tax_profiles WHERE coalesce(cnpj, '') <> ''
         ORDER BY upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`)) as { rows?: Record<string, unknown>[] }).rows ?? [];
       const complementos = await db.select().from(fiscalEmissores);
+      // S-8: folha dos 12 meses e início de atividade, por empresa (raiz do CNPJ) — null sem a migração 0168 ou sem a linha.
+      const simples = await dadosSimplesPorRaiz(db);
       const lista = perfis.map(p => {
         const e = complementos.find(c => c.cnpj === p.cnpj) ?? null;
-        return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e };
+        return { cnpj: String(p.cnpj), perfilId: Number(p.id), razaoSocial: String(p.company_name), regime: String(p.regime), perfilAtivo: Boolean(p.is_active), emissor: e,
+          simples: soAdminVeFolha(simples.get(raizDoCnpj(String(p.cnpj))) ?? null, ctx.user.role) };
       });
       // EPIC-029 S-6: filial (estabelecimento da mesma raiz de CNPJ) com complemento fiscal próprio aparece com o nome e o regime da empresa
       for (const e of complementos) {
@@ -136,6 +146,32 @@ export const fiscalRouter = router({
         // Ambiente fica "desligado" até a homologação (S-4): esta etapa não aceita outro valor.
         const [salvo] = await db.insert(fiscalEmissores).values({ cnpj, ambiente: "desligado", criadoPor: ctx.user.id, ...valores })
           .onConflictDoUpdate({ target: fiscalEmissores.cnpj, set: valores }).returning();
+        return salvo;
+      }),
+    /**
+     * S-8: dados da EMPRESA para a alíquota do Simples (raiz do CNPJ: vale para matriz e filiais) — folha dos 12 meses
+     * (Fator R) e o último mês que ela inclui, e a data de início de atividade (RBT12 proporcional). Só admin por papel.
+     */
+    salvarSimples: adminPorPapel
+      .input(z.object({
+        cnpj: z.string().trim().min(14).max(20),
+        folha12mCentavos: z.number().int().min(0).max(100_000_000_000).nullable(),
+        folhaAte: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mês da folha no formato AAAA-MM.").nullable(),
+        inicioAtividade: data.nullable(),
+      }).refine(v => (v.folha12mCentavos == null) === (v.folhaAte == null), { message: "Informe a folha junto com o último mês que ela inclui." }))
+      .mutation(async ({ input, ctx }) => {
+        await ensureTaxSchema();
+        const db = getDb();
+        const cnpj = cnpjLimpo(input.cnpj);
+        const raiz = raizDoCnpj(cnpj);
+        const existe = ((await db.execute(sql`
+          SELECT 1 FROM tax_profiles WHERE left(upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')), 8) = ${raiz} LIMIT 1`)) as { rows?: unknown[] }).rows ?? [];
+        if (!existe.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Cadastre primeiro o perfil tributário com este CNPJ." });
+        const tabela = ((await db.execute(sql`SELECT to_regclass('fiscal_dados_simples') IS NOT NULL AS ok`)) as { rows?: { ok: boolean }[] }).rows?.[0];
+        if (!tabela?.ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A folha do Fator R ainda não pode ser salva: falta aplicar a migração 0168 no banco." });
+        const valores = { folha12mCentavos: input.folha12mCentavos, folhaAte: input.folhaAte, inicioAtividade: input.inicioAtividade, atualizadoPor: ctx.user.id, atualizadoEm: new Date() };
+        const [salvo] = await db.insert(fiscalDadosSimples).values({ raiz, ...valores })
+          .onConflictDoUpdate({ target: fiscalDadosSimples.raiz, set: valores }).returning();
         return salvo;
       }),
   }),
@@ -203,6 +239,13 @@ export const fiscalRouter = router({
       .query(({ input }) => opcoesDosFiltros(getDb(), input?.emissorId ?? null)),
     ver: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role)),
     historico: fiscalProcedure.input(z.object({ id })).query(({ input }) => historicoDaNota(getDb(), input.id)),
+    /** S-8: alíquota do Simples da nota e "como foi calculada" (RBT12, anexo, faixa, Fator R, fontes). Só valores da empresa. */
+    aliquotaSimples: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
+      const db = getDb();
+      const r = await aliquotaSimplesDaNota(db, await carregarNota(db, input.id));
+      // QA S-8 (M2): o valor da folha (e o r, que com o RBT12 a revelaria) só para o admin.
+      return ctx.user.role === "admin" ? r : semValorDaFolha(r);
+    }),
     /** PDF da prévia em base64 (marca d'água "RASCUNHO — SEM VALOR FISCAL" em todas as páginas). */
     previa: fiscalProcedure.input(z.object({ id })).query(async ({ input, ctx }) => {
       const nota = paraQuemVe(await carregarNota(getDb(), input.id), ctx.user.role);

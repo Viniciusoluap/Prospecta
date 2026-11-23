@@ -92,7 +92,10 @@ export function gerarPreviaPdf(nota: NotaDetalhada, agora: Date = new Date()): U
   campo("Código de tributação nacional", nota.tipoServico?.codigoTributacaoNacional ?? A_PREENCHER);
   campo("Item da LC 116", nota.tipoServico?.itemLc116 ?? A_PREENCHER);
   campo("Código NBS", nota.tipoServico?.codigoNbs ?? A_PREENCHER);
-  campo("Alíquota de ISS", nota.tipoServico?.aliquotaIss ? `${Number(nota.tipoServico.aliquotaIss).toLocaleString("pt-BR")}%` : A_PREENCHER);
+  // S-8: no Simples a alíquota é calculada pelo sistema (RBT12 × anexo), nunca o número fixo do tipo.
+  campo("Alíquota de ISS", nota.emissor?.regime === "simples_nacional"
+    ? "calculada pelo Simples (ver \"Alíquota do Simples\" na tela)"
+    : nota.tipoServico?.aliquotaIss ? `${Number(nota.tipoServico.aliquotaIss).toLocaleString("pt-BR")}%` : A_PREENCHER);
   campo("Município de incidência", nota.municipio.nome ? `${nota.municipio.nome}/${nota.municipio.uf ?? ""}` : "a definir");
   if (nota.obra) campo("Obra", `${nota.obra.titulo}${nota.obra.cidade ? ` (${nota.obra.cidade}/${nota.obra.uf ?? ""})` : ""}`);
   campo("Competência", nota.origem?.competencia || nota.dataEvento.slice(0, 7));
