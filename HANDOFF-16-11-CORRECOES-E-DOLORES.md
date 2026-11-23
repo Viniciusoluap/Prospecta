@@ -749,8 +749,8 @@ respondendo (23/11) e ligou o certificado; (c) pendente em produção — "Confe
 PRODUÇÃO RESTRITA (homologação) com o A1; validador XSD carregando na Vercel (falha fechada se não); primeiras cobranças da E10.
 
 **Pendências / próximos passos:**
-1. Emissão de teste em produção restrita: admin liga o ambiente "producao_restrita" do emissor e `emissao_liberada` (hoje sem rota que
-   ligue — decidir com o dono como liberar, com confirmação explícita), "Buscar alíquotas oficiais" para Imperatriz/Canaã/Parauapebas,
+1. Emissão de teste em produção restrita: admin liga o ambiente "producao_restrita" do emissor e depois "Liberar emissão desta empresa"
+   (rota `emissores.liberarEmissao`, frase "LIBERAR EMISSÃO"; ver a seção "liberação da emissão" no fim), "Buscar alíquotas oficiais" para Imperatriz/Canaã/Parauapebas,
    série da DPS (padrão "1"), e emitir um rascunho de teste; conferir nomes dos campos JSON da Sefin (só confirmáveis com o A1).
 2. Folha de 12 meses + início de atividade em "Folha e início (Simples)" (sem a folha, Fator R usa o Anexo V).
 3. Contador: conferir regra do sublimite (ano-calendário) e casas do pAliq; CNO das obras (7.02/7.05 ainda recusadas).
@@ -769,3 +769,17 @@ anterior (S-6) até o hotfix.
 produção — validador carregando na Vercel (só se vê na primeira emissão em produção restrita).
 **Próximo passo exato:** revisão do Codex + prévia READY do #326 → merge → produção READY; depois a pendência 1 da seção anterior
 (decidir com o dono como liberar a emissão de teste).
+
+## Atualização de 23/11/2026 — EPIC-029 S-7: liberação da emissão por empresa (ramo `claude/epic029-liberar-emissao`, só local)
+
+**Concluído (commits locais f5551da + correções do portão de QA):** `EMISSAO_DISPONIVEL = true` (autorizado pelo dono); rota
+`fiscal.emissores.liberarEmissao` (admin, `.strict()`; ligar exige "LIBERAR EMISSÃO" e, com o ambiente em produção, também
+"EMITIR EM PRODUÇÃO"; frases conferidas no servidor com NFC + trim + igualdade exata; desligar sem frase; recusa ligar com nota
+"Emitindo"); **qualquer troca de ambiente desliga a liberação**; antes de cada POST à Sefin (emissão, retomada, cancelamento) a
+liberação é relida; histórico imutável `fiscal_emissores_historico` (migração **0172**, aditiva, NÃO aplicada no Neon ainda);
+tela em Dados fiscais do perfil ("Liberar emissão desta empresa", "Desligar emissão", últimas mudanças). Nada sai enquanto a empresa
+não for liberada e o ambiente não for de emissão (servidor, Dolores e gatilho da 0167).
+**Testes:** (a) automáticos — fiscal + Dolores s3* + tsc + vite build (números no relatório do PR); (b) manuais — nenhum;
+(c) pendente em produção — aplicar a 0172 no Neon, publicar, e a primeira liberação/emissão em produção restrita.
+**Próximo passo exato:** PR do ramo → portão de QA → aplicar `drizzle/0172_fiscal_emissores_historico.sql` no Neon → merge →
+conferir Vercel READY → pendência 1 acima (ambiente "producao_restrita" + liberar + emitir um rascunho de teste).

@@ -45,6 +45,16 @@ export const AVISO_EMISSAO_INDISPONIVEL = "A emissão de notas está desligada n
 
 /** Frase que o admin digita para LIGAR a emissão de uma empresa emissora. Conferida no servidor (trim, comparação exata). */
 export const FRASE_LIBERAR_EMISSAO = "LIBERAR EMISSÃO";
+/** Frase para emitir em PRODUÇÃO (notas com valor fiscal): trocar o ambiente para produção e liberar a emissão nele. */
+export const FRASE_PRODUCAO = "EMITIR EM PRODUÇÃO";
+
+/**
+ * Confere a frase digitada: forma NFC nos dois lados (o "Ã" composto ou decomposto, conforme o teclado, vale igual), sem espaço
+ * nas pontas, e comparação EXATA (caixa, acento e espaço do meio contam). Mesma função no servidor e no botão da tela.
+ */
+export function fraseConfere(digitada: string | null | undefined, esperada: string): boolean {
+  return (digitada ?? "").normalize("NFC").trim() === esperada.normalize("NFC");
+}
 
 /**
  * Por que esta empresa não emite agora (null = as três travas abertas). Mesma regra do servidor (emissao.ts#emissorLiberado),

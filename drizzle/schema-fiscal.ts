@@ -34,7 +34,11 @@ export const fiscalEmissores = pgTable("fiscal_emissores", {
   serieDps: varchar("serie_dps", { length: 5 }),
   proximoNumeroDps: bigint("proximo_numero_dps", { mode: "number" }).default(1).notNull(),
   ambiente: varchar("ambiente", { length: 20 }).$type<AmbienteFiscal>().default("desligado").notNull(),
-  /** S-7 (0167): interruptor de emissão POR EMISSOR (false = nada sai). Nenhuma rota o liga nesta etapa. */
+  /**
+   * S-7 (0167): interruptor de emissão POR EMISSOR (false = nada sai). Liga só pela rota `emissores.liberarEmissao` (admin, frase
+   * "LIBERAR EMISSÃO"; em produção também "EMITIR EM PRODUÇÃO"); qualquer troca de ambiente o desliga. Mudanças vão para
+   * `fiscal_emissores_historico` (0172).
+   */
   emissaoLiberada: boolean("emissao_liberada").default(false).notNull(),
   /** S-7 (0167): parâmetros do contador que são da empresa (opSimpNac, regApTribSN, regEspTrib). */
   parametrosDps: jsonb("parametros_dps").$type<ParametrosDpsEmissor | null>(),
@@ -171,6 +175,18 @@ export const fiscalEmissoresCertificado = pgTable("fiscal_emissores_certificado"
   enviadoEm: timestamp("enviado_em", { withTimezone: true }).defaultNow().notNull(),
   desativadoPor: integer("desativado_por"),
   desativadoEm: timestamp("desativado_em", { withTimezone: true }),
+});
+
+// EPIC-029 S-7 (0172): histórico imutável das travas do emissor (gatilho AFTER UPDATE em fiscal_emissores; só inserção).
+export type CampoHistoricoEmissor = "emissao_liberada" | "ambiente" | "ativo";
+export const fiscalEmissoresHistorico = pgTable("fiscal_emissores_historico", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  emissorId: integer("emissor_id").notNull(),
+  campo: varchar("campo", { length: 20 }).$type<CampoHistoricoEmissor>().notNull(),
+  de: text("de"),
+  para: text("para"),
+  usuarioId: integer("usuario_id"),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type AcaoCertificadoFiscal = "enviado" | "desativado" | "recusado" | "teste_conexao";

@@ -31,8 +31,8 @@ import { SERIE_PADRAO_API } from "../../shared/fiscal/dps-campos.js";
 import { conferirNfse, fraseDosCodigos, lerConsultaDps, lerConsultaNfse, lerRetornoEmissao, lerRetornoEvento, type NfseLida } from "./retorno.js";
 import { caminhoDe, CAMPOS_JSON, compactarXml, ErroSefin, sessaoDoEmissor, type DepsSefin } from "./sefin.js";
 
-/** Frase que o admin digita para virar um emissor para PRODUÇÃO (S-5 item 1). Conferida no servidor. */
-export const FRASE_PRODUCAO = "EMITIR EM PRODUÇÃO";
+/** Frase que o admin digita para virar um emissor para PRODUÇÃO (S-5 item 1). Conferida no servidor. Mora em shared/fiscal/status.ts. */
+export { FRASE_PRODUCAO } from "../../shared/fiscal/status.js";
 /** Uma emissão iniciada há menos que isto trava o rascunho (outra aba, outro clique, a Dolores ao mesmo tempo). */
 export const TRAVA_EMITINDO_MS = 90_000;
 /**
@@ -114,6 +114,18 @@ async function emissorLiberado(db: DrizzleDb, emissorId: number | null, d: DepsE
   return em as FiscalEmissor & { ambiente: AmbienteEmissao };
 }
 
+/**
+ * QA 23/11 (B1): relê o emissor IMEDIATAMENTE antes de cada POST à Sefin (emissão nova, reenvio da retomada e cancelamento).
+ * Se o admin desligou a emissão (ou trocou o ambiente) depois das conferências iniciais, o POST não sai. Quem já recebeu o POST
+ * (envio em andamento) termina normalmente — desligar vale para os envios seguintes.
+ * `ambiente` = o ambiente em que o POST vai sair; null = basta o emissor estar num ambiente de emissão (cancelamento).
+ */
+async function conferirAntesDoPost(db: DrizzleDb, emissorId: number, ambiente: AmbienteEmissao | null, frase: string): Promise<void> {
+  const [em] = await db.select({ ambiente: fiscalEmissores.ambiente, emissaoLiberada: fiscalEmissores.emissaoLiberada, ativo: fiscalEmissores.ativo })
+    .from(fiscalEmissores).where(eq(fiscalEmissores.id, emissorId)).limit(1);
+  if (!em || !em.ativo || !em.emissaoLiberada || !ehAmbienteEmissao(em.ambiente) || (ambiente !== null && em.ambiente !== ambiente)) throw new ErroEmissao(frase);
+}
+
 /** Grava EMITIDA (só a partir de EMITINDO) e o evento com o XML autorizado. */
 async function concluirEmitida(db: DrizzleDb, notaId: number, r: { chave: string; xml: string; nfse: NfseLida; protocolo: string | null }, ambiente: AmbienteEmissao, autor: Autor, httpStatus: number | null, tipo: TipoEventoFiscal, agora: Date): Promise<ResultadoEmissao> {
   await db.transaction(async tx => {
@@ -148,7 +160,9 @@ async function consultarERecuperar(db: DrizzleDb, sessao: Sessao, nota: { id: nu
 }
 
 /** Envia a DPS assinada (já gravada) e trata o retorno. */
-async function enviarDps(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string; xmlAssinado: string; cnpj: string }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao> {
+async function enviarDps(db: DrizzleDb, sessao: Sessao, nota: { id: number; dpsId: string; xmlAssinado: string; cnpj: string; emissorId: number }, ambiente: AmbienteEmissao, autor: Autor, agora: Date): Promise<ResultadoEmissao> {
+  // B1: a nota fica "Emitindo" (nada foi enviado); a próxima tentativa CONSULTA a DPS antes de reenviar.
+  await conferirAntesDoPost(db, nota.emissorId, ambiente, FRASE_EMISSOR_DESLIGADO);
   let resposta;
   try { resposta = await sessao.cliente.requisitar("POST", caminhoDe("emitir"), { [CAMPOS_JSON.dps]: compactarXml(nota.xmlAssinado) }); }
   catch {
@@ -252,7 +266,7 @@ export async function emitirNota(db: DrizzleDb, e: { id: number; versao: number;
       status: "EMITINDO", dpsId: id, numeroDps: numero, xmlDps: assinado, ambienteEmissao: emissor.ambiente, emitindoDesde: agora, congelado,
       versao: sql`${fiscalNotas.versao} + 1`, atualizadoPor: autor.usuarioId, alteradoVia: autor.via,
     }).where(eq(fiscalNotas.id, atual.id));
-    return { id: atual.id, dpsId: id, xmlAssinado: assinado, cnpj: emissor.cnpj, jaReservada: n.dps_id != null };
+    return { id: atual.id, dpsId: id, xmlAssinado: assinado, cnpj: emissor.cnpj, emissorId: emissor.id, jaReservada: n.dps_id != null };
   });
   // Rascunho que já tinha a DPS reservada (voltou de ERRO — inclusive "verificar manualmente"): CONSULTA antes de reenviar, para
   // nunca emitir duas vezes a mesma DPS.
@@ -277,7 +291,7 @@ async function retomar(db: DrizzleDb, atual: typeof fiscalNotas.$inferSelect, em
     .returning({ id: fiscalNotas.id });
   if (!dono) throw new ErroEmissao("Esta nota está sendo emitida agora. Aguarde um instante e atualize a tela.", "trava");
   const sessao = await sessaoDoEmissor(db, { id: emissor.id, ambiente }, d);
-  const nota = { id: atual.id, dpsId: atual.dpsId, xmlAssinado: atual.xmlDps, cnpj: emissor.cnpj };
+  const nota = { id: atual.id, dpsId: atual.dpsId, xmlAssinado: atual.xmlDps, cnpj: emissor.cnpj, emissorId: emissor.id };
   const consulta = await consultarERecuperar(db, sessao, nota, ambiente, autor, agora);
   if (typeof consulta === "object") return consulta;
   if (consulta === "incerta") return { situacao: "incerta", notaId: atual.id, mensagem: FRASE_INCERTA };
@@ -362,6 +376,8 @@ export async function cancelarNota(db: DrizzleDb, e: { id: number; versao: numbe
     } catch { return null; }
   };
 
+  // B1: relê a liberação logo antes do POST do evento (o admin pode ter desligado durante a montagem/assinatura).
+  await conferirAntesDoPost(db, em.id, null, FRASE_CANCELAMENTO_DESLIGADO);
   let resposta;
   try { resposta = await sessao.cliente.requisitar("POST", caminhoDe("eventos", { chave: n.chaveAcesso }), { [CAMPOS_JSON.pedidoEvento]: compactarXml(assinado) }); }
   catch {

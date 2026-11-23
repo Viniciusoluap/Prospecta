@@ -369,6 +369,9 @@ export function NotasADecidir({ emissorId, podeDecidir }: { emissorId: number | 
           {cancelar && (
             <div className="space-y-3">
               <p className="text-sm text-gray-300">NFS-e nº {cancelar.nota.numeroNfse} — {cancelar.nota.tomador.nome ?? "Sem tomador"} — {dinheiro(cancelar.nota.valorCentavos)}</p>
+              {cancelar.nota.ambienteEmissao === "producao"
+                ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-100">PRODUÇÃO: esta é uma nota COM VALOR FISCAL. O cancelamento vale de verdade na Sefin Nacional.</p>
+                : <p role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-100">AMBIENTE DE TESTES — nota SEM VALOR FISCAL</p>}
               <p className="text-xs text-gray-400">Prazo definido pela prefeitura (até 2 anos). O cancelamento não se desfaz.</p>
               <div>
                 <Label>Motivo *</Label>

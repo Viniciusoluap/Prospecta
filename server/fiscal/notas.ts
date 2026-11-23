@@ -9,8 +9,6 @@ import { fiscalEmissores, fiscalNotas, fiscalNotasHistorico, fiscalTiposServico,
 import { problemaDoMotivo, type MotivoSemNota } from "../../shared/fiscal/motivos.js";
 import { ROTULO_ORIGEM, type OrigemNota } from "../../shared/fiscal/origens.js";
 import {
-  AVISO_EMISSAO_INDISPONIVEL,
-  EMISSAO_DISPONIVEL,
   exigeEmissao,
   transicaoValida,
   type StatusNota,
@@ -483,7 +481,7 @@ export const FRASE_SO_PELA_EMISSAO = "Essa situação só é gravada pela própr
 export function emitir(): never {
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
-    message: EMISSAO_DISPONIVEL ? "Emissão ainda não implementada." : AVISO_EMISSAO_INDISPONIVEL,
+    message: FRASE_SO_PELA_EMISSAO,
   });
 }
 
