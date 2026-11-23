@@ -106,7 +106,8 @@ const PRAZO_CONSULTA_MS = 15_000;
 // sobrecarga da API (folga 874 < 1.000): piso 21.000 → 22.000 (folga ~1,9 mil).
 // EPIC-029 S-7: +1 ação fiscal (cancelar_nota_fiscal, sério; ~380 tokens com descrições já encurtadas): no ramo da S-7 o piso foi a
 // 21.500. Junção S-6 + S-7 (merge de 23/11): fica o MAIOR dos dois, 22.000 — o pior caso com as duas (consultar_limites_receita +
-// cancelar_nota_fiscal) é medido em server/dolores/s6-reserva.test.ts e s3-fiscal.test.ts (folga ≥ 1.000).
+// cancelar_nota_fiscal) medido em server/dolores/s6-reserva.test.ts = 20.408 com a sobrecarga da API (folga 1.592 ≥ 1.000; também
+// conferido em s3-fiscal.test.ts): 22.000 mantido.
 export const RESERVA_MINIMA_ENTRADA = 22_000;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;

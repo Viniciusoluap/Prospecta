@@ -39,6 +39,7 @@ import { SILENCIADOS_POR_PADRAO, TIPOS_AVISO, TIPOS_SEM_REAVISO, silenciadoPelaL
 const ler = (n: string) => readFileSync(new URL(`../../drizzle/${n}`, import.meta.url), "utf8");
 const M0154 = ler("0154_fiscal_notas.sql");
 const M0162 = ler("0162_fiscal_certificados.sql"); // S-4: coluna codigo_atividade_simples do tipo de serviço (junção com a main)
+const M0167 = ler("0167_fiscal_emissao.sql"); // S-7: travas da emissão do emissor (emissao_liberada etc.) — junção S-6 × S-7
 const M0150 = ler("0150_dolores_avisos.sql");
 const M0164 = ler("0164_contas_empresa_limite_receita.sql");
 const TABELAS = [
@@ -274,6 +275,7 @@ describe("QA S-6 — com banco", () => {
     await pg.exec(ddl);
     await pg.exec(M0154);
     await pg.exec(M0162);
+    await pg.exec(M0167);
     await pg.exec(M0150);
     vi.mocked(getDb).mockReturnValue(drizzle(pg) as never);
     fetchVigia = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("rede proibida no teste"); });

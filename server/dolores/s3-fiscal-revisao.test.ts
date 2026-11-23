@@ -42,6 +42,8 @@ const DONO = "5599991234567";
 const CPF = "52998224725";
 const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const MIGRACAO_0165 = readFileSync(new URL("../../drizzle/0165_dolores_aviso_fiscal.sql", import.meta.url), "utf8");
+const MIGRACAO_0162 = readFileSync(new URL("../../drizzle/0162_fiscal_certificados.sql", import.meta.url), "utf8");
+const MIGRACAO_0167 = readFileSync(new URL("../../drizzle/0167_fiscal_emissao.sql", import.meta.url), "utf8");
 
 let banco: Awaited<ReturnType<typeof criarBanco>>;
 let enviar: ReturnType<typeof vi.fn>;
@@ -82,6 +84,8 @@ beforeEach(async () => {
     CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01', effective_to timestamp); -- S-6: o leitor de perfis (teto.ts#lerPerfis) usa effective_to (coluna real da 0022)
     CREATE TABLE IF NOT EXISTS operational_commissions (id serial PRIMARY KEY, construction_project_id integer, amount numeric, business_type text, property text);`);
   await banco.pg.exec(MIGRACAO_0154);
+  await banco.pg.exec(MIGRACAO_0162); // S-7: o schema lê as colunas da 0162 e da 0167
+  await banco.pg.exec(MIGRACAO_0167);
   await banco.pg.exec(MIGRACAO_0165);
   await banco.pg.exec(MIGRACAO_0153());
   await banco.pg.exec(`
