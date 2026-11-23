@@ -138,8 +138,14 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolea
     await pg.exec(recebidas);
     await pg.exec(recebidas);
   }
+  // EPIC-025 E10 (cobrança do colaborador e pedido de documentos): migração 0169, também duas vezes.
+  const cobrancas = MIGRACAO_0169();
+  await pg.exec(cobrancas);
+  await pg.exec(cobrancas);
   return { pg, db: drizzle(pg) };
 }
+
+export const MIGRACAO_0169 = () => readFileSync(new URL("../../drizzle/0169_dolores_cobrancas.sql", import.meta.url), "utf8");
 
 export const MIGRACAO_0163 = () => readFileSync(new URL("../../drizzle/0163_obra_notas_origem_adn.sql", import.meta.url), "utf8");
 
