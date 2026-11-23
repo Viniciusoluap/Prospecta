@@ -8,8 +8,9 @@
 //   (b) do BPO, o que a S-6 soma nas contas da empresa (lançamentos pagos e baixas da divisão de pagamentos; sem transferência entre
 //       contas dela nem estorno confirmado pelo banco) — só honorário e receita (QA S-8, M1: reembolso não é receita bruta) — mais os
 //       créditos ainda a classificar ou com diferença do extrato (QA4 S-6, R1/R2: lado seguro, com aviso);
-//   (M5) a mesma receita nunca conta duas vezes: lançamento ligado a uma nota emitida sai do BPO (fica o MAIOR dos dois valores), e nota
-//       sem lançamento do BPO casa com uma entrada (ou crédito pendente) de MESMO valor da mesma empresa em até 45 dias.
+//   (M5) só se deduplica com VÍNCULO EXPLÍCITO: lançamento ligado a uma nota emitida (origem.bpoLancamentoId) sai do BPO (fica o MAIOR dos
+//       dois valores). Nota sem vínculo × entrada de MESMO valor em até 45 dias é só SUGESTÃO ("possível mesma receita — confira"): as
+//       DUAS contam (revisão do PR #323, Codex P1: coincidência de valor e data nunca tira receita — na dúvida, contar a mais).
 // Sem a conta por empresa (0164), o BPO não entra e o resultado sai INCOMPLETO.
 import { sql } from "drizzle-orm";
 import { fiscalNotas } from "../../drizzle/schema-fiscal.js";
@@ -64,7 +65,7 @@ function diaSeguinte(dia: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** QA S-8 (M5): nota sem lançamento do BPO casa com uma entrada de mesmo valor em até este tanto de dias da data do evento. */
+/** QA S-8 (M5): nota sem lançamento do BPO e entrada de mesmo valor até este tanto de dias da data do evento → aviso (as duas contam). */
 export const JANELA_NOTA_X_RECEBIMENTO_DIAS = 45;
 
 const reaisAviso = (c: number) => `R$ ${(c / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -105,7 +106,8 @@ export function fonteReceitaDaApuracao(db: DrizzleDb): FonteReceita {
       // Créditos pendentes (a classificar / diferença do extrato) — entram (lado seguro), com aviso
       let pendentesCent = pend.reduce((a, c) => a + c.valorCentavos, 0);
 
-      // (M5-b) nota SEM lançamento do BPO: casa com UMA entrada (ou crédito pendente) de mesmo valor, em até 45 dias; casada, conta uma vez
+      // (M5-b) nota SEM vínculo com o BPO: uma entrada (ou crédito pendente) de mesmo valor em até 45 dias é só SUGESTÃO — nada é
+      // descontado (PR #323, Codex P1); o aviso pede para conferir e, se for a mesma receita, vincular a nota ao lançamento.
       type Candidato = { valor: number; quando: number; tipo: "entrada" | "pendente"; usado: boolean };
       const candidatos: Candidato[] = [
         ...entradas.filter(r => !notaPorLancamento.has(r.lancamentoId)).map(r => ({ valor: r.valorCentavos, quando: r.pagoEm.getTime(), tipo: "entrada" as const, usado: false })),
@@ -119,7 +121,6 @@ export function fonteReceitaDaApuracao(db: DrizzleDb): FonteReceita {
           .sort((a, b) => Math.abs(a.quando - evento) - Math.abs(b.quando - evento))[0];
         if (!par) continue;
         par.usado = true; casadas++;
-        if (par.tipo === "entrada") bpo -= par.valor; else pendentesCent -= par.valor;
       }
 
       const avisos: string[] = [];
@@ -133,7 +134,10 @@ export function fonteReceitaDaApuracao(db: DrizzleDb): FonteReceita {
         avisos.push(`${reaisAviso(semDono)} recebidos no período sem conta bancária ou em conta sem empresa definida não entram em empresa nenhuma — `
           + "vincule a conta à empresa em BPO › Bancos (o RBT12 pode estar abaixo do real).");
       }
-      if (casadas) avisos.push(`${casadas} nota(s) emitida(s) sem lançamento do BPO casada(s) com o recebimento de mesmo valor (contada uma vez só).`);
+      if (casadas) {
+        avisos.push(`Possível mesma receita — confira: ${casadas} nota(s) emitida(s) sem vínculo com o BPO têm um recebimento de mesmo valor em até `
+          + `${JANELA_NOTA_X_RECEBIMENTO_DIAS} dias. As duas CONTAM no RBT12 (lado seguro); se for o mesmo dinheiro, gere a nota a partir do lançamento do BPO.`);
+      }
       bpo += pendentesCent;
       return { centavos: notasEmitidas + bpo, fontes: { notasEmitidas, bpo }, completo: true, avisos, lancamentosBpo };
     },

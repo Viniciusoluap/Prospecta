@@ -200,9 +200,11 @@ Testes antigos ajustados às regras novas: `s6-qa.test.ts` (o pendente ganha `mo
   `teto.ts#apurarPeriodo` — a apuração da S-6 numa janela qualquer (12 meses, mês, ano-calendário) — + as notas EMITIDAS da raiz.
   Do BPO entram só honorário e receita (M1 da S-8), sem transferência entre contas da empresa e sem estorno confirmado; devolve
   `lancamentosBpo` para a deduplicação do 1º mês.
-- **M5 da S-8 resolvido**: lançamento ligado a nota emitida sai do BPO (se o BPO tiver mais que a nota, a diferença fica); nota SEM
-  lançamento do BPO casa com UMA entrada (ou crédito pendente) de mesmo valor da mesma empresa em até 45 dias
-  (`JANELA_NOTA_X_RECEBIMENTO_DIAS`) — contada uma vez, com aviso.
+- **M5 da S-8 resolvido**: só se deduplica com VÍNCULO EXPLÍCITO — lançamento ligado a nota emitida (`origem.bpoLancamentoId`) sai do
+  BPO (se o BPO tiver mais que a nota, a diferença fica). Nota SEM vínculo com uma entrada (ou crédito pendente) de mesmo valor da mesma
+  empresa em até 45 dias (`JANELA_NOTA_X_RECEBIMENTO_DIAS`) é só SUGESTÃO: as DUAS contam e o aviso diz "possível mesma receita — confira".
+  (Revisão do PR #323, Codex P1, 23/11: a 1ª versão descontava pela coincidência de valor e data — nota R$ 8.000 + outro recebimento
+  R$ 8.000 virava 8 mil, subestimando o RBT12. Corrigido; teste com o exemplo do Codex em `simples-servidor.test.ts`.)
 - [AUTO-DECISION] Créditos a classificar/com diferença do extrato entram no RBT12? → sim, com aviso e valor (regra do lead: na dúvida,
   contar a mais; é o mesmo "possível" que o aviso do limite usa). O teste da S-8 "não pago não entra" passou a esperar o crédito do banco
   como pendente (R2).
@@ -253,3 +255,4 @@ Testes antigos ajustados às regras novas: `s6-qa.test.ts` (o pendente ganha `mo
 | 23/11/2026 | @dev (Dex) | Correções do 3º portão (Q1–Q4); auditoria das marcações; `it.fails` → `it`; volta a InReview. |
 | 23/11/2026 | @qa (Quinn) | 4º portão de QA: CONCERNS (R1–R3 médios; R4 e três baixos). |
 | 23/11/2026 | @dev (Dex) | Correções do 4º portão (R1–R4 + baixos); merge da main (S-5b, S-3b, Jurídico, S-8); RBT12 da S-8 pela apuração da S-6 e M5 resolvido; volta a InReview. |
+| 23/11/2026 | @dev (Dex) | Revisão do PR #323 (Codex P1): nota sem vínculo × recebimento de mesmo valor deixa de deduplicar — só aviso, as duas contam. |

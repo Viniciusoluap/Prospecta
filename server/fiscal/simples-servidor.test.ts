@@ -432,7 +432,8 @@ describe("S-6 × S-8 — RBT12 pela apuração da S-6 (M5 e lado seguro)", () =>
   const contas = `ALTER TABLE bank_accounts ADD COLUMN empresa_cnpj varchar(14);
     INSERT INTO bank_accounts (id, banco, conta, empresa_cnpj) VALUES (1, 'Banco', '1', '41865900000189'), (2, 'Banco', '2', '41865900000260');`;
 
-  it("M5: nota emitida SEM lançamento do BPO e o recebimento de mesmo valor no banco contam uma vez só", async () => {
+  // Revisão do PR #323 (Codex, P1): sem vínculo explícito, coincidência de valor e data NÃO deduplica — as duas contam, com aviso.
+  it("M5: nota de avaliação R$ 8.000 sem vínculo e outro recebimento de R$ 8.000 → as duas contam (R$ 16 mil) e o aviso sugere conferir", async () => {
     await pg.exec(`${contas}
       INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 8000, '2026-05-20 12:00', 'PIX RECEBIDO');
       INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
@@ -441,9 +442,21 @@ describe("S-6 × S-8 — RBT12 pela apuração da S-6 (M5 e lado seguro)", () =>
     await emitida(1, "2026-08-10", R$(3_000)); // sem recebimento de mesmo valor → conta
     const r = await calcular(await rascunho(1, 101));
     if (!r.aplica) throw new Error("devia aplicar");
-    expect(r.rbt12.centavos).toBe(R$(11_000));
-    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(11_000), bpo: 0 });
-    expect(r.avisos.join(" ")).toMatch(/casada/);
+    expect(r.rbt12.centavos).toBe(R$(19_000));
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(11_000), bpo: R$(8_000) });
+    expect(r.avisos.join(" ")).toMatch(/Possível mesma receita — confira: 1 nota/);
+  });
+
+  it("M5: com vínculo explícito (nota gerada do lançamento do BPO), a mesma receita conta uma vez só", async () => {
+    await pg.exec(`${contas}
+      INSERT INTO bank_transactions (id, account_id, tipo, valor, data, descricao) VALUES (1, 1, 'credito', 8000, '2026-05-20 12:00', 'PIX RECEBIDO');
+      INSERT INTO bpo_lancamentos (id, tipo, descricao, valor, vencimento, pago, pago_em, competencia, bank_transaction_id) VALUES
+        (1, 'receita', 'PIX RECEBIDO', 8000, '2026-05-20', true, '2026-05-20 12:00', '2026-05', 1);`);
+    await pg.query(`INSERT INTO fiscal_notas (emissor_id, tipo_servico_id, origem_tipo, origem_id, data_evento, status) VALUES (1, 101, 'bpo_lancamento', 1, '2026-05-20', 'EMITIDA')`);
+    const r = await calcular(await rascunho(1, 101));
+    if (!r.aplica) throw new Error("devia aplicar");
+    expect(r.receita).toEqual({ completo: true, notasEmitidas: R$(8_000), bpo: 0 });
+    expect(r.avisos.join(" ")).not.toMatch(/Possível mesma receita/);
   });
 
   it("transferência entre contas da MESMA empresa (os dois lados marcados) não infla o RBT12", async () => {
