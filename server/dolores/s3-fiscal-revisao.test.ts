@@ -79,7 +79,7 @@ beforeEach(async () => {
   vi.mocked(getDb).mockReturnValue(banco.db as never);
   await banco.pg.exec(CENARIO);
   await banco.pg.exec(`
-    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01');
+    CREATE TABLE IF NOT EXISTS tax_profiles (id serial PRIMARY KEY, cnpj text, company_name text, regime text, is_active boolean DEFAULT true, effective_from date DEFAULT '2026-01-01', effective_to timestamp); -- S-6: o leitor de perfis (teto.ts#lerPerfis) usa effective_to (coluna real da 0022)
     CREATE TABLE IF NOT EXISTS operational_commissions (id serial PRIMARY KEY, construction_project_id integer, amount numeric, business_type text, property text);`);
   await banco.pg.exec(MIGRACAO_0154);
   await banco.pg.exec(MIGRACAO_0165);

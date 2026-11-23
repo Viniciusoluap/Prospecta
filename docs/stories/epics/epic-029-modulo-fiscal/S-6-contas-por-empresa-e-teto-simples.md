@@ -88,6 +88,9 @@ matriz + filial 04.578.232/0002-63 em Canaã; Efficaz LTDA 21.704.736/0001-10; E
   (rascunhos, rascunhos-qa), bancos/BPO (auditoria-final, chave-central, sync, extrato, lote3, restauração, a-classificar, 0075,
   conta-azul, tests/bancario, erros-reais), Dolores (acoes, c5-e1-voz, c5-e1-qa-r4, c5-e2-resolve, c5-mesas, notas-obra, qa-e5-provas),
   integracoes-anthropic, consulta-cadastral-qa. `tsc --noEmit` e `vite build` ok.
+- 4º portão + junção S-8 (23/11): `server/fiscal/*` 18 arquivos, 405/405 (s6/s8/simples 200; certificado, emissão, notas recebidas,
+  rascunhos, s5b 205); Dolores `s6*`, `s3*`, `c5-e4-proatividade`, `c5-integracao2*`, `leitura-somente` 147/147; `bancos*`/`bpo*`
+  142/142. `tsc --noEmit` limpo; `vite build` ok.
 - Manuais: pendentes (passos acima, em produção depois da 0164).
 
 ## Migração
@@ -173,6 +176,41 @@ Teste do QA: `server/fiscal/s6-qa3.test.ts` (`it.fails` → `it`; casos a mais d
 Testes antigos ajustados à regra Q1/Q2: as transferências dos cenários passam a ter os DOIS lados marcados; o lançamento marcado sem par
 do cenário de reembolso passa a contar.
 
+## Correções do 4º portão de QA (CONCERNS de 23/11/2026 → corrigido)
+
+Teste do QA: `server/fiscal/s6-qa4.test.ts` (`it.fails` → `it`; casos a mais das correções no mesmo arquivo).
+
+| Achado | Gravidade | Correção |
+|---|---|---|
+| R1 — editar para baixo o lançamento ligado ao extrato tirava receita do limite | médio | `teto.ts`: do crédito do banco sai só o que os lançamentos ligados a ele levam para a soma (pagos; combinados; despesa ligada). O resto vira pendência com valor (`motivo: "diferenca"`), entra na receita POSSÍVEL (faixa do aviso) e aparece no painel ("o banco recebeu R$ X a mais do que o lançamento") e na leitura da Dolores (`diferencasDoExtratoParaConferir`). Lado seguro: conta pelo maior, sem contar duas vezes. |
+| R2 — lançamento casado que voltou a "não pago" sumia por inteiro | médio | Mesma regra: lançamento não pago não leva nada → o crédito inteiro do banco vira pendência visível. |
+| R3 — descrição editável "Devolução …" tirava o valor inteiro | médio | `estornoConfirmado`: só sai como estorno quando o texto do LANÇAMENTO **e** o do BANCO começam pela palavra. Só o lançamento dizendo → CONTA e aparece em "estornos para conferir" (painel e Dolores). Lançamento sem movimentação nunca é estorno confirmado. |
+| R4 — o painel escondia quem marcou a SAÍDA | baixo | A apuração lê a auditoria dos dois lados do par: `transferenciasPorQuem.quem` = um nome (mesma pessoa) ou "entrada: X; saída: Y", com `ultimaMarcacaoEm` (data e hora de Brasília). |
+| Apelido com agência ("ag 1234 cc 12345-6") | baixo | `nomeSeguroDaConta`: 4+ dígitos depois de "ag", "agência", "cc", "c/c", "conta" ou "op" saem inteiros ("ag ••• cc •••"); o resto continua com a regra dos 5+ dígitos. |
+| Auditoria fora da transação | baixo | `registrarMarcacaoTransferencia` recebe a transação: a marcação (tirar o lançamento, gravar a movimentação) e a auditoria são uma transação só (`atualizarMovimentacao`, `aplicarClassificacaoEmLote`); falhou a auditoria → nada vale. Só sem a tabela (banco anterior à 0164) a marcação segue sem auditoria. |
+| Comentários da 0164 fora de ordem | baixo | Itens 1–4 em ordem (SQL inalterado). |
+
+Testes antigos ajustados às regras novas: `s6-qa.test.ts` (o pendente ganha `motivo`), `s6-qa2.test.ts` ("Ag 0001 CC …" → "Ag ••• CC •••"),
+`s6-qa3.test.ts` (`transferenciasPorQuem` ganha `ultimaMarcacaoEm`), `bpo-extrato.test.ts` (o banco falso ganha `transaction`/`execute`).
+
+## Junção com a S-8 (main de 23/11: S-5b, S-3b, Jurídico e S-8)
+
+- Merge por união (`server/fiscal/router.ts`: importações e a lista de emissores com os dados do Simples e as filiais da S-6).
+- **Fonte do RBT12 trocada**: `server/fiscal/simples.ts#fonteReceitaDaApuracao` (substitui a `fonteReceitaMinima`) usa
+  `teto.ts#apurarPeriodo` — a apuração da S-6 numa janela qualquer (12 meses, mês, ano-calendário) — + as notas EMITIDAS da raiz.
+  Do BPO entram só honorário e receita (M1 da S-8), sem transferência entre contas da empresa e sem estorno confirmado; devolve
+  `lancamentosBpo` para a deduplicação do 1º mês.
+- **M5 da S-8 resolvido**: lançamento ligado a nota emitida sai do BPO (se o BPO tiver mais que a nota, a diferença fica); nota SEM
+  lançamento do BPO casa com UMA entrada (ou crédito pendente) de mesmo valor da mesma empresa em até 45 dias
+  (`JANELA_NOTA_X_RECEBIMENTO_DIAS`) — contada uma vez, com aviso.
+- [AUTO-DECISION] Créditos a classificar/com diferença do extrato entram no RBT12? → sim, com aviso e valor (regra do lead: na dúvida,
+  contar a mais; é o mesmo "possível" que o aviso do limite usa). O teste da S-8 "não pago não entra" passou a esperar o crédito do banco
+  como pendente (R2).
+- [AUTO-DECISION] Receita sem conta ou em conta sem empresa → fica fora do RBT12 (não dá para dizer de que empresa é), com aviso e valor.
+- Testes da S-8 ajustados: o DDL do schema já traz as colunas da 0164 — os testes tiram as duas colunas (como os da S-6) para continuar
+  ligando a conta por empresa com `ALTER TABLE`. `s3-fiscal-revisao.test.ts` (S-3b): a tabela feita à mão ganha `effective_to` (coluna
+  real da 0022, lida por `lerPerfis`).
+
 ## File List
 
 - `drizzle/0164_contas_empresa_limite_receita.sql` (novo), `drizzle/schema.ts`
@@ -184,6 +222,11 @@ do cenário de reembolso passa a contar.
 - `client/src/components/fiscal/LimitesReceita.tsx` (novo), `client/src/pages/admin/BancosPanel.tsx`,
   `client/src/pages/admin/TaxAccountingPanel.tsx`
 - Correções do QA: `client/src/components/fiscal/NotasADecidir.tsx`, `server/dolores/testes-banco.ts`, `server/fiscal/s6-qa.test.ts` (do QA)
+- 4º portão: `server/bpo-extrato.ts`, `server/fiscal/teto.ts`, `shared/fiscal/regimes.ts`, `client/src/components/fiscal/LimitesReceita.tsx`,
+  `server/dolores/leitura/limites-receita.ts`, `drizzle/0164_contas_empresa_limite_receita.sql` (comentários); testes `server/fiscal/s6-qa4.test.ts`
+  (do QA + correções), `s6-qa.test.ts`, `s6-qa2.test.ts`, `s6-qa3.test.ts`, `server/bpo-extrato.test.ts`
+- Junção S-8: `server/fiscal/simples.ts`, `server/fiscal/router.ts`, `server/fiscal/simples-servidor.test.ts`, `server/fiscal/s8-qa.test.ts`,
+  `server/dolores/s3-fiscal-revisao.test.ts`
 - Testes: `server/fiscal/s6-regimes.test.ts`, `server/fiscal/s6-contas-limites.test.ts`, `server/dolores/s6-limite-receita.test.ts` (novos);
   `server/dolores/c5-e4-proatividade.test.ts`, `server/dolores/c5-integracao2.test.ts`, `server/dolores/leitura-somente.test.ts`
 
@@ -208,3 +251,5 @@ do cenário de reembolso passa a contar.
 | 22/11/2026 | @dev (Dex) | Correções do 2º portão; `it.fails` → `it`; volta a InReview. |
 | 22/11/2026 | @qa (Quinn) | 3º portão de QA: FAIL (Q1, Q2 importantes; Q3 médio; Q4 baixo). |
 | 23/11/2026 | @dev (Dex) | Correções do 3º portão (Q1–Q4); auditoria das marcações; `it.fails` → `it`; volta a InReview. |
+| 23/11/2026 | @qa (Quinn) | 4º portão de QA: CONCERNS (R1–R3 médios; R4 e três baixos). |
+| 23/11/2026 | @dev (Dex) | Correções do 4º portão (R1–R4 + baixos); merge da main (S-5b, S-3b, Jurídico, S-8); RBT12 da S-8 pela apuração da S-6 e M5 resolvido; volta a InReview. |

@@ -84,7 +84,7 @@ Fator R, da folha de salários. O número fixo erra para cima ou para baixo e n�
 7. RBT12 soma matriz e filiais (raiz) e não soma outra empresa; nota não emitida não entra.
 
 ## Pendências da troca de fonte (junção com a S-6)
-- **M5 (portão de QA): dupla contagem nota × BPO.** A fonte mínima tira do BPO o lançamento ligado a uma nota emitida, mas não casa
+- **[RESOLVIDO na junção com a S-6, 23/11 — `fonteReceitaDaApuracao`; ver a story da S-6]** **M5 (portão de QA): dupla contagem nota × BPO.** A fonte mínima tira do BPO o lançamento ligado a uma nota emitida, mas não casa
   nota emitida sem origem no BPO com o mesmo dinheiro entrando no banco por outro lançamento. Resolver ao trocar
   `fonteReceitaMinima` pela apuração da S-6 (que também trata transferências entre contas).
 - Sublimite: conferir as regras do §3.1-A do ALIQUOTAS.md com o contador.

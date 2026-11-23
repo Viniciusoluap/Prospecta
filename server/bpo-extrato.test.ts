@@ -132,6 +132,11 @@ function bancoEmMemoria(inicial: Partial<Record<string, Row[]>> = {}) {
       },
     }),
   };
+  // QA4 S-6: a marcação como Transferência interna roda numa transação com a auditoria (aqui, sem a tabela da 0164: auditoria pulada)
+  Object.assign(db, {
+    transaction: (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
+    execute: () => Promise.resolve({ rows: [{ ok: false }] }),
+  });
   vi.mocked(getDb).mockReturnValue(db as never);
   return { dados, opts };
 }
