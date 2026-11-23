@@ -58,6 +58,8 @@ export interface PremissasForm {
   entradaPct: number;
   prazoParcelamentoMeses: number;
   jurosClienteMensal: number;
+  prazoRecursosPropriosMeses: number;
+  jurosRecursosPropriosMensal: number;
   indexacaoMensal: number;
   vendasAVistaPct: number;
   descontoAVistaPct: number;
@@ -132,6 +134,9 @@ export function configFontes(estudo: EstudoData, form: PremissasForm): ConfigFon
 /** Premissas do motor já integradas às fontes do sistema + as fontes usadas (para o demonstrativo). */
 export function montarViabilidade(estudo: EstudoData, form: PremissasForm, itensMix: ItemMixProduto[], pctAPP: number): { premissas: PremissasLoteamento; fontes: FontesResolvidas } {
   const base = paraMotor(form, itensMix, pctAPP);
+  if (form.urbanismoModo === "cenario") {
+    base.areaVendavelCenarioM2 = urbanismoDoCenario(estudo)?.quadroAreas?.areaLiquidaVendavelM2;
+  }
   const fontes = resolverFontes(estudo, configFontes(estudo, form), { custoInfraM2Lote: form.custoInfraM2Lote, marketing: form.marketing }, calcularMix(itensMix).areaVendidaM2);
   return { premissas: aplicarFontes(base, fontes), fontes };
 }
@@ -168,6 +173,8 @@ export function defaultsForm(estudo: EstudoData): PremissasForm {
     entradaPct: 10,
     prazoParcelamentoMeses: 180,
     jurosClienteMensal: 0.52,
+    prazoRecursosPropriosMeses: 0,
+    jurosRecursosPropriosMensal: 0,
     indexacaoMensal: 0.4,
     vendasAVistaPct: 5,
     descontoAVistaPct: 10,
@@ -193,33 +200,66 @@ export function defaultsForm(estudo: EstudoData): PremissasForm {
   };
 }
 
-export function defaultsMix(estudo: EstudoData): ItemMixProduto[] {
-  // 1) mix vindo do Estudo de Massa (cenário gerador), se existir.
-  if (estudo.mixJson) {
-    try {
-      const mix = JSON.parse(estudo.mixJson) as ItemMixProduto[];
-      if (Array.isArray(mix) && mix.length > 0) return mix;
-    } catch { /* ignora JSON corrompido */ }
-  }
-  // 2) preço sugerido pela precificação por comparáveis ponderados (2.2), se existir.
-  let precoM2 = 0;
+function lerJson<T>(json: string | null | undefined): T | null {
+  try { return json ? JSON.parse(json) as T : null; } catch { return null; }
+}
+
+function valorPositivo(valor: number | null | undefined): number {
+  return typeof valor === "number" && Number.isFinite(valor) && valor > 0 ? valor : 0;
+}
+
+export function referenciasDePreco(estudo: EstudoData) {
+  const mercado = lerJson<{ precoM2Lote?: number; precoM2Casa?: number; precoM2Apartamento?: number }>(estudo.estudoMercadoJson);
+  let comparavel = 0;
   if (estudo.precificacaoComparaveisJson) {
     try {
       const salvo = JSON.parse(estudo.precificacaoComparaveisJson) as {
         atributos: AtributoComparavel[]; notasNovo: number[]; comparaveis: Comparavel[];
       };
-      const r = calcularPrecificacaoPorComparaveis(salvo.atributos, salvo.notasNovo, salvo.comparaveis);
-      if (r.precoSugeridoM2 > 0) precoM2 = r.precoSugeridoM2;
-    } catch { /* ignora */ }
+      comparavel = valorPositivo(calcularPrecificacaoPorComparaveis(salvo.atributos, salvo.notasNovo, salvo.comparaveis).precoSugeridoM2);
+    } catch { /* A referência pode não estar disponível. */ }
   }
-  // 3) senão, preço sugerido pela pesquisa de Cidade & Mercado (IA), se existir.
-  if (!precoM2 && estudo.estudoMercadoJson) {
-    try {
-      const m = JSON.parse(estudo.estudoMercadoJson) as { precoM2Lote?: number };
-      if (m.precoM2Lote) precoM2 = m.precoM2Lote;
-    } catch { /* ignora */ }
+  const mixSalvo = lerJson<ItemMixProduto[]>(estudo.mixJson);
+  const loteSalvo = Array.isArray(mixSalvo)
+    ? mixSalvo.find(item => item && !item.casaPronta && !item.apartamento && valorPositivo(item.precoM2))
+    : undefined;
+  const cenario = urbanismoDoCenario(estudo);
+  const quadro = cenario?.quadroAreas;
+  const areaVendavel = valorPositivo(quadro?.areaLiquidaVendavelM2);
+  const precoLegado = cenario?.precoM2Lote ?? (areaVendavel ? valorPositivo(quadro?.vgv) / areaVendavel : 0);
+  return {
+    lote: comparavel || valorPositivo(mercado?.precoM2Lote)
+      || valorPositivo(loteSalvo?.precoM2)
+      || valorPositivo(precoLegado),
+    casa: valorPositivo(mercado?.precoM2Casa),
+    apartamento: valorPositivo(mercado?.precoM2Apartamento),
+  };
+}
+
+export function resolverPrecoProduto(item: ItemMixProduto, refs: ReturnType<typeof referenciasDePreco>): ItemMixProduto {
+  if (item.casaPronta || item.apartamento) {
+    const precoResidencial = (item.apartamento ? refs.apartamento : refs.casa) * valorPositivo(item.areaPrivativaM2);
+    const valorEquivalente = item.apartamento ? 0
+      : (valorPositivo(item.precoM2) || refs.lote) * valorPositivo(item.areaUnidadeM2);
+    const preco = valorPositivo(item.precoUnidade) || precoResidencial || valorEquivalente;
+    return { ...item, precoUnidade: Math.round(preco * 100) / 100 };
   }
-  return [{ nome: "Lotes", quantidade: 100, areaUnidadeM2: 160, precoM2: precoM2 || 500 }];
+  const area = valorPositivo(item.areaUnidadeM2);
+  const precoM2 = valorPositivo(item.precoM2) || (area ? valorPositivo(item.precoUnidade) / area : 0) || refs.lote;
+  return { ...item, precoM2 };
+}
+
+export function defaultsMix(estudo: EstudoData): ItemMixProduto[] {
+  const cenario = urbanismoDoCenario(estudo);
+  const mix = lerJson<ItemMixProduto[]>(estudo.mixJson);
+  if (cenario) {
+    const quantidade = cenario.lotes.length;
+    const area = cenario.lotes.reduce((total, lote) => total + lote.areaM2, 0);
+    return [{ nome: "Lotes", quantidade, areaUnidadeM2: quantidade > 0 ? area / quantidade : 0,
+      precoM2: referenciasDePreco(estudo).lote }];
+  }
+  if (Array.isArray(mix) && mix.length > 0) return mix;
+  return [{ nome: "Lotes", quantidade: 0, areaUnidadeM2: 0, precoM2: referenciasDePreco(estudo).lote }];
 }
 
 export function paraMotor(f: PremissasForm, itensMix: ItemMixProduto[], pctAPP: number): PremissasLoteamento {
@@ -237,6 +277,8 @@ export function paraMotor(f: PremissasForm, itensMix: ItemMixProduto[], pctAPP: 
     entradaPct: pct(f.entradaPct),
     prazoParcelamentoMeses: f.prazoParcelamentoMeses,
     jurosClienteMensal: pct(f.jurosClienteMensal),
+    prazoRecursosPropriosMeses: f.prazoRecursosPropriosMeses,
+    jurosRecursosPropriosMensal: pct(f.jurosRecursosPropriosMensal ?? 0),
     indexacaoMensal: pct(f.indexacaoMensal),
     vendasAVistaPct: pct(f.vendasAVistaPct),
     descontoAVistaPct: pct(f.descontoAVistaPct),
@@ -284,7 +326,9 @@ export function montarViabilidadeDoEstudo(estudo: EstudoData): { premissas: Prem
   if (!salvo) return null;
 
   const form: PremissasForm = sincronizarUrbanismo(estudo, { ...defaultsForm(estudo), ...salvo });
-  const itensMix = form.mixModo === "cenario" ? defaultsMix(estudo) : salvo.itensMix && salvo.itensMix.length > 0 ? salvo.itensMix : defaultsMix(estudo);
+  const itens = form.mixModo !== "cenario" && Array.isArray(salvo.itensMix) ? salvo.itensMix : defaultsMix(estudo);
+  const refs = referenciasDePreco(estudo);
+  const itensMix = itens.map(item => resolverPrecoProduto(item, refs));
   const appAreaM2 = appDaViabilidade(estudo, form);
   const pctAPP = form.areaBrutaM2 > 0 ? appAreaM2 / form.areaBrutaM2 : 0;
   return { ...montarViabilidade(estudo, form, itensMix, pctAPP), form, itensMix };
