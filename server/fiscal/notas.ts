@@ -39,7 +39,7 @@ export type DadosOrigem = {
 };
 
 export type Tomador = { tipo: "bpo" | "crm" | "origem" | "nenhum"; nome: string | null; documento: string | null; cidade: string | null; uf: string | null };
-export type EmissorLido = { id: number; cnpj: string; razaoSocial: string | null; regime: string | null; municipioNome: string | null; municipioUf: string | null; ambiente: string };
+export type EmissorLido = { id: number; cnpj: string; razaoSocial: string | null; regime: string | null; municipioNome: string | null; municipioUf: string | null; ambiente: string; emissaoLiberada: boolean };
 
 export type NotaDetalhada = FiscalNota & {
   origemRotulo: string;
@@ -155,7 +155,7 @@ export async function emissoresComPerfil(db: DrizzleDb): Promise<EmissorLido[]> 
     ORDER BY upper(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`));
   return emissores.map(e => {
     const p = perfis.find(x => x.cnpj === e.cnpj);
-    return { id: e.id, cnpj: e.cnpj, razaoSocial: txt(p?.company_name), regime: txt(p?.regime), municipioNome: e.municipioNome, municipioUf: e.municipioUf, ambiente: e.ambiente };
+    return { id: e.id, cnpj: e.cnpj, razaoSocial: txt(p?.company_name), regime: txt(p?.regime), municipioNome: e.municipioNome, municipioUf: e.municipioUf, ambiente: e.ambiente, emissaoLiberada: e.emissaoLiberada };
   });
 }
 

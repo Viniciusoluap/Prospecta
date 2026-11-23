@@ -25,7 +25,8 @@
 // | silenciar_aviso           | fila   | C5-E4: silencia/religa um tipo de aviso automático (configuração dela), com o "pode"   |
 // | decidir_nota_fiscal       | fila   | EPIC-029 S-3: rascunho de NFS-e "sem nota" (motivo da lista) ou "depois", com o "pode"  |
 // | editar_rascunho_nota      | fila   | EPIC-029 S-3: valor/descrição/município do rascunho (antes → depois), com o "pode"      |
-// | emitir_nota_fiscal        | fila   | EPIC-029 S-3: SÉRIA ("confirmo"); até a S-4/S-5 a execução recusa — nada sai do sistema |
+// | emitir_nota_fiscal        | fila   | EPIC-029 S-3/S-7: SÉRIA ("confirmo"); executa pela MESMA função da tela (server/fiscal/emissao.ts), com as travas de lá |
+// | cancelar_nota_fiscal      | fila   | EPIC-029 S-7: SÉRIA ("confirmo"); motivo 1/2/9 + justificativa com as palavras do dono |
 //
 // EPIC-027 C5 (E2): no WhatsApp do dono NADA executa sem a resposta dele — "pode" (registro) ou "confirmo" (sério), reconhecida
 // por código (server/dolores/pendencia.ts). O nível de confirmação de cada item é calculado por código em
@@ -61,7 +62,7 @@ import {
 } from "./mesas.js";
 import { entradaSilenciarAprovado, entradaSilenciarAviso, executarSilenciarAprovado, prepararSilenciarAviso } from "./avisos.js";
 import {
-  entradaDecidirAprovado, entradaDecidirNotaFiscal, entradaEditarAprovado, entradaEditarRascunhoNota, entradaEmitirAprovado, entradaEmitirNotaFiscal,
+  entradaDecidirAprovado, entradaDecidirNotaFiscal, entradaEditarAprovado, entradaEditarRascunhoNota, entradaEmitirAprovado, entradaEmitirNotaFiscal, entradaCancelarNotaFiscal, entradaCancelarAprovado, prepararCancelarNotaFiscal, executarCancelarAprovado,
   executarDecidirAprovado, executarEditarAprovado, executarEmitirAprovado, prepararDecidirNotaFiscal, prepararEditarRascunhoNota, prepararEmitirNotaFiscal,
 } from "./fiscal.js";
 
@@ -162,6 +163,9 @@ export const ACOES: readonly FuncaoAcao[] = [
   naFila("emitir_nota_fiscal",
     "Propõe EMITIR um rascunho de nota fiscal quando o dono pede. É sério (ele confirma por escrito). Hoje a emissão ainda não está ativa: a resposta do sistema dirá isso; nunca diga que emitiu.",
     entradaEmitirNotaFiscal, prepararEmitirNotaFiscal, entradaEmitirAprovado, executarEmitirAprovado),
+  naFila("cancelar_nota_fiscal",
+    "Propõe CANCELAR nota fiscal já emitida, a pedido do dono. Sério (confirma por escrito).",
+    entradaCancelarNotaFiscal, prepararCancelarNotaFiscal, entradaCancelarAprovado, executarCancelarAprovado),
 ];
 
 export const acaoPorNome = (nome: string) => ACOES.find(a => a.nome === nome) ?? null;

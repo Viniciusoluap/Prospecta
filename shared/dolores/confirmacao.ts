@@ -95,6 +95,8 @@ export function nivelDoItem(funcao: string, argumentos: unknown): NivelConfirmac
     // aprovar uma mesa é sério ("confirmo"), mesmo sem ligar nada: é a decisão de construir uma função nova
     // EPIC-029 S-3: emitir nota fiscal é sério ("confirmo"), decisão do dono (l) de 22/11
     case "preparar_cobranca": case "conciliar_nota_obra": case "aceitar_grupo": case "propor_aprovacao_mesa": case "emitir_nota_fiscal":
+    // EPIC-029 S-7: cancelar nota fiscal também é sério ("confirmo")
+    case "cancelar_nota_fiscal":
     default:
       return "serio";
   }
@@ -121,6 +123,7 @@ const ehTroca = (i: ItemParaMotivo) => typeof i !== "string" && i.funcao === "cl
 export function motivoDoSerio(itens: readonly ItemParaMotivo[]): string {
   const funcoes = itens.map(i => (typeof i === "string" ? i : i.funcao));
   if (funcoes.includes("emitir_nota_fiscal")) return "é a emissão de uma nota fiscal";
+  if (funcoes.includes("cancelar_nota_fiscal")) return "é o cancelamento de uma nota fiscal";
   if (funcoes.includes("conciliar_nota_obra")) return "mexe com pagamento";
   if (funcoes.includes("preparar_cobranca")) return "é uma cobrança a cliente";
   if (funcoes.includes("aceitar_grupo")) return "é um grupo em que outra pessoa me colocou";

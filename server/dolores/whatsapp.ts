@@ -716,12 +716,18 @@ async function enviarPreviasFiscais(cfg: DoloresWhatsappConfig, numero: string, 
       const [{ carregarNota }, { gerarPreviaPdf }, { emTransacaoSomenteLeitura, bancoDaLeitura }, { campoPessoal }] = await Promise.all([
         import("../fiscal/notas.js"), import("../fiscal/previa-pdf.js"), import("./somente-leitura.js"), import("./dados-pessoais.js")]);
       const nota = await emTransacaoSomenteLeitura(() => carregarNota(bancoDaLeitura(), id));
-      const pdf = gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
+      // EPIC-029 S-7: nota EMITIDA/CANCELADA → o DANFSe do XML AUTORIZADO (nunca do rascunho); rascunho → a prévia de sempre.
+      const emitida = (nota.status === "EMITIDA" || nota.status === "CANCELADA") && Boolean(nota.xmlNfse);
+      const pdf = emitida
+        ? (await import("../fiscal/danfse.js")).gerarDanfsePdf(nota.xmlNfse!, { cancelada: nota.status === "CANCELADA" })
+        : gerarPreviaPdf(notaParaPreviaDaDolores(nota, campoPessoal));
       // QA S-3 (B2): teto explícito do arquivo antes do envio
       if (pdf.byteLength > MAX_BYTES_PREVIA) { await auditar("erro", "prévia acima do tamanho máximo", { notaFiscalId: id, bytes: pdf.byteLength }); falhou = true; break; }
       const base64 = Buffer.from(pdf).toString("base64");
-      const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64, nome: `previa-nota-${id}.pdf`,
-        legenda: `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, resta - 1_000) });
+      const ok = await deps.enviarDocumento({ instancia: cfg.instancia, numero: destino, base64,
+        nome: emitida ? `danfse-${nota.numeroNfse ?? id}.pdf` : `previa-nota-${id}.pdf`,
+        legenda: emitida ? `DANFSe da NFS-e nº ${nota.numeroNfse ?? "?"}${nota.status === "CANCELADA" ? " (CANCELADA)" : ""}${nota.ambienteEmissao === "producao_restrita" ? " — ambiente de testes, sem validade jurídica" : ""}.`
+          : `Prévia do rascunho de nota nº ${id} — RASCUNHO, SEM VALOR FISCAL. Nada foi emitido.`, prazoMs: Math.min(PRAZO_ENVIO_MS, resta - 1_000) });
       await auditar(ok ? "ok" : "erro", ok ? null : "a Evolution não aceitou o documento", { notaFiscalId: id, bytes: pdf.byteLength });
       if (!ok) { falhou = true; break; }
     } catch (e) {

@@ -96,7 +96,9 @@ const PRAZO_CONSULTA_MS = 15_000;
 // EPIC-029 S-3 (fiscal): +2 leituras e +3 ações fiscais (~2 mil tokens; o texto do sistema não mudou). Pior caso medido (todas as
 // ferramentas com ações, inclusive as de mesa e as fiscais) = sistema 2.474 + ferramentas 16.869 = 19.343 (+500 da API = 19.843 > 19.000):
 // piso 19.000 → 21.000 (folga ~1,16 mil). As fiscais só vão quando o assunto é nota fiscal (sem elas e sem as de mesa: ≈ 16,2 mil).
-export const RESERVA_MINIMA_ENTRADA = 21_000;
+// EPIC-029 S-7: +1 ação fiscal (cancelar_nota_fiscal, sério; ~380 tokens com descrições já encurtadas): piso 21.000 → 21.500
+// (folga ≥ 1.000 mantida no pior caso; teste em server/dolores/s3-fiscal.test.ts).
+export const RESERVA_MINIMA_ENTRADA = 21_500;
 /** Tokens que a API acrescenta por conta própria quando há ferramentas (instrução de uso de ferramentas), por cima. */
 export const SOBRECARGA_DE_FERRAMENTAS = 500;
 /** A reserva vence sozinha depois disto (a função da Vercel morre aos 60 s). */

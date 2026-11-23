@@ -34,6 +34,12 @@ export const FIN_NFSE_REGULAR = "0";
 /** [OFICIAL] série: `[0-9]{1,4}|[0-8][0-9]{4}`; aplicativo próprio (API) usa 00001–49999 (E0010). */
 export const SERIE_MIN_API = 1;
 export const SERIE_MAX_API = 49999;
+/**
+ * S-7: série PADRÃO quando a empresa emissora não informou nenhuma: "1" (no Id da DPS, "00001") — a primeira da faixa do
+ * aplicativo próprio por API (00001–49999, regra E0010; 50000+ são do app móvel, web e transcrição). Gravada no emissor na
+ * 1ª emissão, para que todas as notas sigam a mesma série.
+ */
+export const SERIE_PADRAO_API = "1";
 /** [OFICIAL] nDPS: `[1-9][0-9]{0,14}` — sem zero à esquerda; número usado nunca é reutilizado. */
 export const PADRAO_NUMERO_DPS = /^[1-9][0-9]{0,14}$/;
 /** [OFICIAL] Id da DPS (45). */

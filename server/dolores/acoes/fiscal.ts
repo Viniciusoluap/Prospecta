@@ -8,8 +8,8 @@
 // - só executa com a decisão vinda do WhatsApp dele (`ctx.via === "whatsapp"`; a tela tem os botões próprios da aba Contabilidade);
 // - motivo de "sem nota" da lista fechada (shared/fiscal/motivos.ts); texto livre só no motivo "outro", e saído das palavras dele;
 // - a gravação usa as MESMAS funções da tela (server/fiscal/notas.ts: transição, versão lida, histórico imutável com via "whatsapp");
-// - emitir: até a S-4/S-5 a execução RECUSA ("a emissão ainda não está ativa") — nenhuma chamada de rede, status intacto. O servidor
-//   (notas.ts#emitir) e o gatilho da 0154 também recusam.
+// - emitir/cancelar (S-7): enquanto EMISSAO_DISPONIVEL for false a execução RECUSA ("a emissão ainda não está ativa") — nenhuma
+//   chamada de rede, status intacto. Ligada, roda server/fiscal/emissao.ts (mesmas travas da tela + gatilho da 0167).
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -22,6 +22,7 @@ import { MOTIVOS_SEM_NOTA, ROTULO_MOTIVO, problemaDoMotivo, type MotivoSemNota }
 import { EMISSAO_DISPONIVEL } from "../../../shared/fiscal/status.js";
 import { adiar, detalhar, editar, naoEmitir, type NotaDetalhada } from "../../fiscal/notas.js";
 import { UFS } from "../../fiscal/router.js";
+import { getDb } from "../../db.js";
 import { bancoDaAcao, emTransacaoDeEscrita } from "../escrita.js";
 import { bancoDaLeitura, emTransacaoSomenteLeitura } from "../somente-leitura.js";
 import { RecusaAcao, conferirMostrado, registrarAutoria, resumoDaFila, textoDoDono, type ContextoAcao, type Preparo, type ResultadoAcao } from "./comum.js";
@@ -203,18 +204,93 @@ export async function executarEditarAprovado(args: z.infer<typeof entradaEditarA
   return { dados: { notaFiscalId: args.notaFiscalId }, resumo: { notaFiscalId: args.notaFiscalId, editada: true }, feitos: [`corrigi o rascunho de nota nº ${args.notaFiscalId}`] };
 }
 
-// ── emitir_nota_fiscal: SÉRIA ("confirmo"); até a S-4/S-5 a execução recusa e nada sai do sistema ──
+// ── emitir_nota_fiscal: SÉRIA ("confirmo"). S-7: executa pela MESMA função da tela (server/fiscal/emissao.ts#emitirNota), com as
+// mesmas travas (EMISSAO_DISPONIVEL, interruptor do emissor, ambiente). Fora da transação de escrita da Dolores DE PROPÓSITO: o
+// envio à Sefin não pode ser desfeito por um rollback (o registro EMITINDO e o retorno ficam gravados sempre). ──
+
+/** Nota que pode ir para emissão: a decidir, adiada, com erro ou com emissão em andamento (retomada consulta antes). */
+async function notaParaEmitir(id: number): Promise<NotaDetalhada> {
+  const n = await emTransacaoSomenteLeitura(async () => {
+    const linhas = await bancoDaLeitura().select().from(fiscalNotas).where(eq(fiscalNotas.id, id)).limit(1);
+    return (await detalhar(bancoDaLeitura(), linhas))[0] ?? null;
+  }).catch(() => { throw new RecusaAcao("Não consegui ler as notas agora. Nada foi mudado."); });
+  if (!n) throw new RecusaAcao(`Não achei a nota ${id}. Nada foi mudado.`);
+  if (!["A_DECIDIR", "ADIADA", "ERRO", "EMITINDO"].includes(n.status)) throw new RecusaAcao(`Essa nota não pode ser emitida (situação: ${n.status.toLowerCase()}). Nada foi mudado.`);
+  return n;
+}
 
 export async function prepararEmitirNotaFiscal(args: z.infer<typeof entradaEmitirNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
   pedidoDoDono(ctx);
-  const n = await rascunhoAberto(args.notaFiscalId);
-  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${EMISSAO_DISPONIVEL ? "a nota sai pela API Nacional" : "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"}`);
+  const n = await notaParaEmitir(args.notaFiscalId);
+  const ambiente = n.emissor?.ambiente === "producao" ? "a nota sai pela API Nacional, COM VALOR FISCAL" : n.emissor?.ambiente === "producao_restrita" ? "a nota sai no AMBIENTE DE TESTES, sem valor fiscal" : "a emissão desta empresa está desligada";
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}EMITIR ${rotulo(n)} — atenção: ${EMISSAO_DISPONIVEL ? ambiente : "a emissão ainda não está ativa; com a sua confirmação eu só confiro, nada sai do sistema"}`);
   return { itens: [{ alvo: `nota_fiscal:${n.id}:emitir`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao } }], recusados: [] };
 }
 
-export async function executarEmitirAprovado(_args: z.infer<typeof entradaEmitirAprovado>, ctx: ContextoAcao): Promise<ResultadoAcao> {
+export async function executarEmitirAprovado(args: z.infer<typeof entradaEmitirAprovado>, ctx: ContextoAcao, deps: { emissaoDisponivel?: boolean } = {}): Promise<ResultadoAcao> {
   soPeloWhatsapp(ctx);
-  // Nenhuma chamada de rede e nenhuma gravação: a emissão real entra na S-4 (homologação) e na S-5 (produção, liberada pelo dono).
-  const frase = FRASE_EMISSAO_INATIVA.charAt(0).toUpperCase() + FRASE_EMISSAO_INATIVA.slice(1);
-  throw new RecusaAcao(EMISSAO_DISPONIVEL ? "A emissão pela conversa entra na etapa 5 do módulo fiscal; nada foi emitido e o rascunho continua como estava." : `${frase}.`);
+  if (!(deps.emissaoDisponivel ?? EMISSAO_DISPONIVEL)) {
+    // Nenhuma chamada de rede e nenhuma gravação enquanto a emissão não estiver ativa no código.
+    const frase = FRASE_EMISSAO_INATIVA.charAt(0).toUpperCase() + FRASE_EMISSAO_INATIVA.slice(1);
+    throw new RecusaAcao(`${frase}.`);
+  }
+  const { emitirNota, fraseDeErroConhecido } = await import("../../fiscal/emissao.js");
+  let r;
+  try { r = await emitirNota(getDb(), { id: args.notaFiscalId, versao: args.versao, usuarioId: ctx.autorId, via: "whatsapp" }, { emissaoDisponivel: deps.emissaoDisponivel }); }
+  catch (e) {
+    const frase = fraseDeErroConhecido(e);
+    if (frase) throw new RecusaAcao(frase);
+    throw e;
+  }
+  await emTransacaoDeEscrita(() => registrarAutoria(ctx, { tabela: "fiscal_notas", registroId: args.notaFiscalId, funcao: "emitir_nota_fiscal", descricao: `nota ${args.notaFiscalId}: ${r.situacao}` }));
+  if (r.situacao === "emitida" || r.situacao === "ja_emitida") return { dados: { notaFiscalId: r.notaId, numero: r.numero }, resumo: { notaFiscalId: r.notaId, situacao: r.situacao }, feitos: [r.mensagem] };
+  throw new RecusaAcao(r.mensagem);
+}
+
+// ── cancelar_nota_fiscal: SÉRIA ("confirmo"). Só nota emitida; motivo da lista do leiaute; justificativa com as palavras do dono ──
+
+const MOTIVO_DA_FALA = { erro_na_emissao: 1, servico_nao_prestado: 2, outros: 9 } as const;
+export const entradaCancelarNotaFiscal = z.object({
+  notaFiscalId: id32,
+  motivo: z.enum(["erro_na_emissao", "servico_nao_prestado", "outros"]),
+  justificativa: z.string().trim().min(15).max(255).describe("Palavras do dono."),
+}).strict();
+export const entradaCancelarAprovado = z.object({
+  notaFiscalId: id32, versao: z.number().int().positive(), motivo: z.union([z.literal(1), z.literal(2), z.literal(9)]), justificativa: z.string().min(15).max(255),
+}).strict();
+
+export async function prepararCancelarNotaFiscal(args: z.infer<typeof entradaCancelarNotaFiscal>, ctx: ContextoAcao): Promise<Preparo> {
+  const doDono = pedidoDoDono(ctx);
+  const n = await emTransacaoSomenteLeitura(async () => {
+    const linhas = await bancoDaLeitura().select().from(fiscalNotas).where(eq(fiscalNotas.id, args.notaFiscalId)).limit(1);
+    return (await detalhar(bancoDaLeitura(), linhas))[0] ?? null;
+  }).catch(() => { throw new RecusaAcao("Não consegui ler as notas agora. Nada foi mudado."); });
+  if (!n) throw new RecusaAcao(`Não achei a nota ${args.notaFiscalId}. Nada foi mudado.`);
+  if (n.status !== "EMITIDA") throw new RecusaAcao("Só uma nota já emitida pode ser cancelada. Nada foi mudado.");
+  const justificativa = textoDoDono(args.justificativa.replace(/\s+/g, " "));
+  if (!veioDasPalavrasDoDono(justificativa, doDono)) throw new RecusaAcao(FRASE_NAO_E_DO_DONO);
+  const motivo = MOTIVO_DA_FALA[args.motivo];
+  const rotuloMotivo = { 1: "erro na emissão", 2: "serviço não prestado", 9: "outros" }[motivo];
+  const resumo = resumoDaFila(`${prefixoDaFila(ctx.motivoContaminacao)}CANCELAR a NFS-e nº ${n.numeroNfse ?? "?"} de ${rotulo(n)} — motivo: ${rotuloMotivo} (${aspas(justificativa)}). Cancelamento não se desfaz.`, [aspas(justificativa)]);
+  return { itens: [{ alvo: `nota_fiscal:${n.id}:cancelar`, resumo, argumentos: { notaFiscalId: n.id, versao: n.versao, motivo, justificativa } }], recusados: [] };
+}
+
+export async function executarCancelarAprovado(args: z.infer<typeof entradaCancelarAprovado>, ctx: ContextoAcao, deps: { emissaoDisponivel?: boolean } = {}): Promise<ResultadoAcao> {
+  soPeloWhatsapp(ctx);
+  conferirMostrado(ctx, [aspas(args.justificativa)]);
+  if (!(deps.emissaoDisponivel ?? EMISSAO_DISPONIVEL)) {
+    const frase = FRASE_EMISSAO_INATIVA.charAt(0).toUpperCase() + FRASE_EMISSAO_INATIVA.slice(1);
+    throw new RecusaAcao(`${frase}.`);
+  }
+  const { cancelarNota, fraseDeErroConhecido } = await import("../../fiscal/emissao.js");
+  let r;
+  try { r = await cancelarNota(getDb(), { id: args.notaFiscalId, versao: args.versao, motivo: args.motivo, justificativa: args.justificativa, usuarioId: ctx.autorId, via: "whatsapp" }, { emissaoDisponivel: deps.emissaoDisponivel }); }
+  catch (e) {
+    const frase = fraseDeErroConhecido(e);
+    if (frase) throw new RecusaAcao(frase);
+    throw e;
+  }
+  await emTransacaoDeEscrita(() => registrarAutoria(ctx, { tabela: "fiscal_notas", registroId: args.notaFiscalId, funcao: "cancelar_nota_fiscal", descricao: `nota ${args.notaFiscalId}: ${r.situacao}` }));
+  if (r.situacao === "incerta") throw new RecusaAcao(r.mensagem);
+  return { dados: { notaFiscalId: r.notaId }, resumo: { notaFiscalId: r.notaId, situacao: r.situacao }, feitos: [r.mensagem] };
 }

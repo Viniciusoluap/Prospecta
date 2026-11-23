@@ -7,8 +7,8 @@
 
 /** As duas leituras fiscais (só na conversa direta do dono: server/dolores/funcoes.ts#LEITURAS_DO_DONO). */
 export const LEITURAS_FISCAIS = ["listar_notas_fiscais", "ver_nota_fiscal"] as const;
-/** As três ações fiscais (de FILA: nada grava sem a resposta do dono no WhatsApp). */
-export const ACOES_FISCAIS = ["decidir_nota_fiscal", "editar_rascunho_nota", "emitir_nota_fiscal"] as const;
+/** As ações fiscais (de FILA: nada grava sem a resposta do dono no WhatsApp). S-7: + cancelar_nota_fiscal (sério). */
+export const ACOES_FISCAIS = ["decidir_nota_fiscal", "editar_rascunho_nota", "emitir_nota_fiscal", "cancelar_nota_fiscal"] as const;
 /** Todas as ferramentas fiscais: só oferecidas ao modelo quando o assunto é nota fiscal (`abreFiscal`, por código). */
 export const FERRAMENTAS_FISCAIS: ReadonlySet<string> = new Set<string>([...LEITURAS_FISCAIS, ...ACOES_FISCAIS]);
 
