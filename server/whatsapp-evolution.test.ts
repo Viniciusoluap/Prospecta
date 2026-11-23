@@ -1,6 +1,6 @@
 // Pedido de 25/10: WhatsApp por QR code (Evolution API). Servidor simulado; nada real é chamado.
 import { describe, expect, it, vi } from "vitest";
-import { enviarTextoEvolution, estadoInstancia, gerarQrCode, numeroConectado, removerInstancia, testarEvolution } from "./_core/evolution";
+import { enviarTextoEvolution, enviarTextoEvolutionConfirmado, estadoInstancia, gerarQrCode, numeroConectado, removerInstancia, testarEvolution } from "./_core/evolution";
 
 const cfg = { url: "https://evo.exemplo.app/", apiKey: "chave-teste-123" };
 const resp = (corpo: unknown, status = 200) => Promise.resolve({ ok: status < 400, status, json: async () => corpo } as Response);
@@ -53,4 +53,14 @@ describe("cliente Evolution (QR code)", () => {
     await removerInstancia(cfg, "x", rm as never);
     expect(rm.mock.calls.map(c => String(c[0]))).toEqual(["https://evo.exemplo.app/instance/logout/x", "https://evo.exemplo.app/instance/delete/x"]);
   });
+});
+
+it("distingue aceite sem ID, rejeição explícita e resposta sem confirmação", async () => {
+  const enviar = (data: unknown, status: number) =>
+    enviarTextoEvolutionConfirmado({ url: "https://example.com", apiKey: "test" }, "x", "94988887777", "Olá",
+      vi.fn(() => resp(data, status)) as never);
+  expect(await enviar({ status: "PENDING" }, 201)).toEqual({ aceito: true, externalId: null });
+  expect(await enviar({ status: "FAILED" }, 201)).toEqual({ aceito: false, externalId: null });
+  expect(await enviar({}, 200)).toEqual({ aceito: false, externalId: null });
+  expect(await enviar({ key: { id: "MSG1" } }, 200)).toEqual({ aceito: true, externalId: "MSG1" });
 });

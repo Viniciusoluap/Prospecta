@@ -14,7 +14,7 @@ import { converterTemplateParaModelo, podeAdministrarIntegracaoOficial } from ".
 import { enviarWhatsappBusiness, normalizarStatusWebhook } from "./_core/whatsapp-business.js";
 import { decryptSecret, encryptSecret, segredoEmTextoPuro } from "./_core/secret-vault.js";
 import {
-  enviarTextoEvolution, estadoInstancia, gerarQrCode, mesmoTelefone, normalizarUrlEvolution, numeroConectado, registrarWebhookEvolution, removerInstancia,
+  enviarTextoEvolutionConfirmado, estadoInstancia, gerarQrCode, mesmoTelefone, normalizarUrlEvolution, numeroConectado, registrarWebhookEvolution, removerInstancia,
   type EvolutionConfig,
 } from "./_core/evolution.js";
 import { podeUsarModulo, requireModule } from "./_core/rbac.js";
@@ -27,6 +27,16 @@ import {
   MENSAGEM_NUMERO_RESERVADO, conexaoDaEmpresa, ehNumeroReservado, numerosReservadosDoPapel, usaConexaoDaEmpresa, type NumerosReservados,
 } from "./whatsapp-conexao-empresa.js";
 import { canalDeDisparo, reservarEnvioManualDaEmpresa } from "./whatsapp-canais.js";
+
+async function registrarEnvioManual(valores: typeof whatsappMessages.$inferInsert) {
+  const db = getDb();
+  if (valores.externalId) {
+    const [eco] = await db.select({ id: whatsappMessages.id }).from(whatsappMessages)
+      .where(and(eq(whatsappMessages.connectionId, valores.connectionId), eq(whatsappMessages.externalId, valores.externalId))).limit(1);
+    if (eco) return;
+  }
+  await db.insert(whatsappMessages).values(valores);
+}
 
 /** Dono da conexão: o colaborador usa (e configura) a conexão da empresa, que é a do admin. */
 async function donoDaConexao(userId: number, role: string): Promise<number | null> {
@@ -522,9 +532,11 @@ export const whatsappRouter = router({
       if (!porQr && (!conn.tokenEncrypted || !conn.phoneNumberId)) {
         return { success: false, error: "Credenciais da Business API não configuradas", enviadas: 0, falhas: 0 };
       }
-      const enviarUm = (telefone: string, texto: string) => porQr
-        ? enviarTextoEvolution(evolution!, conn.instancia!, telefone, texto)
-        : enviarWhatsappBusiness(decryptSecret(conn.tokenEncrypted!), conn.phoneNumberId!, telefone, texto);
+      const enviarUm = async (telefone: string, texto: string) => {
+        if (porQr) return enviarTextoEvolutionConfirmado(evolution!, conn.instancia!, telefone, texto);
+        const externalId = await enviarWhatsappBusiness(decryptSecret(conn.tokenEncrypted!), conn.phoneNumberId!, telefone, texto);
+        return { aceito: !!externalId, externalId };
+      };
       // Item 06 + revisão do Codex (PR #111): nome e telefone vêm sempre do
       // cadastro do lead, nunca do corpo da requisição (como no Santa Fé); o
       // corretor só envia para os próprios leads.
@@ -542,6 +554,8 @@ export const whatsappRouter = router({
 
       let enviadas = 0;
       let falhas = 0;
+      let numeroConversa: string | null = null;
+      let historicoPendente = false;
       // Pedido de 25/10: cada destinatário recebe o template já preenchido; nada sai com {{…}}.
       const valores = await valoresDosLeads(destinatarios.map(d => d.id), ctx.user.name ?? null);
       const textos = new Map(destinatarios.map(d => [d.id, preencherTemplate(input.mensagem, mesclarValores(valores.get(d.id), input.extras, input.extrasPorLead?.[String(d.id)]))]));
@@ -558,24 +572,23 @@ export const whatsappRouter = router({
           const teto = await reservarEnvioManualDaEmpresa();
           if (teto) return enviadas || falhas ? { success: true, enviadas, falhas, error: teto } : { success: false, error: teto, enviadas, falhas };
         }
-        try {
-          const externalId = await enviarUm(dest.telefone ?? "", texto);
-          await db.insert(whatsappMessages).values({
-            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone ?? "", nomeDestinatario: dest.nome,
-            mensagem: texto, externalId, status: externalId ? "enviada" : "falhou",
-          });
-          if (externalId) enviadas++; else falhas++;
-          // QA-SEG E9 achado 6: a equipe escreveu a esta pessoa pelo número da empresa → a Dolores fica calada nesta conversa
-          if (externalId && daEmpresa) await silenciarPelaEquipe(dest.telefone ?? "");
-        } catch {
-          await db.insert(whatsappMessages).values({
-            connectionId: conn.id, leadId: dest.id, destinatario: dest.telefone ?? "", nomeDestinatario: dest.nome,
-            mensagem: texto, status: "falhou", erroMsg: "Erro ao enviar",
-          });
-          falhas++;
+        const numero = (dest.telefone ?? "").replace(/\D/g, "");
+        let resultado = { aceito: false, externalId: null as string | null };
+        if (/^\d{8,15}$/.test(numero)) {
+          resultado = await enviarUm(numero, texto).catch(() => resultado);
         }
+        if (resultado.aceito) {
+          enviadas++;
+          numeroConversa = numero;
+        } else falhas++;
+
+        await registrarEnvioManual({
+          connectionId: conn.id, leadId: dest.id, destinatario: numero.slice(0, 30), nomeDestinatario: dest.nome,
+          mensagem: texto, externalId: resultado.externalId, status: resultado.aceito ? "enviada" : "falhou",
+        }).catch(() => { if (resultado.aceito) historicoPendente = true; });
+        if (resultado.aceito && daEmpresa) await silenciarPelaEquipe(numero);
       }
-      return { success: true, enviadas, falhas };
+      return { success: true, enviadas, falhas, numeroConversa, historicoPendente };
     }),
 
   // ── Pedido de 25/10: Conversas (receber e responder) ──
@@ -869,20 +882,20 @@ export const whatsappRouter = router({
     const manual = await vinculoManual(conn.id, input.numero);
     const lead = (manual ? todos.find(l => l.id === manual) : undefined) ?? todos.find(l => mesmoTelefone(l.phone, input.numero));
     if (ctx.user.role === "corretor" && lead && lead.brokerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Conversa de outro corretor." });
-    let externalId: string | null = null;
+    let resultado = { aceito: false, externalId: null as string | null };
     if (conn.provider === "evolution" && conn.instancia) {
-      externalId = await enviarTextoEvolution(await exigirEvolution(), conn.instancia, input.numero, input.texto);
+      resultado = await enviarTextoEvolutionConfirmado(await exigirEvolution(), conn.instancia, input.numero, input.texto);
     } else if (conn.tokenEncrypted && conn.phoneNumberId) {
-      externalId = await enviarWhatsappBusiness(decryptSecret(conn.tokenEncrypted), conn.phoneNumberId, input.numero, input.texto);
+      const externalId = await enviarWhatsappBusiness(decryptSecret(conn.tokenEncrypted), conn.phoneNumberId, input.numero, input.texto);
+      resultado = { aceito: !!externalId, externalId };
     }
-    await db.insert(whatsappMessages).values({
+    const historicoPendente = await registrarEnvioManual({
       connectionId: conn.id, leadId: lead?.id ?? null, destinatario: input.numero.replace(/\D/g, ""), nomeDestinatario: lead?.nome ?? null,
-      mensagem: input.texto, externalId, status: externalId ? "enviada" : "falhou", direcao: "saida", lida: true,
-    });
-    if (!externalId) throw new TRPCError({ code: "BAD_REQUEST", message: "O WhatsApp não aceitou a mensagem. Confira a conexão." });
-    // E9: a equipe respondeu pela Central no número da empresa → a Dolores fica calada nesta conversa por algumas horas
+      mensagem: input.texto, externalId: resultado.externalId, status: resultado.aceito ? "enviada" : "falhou", direcao: "saida", lida: true,
+    }).then(() => false, () => true);
+    if (!resultado.aceito) throw new TRPCError({ code: "BAD_REQUEST", message: "O WhatsApp não confirmou o envio." });
     if (usaConexaoDaEmpresa(ctx.user.role)) await silenciarPelaEquipe(input.numero);
-    return { ok: true };
+    return { ok: true, historicoPendente };
   }),
 });
 

@@ -34,3 +34,10 @@ describe("documentos de projetos", () => {
     expect(reconcileProjectChecklist(checks, [])[0]).toMatchObject({ done: false, pdfDone: false, editableDone: false });
   });
 });
+
+it("preserva a conclusão manual ao atualizar anexos do item", () => {
+  const item = { id: "arquitetonico", text: "Arquitetônico", done: true, conclusaoManual: true };
+  expect(reconcileProjectChecklist([item], [{ itemId: item.id, kind: "pdf" }])[0])
+    .toMatchObject({ done: true, pdfDone: true, editableDone: false });
+  expect(reconcileProjectChecklist([{ ...item, conclusaoManual: false }], [])[0].done).toBe(false);
+});
