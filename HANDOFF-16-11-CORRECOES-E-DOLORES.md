@@ -724,3 +724,30 @@ Mesclar #304 e #305; receber S-3/S-4/S-5/S-6 dos agentes → portão de QA de ca
 **Testes:** (a) automáticos — S-4 182 + 103; S-3 233 + 137; S-5 265 + 255; tsc e vite build limpos em todas. (b) manuais — nenhum. (c) pendentes em produção — PDF chegando como documento no WhatsApp real; emissão real depende do contador (alíquota PGDAS-D, códigos).
 
 **Próximo passo exato:** esperar a revisão do #315 → merge → produção READY; receber as correções da S-6 → nova revisão de QA → aplicar 0164 → PR → merge.
+
+## Atualização de 23/11/2026 ~00:45 UTC — estado de TODAS as frentes (créditos do dono acabando)
+
+Regras novas no CLAUDE.md: decisões fiscais de 22/11 (noite) e "Dolores cobra colaborador e pede documento" (23/11).
+Codex SEM COTA: cada PR passa por portão @qa + (se preciso) revisão independente de agente.
+
+**Publicado e no ar:** S-1 a S-5 (#299, #302, #313, #314, #315), #316 (CLAUDE.md). Neon: 0148–0154, 0160, 0162, 0163, 0165, **0166** (S-5b, aplicada 23/11).
+**Dados gravados em produção (23/11):** emissor fiscal id 1 = Prospecta 41865900000189, Imperatriz/2105302, ambiente "desligado";
+certificado A1 da Prospecta ligado pelo dono (AC SAFEWEB RFB v5, até 22/06/2027, cadeia não veio no arquivo);
+fiscal_tipos_servico: descrição padrão trocada por texto de nota + cAtvSN (BPO 9, obra 13, regularização 9, avaliação 9, comissão 9);
+conta da Dolores (users id 28) restaurada: role 'user', permissions '[]' (estava colaborador + 16 módulos desde 21/11 → toda conversa "indisponivel").
+
+| Frente | Worktree / ramo | HEAD | Falta | Migração |
+|---|---|---|---|---|
+| S-5b cancelamento/outra origem | epic029-s5b → push `claude/epic029-s5b-cancelamento` | 5c9dea5 + merge main | testes finais rodando → PR → merge | 0166 JÁ aplicada |
+| S-3b Dolores (prévia PDF + conta do sistema travada) | epic029-s3b | e6dc7cc | portão @qa em andamento → PR → merge | nenhuma |
+| S-8 alíquota do Simples (RBT12 × anexo) | epic029-aliquotas → `claude/epic029-aliquotas` | 4412171 | portão @qa em andamento → aplicar 0168 → PR | 0168 (não aplicada) |
+| S-6 contas por empresa / limites | epic029-s6 (wip `claude/wip-epic029-s6`) | f549410 | 3º portão FAIL (Q1–Q4) → @dev corrigindo → 4º portão → aplicar 0164 (DEPOIS da 0165) → PR | 0164 (não aplicada) |
+| S-7 envio DPS, cancelamento, DANFSe, XSD, parâmetros municipais Sefin, pendências S-4 | epic029-s7 | em construção | terminar → QA → 0167 → PR → emissão de TESTE em produção restrita | 0167 |
+| Jurídico: completar cadeia ICP (intermediários embarcados) | juridico-cadeia | em construção | terminar → QA → PR → reconferir contrato Maylanne | — |
+| E10 Dolores cobra colaborador (consolidado, sozinha) + pede documentos ao cliente (modo b, liberado) | dolores-e10 (base `claude/dolores-cobrancas`, que já tem o CLAUDE.md) | em construção | terminar → QA → migração ≥0169 → PR → ligar (dono autorizou) | ≥0169 |
+
+**Pendências conhecidas:** ISS municipal (Imperatriz/Canaã/Parauapebas) não confirmado em lei — S-7 busca pela API de parâmetros
+municipais da Sefin com o A1; folha de 12 meses para o Fator R (botão "Folha e início (Simples)"; sem ela, Anexo V);
+S-8 troca a fonte mínima de receita pela apuração da S-6 quando a S-6 entrar.
+**Testes:** (a) automáticos — por frente no relatório de cada agente; (b) manual — dono confirmou a Dolores respondendo após a correção da conta (23/11 23:50 UTC); (c) pendente em produção — emissão de teste, PDF da prévia no WhatsApp, cobranças E10.
+**Próximo passo exato:** publicar S-5b; tratar o resultado dos portões da S-3b e da S-8; receber a 4ª correção da S-6; acompanhar S-7, Jurídico e E10.
