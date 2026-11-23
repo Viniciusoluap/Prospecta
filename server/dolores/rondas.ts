@@ -151,16 +151,7 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     return { totais: { grupos: { aClassificar: contar(r?.aClassificar), aConferir: contar(r?.aConferir), prontosParaSalvar: contar(r?.prontos), comErro: contar(r?.erro), aguardandoDono: contar(a?.n),
       classificadosSemAviso: contar(p?.n), obraExcluida: contar(o?.n) } } };
   })],
-  ["notas", lerSecao(async () => {
-    const [r] = await bancoDaLeitura().select({
-      // EPIC-029 S-5: confirmação do empreiteiro só existe para a nota de grupo (a do ADN não é respondida no grupo)
-      semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.origem} = 'grupo' and ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira'))`.mapWith(Number),
-      semConciliacao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'confirmada' and ${obraNotas.bpoLancamentoId} is null)`.mapWith(Number),
-      correcao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'correcao')`.mapWith(Number),
-      naoLidas: sql<number>`count(*) filter (where ${obraNotas.situacao} in ('nao_lida', 'ilegivel'))`.mapWith(Number),
-    }).from(obraNotas).where(isNull(obraNotas.duplicadaDe));
-    return { totais: { notas: { semConfirmacao: contar(r?.semConfirmacao), confirmadasSemConciliacao: contar(r?.semConciliacao), correcao: contar(r?.correcao), naoLidas: contar(r?.naoLidas) } } };
-  })],
+  ["notas", lerSecao(() => contarNotasDaRonda())],
   ["banco", lerSecao(async ({ agora }) => {
     const desde = new Date(agora.getTime() - 24 * 3_600_000);
     const [r] = await bancoDaLeitura().select({
@@ -199,6 +190,20 @@ const SECOES: Array<[SecaoRonda, (c: Ctx) => Promise<Secao>]> = [
     return { totais: { consumo: { mes, entrada: uso.entrada, saida: uso.saida, limiteEntrada: cfg?.limiteMensalTokensEntrada ?? 0, limiteSaida: cfg?.limiteMensalTokensSaida ?? 0, linhas, partes } } };
   })],
 ];
+
+/** Contagem das notas de obra para o relatório (exportada para o teste da S-5b). */
+export async function contarNotasDaRonda(conexao: Pick<ReturnType<typeof bancoDaLeitura>, "select"> = bancoDaLeitura()) {
+  const [r] = await conexao.select({
+    // EPIC-029 S-5: confirmação do empreiteiro só existe para a nota de grupo (a do ADN não é respondida no grupo)
+    semConfirmacao: sql<number>`count(*) filter (where ${obraNotas.origem} = 'grupo' and ${obraNotas.confirmacao} = 'pendente' and ${obraNotas.situacao} in ('rascunho', 'confira') and ${obraNotas.canceladaEm} is null)`.mapWith(Number),
+    // EPIC-029 S-5b: a nota do ADN (sem confirmação do empreiteiro) entra aqui quando ainda não foi conciliada; a cancelada não
+    // conta (não é mais válida); a mesma nota da outra origem também não (a conciliação fica na outra)
+    semConciliacao: sql<number>`count(*) filter (where ${obraNotas.bpoLancamentoId} is null and ${obraNotas.canceladaEm} is null and ${obraNotas.outraOrigemDe} is null and (${obraNotas.confirmacao} = 'confirmada' or (${obraNotas.origem} = 'adn' and ${obraNotas.situacao} in ('rascunho', 'confira'))))`.mapWith(Number),
+    correcao: sql<number>`count(*) filter (where ${obraNotas.confirmacao} = 'correcao')`.mapWith(Number),
+    naoLidas: sql<number>`count(*) filter (where ${obraNotas.situacao} in ('nao_lida', 'ilegivel'))`.mapWith(Number),
+  }).from(obraNotas).where(isNull(obraNotas.duplicadaDe));
+  return { totais: { notas: { semConfirmacao: contar(r?.semConfirmacao), confirmadasSemConciliacao: contar(r?.semConciliacao), correcao: contar(r?.correcao), naoLidas: contar(r?.naoLidas) } } };
+}
 
 export type ResultadoRonda =
   | { ok: true; ronda: DoloresRonda; nova: boolean }
