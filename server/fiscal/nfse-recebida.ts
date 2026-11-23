@@ -157,7 +157,11 @@ export const EVENTOS_DE_CANCELAMENTO = ["101101", "105102", "105104", "305101"] 
 export type TipoCancelamento = (typeof EVENTOS_DE_CANCELAMENTO)[number];
 export const ehCancelamento = (tipo: string): tipo is TipoCancelamento => (EVENTOS_DE_CANCELAMENTO as readonly string[]).includes(tipo);
 
-export type EventoNfse = { chave: string; tipo: string; ambiente: "producao" | "producao_restrita" | null };
+export type EventoNfse = {
+  chave: string; tipo: string; ambiente: "producao" | "producao_restrita" | null;
+  /** Revisão do Codex (#318): CNPJ/CPF do AUTOR do pedido (`CNPJAutor`/`CPFAutor`; no 101101 é o emitente), só dígitos/letras; null se não veio. */
+  autor: string | null;
+};
 export type LeituraEvento = { ok: true; evento: EventoNfse } | { ok: false; motivo: string };
 
 /**
@@ -194,7 +198,19 @@ export function lerEventoNfse(xml: string): LeituraEvento {
   const idEvento = infEvento?.getAttribute?.("Id") ?? "";
   if (idEvento && (!/^EVT[0-9A-Z]{50}\d{9}$/.test(idEvento) || idEvento.slice(3, 59) !== `${chave}${tipo}`)) return { ok: false, motivo: "id_do_evento_nao_confere" };
   const tpAmb = texto(inf, "tpAmb");
-  return { ok: true, evento: { chave, tipo, ambiente: tpAmb === "1" ? "producao" : tpAmb === "2" ? "producao_restrita" : null } };
+  const autorBruto = texto(inf, "CNPJAutor") ?? texto(inf, "CPFAutor");
+  return { ok: true, evento: { chave, tipo, ambiente: tpAmb === "1" ? "producao" : tpAmb === "2" ? "producao_restrita" : null,
+    autor: autorBruto ? normalizarDocumento(autorBruto) || null : null } };
+}
+
+/**
+ * Revisão do Codex (#318): a distribuição do ADN traz também os documentos que a PRÓPRIA empresa emitiu. O evento é de nota
+ * EMITIDA quando o autor do pedido é o CNPJ consultado, ou a inscrição federal da chave é ele (composição da chave, PESQUISA.md
+ * §1.4: município 7 + ambiente 1 + tipo de inscrição 1 + inscrição 14 [posição NÃO CONFIRMADA com XML real — S-4]). Puro.
+ */
+export function eventoDeNotaEmitida(ev: Pick<EventoNfse, "chave" | "autor">, cnpjConsultado: string): boolean {
+  const consultado = normalizarDocumento(cnpjConsultado);
+  return !!consultado && (ev.autor === consultado || ev.chave.slice(9, 23) === consultado);
 }
 
 // ── Mesma nota por outra origem: valor e data (EPIC-029 S-5b, portão de QA) ──

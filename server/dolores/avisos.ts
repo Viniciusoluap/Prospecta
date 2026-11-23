@@ -199,7 +199,9 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     const par = alias(obraNotas, "par");
     const divergentes = await conexao.select({ a: obraNotas.id, aOrigem: obraNotas.origem, b: par.id, emitente: obraNotas.emitenteNome }).from(obraNotas)
       .innerJoin(par, eq(par.id, obraNotas.outraOrigemDe))
-      .where(and(gte(obraNotas.criadoEm, new Date(agora.getTime() - DIAS_AVISO_CANCELADA * DIA_MS)), isNull(obraNotas.canceladaEm),
+      // revisão do Codex (#318): a janela conta da nota MAIS NOVA do par (quando o vínculo foi feito), não da que aponta — a do
+      // grupo pode ser antiga e o aviso sumiria logo ao nascer
+      .where(and(sql`greatest(${obraNotas.criadoEm}, ${par.criadoEm}) >= ${new Date(agora.getTime() - DIAS_AVISO_CANCELADA * DIA_MS)}`, isNull(obraNotas.canceladaEm),
         or(sql`${obraNotas.valorCentavos} is distinct from ${par.valorCentavos}`, sql`${obraNotas.dataEmissao} is distinct from ${par.dataEmissao}`)))
       .orderBy(desc(obraNotas.id)).limit(MAX_ACHADOS_POR_TIPO);
     for (const d of divergentes) {
@@ -208,7 +210,7 @@ export const REGRAS: Record<Exclude<TipoAviso, "gasto">, (c: CtxColeta) => Promi
     }
     // QA S-5b (baixo): cancelamento guardado sem a nota há mais de 7 dias — um achado só, com a quantidade (sem chave, CNPJ ou valor)
     const [semNota] = await conexao.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(obraNotasEventosAdn)
-      .where(and(isNull(obraNotasEventosAdn.notaId), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - DIAS_EVENTO_SEM_NOTA * DIA_MS))));
+      .where(and(isNull(obraNotasEventosAdn.notaId), eq(obraNotasEventosAdn.papel, "recebida"), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - DIAS_EVENTO_SEM_NOTA * DIA_MS))));
     if (semNota?.n) achados.push({ tipo: "nota_obra", entidade: "eventos_adn:sem_nota", faixa: 1, dados: { nome: "Notas recebidas pelo ADN", quantidade: semNota.n, marca: "evento_sem_nota" } });
     const c = corte(achados);
     return { ...c, completo: c.completo && linhas.length < 300 && canceladas.length < MAX_ACHADOS_POR_TIPO && divergentes.length < MAX_ACHADOS_POR_TIPO };

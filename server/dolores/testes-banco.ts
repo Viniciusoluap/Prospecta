@@ -141,10 +141,15 @@ export async function criarBanco(opcoes: { semEtapa7?: boolean; sem0163?: boolea
     const s5b = MIGRACAO_0166();
     await pg.exec(s5b);
     await pg.exec(s5b);
+    // EPIC-029 S-5b (revisão do Codex): papel do evento do ADN (recebida/emitida), migração 0170, também duas vezes.
+    const papel = MIGRACAO_0170();
+    await pg.exec(papel);
+    await pg.exec(papel);
   }
   return { pg, db: drizzle(pg) };
 }
 
+export const MIGRACAO_0170 = () => readFileSync(new URL("../../drizzle/0170_obra_notas_eventos_adn_papel.sql", import.meta.url), "utf8");
 export const MIGRACAO_0166 = () => readFileSync(new URL("../../drizzle/0166_obra_notas_cancelamento_e_outra_origem.sql", import.meta.url), "utf8");
 export const MIGRACAO_0163 = () => readFileSync(new URL("../../drizzle/0163_obra_notas_origem_adn.sql", import.meta.url), "utf8");
 

@@ -14,7 +14,7 @@ vi.mock("../db.js", async orig => ({ ...(await orig<typeof import("../db.js")>()
 
 import { drizzle } from "drizzle-orm/pglite";
 import { getDb } from "../db.js";
-import { CENARIO, MIGRACAO_0166, criarBanco } from "../dolores/testes-banco.js";
+import { CENARIO, MIGRACAO_0166, MIGRACAO_0170, criarBanco } from "../dolores/testes-banco.js";
 import { apontarNotas, cancelamentosSemNotaDoAdn, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
 import { REGRAS } from "../dolores/avisos.js";
 import { contarNotasDaRonda } from "../dolores/rondas.js";
@@ -28,6 +28,7 @@ import {
 } from "./distribuicao.js";
 import { MAX_CARACTERES_XML, lerEventoNfse } from "./nfse-recebida.js";
 
+const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const FIXTURE = readFileSync(new URL("./fixtures/nfse-nacional-recebida.xml", import.meta.url), "utf8");
 const CHAVE = "21053022112223330001810000000000123261112345678901";
 const TOMADOR = "44556677000186";
@@ -42,12 +43,12 @@ const db = () => banco.db as never;
 const ctx = {} as never;
 
 /** Evento distribuído pelo ADN (leiaute nacional `evento/infEvento/pedRegEvento/infPedReg`). */
-function eventoXml(o: { chave?: string; tipo?: string; tpAmb?: string | null; idPedido?: string; extra?: string; raiz?: "evento" | "pedRegEvento" } = {}) {
+function eventoXml(o: { chave?: string; tipo?: string; tpAmb?: string | null; idPedido?: string; extra?: string; raiz?: "evento" | "pedRegEvento"; autor?: string } = {}) {
   const chave = o.chave ?? CHAVE;
   const tipo = o.tipo ?? "101101";
   const amb = o.tpAmb === null ? "" : `<tpAmb>${o.tpAmb ?? "1"}</tpAmb>`;
   const pedido = `<pedRegEvento versao="1.01"><infPedReg Id="${o.idPedido ?? `PRE${chave}${tipo}001`}">${amb}<verAplic>Emissor</verAplic>`
-    + `<dhEvento>2026-11-15T10:00:00-03:00</dhEvento><CNPJAutor>${EMPREITEIRO}</CNPJAutor><chNFSe>${chave}</chNFSe><nPedRegEvento>001</nPedRegEvento>`
+    + `<dhEvento>2026-11-15T10:00:00-03:00</dhEvento><CNPJAutor>${o.autor ?? EMPREITEIRO}</CNPJAutor><chNFSe>${chave}</chNFSe><nPedRegEvento>001</nPedRegEvento>`
     + `<e${tipo}><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>1</cMotivo><xMotivo>Erro na emissão</xMotivo></e${tipo}>${o.extra ?? ""}</infPedReg></pedRegEvento>`;
   if (o.raiz === "pedRegEvento") return `<?xml version="1.0" encoding="UTF-8"?>${pedido.replace("<pedRegEvento", '<pedRegEvento xmlns="http://www.sped.fazenda.gov.br/nfse"')}`;
   return `<?xml version="1.0" encoding="UTF-8"?><evento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infEvento Id="EVT${chave}${tipo}001">`
@@ -75,6 +76,8 @@ async function notaDeGrupo(externo: string, numero = "123", sha = SHA, o: Partia
 beforeEach(async () => {
   banco = await criarBanco();
   await banco.pg.exec(CENARIO);
+  // as notas EMITIDAS (fiscal_notas, 0154, já em produção): o evento de cancelamento confere se a chave é de nota emitida
+  await banco.pg.exec(MIGRACAO_0154);
   await banco.pg.exec(`
     INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp', 'Construtora Exemplo', 'empreiteiro', true, 'hash', '${EMPREITEIRO}');
     UPDATE construction_projects SET contractor_user_id = 3 WHERE id IN (1, 2);`);
@@ -129,7 +132,7 @@ describe("migração 0166 — só aditiva, idempotente, linhas existentes intact
 
 describe("achado 1 — evento de cancelamento do ADN", () => {
   it("leitor do evento: chave, tipo e ambiente; mesmas proteções do leitor da nota", () => {
-    expect(lerEventoNfse(eventoXml())).toEqual({ ok: true, evento: { chave: CHAVE, tipo: "101101", ambiente: "producao" } });
+    expect(lerEventoNfse(eventoXml())).toEqual({ ok: true, evento: { chave: CHAVE, tipo: "101101", ambiente: "producao", autor: EMPREITEIRO } });
     expect(lerEventoNfse(eventoXml({ raiz: "pedRegEvento", tipo: "105102" }))).toMatchObject({ ok: true, evento: { tipo: "105102" } });
     expect(lerEventoNfse(eventoXml({ tpAmb: "2" }))).toMatchObject({ ok: true, evento: { ambiente: "producao_restrita" } });
     expect(lerEventoNfse(eventoXml({ tpAmb: null }))).toMatchObject({ ok: true, evento: { ambiente: null } });
@@ -461,6 +464,7 @@ describe("QA S-5b — conciliar a nota de grupo × NFS-e oficial divergente: nun
         await banco.pg.close();
         banco = await criarBanco();
         await banco.pg.exec(CENARIO);
+        await banco.pg.exec(MIGRACAO_0154);
         await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp', 'Construtora Exemplo', 'empreiteiro', true, 'hash', '${EMPREITEIRO}');
           UPDATE construction_projects SET contractor_user_id = 3 WHERE id IN (1, 2);`);
         vi.mocked(getDb).mockReturnValue(banco.db as never);
@@ -492,5 +496,63 @@ describe("QA S-5b — conciliar a nota de grupo × NFS-e oficial divergente: nun
     const t2 = trava(t1 + 1);
     expect(t2).toBeGreaterThan(t1);
     expect(t2).toBeLessThan(leNota(t2));
+  });
+});
+
+// ── Revisão do Codex (#318): cancelamento de nota EMITIDA pela empresa; janela do aviso de divergência ──
+
+describe("Codex #318 — evento de nota EMITIDA pela própria empresa não vira 'nota recebida faltando'", () => {
+  const OITO_DIAS = new Date(AGORA.getTime() + 8 * 86_400_000);
+  const semNotaNoAviso = async (agora: Date) => (await REGRAS.nota_obra({ agora, limites: { notaConfirmacaoDias: 7 } as never })).achados.filter(a => a.entidade === "eventos_adn:sem_nota");
+
+  it("REPRODUZ: autor do cancelamento = CNPJ consultado → guardado como 'emitida', fora da lista e do aviso mesmo depois de 7 dias", async () => {
+    const minha = `${CHAVE.slice(0, 40)}7777777777`;
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: eventoXml({ chave: minha, autor: TOMADOR }) }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("cancelamento");
+    expect(await q("SELECT papel, nota_id FROM obra_notas_eventos_adn")).toEqual([{ papel: "emitida", nota_id: null }]);
+    expect(await semNotaNoAviso(OITO_DIAS)).toEqual([]);
+    expect(await cancelamentosSemNotaDoAdn(banco.db as never, OITO_DIAS)).toEqual([]);
+    // o de nota RECEBIDA (autor = o emitente terceiro) continua aparecendo
+    expect(await gravarNotaRecebida(db(), { nsu: 2, xml: eventoXml({ chave: `${CHAVE.slice(0, 40)}8888888888` }) }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("cancelamento");
+    expect(await semNotaNoAviso(OITO_DIAS)).toEqual([expect.objectContaining({ dados: expect.objectContaining({ quantidade: 1 }) })]);
+    expect(await cancelamentosSemNotaDoAdn(banco.db as never, OITO_DIAS)).toEqual([expect.objectContaining({ nsu: 2 })]);
+  });
+
+  it("inscrição federal da chave = CNPJ consultado (sem autor no XML) → 'emitida'; cancelamento gerado pela Sefin (105102) também", async () => {
+    const minha = `2105302${"2"}${"2"}${TOMADOR}${"0".repeat(27)}`;
+    expect(minha).toHaveLength(50);
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: eventoXml({ chave: minha, tipo: "105102", autor: "00000000000000" }) }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("cancelamento");
+    expect((await q("SELECT papel FROM obra_notas_eventos_adn"))[0].papel).toBe("emitida");
+  });
+
+  it("chave que já está nas notas EMITIDAS (fiscal_notas) → 'emitida', mesmo com outro autor (município, de ofício)", async () => {
+    const minha = `${CHAVE.slice(0, 40)}6666666666`;
+    await q(`INSERT INTO fiscal_notas (emissor_id, origem_tipo, origem_id, data_evento, status, chave_acesso) VALUES (NULL, 'bpo_lancamento', 1, '2026-11-10', 'A_DECIDIR', $1)`, [minha]); // a emissão real (EMITIDA) ainda está travada pela S-4
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: eventoXml({ chave: minha, tipo: "305101", autor: "99887766000105" }) }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("cancelamento");
+    expect((await q("SELECT papel FROM obra_notas_eventos_adn"))[0].papel).toBe("emitida");
+  });
+
+  it("0170: papel não muda, evento emitido não é casado com nota recebida; reaplicar não muda nada", async () => {
+    await gravarNotaRecebida(db(), { nsu: 1, xml: eventoXml({ chave: `${CHAVE.slice(0, 40)}7777777777`, autor: TOMADOR }) }, { tomadorCnpj: TOMADOR, agora: AGORA });
+    expect(await gravarNotaRecebida(db(), { nsu: 2, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora: AGORA })).toBe("gravada");
+    const [nota] = await q<{ id: number }>("SELECT id FROM obra_notas");
+    await expect(q("UPDATE obra_notas_eventos_adn SET papel = 'recebida'")).rejects.toThrow(/OBRA_NOTAS_EVENTOS_IMUTAVEL/);
+    await expect(q("UPDATE obra_notas_eventos_adn SET nota_id = $1, casado_em = now()", [nota.id])).rejects.toThrow(/nota emitida não é casado/);
+    const antes = await q("SELECT * FROM obra_notas_eventos_adn ORDER BY id");
+    await banco.pg.exec(MIGRACAO_0170());
+    expect(await q("SELECT * FROM obra_notas_eventos_adn ORDER BY id")).toEqual(antes);
+  });
+});
+
+describe("Codex #318 — janela do aviso 'origem_divergente' conta da nota mais nova do par", () => {
+  it("REPRODUZ: nota de grupo antiga (40 dias) + oficial divergente que chega hoje → o aviso aparece (antes sumia na hora)", async () => {
+    await notaDeGrupo("G1", "123", SHA, { valorCentavos: 950_000 });
+    await banco.pg.exec("ALTER TABLE obra_notas DISABLE TRIGGER obra_notas_guarda; UPDATE obra_notas SET criado_em = now() - interval '40 days'; ALTER TABLE obra_notas ENABLE TRIGGER obra_notas_guarda;");
+    const agora = new Date();
+    expect(await gravarNotaRecebida(db(), { nsu: 1, xml: FIXTURE }, { tomadorCnpj: TOMADOR, agora })).toBe("gravada");
+    const [adn] = await q<{ id: number }>("SELECT id FROM obra_notas WHERE origem = 'adn'");
+    const achados = async (quando: Date) => (await REGRAS.nota_obra({ agora: quando, limites: { notaConfirmacaoDias: 7 } as never })).achados.filter(a => a.entidade.endsWith(":origem_divergente"));
+    expect((await achados(agora)).map(a => a.entidade)).toEqual([`nota:${adn.id}:origem_divergente`]);
+    // e sai 30 dias depois do vínculo
+    expect(await achados(new Date(agora.getTime() + 31 * 86_400_000))).toEqual([]);
   });
 });

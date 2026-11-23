@@ -19,6 +19,7 @@ import {
 } from "./distribuicao.js";
 import { lerEventoNfse } from "./nfse-recebida.js";
 
+const MIGRACAO_0154 = readFileSync(new URL("../../drizzle/0154_fiscal_notas.sql", import.meta.url), "utf8");
 const FIXTURE = readFileSync(new URL("./fixtures/nfse-nacional-recebida.xml", import.meta.url), "utf8");
 const CHAVE = "21053022112223330001810000000000123261112345678901";
 const OUTRA_CHAVE = `${CHAVE.slice(0, 40)}9999999999`;
@@ -78,6 +79,8 @@ async function lancamento(): Promise<number> {
 beforeEach(async () => {
   banco = await criarBanco();
   await banco.pg.exec(CENARIO);
+  // as notas EMITIDAS (fiscal_notas, 0154, já em produção): o evento de cancelamento confere se a chave é de nota emitida
+  await banco.pg.exec(MIGRACAO_0154);
   await banco.pg.exec(`
     INSERT INTO users ("openId", name, role, active, "passwordHash", cpf) VALUES ('emp', 'Construtora Exemplo', 'empreiteiro', true, 'hash', '${EMPREITEIRO}');
     UPDATE construction_projects SET contractor_user_id = 3 WHERE id = 1;`);

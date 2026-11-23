@@ -185,7 +185,7 @@ export async function listarNotasObra(args: z.infer<typeof entradaListarNotasObr
  * Só o NSU, o tipo e a data: a chave (que tem o CNPJ do emitente) e o XML ficam de fora. */
 export async function cancelamentosSemNotaDoAdn(conexao: Conexao, agora: Date, dias = 7) {
   const r = await conexao.select({ nsu: obraNotasEventosAdn.nsu, tipo: obraNotasEventosAdn.tipoEvento, recebidoEm: obraNotasEventosAdn.recebidoEm })
-      .from(obraNotasEventosAdn).where(and(isNull(obraNotasEventosAdn.notaId), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - dias * 86_400_000))))
+      .from(obraNotasEventosAdn).where(and(isNull(obraNotasEventosAdn.notaId), eq(obraNotasEventosAdn.papel, "recebida"), lte(obraNotasEventosAdn.recebidoEm, new Date(agora.getTime() - dias * 86_400_000))))
     .orderBy(asc(obraNotasEventosAdn.id)).limit(20);
   return r.map(e => ({ nsu: e.nsu, tipoEvento: e.tipo, recebidoEm: isoFortaleza(e.recebidoEm), situacao: "cancelamento recebido do ADN sem a nota no sistema: confira" }));
 }

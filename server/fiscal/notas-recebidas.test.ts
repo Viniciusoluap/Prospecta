@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CENARIO, MIGRACAO_0166, criarBanco } from "../dolores/testes-banco.js";
+import { CENARIO, MIGRACAO_0166, MIGRACAO_0170, criarBanco } from "../dolores/testes-banco.js";
 import { apontarNotas, documentoDoFornecedor, notasDoBanco, paraConciliar } from "../dolores/leitura/notas.js";
 import { cnpjValido as cnpjDosContratos } from "../../shared/contratos/modelos.js";
 import { cnpjValido as cnpjDasNotasDeGrupo, documentoConferido } from "../../shared/dolores/notas.js";
@@ -56,6 +56,8 @@ async function aplicarMigracao() {
   await banco.pg.exec(MIGRACAO); // idempotente
   await banco.pg.exec(MIGRACAO_0166());
   await banco.pg.exec(MIGRACAO_0166()); // S-5b, idempotente
+  await banco.pg.exec(MIGRACAO_0170());
+  await banco.pg.exec(MIGRACAO_0170());
 }
 
 /** Grupo de obra + mensagem, para notas de origem 'grupo'. */

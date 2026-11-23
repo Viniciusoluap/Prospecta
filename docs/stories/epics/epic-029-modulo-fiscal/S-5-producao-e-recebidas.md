@@ -225,3 +225,16 @@ ANTES de publicar este código — o esquema passa a ler as colunas novas de `ob
   do grupo é ligada e a oficial nasce "outra origem" (confira), ou a oficial chega antes e a execução aprovada é recusada.
   Testes em `notas-recebidas-s5b.test.ts`: as duas ordens, 4 rodadas simultâneas (no PGlite as transações já são em série; por
   isso também) um teste da ordem das consultas (trava antes da leitura da nota, no preparo e na execução).
+
+### S-5b — revisão do Codex no PR #318 (dois P2) — 23/11/2026
+- **Cancelamento de nota EMITIDA pela empresa** (a distribuição do ADN traz os dois lados): o evento é classificado ao gravar —
+  `papel` "emitida" quando o autor do pedido (`CNPJAutor`/`CPFAutor`) é o CNPJ consultado, quando a inscrição federal da chave é
+  ele (composição PESQUISA §1.4 [posição NÃO CONFIRMADA com XML real]) ou quando a chave já está em `fiscal_notas` (S-7);
+  "recebida" sempre que já existe nota recebida com a chave. O "emitida" fica guardado (não casa com `obra_notas`; gatilho) e
+  NUNCA entra no aviso `evento_sem_nota` nem em `cancelamentosDoAdnSemNota`. Migração nova **`drizzle/0170_obra_notas_eventos_adn_papel.sql`**
+  (a 0166 já está em produção e não foi tocada): coluna `papel` com DEFAULT 'recebida', índice parcial e gatilho novo (papel imutável;
+  emitida não casa). Aditiva e idempotente; **aplicar antes de publicar**.
+- **Janela do aviso `origem_divergente`**: conta da nota MAIS NOVA do par (`greatest(criado_em)`, que é quando o vínculo foi feito),
+  não da que aponta — a nota de grupo antiga fazia o aviso sumir na hora.
+- Testes: 5 novos em `notas-recebidas-s5b.test.ts` (autor = consultado, inscrição da chave, chave em `fiscal_notas`, gatilho e
+  reaplicação da 0170, grupo antigo + oficial nova). Os testes que leem eventos aplicam a 0154 (fiscal_notas, já em produção).

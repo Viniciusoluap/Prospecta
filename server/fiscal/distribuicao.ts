@@ -25,10 +25,10 @@ import { gunzipSync } from "node:zlib";
 import { and, asc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { constructionProjects, users } from "../../drizzle/schema.js";
 import { obraNotas, obraNotasAdn, obraNotasEventosAdn } from "../../drizzle/schema-dolores-notas.js";
-import { fiscalDistribuicaoEstado } from "../../drizzle/schema-fiscal.js";
+import { fiscalDistribuicaoEstado, fiscalNotas } from "../../drizzle/schema-fiscal.js";
 import { numeroComparavel } from "../../shared/dolores/notas.js";
 import {
-  EVENTOS_DE_CANCELAMENTO, MAX_CARACTERES_XML, divergenciasEntreOrigens, ehCancelamento, lerEventoNfse, lerNfseRecebida, mapearNotaRecebida, vincularPorDocumento,
+  EVENTOS_DE_CANCELAMENTO, MAX_CARACTERES_XML, divergenciasEntreOrigens, ehCancelamento, eventoDeNotaEmitida, lerEventoNfse, lerNfseRecebida, mapearNotaRecebida, vincularPorDocumento,
 } from "./nfse-recebida.js";
 import type { DrizzleDb } from "../db.js";
 
@@ -134,12 +134,16 @@ async function gravarEvento(db: DrizzleDb, doc: DocumentoDistribuido, xml: strin
   if (!ehCancelamento(ev.tipo)) return "a_conferir";
   return db.transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${TRAVA_NOTAS})`);
+    const [nota] = await tx.select({ id: obraNotas.id, outraOrigemDe: obraNotas.outraOrigemDe }).from(obraNotas).where(eq(obraNotas.chaveNfse, ev.chave)).limit(1);
+    // revisão do Codex (#318): cancelamento de nota que a PRÓPRIA empresa emitiu (autor/inscrição da chave = CNPJ consultado, ou a
+    // chave já está nas notas emitidas) fica guardado como "emitida" — nunca vira "nota recebida faltando"; a S-7 casa com fiscal_notas
+    const [emitidaAqui] = nota ? [] : await tx.select({ id: fiscalNotas.id }).from(fiscalNotas).where(eq(fiscalNotas.chaveAcesso, ev.chave)).limit(1);
+    const papel = !nota && (emitidaAqui || eventoDeNotaEmitida(ev, p.tomadorCnpj)) ? "emitida" as const : "recebida" as const;
     const [novo] = await tx.insert(obraNotasEventosAdn).values({
-      chaveNfse: ev.chave, tipoEvento: ev.tipo, nsu: doc.nsu, tomadorCnpj: p.tomadorCnpj, xml, recebidoEm: p.agora,
+      chaveNfse: ev.chave, tipoEvento: ev.tipo, nsu: doc.nsu, tomadorCnpj: p.tomadorCnpj, xml, recebidoEm: p.agora, papel,
       xmlSha256: createHash("sha256").update(xml, "utf8").digest("hex"),
     }).onConflictDoNothing().returning({ id: obraNotasEventosAdn.id });
     if (!novo) return "ja_existia";
-    const [nota] = await tx.select({ id: obraNotas.id, outraOrigemDe: obraNotas.outraOrigemDe }).from(obraNotas).where(eq(obraNotas.chaveNfse, ev.chave)).limit(1);
     // a nota ainda não chegou: o evento fica guardado e é casado quando ela chegar (gravarNotaRecebida)
     if (!nota) return "cancelamento";
     await cancelarNota(tx, nota, p.agora, ev.tipo);
@@ -195,7 +199,7 @@ export async function gravarNotaRecebida(db: DrizzleDb, doc: DocumentoDistribuid
     const passaParaOficial = !!doGrupo && divergencias.length > 0 && doGrupo.bpoLancamentoId === null;
     // S-5b: os cancelamentos que chegaram ANTES da nota (eventos guardados) já valem na gravação — QA S-5b: TODOS são casados
     const pendentes = await tx.select({ id: obraNotasEventosAdn.id, tipo: obraNotasEventosAdn.tipoEvento }).from(obraNotasEventosAdn)
-      .where(and(eq(obraNotasEventosAdn.chaveNfse, nota.chave), isNull(obraNotasEventosAdn.notaId), inArray(obraNotasEventosAdn.tipoEvento, [...EVENTOS_DE_CANCELAMENTO])))
+      .where(and(eq(obraNotasEventosAdn.chaveNfse, nota.chave), isNull(obraNotasEventosAdn.notaId), eq(obraNotasEventosAdn.papel, "recebida"), inArray(obraNotasEventosAdn.tipoEvento, [...EVENTOS_DE_CANCELAMENTO])))
       .orderBy(asc(obraNotasEventosAdn.id));
     const pendente = pendentes[0];
     const mapa = mapearNotaRecebida(nota, {

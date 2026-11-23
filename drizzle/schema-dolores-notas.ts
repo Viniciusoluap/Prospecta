@@ -87,6 +87,8 @@ export const obraNotasEventosAdn = pgTable("obra_notas_eventos_adn", {
   recebidoEm: timestamp("recebido_em", { withTimezone: true }).defaultNow().notNull(),
   notaId: integer("nota_id").references(() => obraNotas.id, { onDelete: "restrict" }),
   casadoEm: timestamp("casado_em", { withTimezone: true }),
+  // 0170: "recebida" (casa com obra_notas) ou "emitida" (cancelamento de nota que a própria empresa emitiu; para a S-7)
+  papel: varchar("papel", { length: 8 }).$type<"recebida" | "emitida">().default("recebida").notNull(),
 }, t => [uniqueIndex("obra_notas_eventos_adn_uidx").on(t.chaveNfse, t.tipoEvento)]);
 
 export const obraNotasRespostas = pgTable("obra_notas_respostas", {
