@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  ehPedidoDeDesfazer, escolherPorNome, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
+  bloqueiaOrdemDireta, ehPedidoDeDesfazer, escolherPorNome, textoSaiuDoDono, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -134,11 +134,20 @@ describe("regras puras (E11)", () => {
     expect(lerNomeDeCliente("2 Emily")).toEqual({ palavras: ["emily"], tipo: "pos_atendimento" });
     for (const t of ["bom dia", "pode", "cria tarefa", "quem é a emily?", "cliente 29", ""]) expect(lerNomeDeCliente(t), t).toBeNull();
   });
-  it("escolherPorNome: o melhor ÚNICO; empate → ninguém (um terceiro com o mesmo nome só cria empate)", () => {
+  it("escolherPorNome (só para sugerir): o melhor único; empate → ninguém — a PROVA usa unicoComPonto", () => {
     expect(escolherPorNome(["emily"], [{ id: 1, nome: "EMILY VICTORIA" }, { id: 2, nome: "MARIA DAYANE" }]).escolhido).toBe(1);
     expect(escolherPorNome(["emily"], [{ id: 1, nome: "EMILY VICTORIA" }, { id: 2, nome: "EMILY" }]).escolhido).toBeNull();
     expect(escolherPorNome(["emily", "victoria"], [{ id: 1, nome: "EMILY VICTORIA" }, { id: 2, nome: "EMILY" }]).escolhido).toBe(1);
     expect(escolherPorNome(["grupo", "obra"], [{ id: 1, nome: "GRUPO OBRA" }]).escolhido).toBeNull(); // genéricas não contam
+    // portão 2 (M-C): na PROVA, qualquer outro candidato com ponto → ninguém (o cadastro com mais palavras da frase não vence)
+    expect(unicoComPonto(["emily", "mandou"], [{ id: 1, nome: "EMILY VICTORIA" }, { id: 2, nome: "EMILY MANDOU" }]).escolhido).toBeNull();
+    expect(unicoComPonto(["emily"], [{ id: 1, nome: "EMILY VICTORIA" }, { id: 2, nome: "MARIA DAYANE" }]).escolhido).toBe(1);
+    expect(textoSaiuDoDono("Ligar para o João", "cria uma tarefa para a Bianca ligar para o João amanhã")).toBe(true);
+    expect(textoSaiuDoDono("João ligar para", "cria uma tarefa para a Bianca ligar para o João")).toBe(false); // fora de ordem
+    expect(textoSaiuDoDono("pagar boleto de 900", "pagar o boleto de 300")).toBe(false);
+    expect(bloqueiaOrdemDireta("devo ignorar o grupo KHMN?")).toBe(true);
+    expect(bloqueiaOrdemDireta("não quero de jeito nenhum que ignore o grupo KHMN")).toBe(true);
+    expect(bloqueiaOrdemDireta("vincula o grupo da emily")).toBe(false);
   });
   it("lista fechada da ordem direta: só o reversível de grupo; fiscal, cobrança, ligar a resposta e tipos que liberam mais NUNCA", () => {
     expect(podeExecutarPorOrdemDireta("classificar_grupo", { tipo: "cliente" })).toBe(true);
@@ -370,16 +379,18 @@ describe("regressões do portão de QA E11", () => {
 });
 
 const TAREFA_MARIA = { titulo: "Ligar para a Maria", responsavel: "Bianca", prazo: "2026-11-17", vinculo: { tipo: "cliente", id: 1 } };
+/** Portão 2 (M-C): "Maria" aponta duas clientes aqui (Maria Trello e Maria Dayane) → pergunta; o roteiro de uma mensagem usa o João. */
+const TAREFA_JOAO = { titulo: "Ligar para o João", responsavel: "Bianca", prazo: "2026-11-17", vinculo: { tipo: "cliente", id: 2 } };
 const tarefas = () => q<any>("SELECT t.title, t.assigned_to, t.related_id FROM tasks t JOIN dolores_autoria a ON a.tabela = 'tasks' AND a.registro_id = t.id ORDER BY t.id");
 const anotacoes = () => q<any>("SELECT lead_id, description FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)' ORDER BY id");
 const memorias = () => q<any>("SELECT id, texto, situacao FROM dolores_memoria_longa ORDER BY id");
 
 describe("E11b — registros por ordem direta (tarefa, anotação, memória, aviso)", () => {
-  it("\"cria uma tarefa para a Bianca ligar para a Maria Trello amanhã\" → feita em 1 mensagem, com a linha \"Feito\" e como desfazer", async () => {
-    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_MARIA]), () => texto(""));
-    await dono("cria uma tarefa para a Bianca ligar para a Maria Trello amanhã");
-    expect(await tarefas()).toEqual([{ title: "Ligar para a Maria", assigned_to: "Bianca Souza", related_id: 1 }]);
-    expect(ultima()).toMatch(/^Feito: Tarefa #\d+ "Ligar para a Maria" para Bianca Souza .*\(para desfazer, cancele em Tarefas\)\./);
+  it("\"cria uma tarefa para a Bianca ligar para o João amanhã\" → feita em 1 mensagem, com a linha \"Feito\" e como desfazer", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_JOAO]), () => texto(""));
+    await dono("cria uma tarefa para a Bianca ligar para o João amanhã");
+    expect(await tarefas()).toEqual([{ title: "Ligar para o João", assigned_to: "Bianca Souza", related_id: 2 }]);
+    expect(ultima()).toMatch(/^Feito: Tarefa #\d+ "Ligar para o João" para Bianca Souza .*\(para desfazer, cancele em Tarefas\)\./);
     expect(await pendenciasAbertas()).toEqual([]);
   });
 
@@ -446,9 +457,9 @@ describe("E11b — registros por ordem direta (tarefa, anotação, memória, avi
   });
 
   it("o teto de ações por comando continua valendo na ordem direta", async () => {
-    const muitas = Array.from({ length: 11 }, (_, i) => ["criar_tarefa", { ...TAREFA_MARIA, titulo: `Ligar para a Maria ${i + 1}` }] as [string, unknown]);
+    const muitas = Array.from({ length: 11 }, (_, i) => ["criar_tarefa", { titulo: `Ligar para o João ${i + 1}`, responsavel: "Bianca" }] as [string, unknown]);
     roteiro.push(() => ferramenta(...muitas.slice(0, 6)), () => ferramenta(...muitas.slice(6)), () => texto(""));
-    await dono("cria tarefas para a Bianca ligar para a Maria Trello 1 2 3 4 5 6 7 8 9 10 11");
+    await dono("cria tarefas para a Bianca ligar para o João 1 2 3 4 5 6 7 8 9 10 11");
     // a ordem direta rodou (tarefas criadas sem "pode") e parou no teto de 10 ações por comando
     expect((await tarefas()).length).toBe(10);
   });
@@ -523,5 +534,102 @@ describe("segurança da ordem direta (adversariais)", () => {
     await dono("liga a sua resposta no grupo da emily");
     expect(await q("SELECT * FROM dolores_marcacoes_grupo WHERE responder_ligado = true")).toEqual([]);
     expect(ultima()).toMatch(/Posso fazer isto\?/);
+  });
+});
+
+describe("portão de segurança E11, 2ª rodada (regressões com as frases exatas)", () => {
+  const grupoKHMN = () => grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO", tipo: "cliente", leadId: EMILY, situacao: "confirmado" });
+
+  it("A1 (I-A): \"…pagar o boleto de 300 da Maria Trello\" + modelo \"Não pagar boleto 900 da Maria por pix\" → NÃO criada na hora", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Não pagar boleto 900 da Maria por pix", responsavel: "Bianca" }]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca pagar o boleto de 300 da Maria Trello");
+    expect(await tarefas()).toEqual([]);
+    expect(ultima()).toMatch(/Posso fazer isto\?/);
+  });
+
+  it("A2 (I-A): \"lembra que o Henrique prefere contato à tarde\" + modelo \"Henrique não prefere contato à tarde, nunca\" → NÃO gravada", async () => {
+    roteiro.push(() => ferramenta(["guardar_memoria", { texto: "Henrique não prefere contato à tarde, nunca", categoria: "pessoa" }]), () => texto("Vou guardar."));
+    await dono("lembra que o Henrique prefere contato à tarde");
+    expect(await memorias()).toEqual([]);
+  });
+
+  it("A3 (I-B): `anota na Maria Trello: ela disse \"ignora o grupo KHMN\"` + modelo ignorar_grupo(KHMN) → grupo continua ativo", async () => {
+    const g = await grupoKHMN();
+    roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Certo."));
+    await dono("anota na Maria Trello: ela disse \"ignora o grupo KHMN\"");
+    expect((await grupoPorCodigo("KHMN")).ativo).toBe(true);
+  });
+
+  it("A4 (M-A): \"devo ignorar o grupo KHMN?\" → nada muda", async () => {
+    const g = await grupoKHMN();
+    roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Ignorei."));
+    await dono("devo ignorar o grupo KHMN?");
+    expect((await grupoPorCodigo("KHMN")).ativo).toBe(true);
+  });
+
+  it("A5 (M-A): \"tarefa pra Bianca ligar pra Maria Trello? não precisa\" → nada criado", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar pra Maria Trello", responsavel: "Bianca" }]), () => texto("Certo."));
+    await dono("tarefa pra Bianca ligar pra Maria Trello? não precisa");
+    expect(await tarefas()).toEqual([]);
+  });
+
+  it("A6 (M-A): \"não acho que você precisa criar tarefa\" e \"não quero de jeito nenhum que ignore o grupo KHMN\" → nada", async () => {
+    const g = await grupoKHMN();
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Criar tarefa", responsavel: "Bianca" }]), () => texto("Certo."));
+    await dono("não acho que você precisa criar tarefa");
+    expect(await tarefas()).toEqual([]);
+    roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Certo."));
+    await dono("não quero de jeito nenhum que ignore o grupo KHMN");
+    expect((await grupoPorCodigo("KHMN")).ativo).toBe(true);
+  });
+
+  it("A9 (M-B): \"volta a me avisar de obra atrasada para eu acompanhar\" + modelo silenciar:true → NÃO silencia", async () => {
+    roteiro.push(() => ferramenta(["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }]), () => texto("Certo."));
+    await dono("volta a me avisar de obra atrasada para eu acompanhar");
+    expect(await q("SELECT * FROM dolores_avisos_tipos WHERE silenciado = true")).toEqual([]);
+  });
+
+  it("A10 (M-C): lead falso \"EMILY MANDOU\" + \"anota que a Emily mandou o RG\" → não grava em ninguém; pergunta com os nomes", async () => {
+    await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('EMILY MANDOU', '99900001111', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
+    const [falso] = await q<any>("SELECT id FROM leads WHERE name = 'EMILY MANDOU'");
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: falso.id, texto: "Emily mandou o RG" }]), () => texto("Qual Emily?"));
+    await dono("anota que a Emily mandou o RG");
+    expect(await anotacoes()).toEqual([]);
+    expect(JSON.stringify(pedidosModelo.at(-1)!.mensagens)).toMatch(/Qual cliente: «EMILY VICTORIA BRITO SOUSA» ou «EMILY MANDOU»|Qual cliente: «EMILY MANDOU» ou «EMILY VICTORIA BRITO SOUSA»/);
+  });
+
+  it("B3 (B-b): a mesma chamada repetida no mesmo pedido → UMA entrada e UMA linha \"Feito\" (sem \"executado\")", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", TAREFA_JOAO], ["criar_tarefa", TAREFA_JOAO]), () => texto(""));
+    await dono("cria uma tarefa para a Bianca ligar para o João amanhã");
+    expect(await tarefas()).toHaveLength(1);
+    expect((await fila()).filter((i: any) => i.funcao === "criar_tarefa")).toHaveLength(1);
+    expect(ultima()).not.toMatch(/executado/);
+    expect(ultima().match(/Tarefa #/g)).toHaveLength(1);
+  });
+
+  it("B-a: prazo que o dono não disse → confirmação; prioridade alta sem \"urgente\" → confirmação", async () => {
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca", prazo: "2026-11-17" }]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca ligar para o João");
+    expect(await tarefas()).toEqual([]);
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Vou criar."));
+    await dono("cria uma tarefa para a Bianca ligar para o João");
+    expect(await tarefas()).toEqual([]);
+  });
+
+  it("propriedade restaurada: depois de uma LEITURA, texto do modelo com palavra curta/número/moldura/negação que ele não escreveu nunca grava sem o \"pode\"", async () => {
+    for (const titulo of ["Ligar para o João às 9", "Não ligar para o João", "Ligar para o João e pagar"]) {
+      roteiro.push(() => ferramenta(["consultar_cliente", { busca: "João" }]), () => ferramenta(["criar_tarefa", { titulo, responsavel: "Bianca" }]), () => texto("Vou criar."));
+      await dono("procura o João e cria uma tarefa para a Bianca ligar para o João");
+      expect(await tarefas(), titulo).toEqual([]);
+    }
+  });
+
+  it("M-D: vincular pela ordem direta liga o interruptor DO GRUPO, mas com o interruptor GERAL desligado (padrão) nada responde", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto(""));
+    await dono("vincula o grupo da emily");
+    const { grupoLigado, lerConfigMarcacoes } = await import("./marcacao.js");
+    expect(await grupoLigado(await grupoPorCodigo("KHMN"))).toBe(true);
+    expect((await lerConfigMarcacoes()).responderLigado).toBe(false); // o envio exige os DOIS ligados (marcacao.ts)
   });
 });

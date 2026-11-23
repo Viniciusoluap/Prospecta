@@ -48,12 +48,13 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 - **Intenção:** a mensagem dele precisa ter o verbo DA FUNÇÃO (`intencaoDaFuncao`: vincular/ligar/classificar para classificar;
   ignorar/deixar de lado para ignorar; desligar para a resposta; aceitar). "cria uma tarefa sobre o grupo da Emily" nunca vira
   "ignorar o grupo da Emily".
-- **Alvos:** grupo = código citado OU as palavras dele apontam UM só grupo da instância pelo nome (`escolherPorNome`: o melhor
-  único; empate → não provado; palavras genéricas como "grupo", "obra", "prospecta" não contam). Cliente = "cliente N"/"nº N"
+- **Alvos:** grupo = código citado OU as palavras dele apontam UM só grupo da instância pelo nome (desde o portão 2:
+  `unicoComPonto` — nenhum outro grupo com ponto; palavras genéricas como "grupo", "obra", "prospecta" não contam). Cliente = "cliente N"/"nº N"
   escrito, OU as palavras dele apontam UM cliente ativo, OU (só se as palavras dele não apontaram outro) o ÚNICO cliente que o nome
   do grupo aponta pela regra do dono de 19/11. Tipo = o que ele disse (engenharia só com "engenharia"; pós só com "pós").
-- **Texto de terceiro** (nome de grupo, nome de cliente) só pode criar EMPATE — nunca tirar o alvo do dono: um grupo copiado com o
-  mesmo nome faz a ação voltar para a confirmação.
+- **Texto de terceiro** (nome de grupo, nome de cliente): na 1ª versão o texto dizia que ele "só cria empate" — ERRADO (o portão 2
+  mostrou que um cadastro com mais palavras da frase vencia o melhor-placar). Desde o portão 2, qualquer outro candidato com ponto
+  torna a prova falsa: um grupo copiado ou um cliente "EMILY MANDOU" faz a ação voltar para a confirmação/pergunta.
 - **Execução:** a mesma da fila (`decidir`): item gravado com resumo + hash, revalidação dos argumentos, `executarAprovado`
   (`decidirGrupo` com o gatilho 0133), auditoria em `dolores_acoes` com `nivel: ordem_direta`.
 - **Intactos:** interruptores (IA, resposta em grupo geral e por grupo, só quando marcada), tetos de gasto e de ações por comando,
@@ -75,6 +76,29 @@ que entenda o contexto, aja e confirme operações com convicção, com autonomi
 | B1/B3 | Registrados (sem mudança de código nesta rodada; ver relatório do QA). |
 | Qualidade — dois grupos numa mensagem | O grupo é provado pelas palavras dele que estão no nome DAQUELE grupo (cada par em separado). |
 | Qualidade — "desfaz" | Por código: diz em UMA linha como desfazer a última ação feita pelo WhatsApp nos últimos 15 min (não reverte sozinha: voltar um vínculo pede o cliente certo, e "ignorar" desliga tudo). |
+
+
+## Portão de segurança E11 — 2ª rodada (sobre 94febb2 → FAIL) — correções
+
+Princípio combinado: na dúvida, a ordem direta NÃO executa e cai na confirmação de sempre.
+
+| Achado | Correção |
+|---|---|
+| I-A — `textoSaiuDoDono` ignorava palavras curtas, números e moldura | Agora TODA palavra do texto gravado (normalizada; curtas, números exatos e moldura incluídos) está na mensagem do dono, na MESMA ORDEM (subsequência); negação no texto que ele não escreveu → não saiu dele. Vale para título, descrição, anotação, lembrança e correção. |
+| I-B — verbo/código/alvos olhavam a mensagem inteira | Com qualquer marca de citação (aspas, ":" seguido de texto, ">", quebra de linha — `trechoDoDono`), a mensagem INTEIRA deixa de ser ordem direta. Decisão: o texto ditado depois de ":" não serve nem como conteúdo (o mais seguro); vai para a confirmação. |
+| M-A — pergunta e negação viravam ação | `bloqueiaOrdemDireta`: "?" em qualquer ponto, ou não/nem/nunca/jamais em qualquer posição, ou "sem" antes do verbo → sem ordem direta. Efeito colateral aceito: "não esquece que…" (memória) vai para a confirmação. |
+| M-B — direção do aviso ("para eu…") | Verbos explícitos ("para/pare/parar de [me] avisar", "silencia", "deixa de me avisar"; "volta a me avisar", "religa"); as duas direções na mesma mensagem → confirmação. |
+| M-C — cadastro de terceiro com mais palavras da frase vencia | A PROVA usa `unicoComPonto`: o alvo só é provado se NENHUM outro candidato pontua com as palavras dele (outro com ponto → pergunta com os nomes). Vale para cliente, responsável, obra, lembrança, tipo de aviso, grupo, o par grupo↔cliente e a confirmação nomeada. `escolherPorNome` fica só para sugerir. (Corrigido o texto antigo de que um terceiro "só cria empate": com o melhor-placar ele podia vencer.) Efeito: com duas "Marias" no CRM, "ligar para a Maria Trello" pergunta qual. |
+| M-D — vincular nasce com `responderLigado: true` | Mantido (comportamento já em produção para grupo posto pelo dono; o interruptor GERAL continua por cima e nasce desligado). Teste novo confere: interruptor do grupo ligado + geral desligado → o envio exige os dois. **Decisão pendente do dono:** se o grupo vinculado pela conversa deve nascer com a resposta desligada. |
+| B-a — prazo e prioridade inventados | Prazo só se ele disse quando (hoje, amanhã, dia da semana, data, hora); prioridade diferente de "média" só com "urgente/importante/prioridade alta/sem pressa". Senão → confirmação. |
+| B-b — chamada repetida no mesmo turno | A mesma chamada (mesmo alvo e mesmos argumentos) já executada neste pedido não vira outra entrada nem outro "Feito"; frases "executado" (sem conteúdo) saem da linha; frases repetidas não se repetem. |
+| B-c — nomes na memória da conversa no turno seguinte | Só registrado: a linha "Feito" (com nomes do cadastro) entra na memória da conversa como texto do sistema; o turno seguinte nasce contaminado como antes (histórico contamina). |
+| B-d — story | Contagens e o texto do empate corrigidos. |
+
+Testes: `e11-conversa-direta.test.ts` com 55 testes, incluindo as regressões A1, A2, A3, A4, A5, A6, A9, A10, B3, B-a, M-D e a
+propriedade restaurada ("texto proposto depois de leitura com palavra curta/número/moldura/negação vinda do modelo nunca grava sem o
+pode"). Roteiros legítimos continuam em uma mensagem: tarefa da Bianca (para o João — com duas Marias no CRM ela pergunta qual),
+anotação da Emily, lembrança do Henrique, parar e voltar aviso, grupos.
 
 ## Critérios de aceite
 
@@ -121,7 +145,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Testes
 
-- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes: regras puras, os roteiros 1–6 da conversa real e os adversariais).
+- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2).
 - Ajustados (mudança de regra autorizada): `grupos-automaticos.test.ts` e `c3-categorias-grupos.test.ts` — "grupo K7HM cliente"
   e "1" sem o nº passaram a valer; `c5-e1-voz.test.ts` — a trava do texto do sistema agora exige as frases da E11 (e continua < 6.500
   caracteres).
@@ -147,6 +171,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 23/11/2026 — @dev (Dex): portão de segurança E11, 2ª rodada (I-A, I-B, M-A–M-D, B-a, B-b, B-d) corrigido; regressões no e11.
 - 23/11/2026 — @dev (Dex): E11b — ordem direta para tarefa, anotação, memória e aviso; testes do "pode" migrados de veículo.
 - 23/11/2026 — @dev (Dex): achados do portão de QA E11 (I1, I1b, I2, M1–M4, B2, qualidade) corrigidos; regressões no e11.
 - 23/11/2026 — @dev (Dex): story escrita com as causas confirmadas no código; Ready → InProgress → InReview (implementação + testes).

@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, escolherPorNome, exigeCodigoDigitado, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoDitoPeloDono, prioridadeDitaPeloDono, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   textoSaiuDoDono, tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -94,10 +94,11 @@ async function provarCliente(leadId: unknown, textoDoDono: string, palavras: str
   // QA E11 (B2): passou do teto → ambíguo
   if (achados.cortado) return nao("nome comum demais: muitos clientes");
   const candidatos = achados.clientes;
-  const e = escolherPorNome(palavras, candidatos);
+  // Portão 2 (M-C): o ÚNICO com ponto — outro cadastro com qualquer palavra dele → pergunta com os nomes
+  const e = unicoComPonto(palavras, candidatos);
   if (e.escolhido === id) return SIM;
-  if (e.empatados.length > 1 && e.empatados.includes(id)) {
-    return nao("o nome aponta mais de um cliente", `Qual cliente: ${nomesEntreAspas(candidatos.filter(c => e.empatados.includes(c.id)).map(c => c.nome))}? Nada foi feito ainda.`);
+  if (e.comPonto.length > 1 && e.comPonto.includes(id)) {
+    return nao("o nome aponta mais de um cliente", `Qual cliente: ${nomesEntreAspas(candidatos.filter(c => e.comPonto.includes(c.id)).map(c => c.nome))}? Nada foi feito ainda.`);
   }
   return nao("o cliente não saiu das palavras do dono");
 }
@@ -108,7 +109,7 @@ async function provarObra(obraId: unknown, textoDoDono: string, palavras: string
   if (numeroCitado(textoDoDono, id)) return SIM;
   const obras = palavras.length ? await bancoDaLeitura().select({ id: constructionProjects.id, nome: constructionProjects.title }).from(constructionProjects)
     .where(or(...palavras.slice(0, 8).map(p => contem(sql`${constructionProjects.title}`, p)))).limit(MAX_CANDIDATOS_POR_PALAVRA) : [];
-  return escolherPorNome(palavras, obras).escolhido === id ? SIM : nao("a obra não saiu das palavras do dono");
+  return unicoComPonto(palavras, obras).escolhido === id ? SIM : nao("a obra não saiu das palavras do dono");
 }
 
 /** Responsável da tarefa: o nome pedido resolve para UM usuário da equipe e é esse que as palavras dele apontam (empate → pergunta). */
@@ -116,9 +117,9 @@ async function provarResponsavel(responsavel: unknown, palavras: string[]): Prom
   const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
   const pedido = palavrasQueIdentificam(String(responsavel ?? ""));
   if (!pedido.some(p => palavras.includes(p))) return nao("o responsável não saiu das palavras do dono");
-  const e = escolherPorNome(palavras, equipe.map(u => ({ id: u.id, nome: u.name })));
-  if (e.empatados.length > 1) return nao("o nome aponta mais de uma pessoa da equipe", `Para quem é a tarefa: ${nomesEntreAspas(equipe.filter(u => e.empatados.includes(u.id)).map(u => u.name))}? Nada foi feito ainda.`);
-  const doPedido = escolherPorNome(pedido, equipe.map(u => ({ id: u.id, nome: u.name }))).escolhido;
+  const e = unicoComPonto(palavras, equipe.map(u => ({ id: u.id, nome: u.name })));
+  if (e.comPonto.length > 1) return nao("o nome aponta mais de uma pessoa da equipe", `Para quem é a tarefa: ${nomesEntreAspas(equipe.filter(u => e.comPonto.includes(u.id)).map(u => u.name))}? Nada foi feito ainda.`);
+  const doPedido = unicoComPonto(pedido, equipe.map(u => ({ id: u.id, nome: u.name }))).escolhido;
   return e.escolhido !== null && e.escolhido === doPedido ? SIM : nao("o responsável não é o que o dono disse");
 }
 
@@ -128,7 +129,7 @@ async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<Pr
   if (!Number.isSafeInteger(id) || id <= 0) return nao("sem lembrança");
   const ativas = await bancoDaLeitura().select({ id: doloresMemoriaLonga.id, nome: doloresMemoriaLonga.texto }).from(doloresMemoriaLonga)
     .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(500);
-  return escolherPorNome(palavras, ativas).escolhido === id ? SIM : nao("a lembrança não saiu das palavras do dono");
+  return unicoComPonto(palavras, ativas).escolhido === id ? SIM : nao("a lembrança não saiu das palavras do dono");
 }
 
 /** E11b — os registros (tarefa, anotação, memória, aviso): texto gravado e alvos das palavras do dono. */
@@ -137,6 +138,9 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, textoD
     case "criar_tarefa": {
       if (!textoSaiuDoDono(String(a.titulo ?? ""), textoDoDono)) return nao("o título da tarefa não saiu das palavras do dono");
       if (a.descricao && !textoSaiuDoDono(String(a.descricao), textoDoDono)) return nao("a descrição não saiu das palavras do dono");
+      // Portão 2 (B-a): prazo e prioridade só se ele disse
+      if (a.prazo && !prazoDitoPeloDono(textoDoDono)) return nao("prazo que o dono não disse");
+      if (!prioridadeDitaPeloDono(a.prioridade, textoDoDono)) return nao("prioridade que o dono não disse");
       const quem = await provarResponsavel(a.responsavel, palavras);
       if (!quem.ok) return quem;
       const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
@@ -165,7 +169,7 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, textoD
       const i = (TIPOS_AVISO as readonly string[]).indexOf(String(a.tipo));
       if (i < 0) return nao("tipo de aviso inválido");
       const tipos = TIPOS_AVISO.map((t, j) => ({ id: j + 1, nome: `${t.replace(/_/g, " ")} ${ROTULO_TIPO_AVISO[t]}` }));
-      return escolherPorNome(palavras, tipos).escolhido === i + 1 ? SIM : nao("o tipo de aviso não saiu das palavras do dono");
+      return unicoComPonto(palavras, tipos).escolhido === i + 1 ? SIM : nao("o tipo de aviso não saiu das palavras do dono");
     }
     default: return nao("função fora da lista");
   }
@@ -195,7 +199,7 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, tex
     // palavras precisam apontar só este grupo (outro grupo com o mesmo nome → empate → não provado)
     const doGrupo = palavras.filter(p => nomeDoAlvo.has(p));
     const porCodigo = codigoCitado(textoDoDono, alvo.codigo);
-    const porNome = doGrupo.length > 0 && escolherPorNome(doGrupo, grupos.map(g => ({ id: g.id, nome: g.nomeWhatsapp ?? g.nome }))).escolhido === alvo.id;
+    const porNome = doGrupo.length > 0 && unicoComPonto(doGrupo, grupos.map(g => ({ id: g.id, nome: g.nomeWhatsapp ?? g.nome }))).escolhido === alvo.id;
     if (!porCodigo && (exigeCodigoDigitado(funcao) || !porNome)) return nao(exigeCodigoDigitado(funcao) ? "aceitar grupo só com o código digitado pelo dono" : "o grupo não saiu das palavras do dono");
     if (funcao !== "classificar_grupo") return { ok: true };
     const tipo = String(a.tipo);
@@ -213,11 +217,11 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, tex
       if (!l || !doGrupo.length || !doGrupo.every(p => nomeDoCliente.has(p))) return nao("o par grupo↔cliente não saiu das palavras do dono");
       // e essas palavras apontam UM cliente só (homônimo → não provado)
       const pelasDoGrupo = await clientesPelasPalavras(doGrupo);
-      if (pelasDoGrupo.cortado || escolherPorNome(doGrupo, pelasDoGrupo.clientes).escolhido !== leadId) return nao("as palavras do grupo apontam mais de um cliente");
+      if (pelasDoGrupo.cortado || unicoComPonto(doGrupo, pelasDoGrupo.clientes).escolhido !== leadId) return nao("as palavras do grupo apontam mais de um cliente");
       const fora = palavras.filter(p => !nomeDoAlvo.has(p));
       if (fora.length) {
         const outros = await clientesPelasPalavras(fora);
-        if (outros.cortado || outros.clientes.some(c => c.id !== leadId && escolherPorNome(fora, [c]).pontos > 0)) return nao("outro cliente citado na mensagem");
+        if (outros.cortado || outros.clientes.some(c => c.id !== leadId && unicoComPonto(fora, [c]).escolhido !== null)) return nao("outro cliente citado na mensagem");
       }
       return { ok: true };
     }
@@ -227,7 +231,7 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, tex
     if (numeroCitado(textoDoDono, obraId)) return { ok: true };
     const obras = palavras.length ? await bancoDaLeitura().select({ id: constructionProjects.id, nome: constructionProjects.title }).from(constructionProjects)
       .where(or(...palavras.slice(0, 8).map(p => contem(sql`${constructionProjects.title}`, p)))).limit(MAX_CANDIDATOS_POR_PALAVRA) : [];
-    return escolherPorNome(palavras, obras).escolhido === obraId ? { ok: true } : nao("a obra não saiu das palavras do dono");
+    return unicoComPonto(palavras, obras).escolhido === obraId ? { ok: true } : nao("a obra não saiu das palavras do dono");
   } catch (e) {
     console.error("[dolores/ordem-direta] não consegui conferir os alvos; segue a confirmação", erroParaLog(e));
     return nao("falha ao conferir");

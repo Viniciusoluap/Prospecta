@@ -13,7 +13,7 @@
 // - O que é sério (nota fiscal, cobrança, mensagem a terceiro, dinheiro, tipos que liberam mais, ligar a resposta num grupo, aceitar
 //   grupo sem o código digitado) continua pedindo "confirmo"/"pode" como antes (shared/dolores/confirmacao.ts, intacto).
 import { normalizarNome } from "./grupos-tipo.js";
-import { intencaoDeMemoria, palavrasDeConteudo, veioDasPalavrasDoDono } from "./memoria-longa.js";
+import { intencaoDeMemoria } from "./memoria-longa.js";
 
 /** Palavras que aparecem em nome de grupo/cliente mas não identificam ninguém (nunca contam para escolher um alvo). */
 export const PALAVRAS_GENERICAS: ReadonlySet<string> = new Set([
@@ -35,7 +35,8 @@ export type Escolha = { escolhido: number | null; pontos: number; empatados: num
 /**
  * Qual candidato as palavras apontam: pontos = quantas palavras do nome dele (as que identificam) estão nas palavras. Só escolhe
  * quando o melhor é ÚNICO e tem ao menos 1 ponto; empate ou nada → ninguém (`empatados` lista os do topo, para oferecer nomes).
- * Quem pode aumentar os pontos de um terceiro é só o nome dele — e isso só cria EMPATE (nunca tira o escolhido do dono).
+ * ATENÇÃO (portão 2, M-C): um cadastro de terceiro com MAIS palavras da frase vence aqui. Por isso a PROVA de alvo da ordem direta usa
+ * `unicoComPonto` (nenhum outro candidato com ponto), nunca esta função; esta só serve para sugerir/nomear (ex.: confirmação nomeada).
  */
 export function escolherPorNome(palavras: Iterable<string>, candidatos: readonly Candidato[]): Escolha {
   const conjunto = new Set(palavras);
@@ -50,6 +51,17 @@ export function escolherPorNome(palavras: Iterable<string>, candidatos: readonly
   }
   const unicos = Array.from(new Set(topo));
   return { escolhido: melhor > 0 && unicos.length === 1 ? unicos[0] : null, pontos: melhor, empatados: unicos };
+}
+
+/**
+ * Portão de segurança E11, 2ª rodada (M-C) — "o ÚNICO com ponto": as palavras do dono apontam este candidato e NENHUM outro candidato
+ * pontua (qualquer outro com ponto → ninguém; quem chama pergunta com os nomes). Um cadastro de terceiro com mais palavras da frase
+ * ("EMILY MANDOU") nunca vence: ele só torna a escolha ambígua.
+ */
+export function unicoComPonto(palavras: Iterable<string>, candidatos: readonly Candidato[]): { escolhido: number | null; comPonto: number[] } {
+  const conjunto = new Set(palavras);
+  const comPonto = Array.from(new Set(candidatos.filter(c => palavrasQueIdentificam(c.nome).some(p => conjunto.has(p))).map(c => c.id)));
+  return { escolhido: comPonto.length === 1 ? comPonto[0] : null, comPonto };
 }
 
 /** O código do grupo (4 caracteres do alfabeto do sistema) aparece como palavra inteira no texto do dono (qualquer caixa)? */
@@ -212,23 +224,62 @@ export const FRASE_SO_QUANDO_MARCADA = "Lá eu só respondo quando me marcarem";
 
 // ── E11b: texto do dono, aviso e como desfazer ──
 
+/** Negação explícita (palavra inteira, normalizada). */
+const NEGACAO_SOLTA = /\b(?:nao|nem|nunca|jamais)\b/;
+
 /**
- * O texto que será GRAVADO (título da tarefa, descrição, anotação, lembrança) saiu das palavras do dono NAQUELA mensagem? Por código: a
- * regra da memória (`veioDasPalavrasDoDono`) e, mais rígido, TODA palavra de conteúdo (4+ letras, fora a moldura "prefere", "para"…)
- * tem de estar na mensagem dele — o modelo não pode acrescentar uma palavra lida de um documento ou de uma consulta.
+ * Portão de segurança E11, 2ª rodada (I-A) — o texto que será GRAVADO (título, descrição, anotação, lembrança, correção) saiu das
+ * palavras do dono? Regra simples e estrita: TODA palavra do texto (normalizada; inclusive as curtas, os números — exatos — e a
+ * "moldura") está na mensagem dele, NA MESMA ORDEM (subsequência). "pagar o boleto de 300" nunca vira "Não pagar boleto 900";
+ * "prefere contato à tarde" nunca vira "não prefere… nunca". Negação no texto que ele não escreveu → não saiu dele.
  */
-export function textoSaiuDoDono(texto: string | null | undefined, textoDoDono: string, extras: readonly string[] = []): boolean {
-  const t = String(texto ?? "");
-  if (!t.trim()) return true;
-  if (!veioDasPalavrasDoDono(t, textoDoDono, extras)) return false;
-  const doDono = new Set([...palavrasDeConteudo(textoDoDono), ...extras.flatMap(palavrasDeConteudo)]);
-  return palavrasDeConteudo(t).every(p => doDono.has(p));
+export function textoSaiuDoDono(texto: string | null | undefined, textoDoDono: string): boolean {
+  const t = normalizarNome(texto).split(" ").filter(Boolean);
+  if (!t.length) return true;
+  const d = normalizarNome(textoDoDono).split(" ").filter(Boolean);
+  if (t.some(p => NEGACAO_SOLTA.test(p)) && !d.some(p => NEGACAO_SOLTA.test(p))) return false;
+  let i = 0;
+  for (const p of d) if (i < t.length && p === t[i]) i++;
+  return i === t.length;
+}
+
+/**
+ * Portão de segurança E11, 2ª rodada (M-A) — a mensagem não serve de ORDEM DIRETA quando é pergunta ("?" em qualquer ponto) ou tem
+ * negação em qualquer posição ("não/nem/nunca/jamais"), além da negação antes do verbo ("sem criar…", `negaAcao`). Vai para a
+ * confirmação de sempre. Errar para o lado de perguntar é o combinado.
+ */
+export function bloqueiaOrdemDireta(textoDoDono: string | null | undefined): boolean {
+  const bruto = String(textoDoDono ?? "");
+  return bruto.includes("?") || NEGACAO_SOLTA.test(normalizarNome(bruto)) || negaAcao(bruto);
+}
+
+/** B-a: prazo só se ele disse quando (dia, data, hora); prioridade diferente de "média" só se ele disse. */
+export function prazoDitoPeloDono(textoDoDono: string | null | undefined): boolean {
+  return /\b(?:hoje|amanha|depois de amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|semana|mes|dia \d{1,2}|ate \d{1,2}|\d{1,2} \d{1,2}(?: \d{2,4})?|\d{1,2}h|\d{1,2} horas?)\b/
+    .test(normalizarNome(String(textoDoDono ?? "").replace(/[/:]/g, " ")));
+}
+export function prioridadeDitaPeloDono(prioridade: unknown, textoDoDono: string | null | undefined): boolean {
+  if (prioridade === undefined || prioridade === null || prioridade === "media") return true;
+  const n = normalizarNome(textoDoDono);
+  if (prioridade === "alta" || prioridade === "critica") return /\b(?:urgent\w*|prioridade alta|alta prioridade|critic\w*|importante)\b/.test(n);
+  if (prioridade === "baixa") return /\b(?:sem pressa|baixa prioridade|prioridade baixa)\b/.test(n);
+  return false;
 }
 
 /** silenciar_aviso: a direção (parar / voltar) bate com o que ele escreveu. */
+/**
+ * Portão de segurança E11, 2ª rodada (M-B) — direção do aviso por VERBOS explícitos ("para de me avisar", "pare de avisar", "silencia",
+ * "deixa de me avisar"; "volta a me avisar", "religa"). "para eu acompanhar" (preposição) não conta. As duas direções na mesma
+ * mensagem → nenhuma (confirmação).
+ */
+const PARAR_DE_AVISAR = /\b(?:(?:parar|pare|para|paresse) de (?:me )?(?:te )?avis\w*|silenci\w*|deix\w* de (?:me )?avis\w*|chega de avis\w*)\b/;
+const VOLTAR_A_AVISAR = /\b(?:volt\w* a (?:me )?(?:te )?avis\w*|relig\w*)\b/;
 export function direcaoDoAvisoDita(silenciar: boolean, textoDoDono: string | null | undefined): boolean {
   const n = normalizarNome(textoDoDono);
-  return silenciar ? /\b(?:par\w*|silenci\w*|chega|deix\w* de|nao (?:me )?avis\w*|sem avis\w*)\b/.test(n) : /\b(?:volt\w*|relig\w*)\b/.test(n);
+  const parar = PARAR_DE_AVISAR.test(n);
+  const voltar = VOLTAR_A_AVISAR.test(n);
+  if (parar === voltar) return false;
+  return silenciar ? parar : voltar;
 }
 
 /** Como desfazer, por função (só onde existe um jeito de verdade). Texto do SISTEMA. */

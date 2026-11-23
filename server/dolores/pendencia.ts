@@ -25,7 +25,7 @@ import {
 } from "../../shared/dolores/confirmacao.js";
 import { ALFABETO_CODIGO, textoDeDado } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
-import { escolherPorNome, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
+import { unicoComPonto, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
 import { getDb } from "../db.js";
 import { decidir, type ResultadoDecisao } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
@@ -366,7 +366,8 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
       return { pendenciaId: null, codigos: serios.map(i => i.codigo), situacao: "falta_confirmo", texto: `${fraseFaltaConfirmo(serios.map(paraMotivo))} (um por vez, à pergunta do sistema; "todos" vale só para registro).` };
     }
   } else {
-    const escolha = escolherPorNome(c.referencia, candidatos.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
+    // portão 2 (M-C): o nome aponta UM item só (outro item com a mesma palavra → segue o caminho comum)
+    const escolha = unicoComPonto(c.referencia, candidatos.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
     const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
     if (!item) return null;
     // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova

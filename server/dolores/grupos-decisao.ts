@@ -20,7 +20,7 @@ import {
 } from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { getDb } from "../db.js";
-import { escolherPorNome } from "../../shared/dolores/ordem-direta.js";
+import { unicoComPonto } from "../../shared/dolores/ordem-direta.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
 import { clienteDoNomeDoGrupo, clientesPelasPalavras, grupoDoDono } from "./ordem-direta.js";
@@ -301,7 +301,9 @@ export async function decidirPeloNome(r: { palavras: string[]; tipo: "cliente" |
     return r.palavras.every(p => nome.has(p));
   });
   if (!candidatos.length) return null;
-  const escolha = escolherPorNome(r.palavras, candidatos);
+  // portão 2 (M-C): o ÚNICO com ponto (mais de um → os nomes para ele escolher)
+  const u = unicoComPonto(r.palavras, candidatos);
+  const escolha = { escolhido: u.escolhido, empatados: u.comPonto };
   if (!escolha.escolhido) {
     await auditar0(origem, "recusada", "nome do cliente aponta mais de um cliente: perguntado de novo pelo nome", { grupoId: g.id, candidatos: escolha.empatados.length });
     await marcarPerguntaDoTipo(g.id, origem);

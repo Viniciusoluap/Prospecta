@@ -9,7 +9,8 @@
 // gravadas (um estranho não pode encher a auditoria nem gastar o limite dela): vão só para o log, sem o token.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { doloresAprovacoes } from "../../drizzle/schema-dolores-fila.js";
 import { z } from "zod";
 import { doloresConfig, doloresLimite } from "../../drizzle/schema-dolores.js";
 import { DESLOCAMENTO_FUSO, FUSO, MOEDA, isoFortaleza, limitarResposta } from "../../shared/dolores/formato.js";
@@ -414,7 +415,24 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       ? { itens: [await comPrazo(acao.paraFila!(args as never, ctx), c.prazoMs)], recusados: [] }
       : await comPrazo(acao.preparar!(args as never, ctx), c.prazoMs);
     const vagas = MAX_ACOES_POR_COMANDO - feitas;
-    const cabem = preparo.itens.slice(0, vagas);
+    let cabem = preparo.itens.slice(0, vagas);
+    // Portão 2 (B-b): a mesma chamada repetida no MESMO pedido (o modelo pediu duas vezes) não vira outra entrada nem outro "Feito"
+    if (ordemDireta && cabem.length) {
+      // a MESMA chamada = mesmo alvo E mesmos argumentos (um "liga ao João" depois de "liga à Maria" no mesmo grupo não é repetição)
+      const estavel = (v: unknown): string => Array.isArray(v) ? `[${v.map(estavel).join(",")}]`
+        : v && typeof v === "object" ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${estavel((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
+      const chave = (alvo: string, argumentos: unknown) => `${alvo.slice(0, 80)}\u0000${estavel(argumentos)}`;
+      const jaFeitos = new Set((await getDb().select({ alvo: doloresAprovacoes.alvo, argumentos: doloresAprovacoes.argumentos }).from(doloresAprovacoes)
+        .where(and(eq(doloresAprovacoes.mensagemId, c.mensagemId), eq(doloresAprovacoes.funcao, funcao), inArray(doloresAprovacoes.situacao, ["executada", "executando"]),
+          inArray(doloresAprovacoes.alvo, cabem.map(i => i.alvo.slice(0, 80)))))).map(x => chave(x.alvo, x.argumentos)));
+      const repetidos = cabem.filter(i => jaFeitos.has(chave(i.alvo, i.argumentos)));
+      if (repetidos.length === cabem.length) {
+        await registrar("recusada", { funcao, argumentos: args, motivo: "ordem direta: pedido repetido no mesmo comando (já feito); nada de novo", pedidoId: c.pedidoId });
+        return { contamina: false, ...responder(200, { ok: true, nivel: "feito", avisoSeguranca: AVISO_SEGURANCA,
+          aviso: "Isto já foi feito neste mesmo pedido; nada de novo. Não repita.", dados: { feitos: 0, jaFeito: repetidos.length } }) };
+      }
+      cabem = cabem.filter(i => !jaFeitos.has(chave(i.alvo, i.argumentos)));
+    }
     const recusados = [...preparo.recusados, ...preparo.itens.slice(vagas).map(i => ({ alvo: i.alvo, motivo: `limite de ${MAX_ACOES_POR_COMANDO} ações por comando` }))];
     const criados = await porNaFila(funcao, { itens: cabem, recusados }, ctx);
     // EPIC-025 E11: ordem direta → o item que o sistema acabou de montar (resumo exato + hash) é decidido NA HORA pela mesma porta da
@@ -428,7 +446,7 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
         prazoFinal: inicio + c.prazoMs, relogio: () => Date.now(), confirmado: true, motivo: "ordem direta do dono" }) : [];
       // QA E11 (M2): ligar um grupo diz que lá ela só responde quando marcada; cada frase leva como desfazer, quando existe (E11b)
       const argsDe = new Map(criados.map((x, i) => [x.codigo, cabem[i]?.argumentos]));
-      const feitos = resultados.filter(r => r.ok).map(r => {
+      const feitos = resultados.filter(r => r.ok && !/^executado\.?$/i.test(String(r.natural ?? "").trim())).map(r => {
         const frase = String(r.natural ?? r.texto).trim().replace(/\.+$/, "");
         const desfazer = comoDesfazer(funcao, argsDe.get(r.codigo));
         return `${frase}${funcao === "classificar_grupo" ? `. ${FRASE_SO_QUANDO_MARCADA}` : ""}${desfazer ? ` (${desfazer})` : ""}`;

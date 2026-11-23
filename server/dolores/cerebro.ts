@@ -12,7 +12,7 @@ import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type 
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
-import { negaAcao } from "../../shared/dolores/ordem-direta.js";
+import { bloqueiaOrdemDireta } from "../../shared/dolores/ordem-direta.js";
 import { ACOES_FISCAIS, FERRAMENTAS_FISCAIS, intencaoFiscal } from "../../shared/dolores/fiscal.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
@@ -371,7 +371,12 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   // texto colado, sem anexo e fora da retomada em segundo plano. Quem confere os alvos contra estas palavras é o servidor (ponte.ts).
   // Portão de QA E11 (I1b): verbo e alvos saem da MESMA mensagem (nunca somando mensagens anteriores; um "pode" solto só confirma o que
   // o SISTEMA perguntou, pela proposta). (M1): mensagem com negação antes do verbo ("não vincula…", "nunca ignore…") nunca é ordem direta.
-  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !negaAcao(comando) && !lerConfirmacao(comando)
+  // Portão 2 (I-B): verbo, código, alvos e texto só do TRECHO DO DONO — com qualquer marca de citação (aspas, ":" seguido de texto,
+  // ">", quebra de linha) a mensagem inteira deixa de ser ordem direta (vai para a confirmação): o que vem depois da marca pode ser fala
+  // de terceiro. (M-A): pergunta ("?") ou negação em qualquer posição também → confirmação.
+  const trecho = trechoDoDono(p.comando).trim();
+  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando)
+    && trecho.length > 0 && trecho === p.comando.trim() && !bloqueiaOrdemDireta(p.comando)
     ? { texto: comando } : null;
   const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
@@ -479,7 +484,7 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
           contaminado, motivoContaminacao, semAcoes: !(comAcoes || (acoesFiscais && ACOES_FISCAIS_SET.has(String(u.name)))), aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
           exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal,
-          ordemDireta, aoExecutar: fs => feitosNaHora.push(...fs) },
+          ordemDireta, aoExecutar: fs => { for (const f of fs) if (!feitosNaHora.includes(f)) feitosNaHora.push(f); } },
       );
       // EPIC-027 C5-COM: só das leituras da conversa do dono (texto montado pelo sistema, já pelo filtro da porta)
       if (resp.body.ok === true && leituraPorNome(String(u.name))?.soConversaDoDono) {
