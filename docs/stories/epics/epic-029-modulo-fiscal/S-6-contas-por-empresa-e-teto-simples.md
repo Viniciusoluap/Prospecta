@@ -159,6 +159,20 @@ Teste do QA: `server/fiscal/s6-qa2.test.ts` (os 7 `it.fails` viraram `it`; casos
 Tabelas opcionais (`tax_profiles_historico`, `bpo_recebimentos`) são conferidas com `to_regclass` antes de ler (sem erro na transação somente
 leitura da Dolores). Testes antigos ajustados à regra N1: as saídas de transferência dos cenários passam a ser MARCADAS.
 
+## Correções do 3º portão de QA (FAIL de 22/11/2026 → corrigido)
+
+Teste do QA: `server/fiscal/s6-qa3.test.ts` (`it.fails` → `it`; casos a mais das correções no mesmo arquivo).
+
+| Achado | Gravidade | Correção |
+|---|---|---|
+| Q1 — entrada marcada como Transferência interna sumia da soma sem par | importante | A entrada marcada (à mão, por lote, pela regra do titular ou sozinha pela importação — `sugerirCategoria`) entra na apuração como receita MARCADA: só sai da soma se casar com uma saída também marcada de OUTRA conta da MESMA empresa (mesmo valor, até 2 dias). Sem par, CONTA e aparece em "possível transferência" para o dono conferir. Lançamento com categoria Transferência interna segue a mesma regra. |
+| Q2 — transferência real B→C escondia recebimento de mesmo valor na conta A | importante | Duas passadas em `apurarReceitas`: primeiro marcada × marcada (a transferência real se anula); depois, a entrada NÃO marcada (receita de cliente) nunca é anulada — uma saída que sobrou (sem classificação ou marcada sem par) só a aponta como "possível transferência". |
+| Q3 — marcar como transferência sem rastro | médio | Por decisão do coordenador, a permissão do colaborador com BPO continua (com o Q1 a marcação sem par não tira receita). Auditoria nova `bpo_transferencia_marcacoes` (na 0164, aditiva): cada movimentação marcada pelo "ignorar", pela tela de Bancos, pelo lote, pela regra do titular — quem, quando, por onde, valor e o lote (quantas e valor somado). O painel de limites mostra quantas entradas saíram como transferência e por quem foram marcadas (`transferenciasPorQuem`; sem registro = marcação automática ou anterior à auditoria). O teste do QA que pedia tirar a permissão foi trocado pelo que fixa a permissão + a auditoria. |
+| Q4 — apelido com "_" ou "," passava o número | baixo | `nomeSeguroDaConta` normaliza NFKC e junta blocos de dígitos com QUALQUER separador que não seja letra (5+ dígitos → •••4 últimos). |
+
+Testes antigos ajustados à regra Q1/Q2: as transferências dos cenários passam a ter os DOIS lados marcados; o lançamento marcado sem par
+do cenário de reembolso passa a contar.
+
 ## File List
 
 - `drizzle/0164_contas_empresa_limite_receita.sql` (novo), `drizzle/schema.ts`
@@ -192,3 +206,5 @@ leitura da Dolores). Testes antigos ajustados à regra N1: as saídas de transfe
 | 22/11/2026 | @dev (Dex) | Correções do portão de QA (todas as 10 + Financeiro + fuso); `it.fails` → `it`; volta a InReview (aguarda novo portão). |
 | 22/11/2026 | @qa (Quinn) | 2º portão de QA: FAIL (N1/N1b importantes; N2, N3 médios; N4, N5 baixos; precedência matriz × filial). |
 | 22/11/2026 | @dev (Dex) | Correções do 2º portão; `it.fails` → `it`; volta a InReview. |
+| 22/11/2026 | @qa (Quinn) | 3º portão de QA: FAIL (Q1, Q2 importantes; Q3 médio; Q4 baixo). |
+| 23/11/2026 | @dev (Dex) | Correções do 3º portão (Q1–Q4); auditoria das marcações; `it.fails` → `it`; volta a InReview. |
