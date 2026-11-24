@@ -355,6 +355,7 @@ const MARCADORES_DE_PRAZO = new Set(["ate", "para", "pra", "prazo", "vence", "ve
 const PASSADO = new Set(["fez", "pagou", "mandou", "enviou", "ligou", "deu", "recebeu", "assinou", "veio", "foi", "chegou", "fizeram", "pagaram", "mandaram", "falou", "disse", "entregou",
   // portão 6 (B-3): passados irregulares
   "trouxe", "quis", "soube", "teve", "esteve", "pos", "viu", "houve", "coube", "pode", "fiz", "pus", "tive", "estive", "fui", "dei", "vim", "vi", "era", "estava", "tinha", "ficou"]);
+const ORACAO_ANTES_DA_DATA = new Set(["que", "se", "quando", "caso", "onde", "como", "porque"]);
 const TERMINACAO_DE_PASSADO = /(?:ou|eu|iu|ei|aram|eram|iram)$/;
 const NAO_SAO_PASSADO = new Set(["estou", "museu", "europeu", "pneu", "chapeu", "plebeu", "ateu"]);
 const MESES_E_SEMANA = /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|segunda|terca|quarta|quinta|sexta|sabado|domingo|que vem|proxim[oa]s?|semana|mes)\b/;
@@ -383,7 +384,15 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
   const achadas: Array<string | null> = [];
   // "\b" do JavaScript não vê letra acentuada ("amanhã" termina em "ã"): a fronteira é conferida pela classe de letras
   for (const x of Array.from(raw.matchAll(/(?<![0-9A-Za-zÀ-ÖØ-öø-ÿ])(hoje|amanh[aã])(?![0-9A-Za-zÀ-ÖØ-öø-ÿ])/gi))) {
-    if (temPassado(antesDe(x.index ?? 0))) return null;
+    const ps = antesDe(x.index ?? 0);
+    if (temPassado(ps)) return null;
+    // Portão 7 (M-1): "hoje"/"amanhã" só é prazo com marcador colado antes ("até amanhã", "para hoje") ou FECHANDO o pedido (só com o
+    // período/hora depois: "amanhã cedo", "hoje às 14h") e fora de oração ("a reunião de amanhã", "que chega amanhã", "se chover hoje")
+    const marcado = ps.length > 0 && MARCADORES_DE_PRAZO.has(ps[ps.length - 1]);
+    const emOracao = ps.slice(-6).some(t => ORACAO_ANTES_DA_DATA.has(t)) || ["de", "do", "da"].includes(ps[ps.length - 1] ?? "");
+    const depois = normalizarNome(raw.slice((x.index ?? 0) + x[0].length)).split(" ").filter(Boolean);
+    const fecha = depois.every(t => /^(?:cedo|manha|tarde|noite|de|a|pela|as|\d{1,2}h?|\d{1,2}h\d{2}|\d{2}|h|hs|horas|por|favor|sem|falta|mesmo)$/.test(t));
+    if (!marcado && (emOracao || !fecha)) return null;
     achadas.push(/^hoje$/i.test(x[1]) ? hojeIso : iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
   }
   const usadas = new Set<number>();
@@ -446,7 +455,10 @@ export function prioridadeConfere(prioridade: unknown, mensagem: string): boolea
   const onde = ts.flatMap((t, i) => (t === "urgente" ? [i] : []));
   if (onde.length !== 1) return false;
   const i = onde[0];
-  return ts[i - 1] === "tarefa" || ts[i - 1] === "tarefas" || (i === ts.length - 1 && (ts[i - 1] === "e" || ts[i - 1] === "muito") && ts[i - 2] !== "ser");
+  if (ts[i - 1] === "tarefa" || ts[i - 1] === "tarefas") return true;
+  // Portão 7 (M-2): no fim, só como aposto depois de pausa — "…, é urgente", "…; urgente", "…. É muito urgente". Dentro da frase
+  // ("ver se o pedido do João é urgente") é conteúdo
+  return i === ts.length - 1 && /[,.;!]\s*(?:[ée]\s+)?(?:muito\s+)?urgente[\s.!]*$/i.test(String(mensagem));
 }
 
 // ── Portão de segurança E11, 4ª rodada: FUNÇÃO e TEXTO pelo CÓDIGO (a chamada do modelo é só o gatilho e tem de coincidir) ──
@@ -563,10 +575,19 @@ export type TextoDaMoldura = { texto: string; moldura: string; tokensDaMoldura: 
  * moldura. Vazio, menos de 2 palavras, dêitico de pedido ou "tarefa que…" → null (confirmação). A moldura tirada é conferida: a
  * sequência normalizada dela tem de ser EXATAMENTE a dos tokens consumidos, senão null.
  */
-export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<readonly string[]> = []): TextoDaMoldura {
-  const toks = tokensDoPedido(mensagem);
+/** Depois do token `k-1` e antes do token `k` (ou do fim) há pontuação de pausa (vírgula, ponto, ";", "!", ":")? */
+function pausaDepois(mensagem: string, toks: readonly Token[], k: number): boolean {
+  return /[,.;!:]/.test(mensagem.slice(toks[k - 1].fim, k < toks.length ? toks[k].inicio : mensagem.length));
+}
+
+/**
+ * Consome a MOLDURA do começo do pedido e devolve quantos tokens ela tem (a gramática está descrita em `textoPelaMoldura`).
+ * Portão 7 (B-1): do nome provado sai o PRIMEIRO nome; os seguintes só saem quando ele os escreveu com inicial maiúscula ou quando o
+ * nome inteiro vem seguido de "que", de pausa ou do fim ("anota na Ana em dia com o pagamento" não perde o "em dia").
+ */
+function consumirMoldura(mensagem: string, toks: readonly Token[], nomesProvados: ReadonlyArray<readonly string[]>): { k: number; tarefaQue: boolean } {
   let k = tokensDeVocativo(toks.map(t => t.n));
-  if (k >= toks.length) return null;
+  if (k >= toks.length) return { k, tarefaQue: false };
   const pedidoDeTarefa = VERBO_DE_TAREFA.test(toks[k].n);
   k++; // o verbo da função
   if (toks[k]?.n === "ai") k++;
@@ -577,7 +598,7 @@ export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<
     if (RESTRITIVAS.has(n)) break;
     if (n === "que") {
       // "tarefa que o cliente pediu…" (oração relativa sobre a tarefa) aponta para algo fora da mensagem → confirmação
-      if (/^tarefas?$/.test(toks[k - 1].n)) return null;
+      if (/^tarefas?$/.test(toks[k - 1].n)) return { k, tarefaQue: true };
       k++;
       break;
     }
@@ -595,10 +616,38 @@ export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<
     if (iNome < 0) break;
     usados.add(iNome);
     const nome = nomesProvados[iNome];
-    k = x;
-    for (let y = 0; k < toks.length && y < nome.length && toks[k].n === nome[y]; y++) k++;
+    k = x + 1; // o primeiro nome
+    let fim = k;
+    for (let y = 1; fim < toks.length && y < nome.length && toks[fim].n === nome[y]; y++) fim++;
+    if (fim > k) {
+      const comMaiuscula = toks.slice(k, fim).every(t => /^[A-ZÀ-ÖØ-Þ]/.test(mensagem.slice(t.inicio, t.fim)));
+      const fechaONome = fim >= toks.length || toks[fim].n === "que" || pausaDepois(mensagem, toks, fim);
+      if (comMaiuscula || fechaONome) k = fim;
+    }
   }
-  if (k >= toks.length) return null;
+  return { k, tarefaQue: false };
+}
+
+/**
+ * Portão 7 (I-1) — com texto ditado depois de ":", o trecho ANTES do ":" tem de ser SÓ moldura: vocativo, verbo, "aí", [ponte + tarefa],
+ * [ponte + nome provado], "que" e, no fim, "disso"/"isso"/"o seguinte". Sobrou qualquer palavra ("se a Emily atrasar", "caso ela
+ * ligue", "o boato de que") → false (confirmação): o que ele escreveu antes do ":" nunca é jogado fora em silêncio.
+ */
+const FECHO_DO_DITADO = new Set(["disso", "isso", "seguinte", "assim"]);
+export function molduraInteira(antes: string, nomesProvados: ReadonlyArray<readonly string[]> = []): boolean {
+  const toks = tokensDoPedido(antes);
+  const { k, tarefaQue } = consumirMoldura(antes, toks, nomesProvados);
+  if (tarefaQue) return false;
+  let fim = k;
+  if (toks[fim]?.n === "o" && toks[fim + 1]?.n === "seguinte") fim++;
+  if (fim < toks.length && FECHO_DO_DITADO.has(toks[fim].n)) fim++;
+  return fim >= toks.length;
+}
+
+export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<readonly string[]> = []): TextoDaMoldura {
+  const toks = tokensDoPedido(mensagem);
+  const { k, tarefaQue } = consumirMoldura(mensagem, toks, nomesProvados);
+  if (tarefaQue || k >= toks.length) return null;
   const inicio = toks[k].inicio;
   const moldura = mensagem.slice(0, inicio);
   const tokensDaMoldura = toks.slice(0, k).map(t => t.n);
@@ -628,7 +677,8 @@ export function palavrasDepoisDoVerbo(antes: string | null | undefined): string[
  */
 export const LIGACAO_DE_GRUPO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "ao", "aos", "na", "no", "em", "com", "como", "sendo", "e",
   "grupo", "grupos", "cliente", "clientes", "obra", "pos", "venda", "atendimento", "engenharia", "para", "pra", "pro", "n", "numero", "esse", "essa", "este", "esta", "ai", "la",
-  "agora", "ja", "por", "favor", "lado", "resposta", "respostas", "responder", "dela", "dele", "tambem", "vincular", "vincula", "ligar", "liga"]);
+  "agora", "ja", "por", "favor", "lado", "resposta", "respostas", "responder", "dela", "dele", "tambem"]);
+// Portão 7 (I-3): NENHUM verbo entra nesta lista — "ignora o grupo da Emily e liga o da Maria" tem um segundo pedido, de outra função
 export const LIGACAO_DE_AVISO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "me", "te", "em", "com", "e", "sobre", "avisar", "avisa", "avise",
   "aviso", "avisos", "agora", "ja", "por", "favor", "tipo", "esse", "essa", "esses", "essas"]);
 export function soPalavrasPermitidas(antes: string | null | undefined, ligacao: ReadonlySet<string>, doAlvo: Iterable<string>): boolean {
@@ -640,7 +690,14 @@ export function temCondicaoOuTempo(antes: string | null | undefined): boolean {
   return ts.slice(tokensDeVocativo(ts) + 1).some(t => CONDICAO_OU_TEMPO.has(t));
 }
 
-/** Os tokens de um texto sem os artigos (comparação de lembrança, portão 6 I-2): "sem", "com", "só", "não" CONTAM. */
+/**
+ * Os tokens de um texto, NA ORDEM e com repetição, sem os artigos — comparação de lembrança. Portão 6 (I-2): "sem", "com", "só", "não"
+ * contam. Portão 7 (I-2): a ordem conta ("Emily paga o Pedro" ≠ "Pedro paga a Emily"; "20 de entrada e 10 por mês" ≠ "10 de entrada e 20…").
+ * A crase conta como artigo ("à tarde" = "a tarde").
+ */
 export function tokensSemArtigo(texto: string | null | undefined): string[] {
-  return Array.from(new Set(tokensDoPedido(texto).map(t => t.n).filter(t => !ARTIGOS.has(t))));
+  return tokensDoPedido(texto).map(t => t.n).filter(t => !ARTIGOS.has(t));
+}
+export function mesmaSequencia(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
 }

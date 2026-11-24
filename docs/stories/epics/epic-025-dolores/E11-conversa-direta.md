@@ -233,6 +233,19 @@ As frases da 5ª rodada estavam corrigidas; a 6ª achou a mesma classe de erro e
 
 Custo de usabilidade aceito (cai no "pode"): "lembra" sem "que"; grupo com qualquer palavra fora da lista; prazo no meio da frase ("até 15/12 ligar…"); "a lembrança do Fulano" quando Fulano não está no cadastro. O texto gravado passa a manter o artigo depois de "que" ("a Emily mandou o RG").
 
+## Portão de segurança E11 — 7ª rodada (sobre 36c08a8 → FAIL) — antes do ":" só moldura, lembrança pela sequência, nenhum verbo na lista permitida
+
+| Achado | Correção |
+|---|---|
+| I-1 — com ":", o que vinha antes dos dois-pontos e não era verbo nem nome sumia ("lembra que se a Emily atrasar: cobrar multa" gravava "cobrar multa") | `molduraInteira`: com ditado, o trecho antes do ":" tem de ser consumido INTEIRO pela gramática da moldura (a mesma do caminho sem ":", `consumirMoldura`), aceitando no fim "disso"/"isso"/"o seguinte". Sobrou palavra → confirmação. |
+| I-2 — lembrança comparada como conjunto ("Emily paga o Pedro" = "Pedro paga a Emily") | `mesmaSequencia(tokensSemArtigo(...))`: mesma ordem e mesma contagem de palavras. |
+| I-3 — "liga"/"vincula" estavam na lista permitida ("ignora o grupo da Emily e liga o da Maria" ignorava os dois) | Nenhum verbo em `LIGACAO_DE_GRUPO`: segundo verbo → confirmação. A mesma função para dois grupos ("…e o da Maria Dayane") continua direta. |
+| M-1 — "hoje"/"amanhã" no meio da frase virava prazo | Só com marcador colado antes ou fechando o pedido (com período/hora), e fora de oração ("de amanhã", "que chega amanhã", "se… hoje"). |
+| M-2 — "é urgente" como conteúdo virava prioridade alta | No fim, só como aposto depois de pausa ("…, é urgente"). |
+| B-1 — nome do cadastro que é palavra comum engolia conteúdo ("Ana Em Dia") | Do nome provado sai o primeiro nome; os seguintes só com inicial maiúscula ou quando o nome vem seguido de "que", pausa ou fim. |
+
+Teste antigo ajustado: "cria tarefa pra Bianca ligar: pro cartório" agora cai na confirmação (antes gravava só "pro cartório"). `c5-memoria-longa.test.ts`: o "esquece que…" direto usa a lembrança inteira.
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -306,6 +319,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 7ª rodada — I-1 a I-3, M-1, M-2, B-1 (e11 106/106 nos blocos; lotes dos demais arquivos a rodar).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 6ª rodada — moldura por gramática, lembrança com todas as palavras, lista permitida em grupo/aviso, M-1 a M-4, B-1 a B-3 (e11 100/100).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 5ª rodada — I-1 a I-4, B-1, B-2 e usabilidade; wip 7ac4ba6 terminado; regressões e teste de propriedade no e11 (92/92).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 4ª rodada — função e texto pelo código (moldura), M-1–M-4, B-1, categoria/tipo padrão.

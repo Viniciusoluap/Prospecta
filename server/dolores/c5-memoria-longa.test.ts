@@ -422,7 +422,8 @@ describe("corrigir e esquecer pela conversa", () => {
 
     // EPIC-025 E11b: "esquece que…" apontando UMA lembrança pelas palavras dele arquiva na hora (sem "pode"); nunca apaga
     roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: 1 }]), () => texto(""));
-    await dono("esquece que eu prefiro o resumo às terças");
+    // E11 portões 5 a 7: a lembrança é apontada pelo conteúdo EXATO (mesmas palavras, na ordem); parte dela cai no "pode"
+    await dono("esquece que prefiro o resumo das obras às terças de manhã");
     expect(await memorias()).toMatchObject([{ id: 1, situacao: "arquivada" }]);
     expect(ultima()).toMatch(/^Feito: .*fica arquivada; para voltar, me peça para lembrar de novo/);
     expect((await memorias())[0].arquivado_em).not.toBeNull();

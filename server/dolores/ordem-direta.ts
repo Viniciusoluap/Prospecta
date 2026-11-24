@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -189,10 +189,8 @@ async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDe
   const conteudo = textoPelaMoldura(antes);
   const doDono = conteudo ? tokensSemArtigo(conteudo.texto) : [];
   if (doDono.filter(p => p.length >= 3).length < MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA) return nao("poucas palavras de conteúdo do dono");
-  const igual = (texto: string | null) => {
-    const w = tokensSemArtigo(texto);
-    return w.length === doDono.length && doDono.every(p => w.includes(p));
-  };
+  // Portão 7 (I-2): a mesma SEQUÊNCIA de palavras (ordem e repetição contam)
+  const igual = (texto: string | null) => mesmaSequencia(tokensSemArtigo(texto), doDono);
   const com = ativas.filter(m => igual(m.nome));
   return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: palavrasQueIdentificam(conteudo!.texto) } : nao("as palavras dele não apontam uma lembrança só");
 }
@@ -208,7 +206,11 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
   const palavras = palavrasQueIdentificam(antes);
   /** O texto do dono: o ditado, ou o que sobra depois da moldura (com os nomes provados), sem negação na moldura. */
   const textoDoDono = (nomes: ReadonlyArray<string | null>): string | null => {
-    if (partes.depois !== null) return partes.depois.replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "") || null;
+    // Portão 7 (I-1): com ditado, o trecho antes do ":" tem de ser SÓ moldura — condição ou assunto escrito ali nunca some em silêncio
+    if (partes.depois !== null) {
+      if (!molduraInteira(partes.antes, nomes.filter((n): n is string => !!n).map(tokensDoNome))) return null;
+      return partes.depois.replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "") || null;
+    }
     const t = textoPelaMoldura(partes.mensagem, nomes.filter((n): n is string => !!n).map(tokensDoNome));
     return t && !temNegacao(t.moldura) ? t.texto : null;
   };
@@ -264,7 +266,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       if (partes.depois === null) return nao("corrigir lembrança só com o texto novo ditado depois de \":\"");
       const m = await provarMemoria(a.memoriaId, antes);
       if (!m.ok) return m;
-      const texto = textoDoDono([]);
+      // o trecho antes do ":" já foi usado INTEIRO para apontar a lembrança (provarMemoria); o texto novo é o ditado
+      const texto = partes.depois.replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "") || null;
       if (!texto) return nao("texto novo vazio");
       if (texto.length > LIMITE_TEXTO.corrigir_memoria) return nao("texto novo maior que o limite");
       // Portão 4 (M-4): o ditado tem de trazer ao menos uma das palavras que apontaram a lembrança (senão perde o sujeito)
