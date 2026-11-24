@@ -583,7 +583,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                           onChange={(v) => setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? v : c)) })} /></td>
                       </tr>
                     ))}
-                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}</td><td className="p-1">{brl(totais.outros)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}%</td><td className="p-1">{brl(totais.outros)}</td></tr>
                   </tbody>
                   <tfoot className="font-semibold">
                     <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.totalServicos) ?? 0, 2)}%</td><td className="p-1">{brl(totais.totalServicos)}</td></tr>
@@ -610,15 +610,29 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                   </tbody>
                 </table>
                 <p className="mt-1 text-xs text-gray-400">O terreno é dividido pela área do terreno; os demais, pela área construída total.</p>
-                <p className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
-                {form.adicionais.map((a, i) => (
-                  <div key={i} className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
-                    <Input aria-label={`Serviço adicional ${i + 1}`} value={a.descricao} placeholder={`Serviço adicional ${i + 1}`} className={campoCls}
-                      onChange={(e) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => (k === i ? { ...x, descricao: e.target.value } : x)) })} />
-                    <NumeroInput aria-label={`Custo do serviço adicional ${i + 1}`} value={a.valor} negativo={false} className={campoCls}
-                      onChange={(v) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => (k === i ? { ...x, valor: v } : x)) })} />
-                  </div>
-                ))}
+                <p id="pci-servicos-adicionais" className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
+                <table aria-labelledby="pci-servicos-adicionais" className="w-full text-sm">
+                  <thead className="text-left text-gray-400">
+                    <tr><th className="py-1 pr-2">Serviço</th><th className="w-[28%] px-1 py-1">Incidência (%)</th><th className="w-[27%] py-1 pl-2">Valor (R$)</th></tr>
+                  </thead>
+                  <tbody>
+                    {form.adicionais.map((a, i) => {
+                      const atualizarValor = (valor: number | null) => setForm({
+                        ...form,
+                        adicionais: form.adicionais.map((servico, k) => k === i ? { ...servico, valor } : servico),
+                      });
+                      return (
+                        <tr key={i}>
+                          <td className="py-0.5 pr-2"><Input aria-label={`Serviço adicional ${i + 1}`} value={a.descricao} placeholder={`Serviço adicional ${i + 1}`} className={campoCls}
+                            onChange={(e) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => k === i ? { ...x, descricao: e.target.value } : x) })} /></td>
+                          <td className="min-w-[110px] px-1 py-0.5"><NumeroInput aria-label={`Incidência do serviço adicional ${i + 1}`} value={incidenciaDoCustoPci(form, a.valor)} negativo={false} sufixo="%" disabled={baseCustos === null} className={campoCls}
+                            onChange={(v) => { if (baseCustos !== null) atualizarValor(custoDaIncidenciaPci(baseCustos, v)); }} /></td>
+                          <td className="min-w-[110px] py-0.5 pl-2"><NumeroInput aria-label={`Valor do serviço adicional ${i + 1}`} value={a.valor} negativo={false} className={campoCls} onChange={atualizarValor} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
             {s.id === "cronograma" && (
