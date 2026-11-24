@@ -301,6 +301,30 @@ export const MAX_ETAPAS_PCI = 24;
 /** Quadro da poligonal/localização na aba da proposta (base zero, inclusive). */
 export const QUADRO_LOCALIZACAO_PCI = { coluna1: 6, linha1: 193, coluna2: 48, linha2: 213 } as const;
 export const LIMITE_IMAGEM_PCI_BYTES = 1.5 * 1024 * 1024;
+/**
+ * Largura ÷ altura do quadro "Inserir Poligonal do Terreno" no modelo oficial (colunas G..AW, linhas 194..214): ~3,03. A foto é
+ * RECORTADA nessa proporção na tela (pedido do dono em 24/11: preencher o quadro, sem faixas sobrando e sem esticar).
+ */
+export const PROPORCAO_QUADRO_LOCALIZACAO_PCI = 3.03;
+export type ParteDaFotoPci = "cima" | "meio" | "baixo";
+/**
+ * O recorte (em pixels da foto) que preenche o quadro: foto mais "alta" que o quadro perde altura (fica a parte de cima, do meio ou de
+ * baixo); foto mais "larga" perde as laterais por igual. Nunca estica.
+ */
+export function recorteParaQuadroPci(largura: number, altura: number, parte: ParteDaFotoPci = "meio", proporcao: number = PROPORCAO_QUADRO_LOCALIZACAO_PCI): { x: number; y: number; largura: number; altura: number } {
+  if (!(largura > 0) || !(altura > 0)) return { x: 0, y: 0, largura: 0, altura: 0 };
+  if (largura / altura <= proporcao) {
+    const h = Math.min(altura, Math.round(largura / proporcao));
+    const sobra = altura - h;
+    return { x: 0, y: parte === "cima" ? 0 : parte === "baixo" ? sobra : Math.round(sobra / 2), largura, altura: h };
+  }
+  const w = Math.min(largura, Math.round(altura * proporcao));
+  return { x: Math.round((largura - w) / 2), y: 0, largura: w, altura };
+}
+/** A foto já está (quase) na proporção do quadro? Tolerância de 3%. */
+export function fotoNoFormatoDoQuadroPci(largura: number, altura: number, proporcao: number = PROPORCAO_QUADRO_LOCALIZACAO_PCI): boolean {
+  return largura > 0 && altura > 0 && Math.abs(largura / altura / proporcao - 1) <= 0.03;
+}
 
 export type ValorCampoPci = string | number | null;
 
@@ -594,7 +618,8 @@ export function formatarCnpjPci(cnpj: string): string {
  * com certificado, a única cadastrada. Com mais de uma, a tela oferece a lista e quem preenche escolhe (nada é adivinhado).
  */
 export function empresaUnicaPci(empresas: readonly EmpresaPci[] | null | undefined): EmpresaPci | null {
-  const todas = (empresas ?? []).filter((e) => e.nome.trim() && soDigitos(e.cnpj).length === 14);
+  // 14 caracteres: o CNPJ novo pode ter letras
+  const todas = (empresas ?? []).filter((e) => e.nome.trim() && e.cnpj.replace(/[^0-9A-Za-z]/g, "").length === 14);
   const comCertificado = todas.filter((e) => e.certificado);
   const candidatas = comCertificado.length ? comCertificado : todas;
   return candidatas.length === 1 ? candidatas[0] : null;

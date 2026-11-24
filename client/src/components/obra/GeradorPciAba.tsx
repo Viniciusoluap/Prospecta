@@ -3,7 +3,7 @@
 // rascunho, geração da planilha (modelo oficial atual) + PDF e histórico com
 // download das duas versões. Regras em shared/pci-gerador.ts; servidor em
 // server/pci-gerador.ts. Gêmeo em Grupo-Santa-Fe/web/src/components/obras/gerador-pci.tsx.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Download, FilePlus, FileSpreadsheet, History, Library, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -35,6 +35,8 @@ import {
   errosPci,
   formatarCnpjPci,
   formularioPciVazio,
+  fotoNoFormatoDoQuadroPci,
+  recorteParaQuadroPci,
   localDataPci,
   misturaPessoaPci,
   numeroPci,
@@ -43,6 +45,7 @@ import {
   type CampoPci,
   type EmpresaPci,
   type FormularioPci,
+  type ParteDaFotoPci,
   type PessoaPci,
   type ResultadoPreenchimentoPci,
   type SecaoPci,
@@ -84,6 +87,13 @@ function Campo({ campo, valor, onChange, dica }: { campo: CampoPci; valor: strin
     </div>
   );
 }
+
+const carregarImagem = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const el = new Image();
+  el.onload = () => resolve(el);
+  el.onerror = () => reject(new Error("Não foi possível ler a imagem."));
+  el.src = src;
+});
 
 const OUTRA_EMPRESA = "__outra__";
 const soDigitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
@@ -368,6 +378,9 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   }, [consulta.data, form]);
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
+  const fotoInteira = useRef<string | null>(null);
+  const [parteDaFoto, setParteDaFoto] = useState<ParteDaFotoPci>("meio");
+  const [fotoNoFormato, setFotoNoFormato] = useState(true);
   const pendencias = useMemo(() => (form ? pendenciasPci(form) : []), [form]);
   // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
   const cronograma = useMemo(() => (form ? analisarCronogramaPci(form) : null), [form]);
@@ -424,11 +437,35 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
+  // Foto de localização: recortada na proporção do quadro da planilha (preenche o quadro, sem faixas e sem esticar). A foto inteira
+  // fica guardada só enquanto a tela está aberta, para dar para trocar a parte que aparece (de cima, do meio, de baixo).
+  async function recortarFoto(origem: string, parte: ParteDaFotoPci) {
+    const img = await carregarImagem(origem);
+    const r = recorteParaQuadroPci(img.naturalWidth, img.naturalHeight, parte);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(1600, r.largura);
+    canvas.height = Math.max(1, Math.round(canvas.width / (r.largura / r.altura)));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Navegador sem suporte a canvas.");
+    ctx.drawImage(img, r.x, r.y, r.largura, r.altura, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setForm((f) => (f ? { ...f, imagem: { tipo: "jpeg", base64: dataUrl.split(",")[1] } } : f));
+    setFotoNoFormato(true);
+  }
   async function escolherImagem(arquivo: File | undefined) {
     if (!arquivo) return;
     try {
       const { dataUrl } = await comprimirImagem(arquivo, 1600, LIMITE_IMAGEM_PCI_BYTES);
-      setForm((f) => (f ? { ...f, imagem: { tipo: "jpeg", base64: dataUrl.split(",")[1] } } : f));
+      fotoInteira.current = dataUrl;
+      setParteDaFoto("meio");
+      await recortarFoto(dataUrl, "meio");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+  async function trocarParteDaFoto(parte: ParteDaFotoPci) {
+    if (!form?.imagem) return;
+    try {
+      setParteDaFoto(parte);
+      await recortarFoto(fotoInteira.current ?? `data:image/${form.imagem.tipo};base64,${form.imagem.base64}`, parte);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
@@ -617,12 +654,26 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
             )}
             {s.id === "localizacao" && (
               <div className="sm:col-span-2 space-y-2">
-                <p className="text-xs text-gray-300">Imagem da localização/poligonal do terreno (ex.: captura do Google Earth). No modelo .xls ela entra no quadro "Inserir Poligonal do Terreno"; sempre vai no PDF.</p>
+                <p className="text-xs text-gray-300">Imagem da localização/poligonal do terreno (ex.: captura do Google Earth). Ela preenche o quadro "Inserir Poligonal do Terreno" da planilha e vai no PDF. O quadro é largo (3 por 1): a foto é recortada nessa proporção, sem esticar.</p>
                 <input type="file" accept="image/png,image/jpeg" aria-label="Imagem de localização" onChange={(e) => void escolherImagem(e.target.files?.[0])} className="text-sm" />
                 {form.imagem && (
-                  <div className="space-y-1">
-                    <img src={`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`} alt="Imagem de localização" className="max-h-64 rounded border border-white/10" />
-                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setForm({ ...form, imagem: null })}>Remover imagem</Button>
+                  <div className="space-y-2">
+                    <img src={`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`} alt="Imagem de localização" className="max-h-64 max-w-full rounded border border-white/10"
+                      onLoad={(e) => setFotoNoFormato(fotoNoFormatoDoQuadroPci(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight))} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label htmlFor="pci-parte-da-foto" className="text-xs font-semibold text-gray-300">Parte da foto que entra no quadro</label>
+                      <select id="pci-parte-da-foto" value={fotoNoFormato && !fotoInteira.current ? "" : parteDaFoto} onChange={(e) => { if (e.target.value) void trocarParteDaFoto(e.target.value as ParteDaFotoPci); }}
+                        className={`rounded-md border px-3 py-2 text-sm ${campoCls}`}>
+                        {fotoNoFormato && !fotoInteira.current && <option value="">já recortada</option>}
+                        <option value="cima">De cima</option>
+                        <option value="meio">Do meio</option>
+                        <option value="baixo">De baixo</option>
+                      </select>
+                      <Button size="sm" variant="outline" className={botaoSec} onClick={() => { fotoInteira.current = null; setForm({ ...form, imagem: null }); }}>Remover imagem</Button>
+                    </div>
+                    {fotoNoFormato
+                      ? <p className="text-xs text-gray-400">A foto está no formato do quadro da planilha (largo, 3 por 1) e vai preencher o quadro inteiro. {fotoInteira.current ? "Se o lote ficou cortado, troque a parte acima." : "Para escolher outra parte, envie a foto de novo."}</p>
+                      : <p role="alert" className="text-xs text-yellow-200">Esta foto ainda não está no formato do quadro da planilha (largo, 3 por 1): do jeito que está, sobram faixas dos lados. Escolha acima a parte da foto que entra no quadro.</p>}
                   </div>
                 )}
               </div>

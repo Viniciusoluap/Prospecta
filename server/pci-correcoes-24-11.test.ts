@@ -3,9 +3,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PastaBiff8, R, type Registro } from "./caixa/biff8.js";
-import { imagensDaAba, substituirFotos } from "./caixa/biff8-imagens.js";
+import { imagensDaAba, proporcaoDoQuadro, substituirFotos } from "./caixa/biff8-imagens.js";
 import {
-  ABA_PROPOSTA_PCI, CAMPOS_PCI, baseDosCustosPci, calcularTotaisPci, custoDaIncidenciaPci, custosDigitadosComoPercentualPci, incidenciaDoCustoPci, QUADRO_LOCALIZACAO_PCI, cidadeUfDoEnderecoPci, empresaUnicaPci, errosPci, formatarCnpjPci, formularioPciVazio, localDataPci,
+  ABA_PROPOSTA_PCI, CAMPOS_PCI, PROPORCAO_QUADRO_LOCALIZACAO_PCI, fotoNoFormatoDoQuadroPci, recorteParaQuadroPci, baseDosCustosPci, calcularTotaisPci, custoDaIncidenciaPci, custosDigitadosComoPercentualPci, incidenciaDoCustoPci, QUADRO_LOCALIZACAO_PCI, cidadeUfDoEnderecoPci, empresaUnicaPci, errosPci, formatarCnpjPci, formularioPciVazio, localDataPci,
   preencherPciAutomatico, sugestoesAutomaticasPci, type FontesPreenchimentoPci,
 } from "../shared/pci-gerador.js";
 
@@ -180,5 +180,26 @@ describe("custos pelos dois campos: percentual (incidência) e valor em R$", () 
     expect(Math.abs(calcularTotaisPci(g).custoProducao - 230000)).toBeLessThan(0.3);
     f.campos.valorImovel = null; // sem base não há o que converter
     expect(custosDigitadosComoPercentualPci(f)).toBeNull();
+  });
+});
+
+describe("foto recortada na proporção do quadro (preenche o quadro, sem faixas e sem esticar)", () => {
+  it("a proporção usada na tela é a do quadro do modelo", () => {
+    const real = proporcaoDoQuadro(PastaBiff8.abrir(MODELO), ABA_PROPOSTA_PCI, QUADRO_LOCALIZACAO_PCI);
+    expect(Math.abs(real / PROPORCAO_QUADRO_LOCALIZACAO_PCI - 1)).toBeLessThan(0.02);
+  });
+  it("foto mais alta que o quadro perde altura (de cima, do meio ou de baixo); mais larga, perde as laterais por igual; nunca estica", () => {
+    // a foto do pedido: 1554 × 1281
+    expect(recorteParaQuadroPci(1554, 1281, "meio")).toEqual({ x: 0, y: 384, largura: 1554, altura: 513 });
+    expect(recorteParaQuadroPci(1554, 1281, "cima")).toEqual({ x: 0, y: 0, largura: 1554, altura: 513 });
+    expect(recorteParaQuadroPci(1554, 1281, "baixo")).toEqual({ x: 0, y: 768, largura: 1554, altura: 513 });
+    expect(recorteParaQuadroPci(4000, 800, "baixo")).toEqual({ x: 788, y: 0, largura: 2424, altura: 800 });
+    for (const [w, h] of [[1554, 1281], [4000, 800], [300, 300], [3030, 1000]] as const) for (const parte of ["cima", "meio", "baixo"] as const) {
+      const r = recorteParaQuadroPci(w, h, parte);
+      expect(fotoNoFormatoDoQuadroPci(r.largura, r.altura), `${w}x${h} ${parte}`).toBe(true);
+      expect(r.x >= 0 && r.y >= 0 && r.x + r.largura <= w && r.y + r.altura <= h).toBe(true);
+    }
+    expect(fotoNoFormatoDoQuadroPci(1554, 1281)).toBe(false);
+    expect(recorteParaQuadroPci(0, 0)).toEqual({ x: 0, y: 0, largura: 0, altura: 0 });
   });
 });

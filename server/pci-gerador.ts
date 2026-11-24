@@ -256,9 +256,9 @@ export async function empresasFiscaisPci(agora: Date = new Date()): Promise<Empr
   let perfis: { cnpj: string; nome: string }[];
   try {
     perfis = linhas<{ cnpj: string; nome: string }>(await db.execute(sql`
-      SELECT DISTINCT ON (regexp_replace(cnpj, '[^0-9]', '', 'g')) regexp_replace(cnpj, '[^0-9]', '', 'g') AS cnpj, company_name AS nome
-      FROM tax_profiles WHERE length(regexp_replace(coalesce(cnpj, ''), '[^0-9]', '', 'g')) = 14
-      ORDER BY regexp_replace(cnpj, '[^0-9]', '', 'g'), is_active DESC, effective_from DESC, id DESC`));
+      SELECT DISTINCT ON (upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g'))) upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')) AS cnpj, company_name AS nome
+      FROM tax_profiles WHERE length(regexp_replace(coalesce(cnpj, ''), '[^0-9A-Za-z]', '', 'g')) = 14
+      ORDER BY upper(regexp_replace(cnpj, '[^0-9A-Za-z]', '', 'g')), is_active DESC, effective_from DESC, id DESC`));
   } catch {
     return [];
   }
