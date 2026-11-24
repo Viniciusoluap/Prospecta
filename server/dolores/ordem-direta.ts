@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -203,7 +203,8 @@ async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDe
  */
 async function provarRegistro(funcao: string, a: Record<string, unknown>, partes: PartesDaOrdem, hojeIso: string): Promise<Prova> {
   const antes = partes.antes;
-  const palavras = palavrasQueIdentificam(antes);
+  // Portão 9 (I-9a/b): vocativo, saudação e verbo nunca apontam alvo
+  const palavras = palavrasDoAlvo(antes);
   /** O texto do dono: o ditado, ou o que sobra depois da moldura (com os nomes provados), sem negação na moldura. */
   // Opção A do dono (24/11/2026): registro por ordem direta SÓ com o texto DITADO depois de ":" — o texto gravado é o ditado inteiro.
   // Sem ":", o código não tem como separar moldura de conteúdo com segurança (origem dos achados dos portões 5 a 8) → confirmação.
@@ -224,29 +225,21 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       // (ou não dizer nada); "crítica"/"baixa" e alta sem o "urgente" → confirmação
       const prioridade = tarefaUrgenteNaMoldura(antes) ? "alta" : "media";
       // "media" é o padrão do esquema (o zod preenche quando o modelo não diz nada): vale como "não disse" — o código decide
-      if (a.prioridade !== undefined && a.prioridade !== null && a.prioridade !== "media" && a.prioridade !== prioridade && !(prioridade === "media" && a.prioridade === "alta" && prioridadeConfere("alta", partes.mensagem)))
-        return nao("prioridade que o dono não disse");
-      const prioridadeFinal = a.prioridade === "alta" ? "alta" : prioridade;
+      // Portão 9 (M-9): "urgente" dentro do DITADO não vale ("…se ele viu a tarefa urgente da Maria") — só o da moldura
+      if (a.prioridade !== undefined && a.prioridade !== null && a.prioridade !== "media" && a.prioridade !== prioridade) return nao("prioridade que o dono não disse");
+      const prioridadeFinal = prioridade;
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
       const quem = await provarResponsavel(a.responsavel, palavras, equipe);
       if (!quem.ok) return quem;
-      // Portão 4 (M-3): as palavras do responsável não provam cliente; vínculo não provado é DESCARTADO (tarefa sem vínculo)
-      const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
-      let vinculo: unknown = undefined;
-      if (v?.tipo === "cliente") {
-        const c = await provarCliente(v.id, antes, palavras, { excluir: quem.palavras, equipe });
-        if (!c.ok && c.pergunta) return c;
-        if (c.ok) vinculo = v;
-      } else if (v?.tipo === "obra") {
-        if ((await provarObra(v.id, antes, palavras.filter(p => !quem.palavras.includes(p)))).ok) vinculo = v;
-      }
+      // Portão 9 (I-9a): antes do ":" só há moldura e o nome do RESPONSÁVEL — o vínculo (cliente/obra) nunca sai da frase dele; o do
+      // modelo é sempre DESCARTADO na ordem direta (tarefa sem vínculo)
       // portão 6: na moldura da tarefa só sai o nome do RESPONSÁVEL; o do cliente é conteúdo do título e fica
       const titulo = textoDoDono([quem.nome]);
       if (!titulo) return nao("o texto da tarefa não sai da mensagem do dono (vazio, curto ou com referência)");
       // Portão 5 (I-2): acima do limite da função → confirmação (nunca corte em silêncio)
       if (titulo.length > LIMITE_TEXTO.criar_tarefa) return nao("texto da tarefa maior que o limite");
       const { descricao: _d, vinculo: _v, ...resto } = a;
-      return { ok: true, argumentos: { ...resto, titulo, prioridade: prioridadeFinal, ...(vinculo ? { vinculo } : {}) } };
+      return { ok: true, argumentos: { ...resto, titulo, prioridade: prioridadeFinal } };
     }
     case "registrar_acompanhamento": {
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
@@ -333,7 +326,8 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
       .from(doloresGrupos).where(cfg?.instancia ? eq(doloresGrupos.instancia, cfg.instancia) : undefined).limit(MAX_GRUPOS_CONFERIDOS);
     const alvo = grupos.find(g => g.id === grupoId);
     if (!alvo) return nao("grupo não é da conexão da empresa");
-    const palavras = palavrasQueIdentificam(textoDoDono);
+    // Portão 9 (I-9c): "Dolores, ignora esse grupo" não escolhe o grupo «DOLORES …»
+    const palavras = palavrasDoAlvo(textoDoDono);
     const nomeDoAlvo = new Set(palavrasQueIdentificam(alvo.nomeWhatsapp ?? alvo.nome));
     // QA E11 (qualidade: dois grupos numa mensagem): o grupo é provado pelas palavras dele QUE ESTÃO no nome deste grupo — e essas
     // palavras precisam apontar só este grupo (outro grupo com o mesmo nome → empate → não provado)

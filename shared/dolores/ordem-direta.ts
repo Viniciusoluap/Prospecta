@@ -684,6 +684,19 @@ export function palavrasDepoisDoVerbo(antes: string | null | undefined): string[
   return ts.slice(tokensDeVocativo(ts) + 1);
 }
 /**
+ * Portão 9 (I-9a/b/c): palavras da MOLDURA fixa do pedido — vocativo, cortesia e o vocabulário da própria ordem. Nunca apontam cliente,
+ * obra, grupo nem responsável, mesmo que alguém do cadastro tenha uma delas no nome ("DOLORES RIBEIRO", "Residencial Boa Vista").
+ */
+const MOLDURA_FIXA: ReadonlySet<string> = new Set(["dolores", "ola", "vamos", "favor", "bom", "boa", "dia", "tarde", "noite", "tarefa", "tarefas", "urgente",
+  "anotacao", "anotacoes", "nota", "historico", "acompanhamento", "registro", "ligacao", "aviso", "avisos", "resposta", "respostas", "agora"]);
+/**
+ * Portão 9: as palavras do pedido que PODEM apontar um alvo — só as que vêm DEPOIS do vocativo e do verbo que abre o pedido, com 3+
+ * letras, fora das genéricas e da moldura fixa. O vocativo ("Dolores, …"), a saudação ("Boa tarde, …") e o verbo nunca escolhem ninguém.
+ */
+export function palavrasDoAlvo(antes: string | null | undefined): string[] {
+  return palavrasDepoisDoVerbo(antes).filter(p => p.length >= 3 && !PALAVRAS_GENERICAS.has(p) && !MOLDURA_FIXA.has(p));
+}
+/**
  * Portão 6 (M-1), regra ESTRUTURAL: numa ordem que não grava texto, depois do verbo só pode haver palavra de ligação desta lista, o
  * nome/código do alvo (quem chama passa) e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente", "mais tarde")
  * → confirmação. Lista permitida, nunca lista de bloqueio.

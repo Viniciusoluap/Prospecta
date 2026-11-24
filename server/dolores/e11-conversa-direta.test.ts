@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { normalizarNome, descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
+  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -1595,6 +1595,74 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
         ["registrar_acompanhamento", { leadId: EMILY, texto: "ela ligou e mandou o RG", tipo: "ligacao" }]), () => texto(""));
       await dono("anota na Emily: ela ligou e mandou o RG");
       expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "ela ligou e mandou o RG" }]);
+    });
+  });
+
+  describe("5. achados da 9ª revisão — vocativo, saudação e verbo nunca apontam alvo", () => {
+    const leadDolores = async () => {
+      await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('DOLORES RIBEIRO', '99933334444', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
+      return Number((await q<any>("SELECT id FROM leads WHERE name = 'DOLORES RIBEIRO'"))[0].id);
+    };
+    const vinculos = () => q<any>("SELECT t.related_type, t.related_id FROM tasks t JOIN dolores_autoria a ON a.tabela = 'tasks' AND a.registro_id = t.id ORDER BY t.id");
+
+    it("I-9a: \"Dolores, cria uma tarefa para a Bianca: ligar para o João\" + vínculo com a cliente «DOLORES RIBEIRO» → tarefa SEM vínculo", async () => {
+      const id = await leadDolores();
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "ligar para o João", responsavel: "Bianca", vinculo: { tipo: "cliente", id } }]), () => texto(""));
+      await dono("Dolores, cria uma tarefa para a Bianca: ligar para o João");
+      expect(await tarefas()).toEqual([{ title: "ligar para o João", assigned_to: "Bianca Souza", related_id: null }]);
+      expect(await vinculos()).toEqual([{ related_type: "general", related_id: null }]);
+      expect(ultima()).not.toMatch(/DOLORES RIBEIRO/);
+    });
+
+    it("I-9a: vínculo do modelo é descartado mesmo com o nome do cliente no ditado (\"cria uma tarefa para a Bianca: ligar para a Emily\")", async () => {
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "ligar para a Emily", responsavel: "Bianca", vinculo: { tipo: "cliente", id: EMILY } }]), () => texto(""));
+      await dono("cria uma tarefa para a Bianca: ligar para a Emily");
+      expect(await vinculos()).toEqual([{ related_type: "general", related_id: null }]);
+    });
+
+    it("I-9b: \"Dolores, anota: ela mandou o RG\" + leadId da «DOLORES RIBEIRO» → nada na hora", async () => {
+      const id = await leadDolores();
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: id, texto: "ela mandou o RG" }]), () => texto("Em qual cliente?"));
+      await dono("Dolores, anota: ela mandou o RG");
+      expect(await retrato()).toBe(antes);
+      // a saudação também não aponta ninguém
+      roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: id, texto: "ela mandou o RG" }]), () => texto("Em qual cliente?"));
+      await dono("Bom dia, Dolores, anota: ela mandou o RG");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("I-9c: \"Dolores, vincula o grupo\" / \"Dolores, ignora esse grupo\" com o grupo «DOLORES RIBEIRO» → nada na hora", async () => {
+      const id = await leadDolores();
+      const g = await grupo({ codigo: "KHMN", nome: "DOLORES RIBEIRO" });
+      await grupo({ codigo: "AA7W", nome: "EMILY VICTORIA BRITO" });
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: id }]), () => texto("Qual grupo?"));
+      await dono("Dolores, vincula o grupo");
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("Dolores, ignora esse grupo");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("I-9c: \"Boa tarde, ignora o grupo\" com o grupo «BOA VISTA OBRA» → nada na hora", async () => {
+      const g = await grupo({ codigo: "KHMN", nome: "BOA VISTA OBRA" });
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("Boa tarde, ignora o grupo");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("M-9: \"…: perguntar ao João se ele viu a tarefa urgente da Maria\" + prioridade alta do modelo → nada na hora (\"urgente\" do ditado não vale)", async () => {
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "x", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Crio?"));
+      await dono("cria uma tarefa para a Bianca: perguntar ao João se ele viu a tarefa urgente da Maria");
+      expect(await tarefas()).toEqual([]);
+    });
+
+    it("regra pura: palavrasDoAlvo tira vocativo, saudação, verbo e moldura fixa", () => {
+      expect(palavrasDoAlvo("Dolores, cria uma tarefa urgente para a Bianca")).toEqual(["bianca"]);
+      expect(palavrasDoAlvo("Boa tarde, ignora o grupo")).toEqual([]);
+      expect(palavrasDoAlvo("Dolores, anota")).toEqual([]);
+      expect(palavrasDoAlvo("por favor, anota na Emily")).toEqual(["emily"]);
     });
   });
 

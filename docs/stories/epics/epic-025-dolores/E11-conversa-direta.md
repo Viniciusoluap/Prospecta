@@ -273,6 +273,19 @@ Em vez de remendar a gramática pela nona vez, o caminho direto ficou só onde o
 | M-8d — o sinal de "-500" era aparado | `apararPontas` mantém o "-" colado em número. |
 | M-8e — duas chamadas da mesma função com "tipo" diferente gravavam duas vezes | Na ordem direta, uma execução por função e por alvo em cada mensagem (`ponte.ts`). |
 
+### Portão de segurança, 9ª rodada (24/11/2026) — FAIL, corrigido
+Causa única: o alvo era escolhido por palavras do dono que não nomeiam ninguém (o vocativo "Dolores", a saudação, a moldura).
+- **I-9a** `Dolores, cria uma tarefa para a Bianca: ligar para o João` + vínculo com a cliente «DOLORES RIBEIRO» → gravava a tarefa
+  ligada a ela. **Correção:** na ordem direta o vínculo do modelo é SEMPRE descartado (antes do ":" só há moldura e o responsável).
+- **I-9b** `Dolores, anota: ela mandou o RG` + `leadId` da «DOLORES RIBEIRO» → anotava no histórico dela.
+- **I-9c** `Dolores, vincula o grupo` / `Dolores, ignora esse grupo` / `Boa tarde, ignora o grupo` → escolhia o grupo com essa palavra no nome.
+  **Correção (b e c):** `palavrasDoAlvo` (shared) — só contam as palavras DEPOIS do vocativo e do verbo, fora das genéricas e da moldura
+  fixa (dolores, favor, bom/boa, dia/tarde/noite, tarefa, urgente, anotação, histórico…). Cliente ou grupo com uma dessas palavras no
+  nome é apontado pelas outras palavras do nome; se só tiver essas, pede o "pode".
+- **M-9** `…: perguntar ao João se ele viu a tarefa urgente da Maria` + prioridade alta do modelo → gravava alta. **Correção:** a
+  prioridade é só a da moldura ("tarefa urgente" antes do ":"); alta pedida pelo modelo sem isso → confirmação.
+- Regressões: bloco "5. achados da 9ª revisão" em `server/dolores/e11-conversa-direta.test.ts` (7 testes, frases exatas).
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -345,6 +358,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 9ª rodada (I-9a, I-9b, I-9c, M-9) corrigido; regressões no e11.
 
 - 24/11/2026 — @dev (Dex): Opção A do dono — direto só tarefa/anotação com ":", grupo com um alvo e silenciar aviso; lembrança volta ao "pode"; achados I-8a, I-8b, M-8c, M-8d, M-8e; testes atualizados e bloco "Opção A" no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 7ª rodada — I-1 a I-3, M-1, M-2, B-1 (e11 106/106 nos blocos; lotes dos demais arquivos a rodar).
