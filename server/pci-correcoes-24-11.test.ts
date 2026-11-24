@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PastaBiff8, R, type Registro } from "./caixa/biff8.js";
 import { imagensDaAba, substituirFotos } from "./caixa/biff8-imagens.js";
 import {
-  ABA_PROPOSTA_PCI, CAMPOS_PCI, QUADRO_LOCALIZACAO_PCI, cidadeUfDoEnderecoPci, empresaUnicaPci, errosPci, formatarCnpjPci, formularioPciVazio, localDataPci,
+  ABA_PROPOSTA_PCI, CAMPOS_PCI, baseDosCustosPci, calcularTotaisPci, custoDaIncidenciaPci, custosDigitadosComoPercentualPci, incidenciaDoCustoPci, QUADRO_LOCALIZACAO_PCI, cidadeUfDoEnderecoPci, empresaUnicaPci, errosPci, formatarCnpjPci, formularioPciVazio, localDataPci,
   preencherPciAutomatico, sugestoesAutomaticasPci, type FontesPreenchimentoPci,
 } from "../shared/pci-gerador.js";
 
@@ -130,5 +130,55 @@ describe("foto de localização", () => {
     // e a foto está dentro do quadro
     const fotos = imagensDaAba(de, ABA_PROPOSTA_PCI).filter((i) => i.linha1 >= QUADRO_LOCALIZACAO_PCI.linha1 && i.linha2 <= QUADRO_LOCALIZACAO_PCI.linha2 && i.linha2 - i.linha1 >= 5);
     expect(fotos).toHaveLength(1);
+  });
+});
+
+describe("custos pelos dois campos: percentual (incidência) e valor em R$", () => {
+  const PCT = [3.1, 7, 12.5, 8, 4.5, 0, 5, 9, 6.9, 1, 4, 3.7, 8.5, 1.11, 3.8, 3.7, 3.7, 4.2, 0.3];
+  const form = () => {
+    const f = formularioPciVazio();
+    Object.assign(f.campos, { valorImovel: 230000, valorTerreno: 60000, bdi: 18, areaCoberta: 45, areaAcessoria: 12.14 });
+    return f;
+  };
+  it("a base fecha a conta da planilha: serviços com BDI = valor do imóvel − terreno", () => {
+    const f = form();
+    expect(baseDosCustosPci(f)).toBe(144067.8); // 170.000 ÷ 1,18
+    expect(custoDaIncidenciaPci(144067.8, 3.1)).toBe(4466.1);
+    expect(custoDaIncidenciaPci(144067.8, null)).toBeNull();
+    // sem valor do imóvel, ou imóvel que não passa do terreno: sem base (o percentual é só resultado, como na planilha)
+    f.campos.valorImovel = null;
+    expect(baseDosCustosPci(f)).toBeNull();
+    f.campos.valorImovel = 60000;
+    expect(baseDosCustosPci(f)).toBeNull();
+  });
+  it("digitar o percentual grava o valor em R$, e o percentual mostrado é o que foi digitado; com 100%, a produção fecha no valor do imóvel", () => {
+    const f = form();
+    const base = baseDosCustosPci(f)!;
+    f.custos = f.custos.map((_, i) => custoDaIncidenciaPci(base, PCT[i]));
+    f.adicionais[0] = { descricao: "Movimentação de terra", valor: custoDaIncidenciaPci(base, 2) };
+    f.adicionais[1] = { descricao: "Muro de divisa", valor: custoDaIncidenciaPci(base, 7.99) };
+    PCT.forEach((p, i) => expect(incidenciaDoCustoPci(f, f.custos[i]), `serviço ${i + 1}`).toBe(p));
+    const t = calcularTotaisPci(f);
+    expect(Math.abs(t.totalServicos - base)).toBeLessThan(0.2); // só centavos de arredondamento
+    expect(Math.abs(t.custoProducao - 230000)).toBeLessThan(0.3);
+    expect(t.areaConstruida).toBe(57.14);
+    // digitar o valor em R$ recalcula o percentual
+    f.custos[0] = 14406.78;
+    expect(incidenciaDoCustoPci(f, f.custos[0])).toBe(10);
+  });
+  it("percentuais digitados no campo de R$ (somam 100) são reconhecidos e convertidos; valores em R$ de verdade, não", () => {
+    const f = form();
+    f.custos = f.custos.map((_, i) => PCT[i]);
+    f.adicionais[0] = { descricao: "Movimentação de terra", valor: 2 };
+    f.adicionais[1] = { descricao: "Muro de divisa", valor: 7.99 };
+    expect(calcularTotaisPci(f).totalServicos).toBeCloseTo(100, 6);
+    const c = custosDigitadosComoPercentualPci(f)!;
+    expect(c.custos[0]).toBe(4466.1);
+    expect(c.adicionais[1]).toEqual({ descricao: "Muro de divisa", valor: 11511.02 });
+    const g = { ...f, custos: c.custos, adicionais: c.adicionais };
+    expect(custosDigitadosComoPercentualPci(g)).toBeNull();
+    expect(Math.abs(calcularTotaisPci(g).custoProducao - 230000)).toBeLessThan(0.3);
+    f.campos.valorImovel = null; // sem base não há o que converter
+    expect(custosDigitadosComoPercentualPci(f)).toBeNull();
   });
 });

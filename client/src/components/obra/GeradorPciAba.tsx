@@ -22,7 +22,11 @@ import {
   analisarCronogramaPci,
   aplicarEngenheiroPci,
   aplicarEscolhasPci,
+  baseDosCustosPci,
   calcularTotaisPci,
+  custoDaIncidenciaPci,
+  custosDigitadosComoPercentualPci,
+  incidenciaDoCustoPci,
   camposTrocadosPorEngenheiroPci,
   compararPreenchimentoPci,
   ORIGEM_CONFIRMADA_PCI,
@@ -453,6 +457,8 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   const areaTotal = totais?.areaConstruida ?? null;
   const areaDiferente = areaTotal !== null && areaObra !== null && Math.abs(areaTotal - areaObra) > 0.005;
   const porM2 = (v: number) => (areaTotal ? brl(v / areaTotal) : "—");
+  const baseCustos = baseDosCustosPci(form);
+  const custosEmPercentual = custosDigitadosComoPercentualPci(form);
   const terreno = numeroPci(form.campos.valorTerreno) ?? 0;
   const areaTerreno = numeroPci(form.campos.areaTerreno);
   // Revisão do PR #180: .xlsm/.xlsb geram a partir da versão .xls compatível — o servidor informa se ela existe.
@@ -528,24 +534,35 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
             {s.id === "custos" && totais && (
               <div className="sm:col-span-2 overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="text-left text-gray-400"><th className="p-1">Item</th><th className="p-1">Serviço</th><th className="p-1">Custo (R$)</th><th className="p-1 text-right">Incid. (%)</th></tr></thead>
+                  <thead><tr className="text-left text-gray-400"><th className="p-1">Item</th><th className="p-1">Serviço</th><th className="p-1">Incidência (%)</th><th className="p-1">Custo (R$)</th></tr></thead>
                   <tbody>
                     {SERVICOS_CUSTO_PCI.map((nome, i) => (
                       <tr key={nome} className="border-t border-white/10">
                         <td className="p-1">{i + 1}</td><td className="p-1">{nome}</td>
+                        {/* Os dois campos são de digitar: o percentual calcula o valor em R$ (sobre a base), e o valor recalcula o percentual. */}
+                        <td className="p-1 min-w-[110px]"><NumeroInput aria-label={`Incidência ${nome}`} value={incidenciaDoCustoPci(form, form.custos[i])} negativo={false} sufixo="%" disabled={baseCustos === null} className={campoCls}
+                          onChange={(v) => { if (baseCustos !== null) setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? custoDaIncidenciaPci(baseCustos, v) : c)) }); }} /></td>
                         <td className="p-1 min-w-[140px]"><NumeroInput aria-label={`Custo ${nome}`} value={form.custos[i]} negativo={false} className={campoCls}
                           onChange={(v) => setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? v : c)) })} /></td>
-                        <td className="p-1 text-right">{brl(totais.incidencias[i], 2)}</td>
                       </tr>
                     ))}
-                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(totais.outros)}</td><td className="p-1 text-right">{brl(totais.incidencias[19], 2)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}</td><td className="p-1">{brl(totais.outros)}</td></tr>
                   </tbody>
                   <tfoot className="font-semibold">
-                    <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(totais.totalServicos)}</td><td /></tr>
-                    <tr><td /><td className="p-1">BDI ({brl(numeroPci(form.campos.bdi) ?? 0)}%)</td><td className="p-1">{brl(totais.valorBdi)}</td><td /></tr>
-                    <tr><td /><td className="p-1">Custo total com BDI</td><td className="p-1">{brl(totais.totalComBdi)}</td><td /></tr>
+                    <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.totalServicos) ?? 0, 2)}%</td><td className="p-1">{brl(totais.totalServicos)}</td></tr>
+                    <tr><td /><td className="p-1">BDI ({brl(numeroPci(form.campos.bdi) ?? 0)}%)</td><td /><td className="p-1">{brl(totais.valorBdi)}</td></tr>
+                    <tr><td /><td className="p-1">Custo total com BDI</td><td /><td className="p-1">{brl(totais.totalComBdi)}</td></tr>
                   </tfoot>
                 </table>
+                {baseCustos === null
+                  ? <p className="mt-1 text-xs text-yellow-200">Para digitar pelo percentual, preencha o valor do imóvel e o valor do terreno em "Áreas e características" (o imóvel tem de valer mais que o terreno). Enquanto isso, digite os valores em R$.</p>
+                  : <p className="mt-1 text-xs text-gray-400">Base dos percentuais: {brl(baseCustos)} = (valor do imóvel − valor do terreno) ÷ (1 + BDI). Com 100% preenchido, o custo de produção fecha no valor do imóvel{Math.abs(totais.totalServicos - baseCustos) > 0.05 ? ` — faltam ${brl(baseCustos - totais.totalServicos)} (${brl(100 - (incidenciaDoCustoPci(form, totais.totalServicos) ?? 0), 2)}%)` : ""}.</p>}
+                {custosEmPercentual && (
+                  <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-2 text-sm text-yellow-100">
+                    <AlertTriangle className="h-4 w-4 shrink-0" /> Os custos somam exatamente 100,00: parecem percentuais digitados no campo de R$.
+                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setForm({ ...form, custos: custosEmPercentual.custos, adicionais: custosEmPercentual.adicionais })}>Converter em R$ pela base de {brl(baseCustos!)}</Button>
+                  </div>
+                )}
                 <table className="mt-3 w-full text-sm" aria-label="Resumo dos custos">
                   <thead><tr className="text-left text-gray-400"><th className="p-1">Resumo dos custos (como na planilha)</th><th className="p-1 text-right">Total (R$)</th><th className="p-1 text-right">Por m² (R$)</th></tr></thead>
                   <tbody>

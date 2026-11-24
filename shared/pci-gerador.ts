@@ -1552,6 +1552,46 @@ export function calcularTotaisPci(form: FormularioPci): TotaisPci {
   };
 }
 
+/**
+ * Custos por PERCENTUAL (pedido do dono em 24/11/2026: "tenho que poder editar os dois campos, o das incidências e o dos valores").
+ * A base é o custo total de serviços que FECHA a conta da planilha: custo de produção = valor do imóvel, isto é,
+ * serviços com BDI = valor do imóvel − valor do terreno, e serviços = isso ÷ (1 + BDI). Sem valor do imóvel maior que o do terreno, não
+ * há base (null): aí o percentual é só o resultado dos valores em R$, como na planilha.
+ */
+export function baseDosCustosPci(form: FormularioPci): number | null {
+  const imovel = numeroPci(form.campos.valorImovel);
+  const terreno = numeroPci(form.campos.valorTerreno) ?? 0;
+  const bdi = numeroPci(form.campos.bdi) ?? 0;
+  if (imovel === null || imovel <= terreno || bdi < 0) return null;
+  return duasCasasPci((imovel - terreno) / (1 + bdi / 100));
+}
+
+/** O custo em R$ de uma incidência (%) sobre a base. */
+export function custoDaIncidenciaPci(base: number, incidencia: number | null): number | null {
+  return incidencia === null || !Number.isFinite(incidencia) ? null : duasCasasPci((base * incidencia) / 100);
+}
+
+/** A incidência (%) mostrada na tela: sobre a base (quando existe) ou sobre a soma dos custos, como na planilha. */
+export function incidenciaDoCustoPci(form: FormularioPci, custo: number | null): number | null {
+  if (custo === null) return null;
+  const base = baseDosCustosPci(form) ?? calcularTotaisPci(form).totalServicos;
+  return base > 0 ? duasCasasPci((custo / base) * 100) : null;
+}
+
+/**
+ * Os custos foram digitados como PERCENTUAIS no campo de R$? (somam 100 e há base para converter). Devolve os custos convertidos em R$
+ * — os serviços adicionais também — ou null quando não é o caso.
+ */
+export function custosDigitadosComoPercentualPci(form: FormularioPci): { custos: (number | null)[]; adicionais: ServicoAdicionalPci[] } | null {
+  const base = baseDosCustosPci(form);
+  const t = calcularTotaisPci(form);
+  if (base === null || base < 1000 || Math.abs(t.totalServicos - 100) > 0.011) return null;
+  return {
+    custos: form.custos.map((v) => custoDaIncidenciaPci(base, v)),
+    adicionais: form.adicionais.map((a) => ({ ...a, valor: custoDaIncidenciaPci(base, a.valor) })),
+  };
+}
+
 // ─── cronograma físico-financeiro (Lote 03, correção 06) ─────────────────────
 
 /** Limite do pré-executado (AX161: "Ultrapassa limite permitido" acima de 70%). */

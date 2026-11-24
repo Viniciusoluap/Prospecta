@@ -47,7 +47,9 @@
 
 ## Etapa C — pendências
 
-- [ ] Custos por percentual (decisão do dono: A = por percentual / B = em R$ com aviso).
+- [x] Custos pelos DOIS campos (resposta do dono em 24/11: "tenho que poder editar os dois campos, o das incidências e o dos valores"):
+      incidência (%) e custo (R$) são de digitar; o percentual calcula o R$ sobre a base `(valor do imóvel − terreno) ÷ (1 + BDI)`
+      (`baseDosCustosPci`), e o R$ recalcula o percentual. Custos que somam 100,00 no campo de R$ ganham o aviso com "Converter em R$".
 - [ ] Planilha no Google Planilhas: neutralizar a formatação condicional que esconde os valores, se não mudar nada no Excel/LibreOffice.
 
 ## Testes
@@ -69,4 +71,5 @@
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): custos pelos dois campos (percentual e R$), com conversão dos percentuais já digitados.
 - 24/11/2026 — @dev (Dex): etapa A (campos, foto, testes) e diagnóstico da planilha enviada pelo dono.
