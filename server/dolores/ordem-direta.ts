@@ -223,7 +223,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       // Portão 8 (I-8a): a prioridade é do CÓDIGO — "tarefa urgente" na moldura = alta; senão, média. O modelo só pode coincidir
       // (ou não dizer nada); "crítica"/"baixa" e alta sem o "urgente" → confirmação
       const prioridade = tarefaUrgenteNaMoldura(antes) ? "alta" : "media";
-      if (a.prioridade !== undefined && a.prioridade !== null && a.prioridade !== prioridade && !(prioridade === "media" && a.prioridade === "alta" && prioridadeConfere("alta", partes.mensagem)))
+      // "media" é o padrão do esquema (o zod preenche quando o modelo não diz nada): vale como "não disse" — o código decide
+      if (a.prioridade !== undefined && a.prioridade !== null && a.prioridade !== "media" && a.prioridade !== prioridade && !(prioridade === "media" && a.prioridade === "alta" && prioridadeConfere("alta", partes.mensagem)))
         return nao("prioridade que o dono não disse");
       const prioridadeFinal = a.prioridade === "alta" ? "alta" : prioridade;
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());

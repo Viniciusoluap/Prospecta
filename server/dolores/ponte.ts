@@ -424,11 +424,18 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       const estavel = (v: unknown): string => Array.isArray(v) ? `[${v.map(estavel).join(",")}]`
         : v && typeof v === "object" ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${estavel((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
       // Portão 8 (M-8e): na ordem direta vale UMA execução por função e por alvo em cada mensagem (a 2ª chamada com outro "tipo" não grava de novo)
-      const chave = (alvo: string, _argumentos: unknown) => alvo.slice(0, 80);
+      // o alvo (hash) de tarefa e anotação inclui tipo/prazo/prioridade: nelas a chave é o que o CÓDIGO fixou (quem + texto)
+      const porConteudo = funcao === "registrar_acompanhamento" || funcao === "criar_tarefa";
+      const chave = (alvo: string, argumentos: unknown) => {
+        const a = (argumentos ?? {}) as Record<string, unknown>;
+        if (funcao === "registrar_acompanhamento") return `${String(a.leadId)}\u0000${String(a.texto ?? "").toLowerCase()}`;
+        if (funcao === "criar_tarefa") return `${String(a.responsavel ?? "")}\u0000${String(a.titulo ?? "").toLowerCase()}`;
+        return alvo.slice(0, 80);
+      };
       void estavel;
       const jaFeitos = new Set((await getDb().select({ alvo: doloresAprovacoes.alvo, argumentos: doloresAprovacoes.argumentos }).from(doloresAprovacoes)
         .where(and(eq(doloresAprovacoes.mensagemId, c.mensagemId), eq(doloresAprovacoes.funcao, funcao), inArray(doloresAprovacoes.situacao, ["executada", "executando"]),
-          inArray(doloresAprovacoes.alvo, cabem.map(i => i.alvo.slice(0, 80)))))).map(x => chave(x.alvo, x.argumentos)));
+          porConteudo ? undefined : inArray(doloresAprovacoes.alvo, cabem.map(i => i.alvo.slice(0, 80)))))).map(x => chave(x.alvo, x.argumentos)));
       const repetidos = cabem.filter(i => jaFeitos.has(chave(i.alvo, i.argumentos)));
       if (repetidos.length === cabem.length) {
         await registrar("recusada", { funcao, argumentos: args, motivo: "ordem direta: pedido repetido no mesmo comando (já feito); nada de novo", pedidoId: c.pedidoId });
