@@ -709,13 +709,20 @@ class Desenhista {
     const pdf = this.pdf;
     this.fundoTexto = this.corDeFundo(r, c);
     pdf.saveGraphicsState();
-    this.clip(clipX, Math.min(y, topo) - 0.5, clipW, Math.max(h, bloco) + 1);
+    // Texto com quebra de linha que não cabe na altura da célula/mescla: fica PRESO à célula (como na planilha), começando do topo —
+    // nunca é desenhado por cima das seções seguintes (revisão do Codex no PR #338). Uma linha só mantém a folga de sempre.
+    const estoura = linhas.length > 1 && bloco > h + 0.5;
+    if (estoura) {
+      topo = y + 0.5 * s;
+      this.clip(clipX, y, clipW, h);
+    } else this.clip(clipX, Math.min(y, topo) - 0.5, clipW, Math.max(h, bloco) + 1);
     let yy = topo;
     linhas.forEach((l, i) => {
       const lh = alturasL[i];
       const base = yy + lh * 0.8;
       yy += lh;
       if (!l.length) return;
+      if (estoura && yy - lh >= y + h - 0.01) return; // linha inteira fora da célula: não desenha
       const lw = larguraLinha(l);
       // preenchimento ("* "): parte esquerda presa à esquerda, resto à direita
       if (ex.formatado.preenchimento && linhas.length === 1) {

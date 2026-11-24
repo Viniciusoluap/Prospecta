@@ -195,6 +195,23 @@ describe("PDF fiel da PCI (modelo anonimizado + formulário sintético)", () => 
     expect(TEMPO_MS).toBeLessThan(3000);
   });
 
+  it("texto com quebra que não cabe na célula fica preso a ela: não invade a seção de baixo (revisão do Codex no PR #338)", () => {
+    const f = formulario();
+    f.campos.observacoes = Array.from({ length: 200 }, (_, i) => `OBSERVACAO ${i + 1}`).join(" "); // ~2.900 caracteres em G245:AW248
+    const pdf = gerarPdfFielPci(gerarPlanilhaPci(MODELO, "xls", normalizarFormularioPci(f)).bytes, { comprimir: false, hoje: new Date("2026-11-24T12:00:00Z") });
+    const obs = pdf.textos.filter((t) => t.celula === "G245");
+    const titulo = pdf.textos.find((t) => t.celula === "G250")!;
+    expect(obs.length).toBeGreaterThan(1);
+    expect(titulo).toBeTruthy();
+    expect(obs.every((t) => t.pagina === titulo.pagina)).toBe(true);
+    // todas as linhas desenhadas da observação ficam ACIMA do título da seção seguinte, e o fim do texto não é desenhado
+    expect(Math.max(...obs.map((t) => t.y))).toBeLessThan(titulo.y);
+    const desenhado = obs.map((t) => t.texto).join(" ").replace(/\s+/g, " ");
+    expect(desenhado).toContain("OBSERVACAO 1 OBSERVACAO 2 ");
+    expect(desenhado).not.toContain("OBSERVACAO 200");
+    expect(pdf.paginas).toBe(3);
+  });
+
   it("linhas ocultas não geram desenho", () => {
     const ocultasComConteudo = Array.from(aba.linhasOcultas).filter((r) => r >= 33 && r <= 265 && Array.from(aba.celulas.values()).some((c) => c.linha === r && c.valor !== null && c.valor !== ""));
     expect(ocultasComConteudo.length).toBeGreaterThan(0);
