@@ -105,7 +105,7 @@ function medidasDaGrade(pasta: PastaBiff8, nomeAba: string) {
 }
 
 /** Âncora (coluna/linha + frações) para a foto centralizada e proporcional no quadro. */
-function ancoraNoQuadro(pasta: PastaBiff8, nomeAba: string, q: QuadroFoto, img: FotoXls) {
+function ancoraNoQuadro(pasta: PastaBiff8, nomeAba: string, q: QuadroFoto, img: FotoXls, preencherQuadro: boolean) {
   const { largura, altura } = medidasDaGrade(pasta, nomeAba);
   const xs: number[] = [0];
   for (let c = q.coluna1; c <= q.coluna2; c++) xs.push(xs[xs.length - 1] + largura(c));
@@ -115,8 +115,8 @@ function ancoraNoQuadro(pasta: PastaBiff8, nomeAba: string, q: QuadroFoto, img: 
   const H = ys[ys.length - 1];
   const { largura: iw, altura: ih } = dimensoesImagem(img);
   const escala = Math.min(W / iw, H / ih);
-  const w = iw * escala;
-  const h = ih * escala;
+  const w = preencherQuadro ? W : iw * escala;
+  const h = preencherQuadro ? H : ih * escala;
   const x0 = (W - w) / 2;
   const y0 = (H - h) / 2;
   const pontoX = (x: number) => {
@@ -202,7 +202,7 @@ function montarBlip(img: FotoXls): Uint8Array {
  * Troca as fotos dos quadros de uma aba. `quadros` define onde cada foto vai;
  * fotos excedentes são ignoradas e quadros sem foto ficam vazios.
  */
-export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: QuadroFoto[], fotos: FotoXls[]) {
+export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: QuadroFoto[], fotos: FotoXls[], { preencherQuadro = false } = {}) {
   const regs = pasta.registros;
   const grupo = lerGrupo(regs);
   if (!grupo) throw new Error("O modelo não tem área de desenhos; não é possível incluir fotos.");
@@ -340,7 +340,7 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
       if ((pid & 0x3fff) === 0x0104) w32(forma, opt.o + 8 + j * 6 + 2, primeiroPib + n);
     }
     const anc = partes.find((p) => p.h.tipo === 0xf010)!;
-    const { a, b, c, d } = ancoraNoQuadro(pasta, nomeAba, quadros[n], img);
+    const { a, b, c, d } = ancoraNoQuadro(pasta, nomeAba, quadros[n], img, preencherQuadro);
     w16(forma, anc.o + 8, 0x0000); // move e redimensiona com as células, como no modelo
     w16(forma, anc.o + 10, a.celula);
     w16(forma, anc.o + 12, a.desloc);

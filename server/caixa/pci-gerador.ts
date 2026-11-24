@@ -25,6 +25,7 @@ import {
   MAX_ETAPAS_PCI,
   MENSAGEM_SAIDA_XLS_PCI,
   QUADRO_LOCALIZACAO_PCI,
+  fotoNoFormatoDoQuadroPci,
   SECOES_PCI,
   SERVICOS_CUSTO_PCI,
   SERVICO_OUTROS_PCI,
@@ -43,7 +44,7 @@ import {
   type ValorCampoPci,
 } from "../../shared/pci-gerador.js";
 import { PastaBiff8, colunaParaLetras, type ValidacaoDados, type ValorCelula } from "./biff8.js";
-import { substituirFotos } from "./biff8-imagens.js";
+import { dimensoesImagem, proporcaoDoQuadro, substituirFotos } from "./biff8-imagens.js";
 import { formatarCoordenada, isoParaSerial, serialParaIso } from "./pci.js";
 import { PastaXlsb } from "./xlsb.js";
 
@@ -241,7 +242,12 @@ function gerarXls(modelo: Uint8Array, form: FormularioPci): ResultadoGeracaoPci 
   }
   if (form.imagem) {
     try {
-      substituirFotos(p, ABA_PROPOSTA_PCI, [QUADRO_LOCALIZACAO_PCI], [{ dados: new Uint8Array(Buffer.from(form.imagem.base64, "base64")), tipo: form.imagem.tipo }]);
+      const foto = { dados: new Uint8Array(Buffer.from(form.imagem.base64, "base64")), tipo: form.imagem.tipo };
+      const { largura, altura } = dimensoesImagem(foto);
+      const proporcao = proporcaoDoQuadro(p, ABA_PROPOSTA_PCI, QUADRO_LOCALIZACAO_PCI);
+      substituirFotos(p, ABA_PROPOSTA_PCI, [QUADRO_LOCALIZACAO_PCI], [foto], {
+        preencherQuadro: fotoNoFormatoDoQuadroPci(largura, altura, proporcao),
+      });
     } catch (e) {
       avisos.push(`Imagem de localização não incluída no Excel: ${e instanceof Error ? e.message : String(e)}`);
     }
