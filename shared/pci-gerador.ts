@@ -183,8 +183,8 @@ const CAMPOS_BASE_PCI: CampoPci[] = [
   l("pisoAreasMolhadas", "Revest. piso áreas molhadas", "memorial", "V104"),
   c("divisaoInterna", "Divisão interna (ambientes)", "memorial", "AC104", "texto", { largo: true }),
   l("esquadriasExternas", "Esquadrias externas", "memorial", "G106"),
-  // O106 não tem validação de dados no modelo: texto livre.
-  c("esquadriasInternas", "Esquadrias internas", "memorial", "O106"),
+  // A validação de dados do modelo cobre G106:U106 — a mesma lista vale para as esquadrias internas (O106).
+  c("esquadriasInternas", "Esquadrias internas", "memorial", "O106", "lista", { opcoes: opcoesPci("G106") }),
   c("outrosEspecificar", "Outros (especificar)", "memorial", "AC107", "texto", { largo: true }),
 
   l("sistemaConstrutivo", "Sistema construtivo", "sistema", "S75", { largo: true }),
@@ -301,6 +301,30 @@ export const MAX_ETAPAS_PCI = 24;
 /** Quadro da poligonal/localização na aba da proposta (base zero, inclusive). */
 export const QUADRO_LOCALIZACAO_PCI = { coluna1: 6, linha1: 193, coluna2: 48, linha2: 213 } as const;
 export const LIMITE_IMAGEM_PCI_BYTES = 1.5 * 1024 * 1024;
+/**
+ * Largura ÷ altura do quadro "Inserir Poligonal do Terreno" no modelo oficial (colunas G..AW, linhas 194..214): ~3,03. A foto é
+ * RECORTADA nessa proporção na tela (pedido do dono em 24/11: preencher o quadro, sem faixas sobrando e sem esticar).
+ */
+export const PROPORCAO_QUADRO_LOCALIZACAO_PCI = 3.03;
+export type ParteDaFotoPci = "cima" | "meio" | "baixo";
+/**
+ * O recorte (em pixels da foto) que preenche o quadro: foto mais "alta" que o quadro perde altura (fica a parte de cima, do meio ou de
+ * baixo); foto mais "larga" perde as laterais por igual. Nunca estica.
+ */
+export function recorteParaQuadroPci(largura: number, altura: number, parte: ParteDaFotoPci = "meio", proporcao: number = PROPORCAO_QUADRO_LOCALIZACAO_PCI): { x: number; y: number; largura: number; altura: number } {
+  if (!(largura > 0) || !(altura > 0)) return { x: 0, y: 0, largura: 0, altura: 0 };
+  if (largura / altura <= proporcao) {
+    const h = Math.min(altura, Math.round(largura / proporcao));
+    const sobra = altura - h;
+    return { x: 0, y: parte === "cima" ? 0 : parte === "baixo" ? sobra : Math.round(sobra / 2), largura, altura: h };
+  }
+  const w = Math.min(largura, Math.round(altura * proporcao));
+  return { x: Math.round((largura - w) / 2), y: 0, largura: w, altura };
+}
+/** A foto já está (quase) na proporção do quadro? Tolerância de 3%. */
+export function fotoNoFormatoDoQuadroPci(largura: number, altura: number, proporcao: number = PROPORCAO_QUADRO_LOCALIZACAO_PCI): boolean {
+  return largura > 0 && altura > 0 && Math.abs(largura / altura / proporcao - 1) <= 0.03;
+}
 
 export type ValorCampoPci = string | number | null;
 
@@ -562,6 +586,8 @@ export interface FontesPreenchimentoPci {
     termino: string | null;
   };
   cliente: { nome: string | null; cpf: string | null; email: string | null; telefone: string | null; endereco: string | null; bairro: string | null } | null;
+  /** Empresas do módulo fiscal (perfil tributário), para "Construtora" e "CNPJ da construtora". */
+  empresas?: EmpresaPci[];
   coordenadas: { lat: number; lng: number } | null;
   /** Campos lidos da PCI já vinculada à obra (mesmo mapa de células). */
   pci: FormularioPci | null;
@@ -572,6 +598,60 @@ export interface FontesPreenchimentoPci {
   rotulos?: { cliente?: string; pci?: string };
   /** Por que uma fonte não existe (ex.: "A obra não tem cliente do CRM vinculado."). */
   motivos?: Partial<Record<"cliente" | "pci" | "coordenadas" | "rtp" | "rte", string>>;
+}
+
+/** Empresa do grupo cadastrada no módulo fiscal (BPO › Contabilidade): nome, CNPJ e se tem certificado digital válido. */
+export interface EmpresaPci {
+  nome: string;
+  /** Só dígitos (14). */
+  cnpj: string;
+  certificado: boolean;
+}
+
+export function formatarCnpjPci(cnpj: string): string {
+  const d = soDigitos(cnpj);
+  return d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") : cnpj;
+}
+
+/**
+ * A empresa que entra sozinha em "Construtora": só quando há UMA candidata — a única com certificado digital válido ou, sem nenhuma
+ * com certificado, a única cadastrada. Com mais de uma, a tela oferece a lista e quem preenche escolhe (nada é adivinhado).
+ */
+export function empresaUnicaPci(empresas: readonly EmpresaPci[] | null | undefined): EmpresaPci | null {
+  // 14 caracteres: o CNPJ novo pode ter letras
+  const todas = (empresas ?? []).filter((e) => e.nome.trim() && e.cnpj.replace(/[^0-9A-Za-z]/g, "").length === 14);
+  const comCertificado = todas.filter((e) => e.certificado);
+  const candidatas = comCertificado.length ? comCertificado : todas;
+  return candidatas.length === 1 ? candidatas[0] : null;
+}
+
+const UFS_PCI = new Set(["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]);
+
+/**
+ * Cidade e UF escritas no FIM de um endereço ("…, Vila Esmeralda, Imperatriz-MA.", "… Imperatriz/MA, CEP 65900-000",
+ * "…, Imperatriz - MA"). Só reconhece UF válida precedida de "-", "/" ou "–"; sem isso, null (nada é adivinhado).
+ */
+export function cidadeUfDoEnderecoPci(endereco: string | null | undefined): { cidade: string; uf: string } | null {
+  const semCep = String(endereco ?? "").replace(/[\s,.;-]*(?:CEP)?[\s:.]*\d{5}-?\d{3}[\s.]*$/i, "").replace(/[\s.,;]+$/, "");
+  const m = /(?:^|,)\s*([^,\d/–-][^,/–-]{1,60}?)\s*[-/–]\s*([A-Za-z]{2})$/.exec(semCep);
+  if (!m) return null;
+  const uf = m[2].toUpperCase();
+  const cidade = m[1].trim();
+  return UFS_PCI.has(uf) && cidade.length >= 3 && !/\d/.test(cidade) ? { cidade, uf } : null;
+}
+
+const MESES_PCI = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/**
+ * "Local e data" da assinatura quando o campo fica vazio: a cidade do imóvel (com a UF) e o dia em que a PCI é gerada, no horário de
+ * Imperatriz (UTC−3). Sem cidade, só a data. Ex.: "Imperatriz - MA, 24 de novembro de 2026".
+ */
+export function localDataPci(municipio: ValorCampoPci | undefined, uf: ValorCampoPci | undefined, agora: Date): string {
+  const d = new Date(agora.getTime() - 3 * 3_600_000);
+  const data = `${d.getUTCDate()} de ${MESES_PCI[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
+  const cidade = String(municipio ?? "").trim();
+  const estado = String(uf ?? "").trim();
+  return cidade ? `${cidade}${estado ? ` - ${estado}` : ""}, ${data}` : data;
 }
 
 /** Telefone brasileiro → DDD + número (sem o +55). */
@@ -1127,13 +1207,13 @@ const ESPERADOS_PCI: { chave: string; fonte: FonteEsperadaPci; motivo?: string }
   ...["proponenteNome", "proponenteCpf", "proponenteEmail", "proponenteTelefone"].map((chave) => ({ chave, fonte: "cliente" as const })),
   { chave: "endereco", fonte: "obra", motivo: "A obra e o cliente do CRM estão sem endereço." },
   { chave: "bairro", fonte: "cliente", motivo: "O bairro vem só do cliente do CRM ou da PCI vinculada." },
-  { chave: "municipio", fonte: "obra", motivo: "A obra está sem cidade." },
-  { chave: "uf", fonte: "obra", motivo: "A obra está sem UF." },
+  { chave: "municipio", fonte: "obra", motivo: "A obra está sem cidade e o endereço não termina com cidade-UF (ex.: Imperatriz-MA)." },
+  { chave: "uf", fonte: "obra", motivo: "A obra está sem UF e o endereço não termina com cidade-UF (ex.: Imperatriz-MA)." },
   { chave: "latitude", fonte: "coordenadas" },
   { chave: "longitude", fonte: "coordenadas" },
   { chave: "areaCoberta", fonte: "obra", motivo: "A obra está sem área construída." },
   { chave: "valorImovel", fonte: "obra", motivo: "Sem VGV na obra e sem valor de simulação no cliente do CRM." },
-  { chave: "valorTerreno", fonte: "obra", motivo: "A obra está sem custo do lote." },
+  { chave: "valorTerreno", fonte: "obra", motivo: "Preencha Custo do terreno na PCI na aba Custos da obra." },
   { chave: "prazoMeses", fonte: "obra", motivo: "A obra está sem início e término previstos (ou o prazo passa de 24 meses)." },
   ...(["rtp", "rte"] as const).flatMap((papel) => ["Nome", "Cpf", "Registro", "Uf", "Email", "Telefone"].map((s) => ({ chave: `${papel}${s}`, fonte: papel }))),
   { chave: "custos", fonte: "pci", motivo: "Os custos vêm só da PCI vinculada ou de um modelo de preenchimento." },
@@ -1162,7 +1242,9 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
     const p = normalizarFormularioPci(f.pci);
     const fonte = f.rotulos?.pci ?? "PCI vinculada à obra";
     const add = (chave: string, valor: unknown) => s.push({ chave, valor, fonte, origem: "pci" });
-    for (const campo of CAMPOS_PCI) add(campo.id, p.campos[campo.id]);
+    for (const campo of CAMPOS_PCI) {
+      if (campo.id !== "valorTerreno") add(campo.id, p.campos[campo.id]);
+    }
     add("custos", p.custos);
     add("adicionais", p.adicionais);
     add("cronograma", p.cronograma);
@@ -1183,11 +1265,24 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
   if (f.obra.endereco) add("endereco", f.obra.endereco, fonteObra);
   else if (cli?.endereco) add("endereco", cli.endereco, fonteCli);
   if (cli) add("bairro", cli.bairro, fonteCli);
-  add("municipio", f.obra.cidade, fonteObra);
-  add("uf", f.obra.uf, fonteObra);
+  // Cidade e UF: do cadastro da obra; sem isso, do fim do endereço ("…, Imperatriz-MA") da obra ou do cliente.
+  const doEndereco = cidadeUfDoEnderecoPci(f.obra.endereco);
+  const doCliente = doEndereco ? null : cidadeUfDoEnderecoPci(cli?.endereco);
+  const fonteEndereco = doEndereco ? "Endereço da obra (cidade-UF no fim)" : `${fonteCli} (cidade-UF no fim do endereço)`;
+  if (f.obra.cidade) add("municipio", f.obra.cidade, fonteObra);
+  else add("municipio", (doEndereco ?? doCliente)?.cidade ?? null, fonteEndereco);
+  if (f.obra.uf) add("uf", f.obra.uf, fonteObra);
+  else add("uf", (doEndereco ?? doCliente)?.uf ?? null, fonteEndereco);
+  // Construtora: a empresa do módulo fiscal, quando só uma serve (a única com certificado digital, ou a única cadastrada).
+  const empresa = empresaUnicaPci(f.empresas);
+  if (empresa) {
+    const fonteEmpresa = `Módulo fiscal (${empresa.certificado ? "empresa com certificado digital" : "empresa cadastrada"})`;
+    add("construtora", empresa.nome, fonteEmpresa);
+    add("cnpjConstrutora", formatarCnpjPci(empresa.cnpj), fonteEmpresa);
+  }
   add("areaCoberta", f.obra.area, fonteObra);
   add("valorImovel", f.obra.valorImovel, fonteObra);
-  add("valorTerreno", f.obra.valorTerreno, fonteObra);
+  add("valorTerreno", f.obra.valorTerreno, "Custos da obra · Custo do terreno na PCI");
   add("valorFinanciado", f.obra.valorFinanciado, fonteObra);
   add("prazoMeses", prazoEmMeses(f.obra.inicio, f.obra.termino), "Cadastro da obra (início e término previstos)");
   if (f.coordenadas) {
@@ -1479,6 +1574,46 @@ export function calcularTotaisPci(form: FormularioPci): TotaisPci {
     outros, totalServicos, valorBdi, totalComBdi: totalServicos + valorBdi, incidencias, acumulado,
     areaConstruida: ac === null && aa === null ? null : (ac ?? 0) + (aa ?? 0),
     custoProducao: terreno + totalServicos + valorBdi,
+  };
+}
+
+/**
+ * Custos por PERCENTUAL (pedido do dono em 24/11/2026: "tenho que poder editar os dois campos, o das incidências e o dos valores").
+ * A base é o custo total de serviços que FECHA a conta da planilha: custo de produção = valor do imóvel, isto é,
+ * serviços com BDI = valor do imóvel − valor do terreno, e serviços = isso ÷ (1 + BDI). Sem valor do imóvel maior que o do terreno, não
+ * há base (null): aí o percentual é só o resultado dos valores em R$, como na planilha.
+ */
+export function baseDosCustosPci(form: FormularioPci): number | null {
+  const imovel = numeroPci(form.campos.valorImovel);
+  const terreno = numeroPci(form.campos.valorTerreno) ?? 0;
+  const bdi = numeroPci(form.campos.bdi) ?? 0;
+  if (imovel === null || imovel <= terreno || bdi < 0) return null;
+  return duasCasasPci((imovel - terreno) / (1 + bdi / 100));
+}
+
+/** O custo em R$ de uma incidência (%) sobre a base. */
+export function custoDaIncidenciaPci(base: number, incidencia: number | null): number | null {
+  return incidencia === null || !Number.isFinite(incidencia) ? null : duasCasasPci((base * incidencia) / 100);
+}
+
+/** A incidência (%) mostrada na tela: sobre a base (quando existe) ou sobre a soma dos custos, como na planilha. */
+export function incidenciaDoCustoPci(form: FormularioPci, custo: number | null): number | null {
+  if (custo === null) return null;
+  const base = baseDosCustosPci(form) ?? calcularTotaisPci(form).totalServicos;
+  return base > 0 ? duasCasasPci((custo / base) * 100) : null;
+}
+
+/**
+ * Os custos foram digitados como PERCENTUAIS no campo de R$? (somam 100 e há base para converter). Devolve os custos convertidos em R$
+ * — os serviços adicionais também — ou null quando não é o caso.
+ */
+export function custosDigitadosComoPercentualPci(form: FormularioPci): { custos: (number | null)[]; adicionais: ServicoAdicionalPci[] } | null {
+  const base = baseDosCustosPci(form);
+  const t = calcularTotaisPci(form);
+  if (base === null || base < 1000 || Math.abs(t.totalServicos - 100) > 0.011) return null;
+  return {
+    custos: form.custos.map((v) => custoDaIncidenciaPci(base, v)),
+    adicionais: form.adicionais.map((a) => ({ ...a, valor: custoDaIncidenciaPci(base, a.valor) })),
   };
 }
 

@@ -821,3 +821,79 @@ s7-qa) 279/279; tsc e vite build limpos. A suíte INTEIRA `server/dolores` não 
 **Pendências do dono:** `PENDENCIAS-DO-DONO-23-11.md` (raiz). **Dívidas de segurança do Jurídico:** ROADMAP.
 **Próximo passo exato:** dono faz o passo 3 do arquivo de pendências (ambiente "Produção restrita (teste)" → "Liberar emissão desta empresa" →
 "Buscar alíquotas oficiais" → emitir um rascunho); a sessão acompanha a resposta da Sefin (nomes dos campos JSON só confirmáveis com o A1).
+
+## 24/11/2026 — Área da obra com decimais + sino de notificações (#334, publicado) e situação da E11
+
+**Concluído (#334, squash `9fea3d9`, produção READY):** `construction_projects.total_area` de `integer` para `double precision`
+(migração `drizzle/0173_obra_area_total_decimal.sql`, aplicada no Neon antes do merge; 21 obras com área conferidas, nenhum valor mudou);
+`client/src/pages/AdminEditarObra.tsx` deixou de usar `parseInt`; `Obras.tsx`/`ObraDetalhes.tsx` mostram a área em pt-BR;
+`client/src/components/Navbar.tsx`: o título "Notificações" e "Ver todas as notificações" abrem `/notificacoes` mesmo sem novas.
+**Testes:** (a) automáticos — `tsc` limpo, `vite build` ok, `pci-gerador-db` + `pci-s09-db` 23/23; Codex sem achados; (b) manuais — nenhum;
+(c) pendentes em produção — o dono digitar 166,56 em Editar obra e clicar em "Notificações" no sino.
+**Paridade:** portar as duas correções no Grupo Santa Fé (ROADMAP).
+
+**E11 da Dolores (conversa direta) — NÃO publicada.** Ramo `claude/dolores-e11-conversa-direta` (GitHub em `7303ab2`, sem PR). O portão
+@qa reprovou 4 rodadas (achados e correções na story `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`). Em andamento: correção
+da 4ª rodada (função e texto decididos pelo CÓDIGO a partir da mensagem do dono; a chamada do modelo só dispara) — trabalho sem commit na
+worktree `dolores-e11`. **Próximo passo exato:** concluir essa correção, `tsc` + testes por arquivo, push, 5ª rodada do @qa sobre o commit
+novo; só com PASS abrir PR, Codex, prévia, merge e conferir produção.
+**Pendências do dono:** trocar o modelo de "Dolores — conversa pelo WhatsApp" para Sonnet (hoje vale o preferencial, Haiku); decidir se grupo
+vinculado nasce com resposta ligada ("mantém"/"desligada") e se a troca de cliente de um grupo segue com confirmação ("mantém"/"direto").
+
+## 24/11/2026 — PARADA a pedido do dono: plano para continuar em outra sessão
+
+O dono mandou parar tudo em 24/11 e deixar o plano aqui. Nada está rodando. **Em produção nada da E11 foi publicado.**
+
+### 1. E11 da Dolores (conversa direta) — EM ABERTO, não publicada
+- **Ramo:** `claude/dolores-e11-conversa-direta` (no GitHub, **sem PR**). Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`
+  (tem os achados e as correções dos portões 1 a 4). Regra do dono: seção "Dolores — conversa direta" no `CLAUDE.md` (está só no ramo).
+- **Último commit íntegro:** `69d455b` (`tsc` limpo, `e11-conversa-direta.test.ts` 81/81, 88 arquivos de `server/dolores` 1.661/1.661 em lotes).
+- **Commit por cima, PELA METADE:** `7ac4ba6` (`wip`) — começo da correção da 5ª rodada em `shared/dolores/ordem-direta.ts`,
+  `server/dolores/ordem-direta.ts` e `server/dolores/acoes/tarefas.ts`. `tsc` passa, mas os **testes NÃO foram rodados** e a troca do
+  tokenizador estava no meio. Quem continuar: revisar `git diff 69d455b..7ac4ba6` e terminar, ou descartar com um commit de reversão
+  (`git revert 7ac4ba6`, nunca reset/force) e refazer.
+- **Desenho que ficou (não mudar):** no caminho direto, FUNÇÃO, TEXTO e ALVOS são decididos pelo CÓDIGO a partir da mensagem do dono; a
+  chamada do modelo só dispara e tem de coincidir. Porta de caracteres por lista permitida; NFC ≠ NFKC bloqueia; com ":" grava-se o ditado
+  inteiro; sem ":" grava-se a mensagem até o fim depois da moldura; alvos por `unicoComPonto`; troca de grupo nunca direta; ao modelo volta
+  só a contagem. Na dúvida, cai no "pode".
+- **5ª rodada do @qa (sobre `69d455b`): FAIL.** Achados a corrigir (todos reproduzidos pelo webhook):
+  - **I-1** `textoPelaMoldura` (`shared/dolores/ordem-direta.ts` ~481): vírgula sem espaço cola palavras e a moldura engole conteúdo —
+    `lembra,sem desconto para a Emily` grava "desconto para a Emily"; `Oi,anota só se a Emily assinar o contrato` grava "se a Emily
+    assinar o contrato". Correção: tokenização ÚNICA da mensagem crua com o mesmo limite de palavra do `normalizarNome`, guardando posições;
+    conferir que a moldura retirada é exatamente os tokens consumidos; token restritivo (sem, só, não, nem, nunca, jamais, exceto, salvo,
+    apenas, somente, se, caso, quando, depois, antes) nunca é moldura.
+  - **I-2** título de tarefa sem ":" acima de 150 caracteres é cortado em silêncio (`server/dolores/ordem-direta.ts` ~191,
+    `acoes/tarefas.ts` ~72/114) e perde o final ("só depois que eu confirmar"). Correção: acima do limite da função (tarefa 150,
+    anotação 1.000, memória 300) → confirmação, nunca corte.
+  - **I-3** verbos de duplo sentido (liga, marca, coloca, define, troca, junta — `shared/dolores/ordem-direta.ts` ~454) decidem
+    `classificar_grupo` sem a palavra "grupo": `liga pra Emily amanhã e pergunta do RG` vinculou o grupo. Correção: função de grupo exige
+    "grupo" (ou o código do grupo) logo depois do verbo.
+  - **I-4** `provarMemoria` (`server/dolores/ordem-direta.ts` ~149): esquecer/corrigir escolhe a lembrança por palavra comum ("dia",
+    "prefere"). Correção: exigir cobertura das palavras de conteúdo nos dois sentidos, ou nome próprio único; senão perguntar.
+  - **B-1** data que é conteúdo virando prazo ("parcela 3/4", "fez dia 10"): prazo direto só com marcador (até, para, prazo, vence, hoje,
+    amanhã). **B-2** renomear o teste de `c5-e1-qa.test.ts` ~87. **Usabilidade:** "está" e "mesmo" bloqueiam como dêitico.
+  - Testes pedidos: regressão de cada frase acima + teste puro de propriedade: `normalizar(moldura) + normalizar(texto gravado)`
+    reconstrói `normalizar(mensagem)` e nenhum token restritivo fica na moldura.
+- **Próximo passo exato:** (1) na worktree `dolores-e11` (ou clone do ramo), terminar/descartar `7ac4ba6` e corrigir I-1 a I-4, B-1, B-2;
+  (2) `npx tsc --noEmit` + testes POR ARQUIVO com `--maxWorkers=2 --minWorkers=1` (a pasta inteira passa de 30 min; rodar em lotes);
+  (3) push; (4) 6ª rodada do @qa em worktree só leitura, adversarial, pelo webhook; (5) só com PASS: `git merge origin/main`, PR não
+  rascunho, Codex + prévia READY, merge squash, produção READY, HANDOFF. Sem migração nesta story.
+- **Não muda sem o dono:** `responderLigado: true` ao vincular grupo do dono (decisão pendente dele) e a confirmação na troca de cliente.
+
+### 2. Publicado nesta sessão (nada a fazer)
+- #326 validador XSD, #330 Jurídico várias páginas, #331 liberar emissão, #332 docs, #334 área da obra com decimais + sino de
+  notificações (migração 0173 aplicada), #335 docs. Produção READY em todos.
+
+### 3. Pendências do dono (passo a passo em `PENDENCIAS-DO-DONO-23-11.md`)
+- Trocar o modelo de **Dolores — conversa pelo WhatsApp** para Sonnet em Configurações › Integrações › Anthropic (hoje vale o preferencial,
+  `claude-haiku-5-5`; a recomendação do painel muda para "intermediário ou mais capaz" quando a E11 for publicada).
+- "Conferir novamente" no contrato da Maylanne; folha de 12 meses do Simples; primeira nota de teste (o botão "Liberar emissão" JÁ está
+  publicado — o arquivo de pendências ainda diz para esperar; a sessão confere a resposta da Receita depois); contador; jurídico.
+- Conferir em produção o #334: digitar 166,56 em Editar obra e clicar em "Notificações" no sino.
+- Decisões de uma palavra: termo para quem já tem senha ("liga"/"deixa"); carimbo visível no contrato ("passa"/"deixa"); grupo vinculado
+  nasce com resposta ligada ("mantém"/"desligada"); troca de cliente de grupo com confirmação ("mantém"/"direto").
+
+### 4. Outras pendências técnicas
+- Correções M1/M2/B1–B4 do portão do #331 não voltaram a uma 2ª rodada do @qa (só Codex).
+- Dívidas de segurança do Jurídico e portes para o Grupo Santa Fé: `docs/stories/epics/ROADMAP.md`.
+- #334 não foi testado no navegador (só `tsc`, build e testes ligados à área).

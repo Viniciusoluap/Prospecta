@@ -3,7 +3,7 @@
 // rascunho, geração da planilha (modelo oficial atual) + PDF e histórico com
 // download das duas versões. Regras em shared/pci-gerador.ts; servidor em
 // server/pci-gerador.ts. Gêmeo em Grupo-Santa-Fe/web/src/components/obras/gerador-pci.tsx.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Download, FilePlus, FileSpreadsheet, History, Library, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -22,20 +22,30 @@ import {
   analisarCronogramaPci,
   aplicarEngenheiroPci,
   aplicarEscolhasPci,
+  baseDosCustosPci,
   calcularTotaisPci,
+  custoDaIncidenciaPci,
+  custosDigitadosComoPercentualPci,
+  incidenciaDoCustoPci,
   camposTrocadosPorEngenheiroPci,
   compararPreenchimentoPci,
   ORIGEM_CONFIRMADA_PCI,
   confirmarMesmaPessoaPci,
   definirCampoPci,
   errosPci,
+  formatarCnpjPci,
   formularioPciVazio,
+  fotoNoFormatoDoQuadroPci,
+  recorteParaQuadroPci,
+  localDataPci,
   misturaPessoaPci,
   numeroPci,
   pendenciasPci,
   sugestoesDoModeloPci,
   type CampoPci,
+  type EmpresaPci,
   type FormularioPci,
+  type ParteDaFotoPci,
   type PessoaPci,
   type ResultadoPreenchimentoPci,
   type SecaoPci,
@@ -47,7 +57,7 @@ const brl = (v: number, casas = 2) => v.toLocaleString("pt-BR", { minimumFractio
 
 type Engenheiro = { id: string; nome: string | null; email: string | null; telefone: string | null; crea: string | null; creaUf: string | null; engenheiro: boolean };
 
-function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | number | null; onChange: (v: string | number | null) => void }) {
+function Campo({ campo, valor, onChange, dica }: { campo: CampoPci; valor: string | number | null; onChange: (v: string | number | null) => void; dica?: string }) {
   const id = `pci-${campo.id}`;
   let controle;
   if (campo.tipo === "lista") {
@@ -67,13 +77,54 @@ function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | nu
   } else if (campo.tipo === "data") {
     controle = <Input id={id} type="date" value={typeof valor === "string" ? valor : ""} onChange={(e) => onChange(e.target.value || null)} className={campoCls} />;
   } else {
-    const placeholder = campo.tipo === "coordenada" ? (campo.id === "latitude" ? `05° 29' 18" S` : `47° 28' 30" W`) : campo.tipo === "cep" ? "00000-000" : undefined;
+    const placeholder = dica ?? (campo.tipo === "coordenada" ? (campo.id === "latitude" ? `05° 29' 18" S` : `47° 28' 30" W`) : campo.tipo === "cep" ? "00000-000" : undefined);
     controle = <Input id={id} value={valor === null ? "" : String(valor)} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={campoCls} />;
   }
   return (
     <div className={campo.largo ? "sm:col-span-2" : ""}>
       <label htmlFor={id} className="mb-1 block text-xs font-semibold text-gray-300">{campo.rotulo}{campo.celula ? <span className="ml-1 text-[10px] text-gray-500">({campo.celula})</span> : null}</label>
       {controle}
+    </div>
+  );
+}
+
+const carregarImagem = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const el = new Image();
+  el.onload = () => resolve(el);
+  el.onerror = () => reject(new Error("Não foi possível ler a imagem."));
+  el.src = src;
+});
+
+const OUTRA_EMPRESA = "__outra__";
+const soDigitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+
+/**
+ * "Construtora": lista com as empresas do módulo fiscal (BPO › Contabilidade). Escolher uma preenche o nome e o CNPJ; "Outra" libera
+ * a digitação. Sem empresa cadastrada, o campo continua de digitar.
+ */
+function CampoConstrutora({ campo, form, empresas, onEscolher }: { campo: CampoPci; form: FormularioPci; empresas: EmpresaPci[]; onEscolher: (nome: string | null, cnpj: string | null | undefined) => void }) {
+  const nome = String(form.campos.construtora ?? "");
+  const cnpj = soDigitos(form.campos.cnpjConstrutora);
+  const daLista = empresas.find((e) => e.cnpj === cnpj && cnpj) ?? empresas.find((e) => e.nome === nome && nome) ?? null;
+  const [outra, setOutra] = useState(false);
+  const digitando = outra || (!daLista && nome !== "");
+  const id = `pci-${campo.id}`;
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-semibold text-gray-300">{campo.rotulo}<span className="ml-1 text-[10px] text-gray-500">({campo.celula})</span></label>
+      <select id={id} value={digitando ? OUTRA_EMPRESA : daLista ? daLista.cnpj : ""} className={`w-full rounded-md border px-3 py-2 text-sm ${campoCls}`}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === OUTRA_EMPRESA) { setOutra(true); if (daLista) onEscolher(null, null); return; }
+          setOutra(false);
+          const empresa = empresas.find((x) => x.cnpj === v);
+          onEscolher(empresa ? empresa.nome : null, empresa ? formatarCnpjPci(empresa.cnpj) : null);
+        }}>
+        <option value="">— sem construtora —</option>
+        {empresas.map((e) => <option key={e.cnpj} value={e.cnpj}>{e.nome} — {formatarCnpjPci(e.cnpj)}{e.certificado ? " (certificado digital)" : ""}</option>)}
+        <option value={OUTRA_EMPRESA}>Outra (digitar)</option>
+      </select>
+      {digitando && <Input aria-label="Nome da construtora" value={nome} placeholder="Nome da construtora" onChange={(e) => onEscolher(e.target.value, undefined)} className={`mt-2 ${campoCls}`} />}
     </div>
   );
 }
@@ -327,6 +378,9 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   }, [consulta.data, form]);
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
+  const fotoInteira = useRef<string | null>(null);
+  const [parteDaFoto, setParteDaFoto] = useState<ParteDaFotoPci>("meio");
+  const [fotoNoFormato, setFotoNoFormato] = useState(true);
   const pendencias = useMemo(() => (form ? pendenciasPci(form) : []), [form]);
   // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
   const cronograma = useMemo(() => (form ? analisarCronogramaPci(form) : null), [form]);
@@ -383,11 +437,35 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
+  // Foto de localização: recortada na proporção do quadro da planilha (preenche o quadro, sem faixas e sem esticar). A foto inteira
+  // fica guardada só enquanto a tela está aberta, para dar para trocar a parte que aparece (de cima, do meio, de baixo).
+  async function recortarFoto(origem: string, parte: ParteDaFotoPci) {
+    const img = await carregarImagem(origem);
+    const r = recorteParaQuadroPci(img.naturalWidth, img.naturalHeight, parte);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(1600, r.largura);
+    canvas.height = Math.max(1, Math.round(canvas.width / (r.largura / r.altura)));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Navegador sem suporte a canvas.");
+    ctx.drawImage(img, r.x, r.y, r.largura, r.altura, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setForm((f) => (f ? { ...f, imagem: { tipo: "jpeg", base64: dataUrl.split(",")[1] } } : f));
+    setFotoNoFormato(true);
+  }
   async function escolherImagem(arquivo: File | undefined) {
     if (!arquivo) return;
     try {
       const { dataUrl } = await comprimirImagem(arquivo, 1600, LIMITE_IMAGEM_PCI_BYTES);
-      setForm((f) => (f ? { ...f, imagem: { tipo: "jpeg", base64: dataUrl.split(",")[1] } } : f));
+      fotoInteira.current = dataUrl;
+      setParteDaFoto("meio");
+      await recortarFoto(dataUrl, "meio");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+  async function trocarParteDaFoto(parte: ParteDaFotoPci) {
+    if (!form?.imagem) return;
+    try {
+      setParteDaFoto(parte);
+      await recortarFoto(fotoInteira.current ?? `data:image/${form.imagem.tipo};base64,${form.imagem.base64}`, parte);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
@@ -398,7 +476,28 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     finally { setBaixando(null); }
   }
 
-  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao && (!c.visivel || c.visivel(form.campos))).map((c) => <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} />);
+  const empresas: EmpresaPci[] = d.empresas ?? [];
+  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao && (!c.visivel || c.visivel(form.campos))).map((c) => {
+    if (c.id === "construtora" && empresas.length > 0) {
+      return <CampoConstrutora key={c.id} campo={c} form={form} empresas={empresas} onEscolher={(nome, cnpj) => {
+        let f = definirCampoPci(form, "construtora", nome);
+        if (cnpj !== undefined) f = definirCampoPci(f, "cnpjConstrutora", cnpj);
+        setForm(f);
+      }} />;
+    }
+    // "Local e data" em branco sai sozinho na geração: a cidade do imóvel e o dia em que o documento é gerado.
+    const dica = c.id === "localData" ? `Em branco, sai sozinho: ${localDataPci(form.campos.municipio, form.campos.uf, new Date())}` : undefined;
+    return <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} dica={dica} />;
+  });
+  // Área construída total = coberta padrão + acessória coberta (a mesma conta da planilha); tem de bater com a área cadastrada na obra.
+  const areaObra: number | null = d.areaObra ?? null;
+  const areaTotal = totais?.areaConstruida ?? null;
+  const areaDiferente = areaTotal !== null && areaObra !== null && Math.abs(areaTotal - areaObra) > 0.005;
+  const porM2 = (v: number) => (areaTotal ? brl(v / areaTotal) : "—");
+  const baseCustos = baseDosCustosPci(form);
+  const custosEmPercentual = custosDigitadosComoPercentualPci(form);
+  const terreno = numeroPci(form.campos.valorTerreno) ?? 0;
+  const areaTerreno = numeroPci(form.campos.areaTerreno);
   // Revisão do PR #180: .xlsm/.xlsb geram a partir da versão .xls compatível — o servidor informa se ela existe.
   const podeGerar = !!d.modelo && d.baseCompativelDisponivel;
 
@@ -458,26 +557,59 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {(s.id === "rtp" || s.id === "rte") && <SeletorEngenheiro papel={s.id} projectId={projectId} form={form} setForm={setForm} engenheiros={d.engenheiros} />}
             {secaoCampos(s.id)}
+            {s.id === "areas" && totais && (
+              <div className="sm:col-span-2 space-y-2">
+                <p className="text-sm text-slate-200">Área construída total (AC73): <strong>{areaTotal === null ? "—" : `${brl(areaTotal)} m²`}</strong> <span className="text-xs text-gray-400">= área coberta padrão + área acessória coberta</span></p>
+                {areaDiferente && (
+                  <p role="alert" className="flex items-start gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-2 text-sm text-yellow-100">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> A área construída total da PCI ({brl(areaTotal!)} m²) é diferente da área cadastrada na obra ({brl(areaObra!)} m²). Ajuste a área coberta ou a acessória aqui, ou corrija a área em Editar obra.
+                  </p>
+                )}
+                {areaObra === null && <p className="text-xs text-gray-400">A obra está sem área cadastrada (Editar obra): não dá para conferir a área total.</p>}
+              </div>
+            )}
             {s.id === "custos" && totais && (
               <div className="sm:col-span-2 overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead><tr className="text-left text-gray-400"><th className="p-1">Item</th><th className="p-1">Serviço</th><th className="p-1">Custo (R$)</th><th className="p-1 text-right">Incid. (%)</th></tr></thead>
+                  <thead><tr className="text-left text-gray-400"><th className="p-1">Item</th><th className="p-1">Serviço</th><th className="p-1">Incidência (%)</th><th className="p-1">Custo (R$)</th></tr></thead>
                   <tbody>
                     {SERVICOS_CUSTO_PCI.map((nome, i) => (
                       <tr key={nome} className="border-t border-white/10">
                         <td className="p-1">{i + 1}</td><td className="p-1">{nome}</td>
+                        {/* Os dois campos são de digitar: o percentual calcula o valor em R$ (sobre a base), e o valor recalcula o percentual. */}
+                        <td className="p-1 min-w-[110px]"><NumeroInput aria-label={`Incidência ${nome}`} value={incidenciaDoCustoPci(form, form.custos[i])} negativo={false} sufixo="%" disabled={baseCustos === null} className={campoCls}
+                          onChange={(v) => { if (baseCustos !== null) setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? custoDaIncidenciaPci(baseCustos, v) : c)) }); }} /></td>
                         <td className="p-1 min-w-[140px]"><NumeroInput aria-label={`Custo ${nome}`} value={form.custos[i]} negativo={false} className={campoCls}
                           onChange={(v) => setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? v : c)) })} /></td>
-                        <td className="p-1 text-right">{brl(totais.incidencias[i], 2)}</td>
                       </tr>
                     ))}
-                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(totais.outros)}</td><td className="p-1 text-right">{brl(totais.incidencias[19], 2)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}</td><td className="p-1">{brl(totais.outros)}</td></tr>
                   </tbody>
                   <tfoot className="font-semibold">
-                    <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(totais.totalServicos)}</td><td /></tr>
-                    <tr><td /><td className="p-1">Custo total com BDI</td><td className="p-1">{brl(totais.totalComBdi)}</td><td /></tr>
+                    <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.totalServicos) ?? 0, 2)}%</td><td className="p-1">{brl(totais.totalServicos)}</td></tr>
+                    <tr><td /><td className="p-1">BDI ({brl(numeroPci(form.campos.bdi) ?? 0)}%)</td><td /><td className="p-1">{brl(totais.valorBdi)}</td></tr>
+                    <tr><td /><td className="p-1">Custo total com BDI</td><td /><td className="p-1">{brl(totais.totalComBdi)}</td></tr>
                   </tfoot>
                 </table>
+                {baseCustos === null
+                  ? <p className="mt-1 text-xs text-yellow-200">Para digitar pelo percentual, preencha o valor do imóvel e o valor do terreno em "Áreas e características" (o imóvel tem de valer mais que o terreno). Enquanto isso, digite os valores em R$.</p>
+                  : <p className="mt-1 text-xs text-gray-400">Base dos percentuais: {brl(baseCustos)} = (valor do imóvel − valor do terreno) ÷ (1 + BDI). Com 100% preenchido, o custo de produção fecha no valor do imóvel{Math.abs(totais.totalServicos - baseCustos) > 0.05 ? ` — faltam ${brl(baseCustos - totais.totalServicos)} (${brl(100 - (incidenciaDoCustoPci(form, totais.totalServicos) ?? 0), 2)}%)` : ""}.</p>}
+                {custosEmPercentual && (
+                  <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-2 text-sm text-yellow-100">
+                    <AlertTriangle className="h-4 w-4 shrink-0" /> Os custos somam exatamente 100,00: parecem percentuais digitados no campo de R$.
+                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setForm({ ...form, custos: custosEmPercentual.custos, adicionais: custosEmPercentual.adicionais })}>Converter em R$ pela base de {brl(baseCustos!)}</Button>
+                  </div>
+                )}
+                <table className="mt-3 w-full text-sm" aria-label="Resumo dos custos">
+                  <thead><tr className="text-left text-gray-400"><th className="p-1">Resumo dos custos (como na planilha)</th><th className="p-1 text-right">Total (R$)</th><th className="p-1 text-right">Por m² (R$)</th></tr></thead>
+                  <tbody>
+                    <tr className="border-t border-white/10"><td className="p-1">Valor do terreno</td><td className="p-1 text-right">{brl(terreno)}</td><td className="p-1 text-right">{areaTerreno ? brl(terreno / areaTerreno) : "—"}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">Custo total de serviços</td><td className="p-1 text-right">{brl(totais.totalServicos)}</td><td className="p-1 text-right">{porM2(totais.totalServicos)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">Custo total de serviços com BDI</td><td className="p-1 text-right">{brl(totais.totalComBdi)}</td><td className="p-1 text-right">{porM2(totais.totalComBdi)}</td></tr>
+                    <tr className="border-t border-white/10 font-semibold"><td className="p-1">Custo total de produção (terreno + serviços com BDI)</td><td className="p-1 text-right">{brl(totais.custoProducao)}</td><td className="p-1 text-right">{porM2(totais.custoProducao)}</td></tr>
+                  </tbody>
+                </table>
+                <p className="mt-1 text-xs text-gray-400">O terreno é dividido pela área do terreno; os demais, pela área construída total.</p>
                 <p className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
                 {form.adicionais.map((a, i) => (
                   <div key={i} className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
@@ -522,12 +654,26 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
             )}
             {s.id === "localizacao" && (
               <div className="sm:col-span-2 space-y-2">
-                <p className="text-xs text-gray-300">Imagem da localização/poligonal do terreno (ex.: captura do Google Earth). No modelo .xls ela entra no quadro "Inserir Poligonal do Terreno"; sempre vai no PDF.</p>
+                <p className="text-xs text-gray-300">Imagem da localização/poligonal do terreno (ex.: captura do Google Earth). Ela preenche o quadro "Inserir Poligonal do Terreno" da planilha e vai no PDF. O quadro é largo (3 por 1): a foto é recortada nessa proporção, sem esticar.</p>
                 <input type="file" accept="image/png,image/jpeg" aria-label="Imagem de localização" onChange={(e) => void escolherImagem(e.target.files?.[0])} className="text-sm" />
                 {form.imagem && (
-                  <div className="space-y-1">
-                    <img src={`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`} alt="Imagem de localização" className="max-h-64 rounded border border-white/10" />
-                    <Button size="sm" variant="outline" className={botaoSec} onClick={() => setForm({ ...form, imagem: null })}>Remover imagem</Button>
+                  <div className="space-y-2">
+                    <img src={`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`} alt="Imagem de localização" className="max-h-64 max-w-full rounded border border-white/10"
+                      onLoad={(e) => setFotoNoFormato(fotoNoFormatoDoQuadroPci(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight))} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label htmlFor="pci-parte-da-foto" className="text-xs font-semibold text-gray-300">Parte da foto que entra no quadro</label>
+                      <select id="pci-parte-da-foto" value={fotoNoFormato && !fotoInteira.current ? "" : parteDaFoto} onChange={(e) => { if (e.target.value) void trocarParteDaFoto(e.target.value as ParteDaFotoPci); }}
+                        className={`rounded-md border px-3 py-2 text-sm ${campoCls}`}>
+                        {fotoNoFormato && !fotoInteira.current && <option value="">já recortada</option>}
+                        <option value="cima">De cima</option>
+                        <option value="meio">Do meio</option>
+                        <option value="baixo">De baixo</option>
+                      </select>
+                      <Button size="sm" variant="outline" className={botaoSec} onClick={() => { fotoInteira.current = null; setForm({ ...form, imagem: null }); }}>Remover imagem</Button>
+                    </div>
+                    {fotoNoFormato
+                      ? <p className="text-xs text-gray-400">A foto está no formato do quadro da planilha (largo, 3 por 1) e vai preencher o quadro inteiro. {fotoInteira.current ? "Se o lote ficou cortado, troque a parte acima." : "Para escolher outra parte, envie a foto de novo."}</p>
+                      : <p role="alert" className="text-xs text-yellow-200">Esta foto ainda não está no formato do quadro da planilha (largo, 3 por 1): do jeito que está, sobram faixas dos lados. Escolha acima a parte da foto que entra no quadro.</p>}
                   </div>
                 )}
               </div>

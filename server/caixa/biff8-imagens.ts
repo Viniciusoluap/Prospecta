@@ -134,6 +134,16 @@ function ancoraNoQuadro(pasta: PastaBiff8, nomeAba: string, q: QuadroFoto, img: 
   return { a: pontoX(x0), b: pontoY(y0), c: pontoX(x0 + w - 0.01), d: pontoY(y0 + h - 0.01) };
 }
 
+/** Largura ÷ altura de um quadro, pelas larguras de coluna e alturas de linha do próprio modelo. */
+export function proporcaoDoQuadro(pasta: PastaBiff8, nomeAba: string, q: QuadroFoto): number {
+  const { largura, altura } = medidasDaGrade(pasta, nomeAba);
+  let w = 0;
+  for (let c = q.coluna1; c <= q.coluna2; c++) w += largura(c);
+  let h = 0;
+  for (let r = q.linha1; r <= q.linha2; r++) h += altura(r);
+  return w / h;
+}
+
 /** Grupo de desenhos (MSODRAWINGGROUP + CONTINUE) como um só bloco de bytes. */
 function lerGrupo(registros: Registro[]) {
   const i = registros.findIndex((r) => r.tipo === R.MSODRAWINGGROUP);
@@ -350,7 +360,11 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   let ultimaForma = restantes[0];
   for (const k of restantes.slice(1)) if (cabecalho(regs[k].dados, 0).tipo === 0xf004) ultimaForma = k;
   let insercao = ultimaForma + 1;
-  while ([R.OBJ, R.TXO, R.CONTINUE].includes(regs[insercao]?.tipo as never) && !removerIndices.includes(insercao)) insercao++;
+  // A última forma pode ter TEXTO: depois do OBJ dela vêm um MSODRAWING só com a caixa de texto (0xF00D), o TXO e os CONTINUE.
+  // Inserir a foto no meio disso quebra o desenho (LibreOffice e Google Planilhas deixam de mostrar a foto) — a foto entra depois de tudo.
+  const ehCaixaDeTexto = (r: Registro | undefined) => !!r && r.tipo === R.MSODRAWING && r.dados.length >= 8 && cabecalho(r.dados, 0).tipo === 0xf00d;
+  // (os registros da foto antiga, que vão sair, também são pulados: a caixa de texto pode estar depois deles)
+  while (insercao < regs.length && (removerIndices.includes(insercao) || [R.OBJ, R.TXO, R.CONTINUE].includes(regs[insercao].tipo as never) || ehCaixaDeTexto(regs[insercao]))) insercao++;
 
   // --- cabeçalhos da aba: tamanhos, quantidade de formas e último id
   w32(primeiro.dados, 4, dg.tam + delta);

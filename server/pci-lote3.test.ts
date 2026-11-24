@@ -44,7 +44,7 @@ describe("07 — seletores conferidos com o JSON oficial", () => {
     });
   });
 
-  it("todo campo com lista na Proposta vira seletor com as opções exatas; O106 (sem lista) segue texto", () => {
+  it("todo campo com lista na Proposta vira seletor com as opções exatas; O106 usa a lista de G106:U106", () => {
     const proposta = JSON_LISTAS.listas.filter((j) => j.aba === "Proposta_Constr_Individual");
     for (const j of proposta) {
       if (j.celula === "X58") continue; // hemisfério da latitude: parte do campo de coordenada (N/S)
@@ -53,7 +53,8 @@ describe("07 — seletores conferidos com o JSON oficial", () => {
       expect(campo!.tipo, j.celula).toBe("lista");
       expect(campo!.opcoes, j.celula).toEqual(j.opcoes);
     }
-    expect(CAMPOS_PCI.find((c) => c.id === "esquadriasInternas")?.tipo).toBe("texto");
+    // correção de 24/11: a validação do modelo cobre G106:U106 — O106 usa a mesma lista (server/pci-correcoes-24-11.test.ts)
+    expect(CAMPOS_PCI.find((c) => c.id === "esquadriasInternas")?.tipo).toBe("lista");
     // cômodos aceitam "4+" (antes eram inteiros); pavimentos começam em 1
     expect(CAMPOS_PCI.find((c) => c.id === "pavimentos")?.opcoes).toEqual(["1", "2", "3", "4+"]);
     expect(CAMPOS_PCI.find((c) => c.id === "vagas")?.opcoes).toEqual(["0", "1", "2", "3", "4+"]);

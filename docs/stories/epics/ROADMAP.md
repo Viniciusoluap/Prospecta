@@ -372,3 +372,9 @@ Depois de seis revisões do portão (correção do vínculo em contrato de vári
 - [ ] Campo novo que não é de assinatura com widget fora de `/Annots` (não é desenhado pelos leitores). (baixo)
 - [ ] Decisão do dono: carimbo VISÍVEL de outros assinadores (gov.br, Adobe) hoje vai para conferência humana e não conclui sozinho;
   aceitar carimbos pequenos automaticamente só se ele pedir.
+
+## Pendência de paridade → Grupo Santa Fé (registrada em 24/11/2026)
+
+Correções pedidas pelo dono em 23/11 e publicadas no Prospecta (#334): (1) a Área Total da obra aceita casas decimais (ex.: 166,56 m²) —
+coluna numérica com decimais e tela sem arredondar; (2) no sino, clicar no título "Notificações" abre a página de todas as notificações,
+mesmo sem nenhuma nova. Portar as duas no Santa Fé.

@@ -450,4 +450,24 @@ Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`.
    "ignora o grupo da Maria Dayane", "desliga a resposta no grupo da Emily", "aceita o grupo KHMN"), e em vincular/classificar só quando o
    cliente é o que o nome do grupo aponta; (c) silenciar aviso. Voltam a pedir o "pode": guardar/corrigir/esquecer lembrança (todas as
    formas), tarefa e anotação sem ":", dois grupos ou dois nomes na mesma frase, e classificar com "cliente N" ou cliente diferente do
-   nome do grupo. Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md` (seção "Opção A").
+   nome do grupo. Também pedem o "pode" (portões 9 a 13): classificar grupo junto com uma obra, tipo diferente do que ele disse, hora
+   por extenso no prazo. Na tarefa direta o vínculo (cliente/obra) nunca é gravado, o responsável é o nome exato do cadastro e a
+   anotação é sempre do tipo "anotação". Vocativo, saudação e palavras de ligação nunca apontam cliente nem grupo; código de grupo que
+   também é palavra ou nome ("VERA") só vale em maiúsculas. Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`.
+
+## Mapa do código — graphify (estabelecido pelo dono em 23/11/2026)
+
+Objetivo: economizar créditos. Em vez de abrir arquivo por arquivo para achar onde as coisas estão, o agente consulta
+um mapa (grafo) do código montado localmente, sem IA e sem custo.
+
+- O mapa fica em `graphify-out/` (fora do git, ver `.gitignore`). Ele é montado sozinho no início de cada sessão do
+  Claude Code pelo hook `.claude/hooks/graphify-setup.sh` (instala o graphify se faltar e roda `graphify update .`
+  em segundo plano, cerca de 1 minuto na primeira vez; depois só reprocessa o que mudou).
+- Antes do primeiro grep, busca ou leitura de arquivo para uma pergunta sobre o código, rodar
+  `graphify query "<pergunta>"`. Para relações use `graphify path "<A>" "<B>"`; para um conceito, `graphify explain "<X>"`;
+  para uma seção de Markdown (handoffs, docs), `graphify section "<título>"`. Ler o arquivo cru só nas linhas que o
+  mapa já localizou. Repassar esta regra no prompt de todo subagente que explore código.
+- `graphify-out/GRAPH_REPORT.md` só para visão geral de arquitetura.
+- Depois de alterar código, rodar `graphify update .` para manter o mapa atual.
+- Se `graphify-out/graph.json` ainda não existir (sessão recém-aberta), seguir normalmente com grep; o mapa fica pronto
+  em seguida. Os hooks do graphify são só avisos: nunca bloqueiam ferramenta.
