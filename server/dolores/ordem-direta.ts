@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -205,11 +205,14 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
   const antes = partes.antes;
   const palavras = palavrasQueIdentificam(antes);
   /** O texto do dono: o ditado, ou o que sobra depois da moldura (com os nomes provados), sem negação na moldura. */
+  // Opção A do dono (24/11/2026): registro por ordem direta SÓ com o texto DITADO depois de ":" — o texto gravado é o ditado inteiro.
+  // Sem ":", o código não tem como separar moldura de conteúdo com segurança (origem dos achados dos portões 5 a 8) → confirmação.
+  if (partes.depois === null && (funcao === "criar_tarefa" || funcao === "registrar_acompanhamento")) return nao("registro sem texto ditado depois de \":\": pede a confirmação");
   const textoDoDono = (nomes: ReadonlyArray<string | null>): string | null => {
     // Portão 7 (I-1): com ditado, o trecho antes do ":" tem de ser SÓ moldura — condição ou assunto escrito ali nunca some em silêncio
     if (partes.depois !== null) {
       if (!molduraInteira(partes.antes, nomes.filter((n): n is string => !!n).map(tokensDoNome))) return null;
-      return partes.depois.replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "") || null;
+      return apararPontas(partes.depois) || null;
     }
     const t = textoPelaMoldura(partes.mensagem, nomes.filter((n): n is string => !!n).map(tokensDoNome));
     return t && !temNegacao(t.moldura) ? t.texto : null;
@@ -217,7 +220,12 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
   switch (funcao) {
     case "criar_tarefa": {
       if (!prazoConfere(a.prazo, partes.mensagem, hojeIso)) return nao("prazo que o código não tirou da mensagem do dono");
-      if (!prioridadeConfere(a.prioridade, partes.mensagem)) return nao("prioridade que o dono não disse");
+      // Portão 8 (I-8a): a prioridade é do CÓDIGO — "tarefa urgente" na moldura = alta; senão, média. O modelo só pode coincidir
+      // (ou não dizer nada); "crítica"/"baixa" e alta sem o "urgente" → confirmação
+      const prioridade = tarefaUrgenteNaMoldura(antes) ? "alta" : "media";
+      if (a.prioridade !== undefined && a.prioridade !== null && a.prioridade !== prioridade && !(prioridade === "media" && a.prioridade === "alta" && prioridadeConfere("alta", partes.mensagem)))
+        return nao("prioridade que o dono não disse");
+      const prioridadeFinal = a.prioridade === "alta" ? "alta" : prioridade;
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
       const quem = await provarResponsavel(a.responsavel, palavras, equipe);
       if (!quem.ok) return quem;
@@ -237,7 +245,7 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       // Portão 5 (I-2): acima do limite da função → confirmação (nunca corte em silêncio)
       if (titulo.length > LIMITE_TEXTO.criar_tarefa) return nao("texto da tarefa maior que o limite");
       const { descricao: _d, vinculo: _v, ...resto } = a;
-      return { ok: true, argumentos: { ...resto, titulo, ...(vinculo ? { vinculo } : {}) } };
+      return { ok: true, argumentos: { ...resto, titulo, prioridade: prioridadeFinal, ...(vinculo ? { vinculo } : {}) } };
     }
     case "registrar_acompanhamento": {
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
@@ -335,12 +343,6 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     // Portão 6 (M-1), regra estrutural: depois do verbo, só palavra de ligação, o nome/código DESTE grupo, o nome do cliente/obra pedido
     // e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente") → confirmação
     const doAlvo = [...normalizarNome(alvo.nomeWhatsapp ?? alvo.nome).split(" "), String(alvo.codigo ?? "").toLowerCase()];
-    // dois grupos numa mensagem ("liga o grupo da Emily e o da Maria Dayane"): o nome/código de OUTRO grupo que ele também citou vale
-    for (const g of grupos) {
-      if (g.id === alvo.id) continue;
-      const citado = codigoCitado(textoDoDono, g.codigo) || palavrasQueIdentificam(g.nomeWhatsapp ?? g.nome).some(p => palavras.includes(p));
-      if (citado) doAlvo.push(...normalizarNome(g.nomeWhatsapp ?? g.nome).split(" "), String(g.codigo ?? "").toLowerCase());
-    }
     if (funcao === "classificar_grupo") {
       const leadDoPedido = Number(a.leadId);
       if (Number.isSafeInteger(leadDoPedido) && leadDoPedido > 0) {
@@ -360,23 +362,9 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     if (tipo === "cliente" || tipo === "pos_atendimento") {
       const leadId = Number(a.leadId);
       if (!Number.isSafeInteger(leadId) || leadId <= 0) return nao("sem cliente");
-      // Portão de QA E11 (I1) — o PAR grupo↔cliente: (a) "cliente N" escrito; (b) o cliente que o NOME DO GRUPO aponta (um só; grupo de
-      // terceiro, só o nome inteiro); (c) as palavras que escolheram o grupo estão no nome do cliente E nenhum outro cliente pontua com
-      // as palavras dele que estão FORA do nome do grupo ("ela é prima da maria dayane" → não prova a Maria).
-      if (numeroCitado(textoDoDono, leadId)) return { ok: true };
-      if ((await clienteDoNomeDoGrupo(alvo)).leadId === leadId) return { ok: true };
-      const [l] = await bancoDaLeitura().select({ id: leads.id, nome: leads.name }).from(leads).where(and(eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);
-      const nomeDoCliente = new Set(palavrasQueIdentificam(l?.nome));
-      if (!l || !doGrupo.length || !doGrupo.every(p => nomeDoCliente.has(p))) return nao("o par grupo↔cliente não saiu das palavras do dono");
-      // e essas palavras apontam UM cliente só (homônimo → não provado)
-      const pelasDoGrupo = await clientesPelasPalavras(doGrupo);
-      if (pelasDoGrupo.cortado || unicoComPonto(doGrupo, pelasDoGrupo.clientes).escolhido !== leadId) return nao("as palavras do grupo apontam mais de um cliente");
-      const fora = palavras.filter(p => !nomeDoAlvo.has(p));
-      if (fora.length) {
-        const outros = await clientesPelasPalavras(fora);
-        if (outros.cortado || outros.clientes.some(c => c.id !== leadId && unicoComPonto(fora, [c]).escolhido !== null)) return nao("outro cliente citado na mensagem");
-      }
-      return { ok: true };
+      // Opção A do dono (24/11/2026): direto só quando o cliente é o que o NOME DO GRUPO aponta (um só; grupo de terceiro, só o nome
+      // inteiro). "cliente N", outro cliente ou segundo nome na frase → confirmação (portão 8, I-8b)
+      return (await clienteDoNomeDoGrupo(alvo)).leadId === leadId ? { ok: true } : nao("o cliente não é o do nome do grupo");
     }
     // engenharia: com obra, a obra também precisa sair das palavras dele
     if (a.obraId === undefined || a.obraId === null) return { ok: true };

@@ -92,7 +92,9 @@ export function podeExecutarPorOrdemDireta(funcao: string, argumentos: unknown):
     // desligar a resposta (literalmente false) só a deixa calada; LIGAR amplia o que ela fala — continua com a confirmação
     case "ligar_resposta_grupo": return a.ligado === false;
     // EPIC-025 E11b (autorização do dono de 23/11): registros reversíveis — o TEXTO gravado e os alvos também são conferidos no servidor
-    case "criar_tarefa": case "registrar_acompanhamento": case "guardar_memoria": case "corrigir_memoria": case "esquecer_memoria": return true;
+    // Decisão do dono em 24/11/2026 ("Opção A", depois de 8 portões reprovados pela mesma causa): só tarefa e anotação DITADAS com ":"
+    // vão direto (conferido no servidor). Guardar, corrigir e esquecer lembrança voltaram a pedir o "pode".
+    case "criar_tarefa": case "registrar_acompanhamento": return true;
     case "silenciar_aviso": return typeof a.silenciar === "boolean" && typeof a.tipo === "string";
     default: return false;
   }
@@ -321,7 +323,9 @@ export function partesDaOrdem(mensagemBruta: string | null | undefined): PartesD
 }
 
 /** Normalização da comparação do texto gravado: só caixa, espaços repetidos e pontuação nas pontas. */
-const PONTAS = /^[\s.,;:!\-]+|[\s.,;:!\-]+$/g;
+const PONTAS = /^(?:[\s.,;:!]|-(?!\d))+|[\s.,;:!\-]+$/g;
+/** Apara só pontuação solta nas pontas; "-500" mantém o sinal (portão 8, M-8d). */
+export const apararPontas = (t: string) => t.replace(PONTAS, "");
 const comparavel = (t: string) => t.toLowerCase().replace(/\s+/g, " ").replace(PONTAS, "");
 
 /**
@@ -392,13 +396,15 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     const emOracao = ps.slice(-6).some(t => ORACAO_ANTES_DA_DATA.has(t)) || ["de", "do", "da"].includes(ps[ps.length - 1] ?? "");
     const depois = normalizarNome(raw.slice((x.index ?? 0) + x[0].length)).split(" ").filter(Boolean);
     const fecha = depois.every(t => /^(?:cedo|manha|tarde|noite|de|a|pela|as|\d{1,2}h?|\d{1,2}h\d{2}|\d{2}|h|hs|horas|por|favor|sem|falta|mesmo)$/.test(t));
-    if (!marcado && (emOracao || !fecha)) return null;
+    // portão 8 (M-8c): dentro de oração ("ver se o João entrega para hoje") o marcador não salva
+    if (emOracao || (!marcado && !fecha)) return null;
     achadas.push(/^hoje$/i.test(x[1]) ? hojeIso : iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
   }
   const usadas = new Set<number>();
   for (const x of Array.from(raw.matchAll(/\b(?:dia\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/gi))) {
     const ps = antesDe(x.index ?? 0);
     if (temPassado(ps) || !comMarcador(x[0].toLowerCase().startsWith("dia") ? [...ps, "dia"] : ps)) return null;
+    if (ps.slice(-6).some(t => ORACAO_ANTES_DA_DATA.has(t))) return null; // portão 8 (M-8c): "perguntar se o João paga até 10/12"
     usadas.add(x.index ?? 0);
     // Portão 6 (M-2): "2/3 do telhado", "1/2 salário" é fração, não data — a data de prazo FECHA o pedido (ou vem seguida da hora)
     if (!fechaOPedido((x.index ?? 0) + x[0].length)) return null;
@@ -412,6 +418,7 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     if (usadas.has(x.index ?? 0)) continue;
     const ps = antesDe(x.index ?? 0);
     if (temPassado(ps) || !comMarcador([...ps, "dia"])) return null;
+    if (ps.slice(-6).some(t => ORACAO_ANTES_DA_DATA.has(t))) return null;
     if (!fechaOPedido((x.index ?? 0) + x[0].length)) return null;
     const d = Number(x[1]);
     let r = d >= dia ? iso(ano, mes, d) : null;
@@ -659,6 +666,12 @@ export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<
   return { texto, moldura, tokensDaMoldura };
 }
 
+/** "tarefa(s) urgente" na moldura do pedido: a prioridade ALTA é do código (portão 8, I-8a — o "urgente" tirado do título não some). */
+export function tarefaUrgenteNaMoldura(antes: string | null | undefined): boolean {
+  const ts = tokensDoPedido(antes).map(t => t.n);
+  return ts.some((t, i) => t === "urgente" && (ts[i - 1] === "tarefa" || ts[i - 1] === "tarefas"));
+}
+
 /**
  * Portão 6 (M-1): palavras de CONDIÇÃO ou de TEMPO. Numa ordem que não grava texto (grupo, aviso), qualquer uma delas depois do verbo
  * tira a ordem direta — "vincula o grupo da Emily só se ela assinar", "ignora o grupo … depois que a obra terminar", "… até segunda".
@@ -675,10 +688,11 @@ export function palavrasDepoisDoVerbo(antes: string | null | undefined): string[
  * nome/código do alvo (quem chama passa) e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente", "mais tarde")
  * → confirmação. Lista permitida, nunca lista de bloqueio.
  */
-export const LIGACAO_DE_GRUPO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "ao", "aos", "na", "no", "em", "com", "como", "sendo", "e",
-  "grupo", "grupos", "cliente", "clientes", "obra", "pos", "venda", "atendimento", "engenharia", "para", "pra", "pro", "n", "numero", "esse", "essa", "este", "esta", "ai", "la",
-  "agora", "ja", "por", "favor", "lado", "resposta", "respostas", "responder", "dela", "dele", "tambem"]);
-// Portão 7 (I-3): NENHUM verbo entra nesta lista — "ignora o grupo da Emily e liga o da Maria" tem um segundo pedido, de outra função
+export const LIGACAO_DE_GRUPO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "no", "na", "em", "como",
+  "grupo", "cliente", "obra", "pos", "venda", "atendimento", "engenharia", "esse", "essa", "este", "esta", "ai", "la",
+  "agora", "ja", "por", "favor", "lado", "resposta", "respostas", "responder", "dela", "dele"]);
+// Opção A (24/11/2026): UM alvo por ordem. Fora da lista: verbos (portão 7, I-3), "e", "com", "para/pra/pro", "ao", "também", "grupos"
+// (portão 8, I-8b — "vincula o grupo da Emily à Maria Dayane", "…com a Maria Dayane" traziam um segundo nome). Segundo alvo → confirmação.
 export const LIGACAO_DE_AVISO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "me", "te", "em", "com", "e", "sobre", "avisar", "avisa", "avise",
   "aviso", "avisos", "agora", "ja", "por", "favor", "tipo", "esse", "essa", "esses", "essas"]);
 export function soPalavrasPermitidas(antes: string | null | undefined, ligacao: ReadonlySet<string>, doAlvo: Iterable<string>): boolean {

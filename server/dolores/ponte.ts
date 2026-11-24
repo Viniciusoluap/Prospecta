@@ -423,7 +423,9 @@ async function executarAcao(acao: FuncaoAcao, args: unknown, c: {
       // a MESMA chamada = mesmo alvo E mesmos argumentos (um "liga ao João" depois de "liga à Maria" no mesmo grupo não é repetição)
       const estavel = (v: unknown): string => Array.isArray(v) ? `[${v.map(estavel).join(",")}]`
         : v && typeof v === "object" ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${estavel((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v ?? null);
-      const chave = (alvo: string, argumentos: unknown) => `${alvo.slice(0, 80)}\u0000${estavel(argumentos)}`;
+      // Portão 8 (M-8e): na ordem direta vale UMA execução por função e por alvo em cada mensagem (a 2ª chamada com outro "tipo" não grava de novo)
+      const chave = (alvo: string, _argumentos: unknown) => alvo.slice(0, 80);
+      void estavel;
       const jaFeitos = new Set((await getDb().select({ alvo: doloresAprovacoes.alvo, argumentos: doloresAprovacoes.argumentos }).from(doloresAprovacoes)
         .where(and(eq(doloresAprovacoes.mensagemId, c.mensagemId), eq(doloresAprovacoes.funcao, funcao), inArray(doloresAprovacoes.situacao, ["executada", "executando"]),
           inArray(doloresAprovacoes.alvo, cabem.map(i => i.alvo.slice(0, 80)))))).map(x => chave(x.alvo, x.argumentos)));
