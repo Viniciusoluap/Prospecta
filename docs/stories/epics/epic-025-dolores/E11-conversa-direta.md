@@ -318,6 +318,15 @@ R1–R4 (11ª) e os da 9ª/10ª fechados. Conferência campo a campo de cada fun
 - **Hora (baixo)** `…amanhã às 9h` + prazo só com data → caía nas 18:00. **Correção:** se ele escreveu hora, o prazo tem de trazer essa hora.
 - Regressões no bloco "5." do e11 (148 testes no arquivo).
 
+### Portão de segurança, 13ª rodada (24/11/2026) — CONCERNS (sem brecha real; aprovado para publicar)
+T1 e os pontos da 12ª fechados; matriz "tipo dito × tipo do modelo" só com a diagonal; nenhum campo passa como o modelo mandou;
+silenciar aviso (10 tipos × 2 direções), aceitar grupo e funções misturadas sem brecha. Observações baixas, tratadas em seguida:
+- c1 "…como obra/atendimento" + tipo cliente → agora confirmação; c2 dois tipos na frase → confirmação; c4 hora por extenso ou turno
+  ("às 9", "9 horas", "de manhã") com prazo do modelo → confirmação; c5 dois testes com título inválido → título válido.
+- **Fica registrado (não corrigido):** c3 — grupo «POS …» com "vincula o grupo da Emily" grava "cliente" (mesmo escopo, só o rótulo).
+- Atrito conhecido (pede "pode" a mais): "por favor" no meio do pedido, cliente chamado Dolores, "posvenda" junto, "para de responder
+  no grupo…", avisos cujo nome divide palavras com outro tipo.
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -390,6 +399,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
+- 24/11/2026 — @qa (Quinn): portão de segurança E11, 13ª rodada — CONCERNS, sem brecha real. @dev: c1, c2, c4, c5 fechados.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 12ª rodada (T1 e 4 pontos baixos) corrigido; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 11ª rodada (R1–R4) corrigido; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 10ª rodada (A1, A2, A3) — palavra de ligação nunca prova alvo; regressões no e11.

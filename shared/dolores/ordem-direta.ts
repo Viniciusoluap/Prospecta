@@ -160,10 +160,16 @@ export function preparadoPodeIrDireto(funcao: string, argumentosPreparados: unkn
 /** Tipo pedido coerente com as palavras: engenharia só se ele disse "engenharia"; pós só se disse "pós". Cliente é o padrão. */
 export function tipoDitoPeloDono(tipo: string, textoDoDono: string | null | undefined): boolean {
   const n = normalizarNome(textoDoDono);
-  if (tipo === "engenharia") return /\bengenhar/.test(n);
-  if (tipo === "pos_atendimento") return /\bpos\b|\bposvenda\b|\bpos atendimento\b/.test(n);
-  // Portão 12 (T1): "cliente" só quando a frase não traz a palavra de OUTRO tipo ("…como engenharia" nunca vira grupo de cliente)
-  return tipo === "cliente" && !/\bengenhar|\bpos\b|\bposvenda\b|\bjuridic|\badministr|\bsoci[oa]s?\b|\bparceir|\bcorretor|\bintern[oa]s?\b/.test(n);
+  const eng = /\bengenhar/.test(n);
+  const pos = /\bpos\b|\bposvenda\b/.test(n);
+  // Portão 12 (T1) e 13 (c1): palavra de OUTRO tipo, ou "obra"/"atendimento" (sem "pós"), nunca vira grupo de cliente
+  const outro = /\bjuridic|\badministr|\bsoci[oa]s?\b|\bparceir|\bcorretor|\bintern[oa]s?\b|\bobras?\b/.test(n) || (!pos && /\batendimento\b/.test(n));
+  const cli = /\bclientes?\b/.test(n);
+  // Portão 13 (c2): mais de um tipo na frase ("como engenharia pós venda", "cliente engenharia") → a escolha não fica com o modelo
+  const ditos = [eng, pos, outro, cli].filter(Boolean).length;
+  if (tipo === "engenharia") return eng && ditos === 1;
+  if (tipo === "pos_atendimento") return pos && ditos === 1;
+  return tipo === "cliente" && !eng && !pos && !outro;
 }
 
 // ── Confirmação nomeada: "o grupo da Emily pode", "pode o da Maria Dayane", "pode todos" ──
@@ -464,6 +470,8 @@ export function prazoConfere(prazoDoModelo: unknown, mensagem: string, hojeIso: 
   if (dataDitaPeloDono(mensagem, hojeIso) !== m[1]) return false;
   // Portão 12 (concern 4): se ele escreveu uma hora ("amanhã às 9h"), o prazo tem de trazer ESSA hora — nunca cair nas 18:00 em silêncio
   const temHora = /\b\d{1,2}(?::\d{2}|h(?:\d{2})?)\b/.test(String(mensagem).normalize("NFKC"));
+  // Portão 13 (c4): hora escrita por extenso ou turno ("às 9", "9 horas", "de manhã", "à tarde") → o código não sabe a hora: confirmação
+  if (/\bas \d{1,2}\b|\b\d{1,2} horas?\b|\bmeio dia\b|\b(?:de|pela|a|na) (?:manha|tarde|noite)\b/.test(normalizarNome(mensagem)) && !horaDitaPeloDono(mensagem)) return false;
   return m[2] || temHora ? horaDitaPeloDono(mensagem) === m[2] : true;
 }
 

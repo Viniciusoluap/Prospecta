@@ -1653,7 +1653,7 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     });
 
     it("M-9: \"…: perguntar ao João se ele viu a tarefa urgente da Maria\" + prioridade alta do modelo → nada na hora (\"urgente\" do ditado não vale)", async () => {
-      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "x", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Crio?"));
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "perguntar ao João", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Crio?"));
       await dono("cria uma tarefa para a Bianca: perguntar ao João se ele viu a tarefa urgente da Maria");
       expect(await tarefas()).toEqual([]);
     });
@@ -1763,11 +1763,33 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     });
 
     it("12ª (concern 4): \"…: ligar para o João amanhã às 9h\" + prazo só com a data → nada na hora (a hora dita não some)", async () => {
-      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "x", responsavel: "Bianca", prazo: "2026-11-17" }]), () => texto("Crio?"));
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "ligar para o João", responsavel: "Bianca", prazo: "2026-11-17" }]), () => texto("Crio?"));
       await dono("cria uma tarefa para a Bianca: ligar para o João amanhã às 9h");
       expect(await tarefas()).toEqual([]);
       expect(prazoConfere("2026-11-17", "ligar para o João amanhã às 9h", "2026-11-16")).toBe(false);
       expect(prazoConfere("2026-11-17T09:00", "ligar para o João amanhã às 9h", "2026-11-16")).toBe(true);
+    });
+
+    it("13ª (c1, c2, c4): tipo com \"obra\"/\"atendimento\", dois tipos na frase e hora por extenso → confirmação", async () => {
+      const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+      const antes = await retrato();
+      const casos: Array<[string, Record<string, unknown>]> = [
+        ["classifica o grupo da Emily como obra", { tipo: "cliente", leadId: EMILY }],
+        ["classifica o grupo da Emily como atendimento", { tipo: "cliente", leadId: EMILY }],
+        ["classifica o grupo da Emily como engenharia pós venda", { tipo: "pos_atendimento", leadId: EMILY }],
+        ["classifica o grupo da Emily como engenharia pós venda", { tipo: "engenharia" }],
+        ["classifica o grupo da Emily como cliente engenharia", { tipo: "engenharia" }],
+      ];
+      for (const [frase, args] of casos) {
+        roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, ...args }]), () => texto("Confirma?"));
+        await dono(frase);
+        expect(await retrato(), frase).toBe(antes);
+      }
+      for (const frase of ["ligar para o João amanhã às 9 horas", "ligar para o João amanhã às 9", "ligar para o João amanhã de manhã"]) {
+        roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "ligar para o João", responsavel: "Bianca", prazo: "2026-11-17" }]), () => texto("Crio?"));
+        await dono(`cria uma tarefa para a Bianca: ${frase}`);
+        expect(await tarefas(), frase).toEqual([]);
+      }
     });
 
     it("regra pura (10ª): palavra da lista permitida do pedido nunca é palavra de alvo", () => {
