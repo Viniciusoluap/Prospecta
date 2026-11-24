@@ -272,7 +272,7 @@ export default function ObraDetalhes({ admin: adminProp = false, empreiteiro = f
                       {project.totalArea && (
                         <div>
                           <p className="text-sm text-gray-400 mb-1">Área Total</p>
-                          <p className="text-white font-medium">{project.totalArea}m²</p>
+                          <p className="text-white font-medium">{Number(project.totalArea).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²</p>
                         </div>
                       )}
                       {project.startDate && (

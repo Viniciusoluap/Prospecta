@@ -171,7 +171,7 @@ async function main() {
       city VARCHAR(100),
       state VARCHAR(2),
       project_type VARCHAR(100),
-      total_area INTEGER,
+      total_area DOUBLE PRECISION,
       status construction_project_status NOT NULL DEFAULT 'planning',
       progress INTEGER NOT NULL DEFAULT 0,
       vgv DECIMAL(15,2),
