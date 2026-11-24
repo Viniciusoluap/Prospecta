@@ -155,7 +155,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
       projectId,
       title,
       address,
-      totalArea: totalArea ? parseInt(totalArea) : undefined,
+      totalArea: totalArea ? Number(totalArea) : undefined,
       status: status as never,
       startDate: startDate ? new Date(startDate) : undefined,
       estimatedEndDate: estimatedEndDate ? new Date(estimatedEndDate) : undefined,
@@ -361,7 +361,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
                       value={totalArea ? Number(totalArea) : null}
                       onChange={(numero) => setTotalArea(numero ? String(numero) : "")}
                       className="bg-[#2C3E50] border-[#C9A961]/30 text-white"
-                      placeholder="Ex: 47,00"
+                      placeholder="Ex: 166,56"
                     />
                   </div>
 

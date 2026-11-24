@@ -163,7 +163,7 @@ export default function Obras() {
                     {project.totalArea && (
                       <div>
                         <p className="text-xs text-gray-400">Área</p>
-                        <p className="text-sm text-white font-medium">{project.totalArea}m²</p>
+                        <p className="text-sm text-white font-medium">{Number(project.totalArea).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²</p>
                       </div>
                     )}
                     {project.startDate && (

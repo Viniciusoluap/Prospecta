@@ -8,6 +8,7 @@ import {
   boolean,
   timestamp,
   decimal,
+  doublePrecision,
   uniqueIndex,
   date,
   jsonb,
@@ -499,7 +500,8 @@ export const constructionProjects = pgTable("construction_projects", {
   city: varchar("city", { length: 100 }),
   state: varchar("state", { length: 2 }),
   projectType: varchar("project_type", { length: 100 }),
-  totalArea: integer("total_area"),
+  // 24/11/2026: aceita casas decimais (ex.: 166,56 m²) — migração 0173.
+  totalArea: doublePrecision("total_area"),
   status: constructionProjectStatusEnum("status").default("planning").notNull(),
   progress: integer("progress").default(0).notNull(),
   // EPIC-020 Lote 4: Progresso Geral medido (soma incidência × execução), 6 casas.

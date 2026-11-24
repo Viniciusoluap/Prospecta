@@ -383,7 +383,9 @@ function NotificationBell() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[22rem] max-w-[calc(100vw-1rem)]">
         <DropdownMenuLabel className="flex items-center justify-between">
-          <span>Notificações</span>
+          <Link href="/notificacoes" className="cursor-pointer hover:underline" title="Abrir todas as notificações">
+            Notificações
+          </Link>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
@@ -419,19 +421,15 @@ function NotificationBell() {
             ))
           )}
         </div>
-        {unreadNotifications.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link
-                href="/notificacoes"
-                className="w-full text-center text-sm text-primary"
-              >
-                Ver todas as notificações
-              </Link>
-            </DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link
+            href="/notificacoes"
+            className="w-full text-center text-sm text-primary"
+          >
+            Ver todas as notificações
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
