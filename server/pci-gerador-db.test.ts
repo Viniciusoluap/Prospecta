@@ -150,13 +150,16 @@ it("correções de 24/11: local e data sai sozinho na geração (rascunho fica e
       ('44.555.666/0001-81', 'Construtora Exemplo Dois LTDA', 'simples', true, '2026-01-01'),
       ('', 'Sem CNPJ', 'simples', true, '2026-01-01');
     CREATE TABLE fiscal_emissores (id serial primary key, cnpj varchar, ativo boolean);
-    CREATE TABLE fiscal_emissores_certificado (id serial primary key, emissor_id integer, valido_ate timestamptz);
-    INSERT INTO fiscal_emissores (cnpj, ativo) VALUES ('44555666000181', true), ('11222333000181', true);
-    INSERT INTO fiscal_emissores_certificado (emissor_id, valido_ate) VALUES (1, now() + interval '90 days'), (2, now() - interval '1 day');`);
+    CREATE TABLE fiscal_emissores_certificado (id serial primary key, emissor_id integer, valido_ate timestamptz, ativo boolean);
+    INSERT INTO fiscal_emissores (cnpj, ativo) VALUES ('44555666000181', true), ('11222333000181', true), ('77888999000181', true);
+    INSERT INTO tax_profiles (cnpj, company_name, regime, is_active, effective_from) VALUES ('77.888.999/0001-81', 'Construtora Exemplo Três LTDA', 'simples', true, '2026-01-01');
+    -- o da Dois vale; o da Um venceu; o da Três foi REMOVIDO (ativo = false) e ainda não venceu: não conta (revisão do Codex no PR #338)
+    INSERT INTO fiscal_emissores_certificado (emissor_id, valido_ate, ativo) VALUES (1, now() + interval '90 days', true), (2, now() - interval '1 day', true), (3, now() + interval '90 days', false);`);
   const tela = await caller.obter({ projectId: 11 });
   // a com certificado VÁLIDO vem primeiro; certificado vencido não conta; um item por CNPJ, com o nome do perfil ativo
   expect(tela.empresas).toEqual([
     { nome: "Construtora Exemplo Dois LTDA", cnpj: "44555666000181", certificado: true },
+    { nome: "Construtora Exemplo Três LTDA", cnpj: "77888999000181", certificado: false },
     { nome: "Construtora Exemplo Um LTDA", cnpj: "11222333000181", certificado: false },
   ]);
   // "Dados automáticos": a ÚNICA empresa com certificado entra sozinha em Construtora e CNPJ

@@ -267,7 +267,7 @@ export async function empresasFiscaisPci(agora: Date = new Date()): Promise<Empr
   try {
     comCertificado = new Set(linhas<{ cnpj: string }>(await db.execute(sql`
       SELECT DISTINCT e.cnpj FROM fiscal_emissores e JOIN fiscal_emissores_certificado c ON c.emissor_id = e.id
-      WHERE e.ativo AND c.valido_ate > ${agora}`)).map((l) => String(l.cnpj)));
+      WHERE e.ativo AND c.ativo AND c.valido_ate > ${agora}`)).map((l) => String(l.cnpj)));
   } catch {
     // sem as tabelas do certificado: ninguém marcado
   }
