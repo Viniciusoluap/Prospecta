@@ -1829,6 +1829,26 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "pos_atendimento", lead_id: EMILY });
   });
 
+  it("Codex #341 (P2): \"o grupo da Emily pode\" não confirma a ANOTAÇÃO da Emily que espera o \"pode\"", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "ela mandou o RG" }]), () => texto("Anoto?"));
+    await dono("anota na Emily que ela mandou o RG");
+    expect(await anotacoes()).toEqual([]);
+    roteiro.push(() => texto("Qual grupo?"));
+    await dono("o grupo da Emily pode");
+    expect(await anotacoes()).toEqual([]);
+    expect(lerConfirmacaoNomeada("o grupo da Emily pode")).toMatchObject({ entidade: "grupo", referencia: ["emily"] });
+    expect(lerConfirmacaoNomeada("a tarefa da Bianca pode")).toMatchObject({ entidade: "tarefa", referencia: ["bianca"] });
+    expect(lerConfirmacaoNomeada("o grupo e a tarefa da Emily pode")).toBeNull();
+  });
+
+  it("Codex #341 (P2): \"grupo KHMN 2\" em grupo sem cliente no nome → a pergunta ensina \"2 <nome>\" e a resposta grava PÓS", async () => {
+    await grupo({ codigo: "KHMN", nome: "CASA NOVA" });
+    await dono("grupo KHMN 2");
+    expect(ultima()).toMatch(/«2 Emily»/);
+    await dono("2 Emily");
+    expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "pos_atendimento", lead_id: EMILY });
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();

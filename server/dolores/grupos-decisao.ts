@@ -140,7 +140,10 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
         if (!auto.leadId) {
           await marcarPerguntaDoTipo(g.id, origem);
           await auditar("recusada", "cliente sem nº e o nome do grupo não aponta um cliente só: perguntado pelo nome; nada mudou", { grupoId: g.id, candidatos: auto.candidatos.length });
-          return { ok: false, texto: `Dolores: ${perguntaDoCliente(auto.candidatos, g.codigo, nomeDoGrupo)}`, grupoId: g.id };
+          return { ok: false, texto: `Dolores: ${perguntaDoCliente(auto.candidatos, g.codigo, nomeDoGrupo)}${d.tipo === "pos_atendimento"
+            // Codex #341 (P2): a resposta só com o nome vale como "cliente"; para manter o PÓS pedido, ele responde "2 <nome>"
+            ? " Para ficar como pós-atendimento, responda «2» e o nome (ex.: «2 Emily»); só o nome fica como cliente."
+            : ""}`, grupoId: g.id };
         }
         // QA E11 (M3): grupo de terceiro — o cliente que o nome aponta vai como UMA pergunta, nunca ligado sozinho
         if (!grupoDoDono(g) && origem.via === "whatsapp") {

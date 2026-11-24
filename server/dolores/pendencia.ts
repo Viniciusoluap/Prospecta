@@ -25,7 +25,7 @@ import {
 } from "../../shared/dolores/confirmacao.js";
 import { ALFABETO_CODIGO, textoDeDado } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
-import { unicoComPonto, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
+import { unicoComPonto, funcaoDaEntidade, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
 import { getDb } from "../db.js";
 import { decidir, type ResultadoDecisao } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
@@ -367,7 +367,9 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
     }
   } else {
     // portão 2 (M-C): o nome aponta UM item só (outro item com a mesma palavra → segue o caminho comum)
-    const escolha = unicoComPonto(c.referencia, candidatos.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
+    // Codex #341 (P2): "o GRUPO da Emily pode" só confirma item de grupo (nunca a anotação da Emily que também espera)
+    const daEntidade = c.entidade ? candidatos.filter(i => funcaoDaEntidade(i.funcao, c.entidade!)) : candidatos;
+    const escolha = unicoComPonto(c.referencia, daEntidade.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
     const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
     if (!item) return null;
     // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova
