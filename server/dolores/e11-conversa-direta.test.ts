@@ -1806,6 +1806,13 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     });
   });
 
+  it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
+    for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
+      "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();
+    expect(lerConfirmacaoNomeada("o grupo da Emily pode")).toMatchObject({ todos: false, referencia: ["emily"] });
+    expect(lerConfirmacaoNomeada("pode todos")).toMatchObject({ todos: true });
+  });
+
   it("4. regra pura: guardar, corrigir e esquecer lembrança nunca vão por ordem direta", () => {
     for (const f of ["guardar_memoria", "corrigir_memoria", "esquecer_memoria"]) expect(podeExecutarPorOrdemDireta(f, { texto: "x", memoriaId: 1 }), f).toBe(false);
     expect(podeExecutarPorOrdemDireta("criar_tarefa", {})).toBe(true);

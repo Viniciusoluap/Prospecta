@@ -177,9 +177,11 @@ export function tipoDitoPeloDono(tipo: string, textoDoDono: string | null | unde
 export const MAX_CARACTERES_CONFIRMACAO_NOMEADA = 80;
 const AFIRMA = new Set(["pode", "sim", "ok", "confirmo", "faz", "faca", "manda"]);
 /** Palavras que só ligam a frase ("o grupo da …") — saem da referência. */
-const LIGACAO = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "e", "grupo", "grupos", "isso", "esse", "essa", "tambem", "ai", "la", "eu", "ja"]);
+const LIGACAO = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "e", "grupo", "grupos", "isso", "esse", "essa", "tambem", "ai", "la", "eu", "ja", "so", "somente", "apenas"]);
 const VERBO_NOVO = /\b(?:cri(?:e|ar|a)|registr\w*|anot\w*|apag\w*|exclu\w*|mand(?:ar|e)|envi\w*|cobr\w*|emit\w*|cancel\w*|pag(?:ar|a|ue)|transfer\w*|ger(?:e|ar)|prepar\w*)\b/;
 
+const EXCLUSAO_OU_CONDICAO: ReadonlySet<string> = new Set(["menos", "exceto", "fora", "salvo", "tirando", "sem", "nem", "se", "caso", "quando",
+  "depois", "antes", "mas", "porem", "talvez", "ainda", "nunca", "jamais", "nenhum", "nenhuma", "outro", "outra", "outros", "outras"]);
 export type ConfirmacaoNomeada = { tipo: "sim" | "confirmo"; todos: boolean; referencia: string[] };
 
 /**
@@ -200,10 +202,15 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   const inicio = AFIRMA.has(primeira);
   if (!fim && !inicio) return null;
   if (ps.includes("nao")) return null;
+  // Codex #341 (P1): exclusão ou condição ("pode todos menos o da Emily", "confirmo todos exceto…", "pode o da Emily se…") nunca é
+  // confirmação nomeada — "menos"/"exceto" não fazem parte do nome e o item excluído seria justamente o executado
+  if (ps.some(p => EXCLUSAO_OU_CONDICAO.has(p))) return null;
   const confirmo = ps.includes("confirmo");
   const resto = (fim ? ps.slice(0, -1) : ps.slice(1)).filter(p => !AFIRMA.has(p) && !LIGACAO.has(p) && p !== "sim");
   if (!resto.length || resto.length > 6) return null;
   const todos = resto.every(p => p === "todos" || p === "todas" || p === "tudo");
+  // "todos" misturado com um nome ("pode todos o da Emily") é ambíguo → não é confirmação
+  if (!todos && resto.some(p => p === "todos" || p === "todas" || p === "tudo")) return null;
   if (todos) return { tipo: confirmo ? "confirmo" : "sim", todos: true, referencia: [] };
   const referencia = resto.filter(p => (p.length >= 3 && !PALAVRAS_GENERICAS.has(p)) || (/^[a-z0-9]{4}$/.test(p) && /\d/.test(p)));
   if (!referencia.length) return null;
