@@ -1,6 +1,6 @@
 # EPIC-030 S-1 — Gerador de PCI: correções pedidas pelo dono em 24/11/2026
 
-**Status:** InProgress (etapa A pronta para revisão; etapas B e C em andamento)
+**Status:** InReview (etapas A e B prontas; pendências na etapa C)
 
 ## Pedido do dono (24/11/2026, com 10 prints, a planilha e o PDF gerados)
 
@@ -40,10 +40,13 @@
 - [x] Foto: entra depois da caixa de texto do último desenho (`substituirFotos`).
 - [x] Teste antigo `pci-gerador-db.test.ts` voltou a rodar (faltava a coluna `pci_lot_cost` do #339 na tabela de teste).
 
-## Etapa B — PDF idêntico à planilha (EM ANDAMENTO)
+## Etapa B — PDF idêntico à planilha (FEITO)
 
-- [ ] Renderizador do PDF a partir do .xls gerado (mesmas células, cores, bordas, logotipo, foto), com as fórmulas recalculadas.
-- [ ] Geração usa o PDF fiel; se falhar, cai no PDF antigo com aviso.
+- [x] Renderizador do PDF a partir do .xls gerado (mesmas células, cores, bordas, logotipo, foto), com as fórmulas recalculadas.
+- [x] Geração usa o PDF fiel; se falhar, cai no PDF antigo com aviso.
+
+- [x] Foto recortada na proporção do quadro (~3,03 por 1), com a escolha da parte (de cima, do meio, de baixo): preenche o quadro sem
+      faixas e sem esticar (`recorteParaQuadroPci`, `fotoNoFormatoDoQuadroPci`).
 
 ## Etapa C — pendências
 
@@ -71,5 +74,7 @@
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): PDF fiel à planilha (renderizador BIFF8 + fórmulas recalculadas) e foto recortada na proporção do quadro.
+- 24/11/2026 — @qa (Quinn): portão rápido da parte da tela (ddc7863) — PASS.
 - 24/11/2026 — @dev (Dex): custos pelos dois campos (percentual e R$), com conversão dos percentuais já digitados.
 - 24/11/2026 — @dev (Dex): etapa A (campos, foto, testes) e diagnóstico da planilha enviada pelo dono.

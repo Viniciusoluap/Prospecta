@@ -92,7 +92,8 @@ it("formulário: pré-preenchimento (PCI vinculada > CRM), rascunho, geração e
   expect(salvo.formulario.campos.proponenteNome).toBe("NOME EDITADO");
 
   const r = await caller.gerar({ projectId: 10, formulario: form });
-  expect(r.avisos).toEqual([]);
+  // o único aviso é do PDF fiel: a foto de exemplo do modelo ANONIMIZADO de teste está zerada (no modelo real não aparece)
+  expect(r.avisos).toEqual(["PDF: Imagem em G194 não pôde ser desenhada no PDF."]);
   const hist = await caller.historico({ projectId: 10 });
   expect(hist).toHaveLength(1);
   expect(hist[0]).toMatchObject({ modeloVersao: 1, formato: "xls", autor: "Admin" });
