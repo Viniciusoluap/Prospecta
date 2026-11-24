@@ -175,6 +175,7 @@ export async function calcularResumoObra(projectId: number) {
       fgts: obra.fgtsAmount,
       subsidio: obra.subsidyAmount,
       custoTerreno: obra.lotCost,
+      custoTerrenoPci: obra.pciLotCost ?? null,
       comissao: obra.commissionAmount,
       orcamentoPrevisto: obra.contractValue,
       taxaMensalPct: obra.installmentRate,
@@ -222,6 +223,7 @@ export const obraFinanceiroRouter = router({
     fgts: dinheiro.nullable(),
     subsidio: dinheiro.nullable(),
     custoTerreno: dinheiro.nullable(),
+    custoTerrenoPci: dinheiro.nullable().optional(),
     comissao: dinheiro.nullable(),
     comissaoPercentual: percentualComissao.nullable().optional(),
     orcamentoPrevisto: dinheiro.nullable(),
@@ -250,6 +252,7 @@ export const obraFinanceiroRouter = router({
       fgtsAmount: input.fgts,
       subsidyAmount: input.subsidio,
       lotCost: input.custoTerreno,
+      pciLotCost: input.custoTerrenoPci,
       commissionAmount: corretorObra
         ? (calculada.valorCentavos !== null ? reaisDeCentavos(calculada.valorCentavos) : null)
         : input.comissao,
