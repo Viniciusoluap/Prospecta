@@ -359,9 +359,10 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
   let escolhidos: ItemDaPendencia[];
   if (c.todos) {
     // "pode todos"/"confirmo todos": só os de REGISTRO da proposta aberta (sério nunca vai em lote; de proposta substituída, nunca)
-    escolhidos = candidatos.filter(i => daAberta.has(i.id) && nivelDoItem(i.funcao, i.argumentos) === "registro");
+    const doLote = c.entidade ? candidatos.filter(i => funcaoDaEntidade(i.funcao, c.entidade!)) : candidatos;
+    escolhidos = doLote.filter(i => daAberta.has(i.id) && nivelDoItem(i.funcao, i.argumentos) === "registro");
     if (!escolhidos.length) {
-      const serios = candidatos.filter(i => daAberta.has(i.id));
+      const serios = doLote.filter(i => daAberta.has(i.id));
       if (!serios.length) return null;
       return { pendenciaId: null, codigos: serios.map(i => i.codigo), situacao: "falta_confirmo", texto: `${fraseFaltaConfirmo(serios.map(paraMotivo))} (um por vez, à pergunta do sistema; "todos" vale só para registro).` };
     }

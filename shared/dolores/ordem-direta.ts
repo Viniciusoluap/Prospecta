@@ -182,6 +182,12 @@ const VERBO_NOVO = /\b(?:cri(?:e|ar|a)|registr\w*|anot\w*|apag\w*|exclu\w*|mand(
 
 const EXCLUSAO_OU_CONDICAO: ReadonlySet<string> = new Set(["menos", "exceto", "fora", "salvo", "tirando", "sem", "nem", "se", "caso", "quando",
   "depois", "antes", "mas", "porem", "talvez", "ainda", "nunca", "jamais", "nenhum", "nenhuma", "outro", "outra", "outros", "outras"]);
+/** Formas exatas dos verbos de ordem (palavra inteira — "Marcos", "Cristina", "Lígia" não são verbo). */
+const VERBO_DE_ORDEM: ReadonlySet<string> = new Set(["ignorar", "ignora", "ignore", "vincular", "vincula", "vincule", "desligar", "desliga", "desligue", "ligar", "liga", "ligue",
+  "aceitar", "aceita", "aceite", "classificar", "classifica", "classifique", "definir", "define", "defina", "marcar", "marca", "marque", "trocar", "troca", "troque",
+  "colocar", "coloca", "coloque", "silenciar", "silencia", "silencie", "esquecer", "esquece", "esqueca", "lembrar", "lembra", "lembre", "guardar", "guarda", "guarde",
+  "corrigir", "corrige", "corrija", "salvar", "salva", "salve", "agendar", "agenda", "agende", "desfazer", "desfaz", "desfaca", "recusar", "recusa", "recuse",
+  "parar", "pare", "voltar", "volta", "volte", "religar", "religa", "religue", "tirar", "tira", "tire", "remover", "remove", "remova", "mudar", "muda", "mude"]);
 export type EntidadeNomeada = "grupo" | "tarefa" | "anotacao" | "lembranca" | "aviso";
 export type ConfirmacaoNomeada = { tipo: "sim" | "confirmo"; todos: boolean; referencia: string[]; entidade?: EntidadeNomeada };
 /** Codex #341 (P2): a coisa que ele nomeou na confirmação ("o GRUPO da Emily pode") restringe os itens que ela pode confirmar. */
@@ -207,6 +213,8 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   const n = normalizarNome(bruto);
   if (VERBO_NOVO.test(n)) return null;
   const ps = n.split(" ").filter(Boolean);
+  // Codex #341 (P1): ordem NOVA de grupo, lembrança ou aviso ("pode ignorar o grupo da Emily") nunca confirma outra coisa que espera
+  if (ps.some(p => VERBO_DE_ORDEM.has(p))) return null;
   if (ps.length < 2) return null;
   const primeira = ps[0];
   const ultima = ps[ps.length - 1];
@@ -223,10 +231,11 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   const todos = resto.every(p => p === "todos" || p === "todas" || p === "tudo");
   // "todos" misturado com um nome ("pode todos o da Emily") é ambíguo → não é confirmação
   if (!todos && resto.some(p => p === "todos" || p === "todas" || p === "tudo")) return null;
-  if (todos) return { tipo: confirmo ? "confirmo" : "sim", todos: true, referencia: [] };
   const entidades = Array.from(new Set(ps.map(p => ENTIDADE_DA_PALAVRA[p]).filter((e): e is EntidadeNomeada => !!e)));
   // duas coisas nomeadas ("o grupo e a tarefa da Emily pode") → ambíguo
   if (entidades.length > 1) return null;
+  // Codex #341 (P2): "pode todos os grupos" vale só para os itens de grupo
+  if (todos) return { tipo: confirmo ? "confirmo" : "sim", todos: true, referencia: [], ...(entidades[0] ? { entidade: entidades[0] } : {}) };
   const referencia = resto.filter(p => !ENTIDADE_DA_PALAVRA[p] && ((p.length >= 3 && !PALAVRAS_GENERICAS.has(p)) || (/^[a-z0-9]{4}$/.test(p) && /\d/.test(p))));
   if (!referencia.length) return null;
   return { tipo: confirmo ? "confirmo" : "sim", todos: false, referencia, ...(entidades[0] ? { entidade: entidades[0] } : {}) };

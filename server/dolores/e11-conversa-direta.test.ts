@@ -1849,6 +1849,19 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "pos_atendimento", lead_id: EMILY });
   });
 
+  it("Codex #341 (4ª passada): \"pode todos os grupos\" não confirma a anotação; \"pode ignorar o grupo da Emily\" não confirma o vínculo que espera", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "ela mandou o RG" }]), () => texto("Anoto?"));
+    await dono("anota na Emily que ela mandou o RG");
+    roteiro.push(() => texto("Quais grupos?"));
+    await dono("pode todos os grupos");
+    expect(await anotacoes()).toEqual([]);
+    expect(lerConfirmacaoNomeada("pode todos os grupos")).toMatchObject({ todos: true, entidade: "grupo" });
+    for (const f of ["pode ignorar o grupo da Emily", "pode vincular o da Emily", "pode desligar o grupo da Emily", "pode aceitar o da Emily", "liga o da Emily pode"])
+      expect(lerConfirmacaoNomeada(f), f).toBeNull();
+    // nomes que só parecem verbo continuam valendo
+    for (const f of ["o da Cristina pode", "pode o do Marcos", "o da Lígia pode"]) expect(lerConfirmacaoNomeada(f), f).not.toBeNull();
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();
