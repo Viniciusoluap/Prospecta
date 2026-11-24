@@ -40,5 +40,9 @@
 - (b) Manuais: nenhum.
 - (c) Pendente: confirmar numa sessão nova aberta direto na Prospecta que a consulta funciona logo de início.
 
+### Publicação
+- PR #337: revisão do Codex concluída sem achados; prévia da Vercel pronta; mesclado na `main` (squash `a8ed34f`)
+  em 24/11 com autorização do dono. Sem migração (só ferramenta de desenvolvimento).
+
 ### Próximo passo
 - Abrir uma sessão nova na Prospecta e rodar `graphify query "<qualquer pergunta>"` depois de ~1 minuto.
