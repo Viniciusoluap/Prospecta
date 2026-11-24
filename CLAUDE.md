@@ -422,3 +422,20 @@ pra ele fazer. Item dois, b". Story: `docs/stories/epics/epic-025-dolores/E10-co
 3. Continua proibido: valores em dinheiro, dados de outro cliente, agir a partir de resposta de cliente/colaborador,
    mensagem a quem não está cadastrado. Interruptor próprio de cada função (desligado por padrão até o portão de QA
    aprovar; depois de publicado, ligar conforme a decisão do dono), tetos por pessoa/dia e dentro do teto de gasto.
+
+## Mapa do código — graphify (estabelecido pelo dono em 23/11/2026)
+
+Objetivo: economizar créditos. Em vez de abrir arquivo por arquivo para achar onde as coisas estão, o agente consulta
+um mapa (grafo) do código montado localmente, sem IA e sem custo.
+
+- O mapa fica em `graphify-out/` (fora do git, ver `.gitignore`). Ele é montado sozinho no início de cada sessão do
+  Claude Code pelo hook `.claude/hooks/graphify-setup.sh` (instala o graphify se faltar e roda `graphify update .`
+  em segundo plano, cerca de 1 minuto na primeira vez; depois só reprocessa o que mudou).
+- Antes do primeiro grep, busca ou leitura de arquivo para uma pergunta sobre o código, rodar
+  `graphify query "<pergunta>"`. Para relações use `graphify path "<A>" "<B>"`; para um conceito, `graphify explain "<X>"`;
+  para uma seção de Markdown (handoffs, docs), `graphify section "<título>"`. Ler o arquivo cru só nas linhas que o
+  mapa já localizou. Repassar esta regra no prompt de todo subagente que explore código.
+- `graphify-out/GRAPH_REPORT.md` só para visão geral de arquitetura.
+- Depois de alterar código, rodar `graphify update .` para manter o mapa atual.
+- Se `graphify-out/graph.json` ainda não existir (sessão recém-aberta), seguir normalmente com grep; o mapa fica pronto
+  em seguida. Os hooks do graphify são só avisos: nunca bloqueiam ferramenta.
