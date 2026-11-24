@@ -88,6 +88,7 @@ describe("Gerador de PCI — mapa de células (ida e volta)", () => {
     const imgs = imagensDaAba(PastaBiff8.abrir(r.bytes), "Proposta_Constr_Individual");
     const quadro = imgs.filter((i) => i.coluna1 >= 6 && i.linha1 >= 193 && i.linha2 - i.linha1 >= 5);
     expect(quadro).toHaveLength(1);
+    expect(quadro[0]).toMatchObject({ coluna1: 6, linha1: 193, coluna2: 48, linha2: 213 });
     expect(quadro[0].imagem.dados.length).toBeLessThan(200);
   });
 

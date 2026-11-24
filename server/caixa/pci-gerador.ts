@@ -25,6 +25,7 @@ import {
   MAX_ETAPAS_PCI,
   MENSAGEM_SAIDA_XLS_PCI,
   QUADRO_LOCALIZACAO_PCI,
+  PROPORCAO_QUADRO_LOCALIZACAO_PCI,
   SECOES_PCI,
   SERVICOS_CUSTO_PCI,
   SERVICO_OUTROS_PCI,
@@ -241,7 +242,7 @@ function gerarXls(modelo: Uint8Array, form: FormularioPci): ResultadoGeracaoPci 
   }
   if (form.imagem) {
     try {
-      substituirFotos(p, ABA_PROPOSTA_PCI, [QUADRO_LOCALIZACAO_PCI], [{ dados: new Uint8Array(Buffer.from(form.imagem.base64, "base64")), tipo: form.imagem.tipo }]);
+      substituirFotos(p, ABA_PROPOSTA_PCI, [QUADRO_LOCALIZACAO_PCI], [{ dados: new Uint8Array(Buffer.from(form.imagem.base64, "base64")), tipo: form.imagem.tipo }], { preencherQuadro: true });
     } catch (e) {
       avisos.push(`Imagem de localização não incluída no Excel: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -579,9 +580,8 @@ export function gerarPdfPci(entrada: FormularioPci, cab: CabecalhoPdfPci): Uint8
       pdf.text(secao.titulo, margem, y);
       y += 2;
       try {
-        const props = pdf.getImageProperties(`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`);
-        const w = Math.min(largura - 2 * margem, (altura * props.width) / props.height);
-        const h = (w * props.height) / props.width;
+        const w = largura - 2 * margem;
+        const h = w / PROPORCAO_QUADRO_LOCALIZACAO_PCI;
         pdf.addImage(`data:image/${form.imagem.tipo};base64,${form.imagem.base64}`, form.imagem.tipo === "png" ? "PNG" : "JPEG", margem, y, w, h);
         y += h + 4;
       } catch {
