@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, textoGravadoDoDono, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -80,29 +80,48 @@ export const grupoDoDono = (g: { adicionadoPor?: string | null; origem?: string 
  * pergunta qual, com os nomes (texto do sistema). Nada é posto na fila.
  */
 export type Prova = { ok: true; argumentos?: Record<string, unknown> } | { ok: false; motivo: string; pergunta?: string };
-const nao = (motivo: string, pergunta?: string): Prova => ({ ok: false, motivo, ...(pergunta ? { pergunta } : {}) });
+const nao = (motivo: string, pergunta?: string): Extract<Prova, { ok: false }> => ({ ok: false, motivo, ...(pergunta ? { pergunta } : {}) });
 const SIM: Prova = { ok: true };
 const nomesEntreAspas = (nomes: ReadonlyArray<string | null>) => {
   const l = nomes.slice(0, 5).map(n => `«${String(n ?? "(sem nome)").replace(/[«»\r\n]/g, " ").trim().slice(0, 60)}»`);
   return l.length > 1 ? `${l.slice(0, -1).join(", ")} ou ${l.at(-1)}` : l.join("");
 };
 
-/** Cliente (lead) apontado pelas palavras dele: "cliente N"/"nº N", ou UM cliente ativo pelo nome; empate → pergunta com os nomes. */
-async function provarCliente(leadId: unknown, textoDoDono: string, palavras: string[]): Promise<Prova> {
+/** Palavras (identificadoras) do nome de alguém que estão nas palavras do dono. */
+const palavrasDoNome = (nome: string | null | undefined, palavras: readonly string[]) => palavrasQueIdentificam(nome).filter(p => palavras.includes(p));
+
+/** O nome da equipe ou do cliente provado, em tokens normalizados (para a moldura). */
+const tokensDoNome = (nome: string | null | undefined) => normalizarNome(nome).split(" ").filter(Boolean);
+
+type ProvaDeNome = { ok: true; nome: string | null; palavras: string[] } | Exclude<Prova, { ok: true }>;
+
+/**
+ * Cliente (lead) apontado pelas palavras dele: "cliente N"/"nº N", ou UM cliente ativo pelo nome; empate → pergunta com os nomes.
+ * Portão 4 (M-3): `excluir` = palavras que já provaram OUTRO alvo (o responsável) — não contam aqui; e palavra do cliente que também é
+ * nome de alguém da equipe → ambíguo (pergunta).
+ */
+async function provarCliente(leadId: unknown, textoDoDono: string, palavrasTodas: string[], o: { excluir?: readonly string[]; equipe?: ReadonlyArray<{ name: string | null }> } = {}): Promise<ProvaDeNome> {
   const id = Number(leadId);
   if (!Number.isSafeInteger(id) || id <= 0) return nao("sem cliente");
-  if (numeroCitado(textoDoDono, id)) return SIM;
+  const palavras = palavrasTodas.filter(p => !(o.excluir ?? []).includes(p));
+  const [l] = await bancoDaLeitura().select({ id: leads.id, nome: leads.name }).from(leads).where(and(eq(leads.id, id), isNull(leads.deletedAt))).limit(1);
+  if (!l) return nao("cliente não encontrado");
+  if (numeroCitado(textoDoDono, id)) return { ok: true, nome: l.nome, palavras: [] };
   const achados = await clientesPelasPalavras(palavras);
   // QA E11 (B2): passou do teto → ambíguo
   if (achados.cortado) return nao("nome comum demais: muitos clientes");
   const candidatos = achados.clientes;
   // Portão 2 (M-C): o ÚNICO com ponto — outro cadastro com qualquer palavra dele → pergunta com os nomes
   const e = unicoComPonto(palavras, candidatos);
-  if (e.escolhido === id) return SIM;
   if (e.comPonto.length > 1 && e.comPonto.includes(id)) {
     return nao("o nome aponta mais de um cliente", `Qual cliente: ${nomesEntreAspas(candidatos.filter(c => e.comPonto.includes(c.id)).map(c => c.nome))}? Nada foi feito ainda.`);
   }
-  return nao("o cliente não saiu das palavras do dono");
+  if (e.escolhido !== id) return nao("o cliente não saiu das palavras do dono");
+  const usadas = palavrasDoNome(l.nome, palavras);
+  // Portão 4 (M-3): a palavra que provou o cliente também é nome de alguém da equipe → ambíguo
+  const daEquipe = new Set((o.equipe ?? []).flatMap(u => palavrasQueIdentificam(u.name)));
+  if (usadas.some(p => daEquipe.has(p))) return nao("o nome é de um cliente e de alguém da equipe", `É o cliente ${nomesEntreAspas([l.nome])} ou alguém da equipe? Nada foi feito ainda.`);
+  return { ok: true, nome: l.nome, palavras: usadas };
 }
 
 async function provarObra(obraId: unknown, textoDoDono: string, palavras: string[]): Promise<Prova> {
@@ -115,75 +134,98 @@ async function provarObra(obraId: unknown, textoDoDono: string, palavras: string
 }
 
 /** Responsável da tarefa: o nome pedido resolve para UM usuário da equipe e é esse que as palavras dele apontam (empate → pergunta). */
-async function provarResponsavel(responsavel: unknown, palavras: string[]): Promise<Prova> {
-  const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
+async function provarResponsavel(responsavel: unknown, palavras: string[], equipe: ReadonlyArray<{ id: number; name: string | null }>): Promise<ProvaDeNome> {
   const pedido = palavrasQueIdentificam(String(responsavel ?? ""));
   if (!pedido.some(p => palavras.includes(p))) return nao("o responsável não saiu das palavras do dono");
   const e = unicoComPonto(palavras, equipe.map(u => ({ id: u.id, nome: u.name })));
   if (e.comPonto.length > 1) return nao("o nome aponta mais de uma pessoa da equipe", `Para quem é a tarefa: ${nomesEntreAspas(equipe.filter(u => e.comPonto.includes(u.id)).map(u => u.name))}? Nada foi feito ainda.`);
   const doPedido = unicoComPonto(pedido, equipe.map(u => ({ id: u.id, nome: u.name }))).escolhido;
-  return e.escolhido !== null && e.escolhido === doPedido ? SIM : nao("o responsável não é o que o dono disse");
+  if (e.escolhido === null || e.escolhido !== doPedido) return nao("o responsável não é o que o dono disse");
+  const u = equipe.find(x => x.id === e.escolhido)!;
+  return { ok: true, nome: u.name, palavras: palavrasDoNome(u.name, palavras) };
 }
 
-/** A lembrança (corrigir/esquecer) que as palavras dele apontam entre as ATIVAS. */
-async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<Prova> {
+/** A lembrança (corrigir/esquecer) que as palavras dele apontam entre as ATIVAS; devolve as palavras que a apontaram (M-4). */
+async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<ProvaDeNome> {
   const id = Number(memoriaId);
   if (!Number.isSafeInteger(id) || id <= 0) return nao("sem lembrança");
   const ativas = await bancoDaLeitura().select({ id: doloresMemoriaLonga.id, nome: doloresMemoriaLonga.texto }).from(doloresMemoriaLonga)
     .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(500);
-  return unicoComPonto(palavras, ativas).escolhido === id ? SIM : nao("a lembrança não saiu das palavras do dono");
+  if (unicoComPonto(palavras, ativas).escolhido !== id) return nao("a lembrança não saiu das palavras do dono");
+  return { ok: true, nome: null, palavras: palavrasDoNome(ativas.find(m => m.id === id)!.nome, palavras) };
 }
 
 /**
- * E11b + portão 3 — os registros (tarefa, anotação, memória, aviso). O TEXTO gravado é SEMPRE o do dono (`textoGravadoDoDono`: igual ao
- * ditado inteiro, ou trecho contínuo da mensagem) e vai nos argumentos devolvidos (`argumentos`) — nunca a string do modelo. Prazo e
- * prioridade conferidos pelo código (`prazoConfere`, `prioridadeConfere`). Qualquer diferença → confirmação.
+ * E11b + portões 3 e 4 — os registros (tarefa, anotação, memória, aviso). O TEXTO gravado é calculado pelo CÓDIGO a partir da mensagem
+ * do dono — o ditado inteiro (com ":") ou o que sobra depois da MOLDURA (sem ":", `textoPelaMoldura`) — e vai nos `argumentos`
+ * devolvidos; o texto do modelo é descartado. Prazo/prioridade pelo código; categoria da memória e tipo da anotação, o padrão do
+ * código (salvo "ligação", conferida). Qualquer dúvida → confirmação.
  */
 async function provarRegistro(funcao: string, a: Record<string, unknown>, partes: PartesDaOrdem, hojeIso: string): Promise<Prova> {
   const antes = partes.antes;
   const palavras = palavrasQueIdentificam(antes);
-  const texto = (campo: string, msg: string): { ok: true; valor: string } | { ok: false; p: Prova } => {
-    const v = textoGravadoDoDono(String(a[campo] ?? ""), partes);
-    return v ? { ok: true, valor: v } : { ok: false, p: nao(msg) };
+  /** O texto do dono: o ditado, ou o que sobra depois da moldura (com os nomes provados), sem negação na moldura. */
+  const textoDoDono = (nomes: ReadonlyArray<string | null>): string | null => {
+    if (partes.depois !== null) return partes.depois.replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "") || null;
+    const t = textoPelaMoldura(partes.mensagem, nomes.filter((n): n is string => !!n).map(tokensDoNome));
+    return t && !temNegacao(t.moldura) ? t.texto : null;
   };
   switch (funcao) {
     case "criar_tarefa": {
-      const titulo = texto("titulo", "o título da tarefa não é o texto do dono");
-      if (!titulo.ok) return titulo.p;
-      let descricao: string | undefined;
-      // com ditado, a descrição do modelo é DESCARTADA (fica vazia); sem ditado, segue a regra do trecho contínuo
-      if (a.descricao && partes.depois === null) { const d = texto("descricao", "a descrição não é o texto do dono"); if (!d.ok) return d.p; descricao = d.valor; }
       if (!prazoConfere(a.prazo, partes.mensagem, hojeIso)) return nao("prazo que o código não tirou da mensagem do dono");
       if (!prioridadeConfere(a.prioridade, partes.mensagem)) return nao("prioridade que o dono não disse");
-      const quem = await provarResponsavel(a.responsavel, palavras);
+      const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
+      const quem = await provarResponsavel(a.responsavel, palavras, equipe);
       if (!quem.ok) return quem;
+      // Portão 4 (M-3): as palavras do responsável não provam cliente; vínculo não provado é DESCARTADO (tarefa sem vínculo)
       const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
-      const vinc = !v ? SIM : v.tipo === "cliente" ? await provarCliente(v.id, antes, palavras) : v.tipo === "obra" ? await provarObra(v.id, antes, palavras) : nao("vínculo inválido");
-      if (!vinc.ok) return vinc;
-      const { descricao: _descartada, ...semDescricao } = a;
-      return { ok: true, argumentos: { ...semDescricao, titulo: titulo.valor, ...(descricao !== undefined ? { descricao } : {}) } };
+      let vinculo: unknown = undefined;
+      let nomeDoCliente: string | null = null;
+      if (v?.tipo === "cliente") {
+        const c = await provarCliente(v.id, antes, palavras, { excluir: quem.palavras, equipe });
+        if (!c.ok && c.pergunta) return c;
+        if (c.ok) { vinculo = v; nomeDoCliente = c.nome; }
+      } else if (v?.tipo === "obra") {
+        if ((await provarObra(v.id, antes, palavras.filter(p => !quem.palavras.includes(p)))).ok) vinculo = v;
+      }
+      const titulo = textoDoDono([quem.nome, nomeDoCliente]);
+      if (!titulo) return nao("o texto da tarefa não sai da mensagem do dono (vazio, curto ou com referência)");
+      const { descricao: _d, vinculo: _v, ...resto } = a;
+      return { ok: true, argumentos: { ...resto, titulo, ...(vinculo ? { vinculo } : {}) } };
     }
     case "registrar_acompanhamento": {
-      const t = texto("texto", "a anotação não é o texto do dono");
-      if (!t.ok) return t.p;
-      // "ligação" só quando ele disse que ligou
-      if (a.tipo === "ligacao" && !/\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(normalizarNome(partes.mensagem))) return nao("o dono não disse que houve ligação");
-      const c = await provarCliente(a.leadId, antes, palavras);
-      return c.ok ? { ok: true, argumentos: { ...a, texto: t.valor } } : c;
+      const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
+      const c = await provarCliente(a.leadId, antes, palavras, { equipe });
+      if (!c.ok) return c;
+      const texto = textoDoDono([c.nome]);
+      if (!texto) return nao("a anotação não sai da mensagem do dono (vazia, curta ou com referência)");
+      // "ligação" só quando ele disse que ligou; senão, o padrão do código (anotação)
+      const ligou = /\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(normalizarNome(partes.mensagem));
+      if (a.tipo === "ligacao" && !ligou) return nao("o dono não disse que houve ligação");
+      return { ok: true, argumentos: { leadId: a.leadId, texto, tipo: a.tipo === "ligacao" ? "ligacao" : "anotacao" } };
     }
     case "guardar_memoria": {
-      const t = texto("texto", "a lembrança não é o texto do dono");
-      if (!t.ok) return t.p;
-      const c = a.leadId ? await provarCliente(a.leadId, antes, palavras) : a.obraId ? await provarObra(a.obraId, antes, palavras) : SIM;
-      return c.ok ? { ok: true, argumentos: { ...a, texto: t.valor } } : c;
+      let nome: string | null = null;
+      if (a.leadId) { const c = await provarCliente(a.leadId, antes, palavras); if (!c.ok) return c; nome = c.nome; }
+      else if (a.obraId) { const o = await provarObra(a.obraId, antes, palavras); if (!o.ok) return o; }
+      const texto = textoDoDono([nome]);
+      if (!texto) return nao("a lembrança não sai da mensagem do dono (vazia, curta ou com referência)");
+      // categoria: o padrão do código (o do modelo é descartado)
+      return { ok: true, argumentos: { texto, categoria: "fato_negocio", ...(a.leadId ? { leadId: a.leadId } : {}), ...(a.obraId ? { obraId: a.obraId } : {}) } };
     }
     case "corrigir_memoria": {
-      const t = texto("texto", "o texto novo não é o texto do dono");
-      if (!t.ok) return t.p;
+      // sem ":" o texto novo não tem como ser separado da moldura com segurança → confirmação
+      if (partes.depois === null) return nao("corrigir lembrança só com o texto novo ditado depois de \":\"");
       const m = await provarMemoria(a.memoriaId, palavras);
-      return m.ok ? { ok: true, argumentos: { ...a, texto: t.valor } } : m;
+      if (!m.ok) return m;
+      const texto = textoDoDono([]);
+      if (!texto) return nao("texto novo vazio");
+      // Portão 4 (M-4): o ditado tem de trazer ao menos uma das palavras que apontaram a lembrança (senão perde o sujeito)
+      const noDitado = new Set(palavrasQueIdentificam(texto));
+      if (!m.palavras.some(p => noDitado.has(p))) return nao("o texto novo não traz o sujeito da lembrança");
+      return { ok: true, argumentos: { memoriaId: a.memoriaId, texto } };
     }
-    case "esquecer_memoria": return provarMemoria(a.memoriaId, palavras);
+    case "esquecer_memoria": { const m = await provarMemoria(a.memoriaId, palavras); return m.ok ? SIM : m; }
     case "silenciar_aviso": {
       if (typeof a.silenciar !== "boolean" || !direcaoDoAvisoDita(a.silenciar, antes)) return nao("a direção (parar/voltar) não é a que o dono disse");
       const i = (TIPOS_AVISO as readonly string[]).indexOf(String(a.tipo));
@@ -211,7 +253,10 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
   try {
     const textoDoDono = partes.antes;
     if (!podeExecutarPorOrdemDireta(funcao, argumentos)) return nao("função fora da lista da ordem direta");
-    if (!intencaoDaFuncao(funcao, textoDoDono)) return nao("a mensagem do dono não tem o verbo desta ação");
+    // Portão 4 (1): a função é a do PRIMEIRO verbo do pedido, decidida pelo código; a chamada do modelo tem de ser a mesma
+    if (funcaoDoPedido(textoDoDono) !== funcao) return nao("a função pedida pelo modelo não é a do primeiro verbo do dono");
+    // a moldura do pedido (sem texto gravado: o trecho antes do ":", ou a mensagem toda) não pode ter negação
+    if (!FUNCOES_COM_CONTEUDO_DITADO.has(funcao) && temNegacao(textoDoDono)) return nao("negação no pedido");
     const a = (argumentos ?? {}) as { grupoId?: unknown; tipo?: unknown; leadId?: unknown; obraId?: unknown };
     if (partes.depois !== null && !FUNCOES_COM_CONTEUDO_DITADO.has(funcao)) return nao("mensagem com texto ditado depois de \":\": só registro de texto vai direto");
     if (!String(funcao).endsWith("_grupo")) return await provarRegistro(funcao, a as Record<string, unknown>, partes, diaFortaleza(agora) ?? agora.toISOString().slice(0, 10));

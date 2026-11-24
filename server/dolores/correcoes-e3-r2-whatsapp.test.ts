@@ -131,15 +131,15 @@ describe("R2-N1 invertido — texto de terceiro COLADO na mensagem do dono não 
     roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("")];
     await chamar(aviso({ texto: "cria uma tarefa para a Bianca ligar para o João amanhã" }));
     // portão 3: grava o trecho do PRÓPRIO dono (a caixa dele)
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João amanhã"]);
     expect((await fila()).map(i => i.situacao)).toEqual(["executada"]);
-    expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "ligar para o João"/);
+    expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "ligar para o João amanhã"/);
     roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Cobrar o boleto do fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar.")];
     await chamar(aviso({ texto: "cria aquela outra tarefa para a Bianca" }));
     expect(await tarefasDolores()).toHaveLength(1);
     expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
     await chamar(aviso({ texto: "pode" }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João", "Cobrar o boleto do fornecedor"]);
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João amanhã", "Cobrar o boleto do fornecedor"]);
     expect(ultimaResposta()).toMatch(/^Pronto: /);
   });
 });

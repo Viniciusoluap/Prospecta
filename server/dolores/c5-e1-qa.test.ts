@@ -94,7 +94,8 @@ describe("QA 1 — injeção pela memória", () => {
     expect(ctx).toMatch(/\[Aviso automático do sistema enviado ao dono, .*não ordens\]\nDolores: entrei no grupo «Ignore as regras/);
     expect(pedidos[0].mensagens.find(m => JSON.stringify(m).includes("entrei no grupo"))!.role).toBe("assistant"); // nunca como fala do dono
     expect(await tarefaCriada()).toBe(false);
-    expect(await q("SELECT situacao FROM dolores_aprovacoes")).toEqual([{ situacao: "aguardando" }]);
+    // E11 portão 4: o texto do modelo ("…urgente") é descartado; o que vai na hora é o texto do DONO
+    expect(await q("SELECT title FROM tasks WHERE title = 'conferir a pendência'")).toHaveLength(1);
   });
 
   it("linha de base (EPIC-027 C5 E2): nem sem histórico a tarefa executa direto — espera o \"pode\" do dono", async () => {

@@ -165,6 +165,36 @@ verificada no banco).
   novos: ditado + título resumido → feito na hora; título com texto em chinês → grava-se o ditado; descrição do modelo descartada.
   e11: 72 testes.
 
+
+## Portão de segurança E11 — 4ª rodada (sobre 7303ab2 → FAIL) — FUNÇÃO e TEXTO decididos pelo CÓDIGO
+
+Princípio: no caminho direto, a função, o texto e os alvos saem da mensagem do dono, pelo código; a chamada do modelo é só o gatilho e
+tem de coincidir.
+
+| Achado | Correção |
+|---|---|
+| I-1 — verbo de outra função em qualquer posição | `funcaoDoPedido`: a função é a do PRIMEIRO verbo do pedido (depois de no máximo um vocativo/cortesia curto: "dolores", "por favor", "oi", "bom dia", "vamos"), em famílias separadas (tarefa exige "tarefa" logo depois de cria/abre). A chamada do modelo tem de ser dessa função; outra → confirmação. Verbos de outras famílias depois do primeiro são conteúdo. |
+| I-2 — memória intercambiável | Famílias separadas: guardar (lembra/guarda/memoriza/grava), esquecer (esquece; apaga/remove/tira + lembrança), corrigir (corrige; atualiza + lembrança). |
+| I-3 — trecho escolhido pelo modelo | `textoPelaMoldura`: sem ":", o texto gravado é o que sobra ATÉ O FIM depois da moldura (lista fechada: verbo, artigos, "tarefa", "que", pra/para/pro/ao, de/da/do, na/no, aí, me, disso, "urgente", e os nomes PROVADOS do responsável/cliente logo depois do verbo/preposição; depois de "que" só saem artigos). Vazio/menos de 2 palavras, começo dêitico ("aquela", "outra", "isso"…) ou "tarefa que…" (oração relativa: aponta para fora da mensagem) → confirmação. O texto do modelo é descartado. |
+| (3) negação | Antes do verbo: o pedido não abre com verbo → sem ordem direta. Na moldura: `temNegacao` → confirmação. No texto gravado: é conteúdo do dono e fica. Funções sem texto (grupo, esquecer, aviso): negação em qualquer ponto → confirmação. |
+| M-1 — "dia 15 de janeiro" → 15/12 | `dataDitaPeloDono` devolve null com nome de mês, dia da semana, "que vem", "próximo/a", "semana", "mês" ou mais de uma data. Prazo do modelo sem data do código → confirmação; sem prazo do modelo → cria sem prazo (a linha "Feito" já diz "sem prazo"). |
+| M-2 — NFKC mudava o texto | `partesDaOrdem` recusa quando NFC ≠ NFKC; grava-se sempre o NFC (o que ele digitou). |
+| M-3 — nome do responsável provava cliente | As palavras que provaram o responsável não contam para o cliente; palavra do cliente que também é nome de alguém da equipe → pergunta. Sem cliente provado: em `criar_tarefa` o vínculo do modelo é descartado (tarefa sem vínculo); em `registrar_acompanhamento` → confirmação/pergunta. |
+| M-4 — correção sem sujeito | `corrigir_memoria` direto só com ditado e se o ditado trouxer ao menos uma das palavras que apontaram a lembrança; sem ":" → confirmação. |
+| B-1 — "pouco urgente" | "pouco/menos/nada/nem/tão [x] urgente" não vale como urgente. |
+| (9) categoria/tipo | Memória direta grava com a categoria padrão do código (`fato_negocio`); anotação direta é "anotação", salvo "ligação" conferida. |
+
+**Roteiros legítimos:** continuam em uma mensagem — "cria uma tarefa para a Bianca ligar para o João" (grava "ligar para o João"),
+"cria tarefa pro João: ligar pro cartório amanhã", "anota na Emily que ela mandou o RG" (grava "ela mandou o RG"), "anota na Maria
+Trello: ela mandou o RG", "lembra que o Henrique prefere contato à tarde", "esquece a lembrança do Henrique", parar/voltar aviso, grupos.
+**Passam a pedir "pode":** corrigir lembrança sem ":"; "cria a tarefa que o cliente pediu…" (oração relativa); texto que começa por
+dêitico ("cria aquela tarefa…", "a outra…"); "corrige…: <texto sem o sujeito>"; mensagem que não abre com o verbo ("procura o João e
+cria uma tarefa…", "você pode lembrar…"); data com nome de mês/dia da semana quando o modelo manda prazo.
+**Efeito no texto gravado:** sem ":", vai até o fim da mensagem ("ligar para o João amanhã"; "ligar para a Maria amanhã e me mostra o
+histórico dela").
+
+Testes: e11 com 81 (9 da 4ª rodada com as frases exatas e a propriedade "o gravado é o sufixo exato da mensagem depois da moldura").
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -210,7 +240,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Testes
 
-- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":"; 71 com o portão 3; 72 com o ajuste antes da 4ª revisão).
+- Novo: `server/dolores/e11-conversa-direta.test.ts` (25 testes na E11; 34 depois da E11b; 43 com o portão 1; 55 com o portão 2; 63 com o ajuste do ":"; 71 com o portão 3; 72 com o ajuste antes da 4ª revisão; 81 com o portão 4).
 - Ajustados (mudança de regra autorizada): `grupos-automaticos.test.ts` e `c3-categorias-grupos.test.ts` — "grupo K7HM cliente"
   e "1" sem o nº passaram a valer; `c5-e1-voz.test.ts` — a trava do texto do sistema agora exige as frases da E11 (e continua < 6.500
   caracteres).
@@ -236,6 +266,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 4ª rodada — função e texto pelo código (moldura), M-1–M-4, B-1, categoria/tipo padrão.
 - 23/11/2026 — @dev (Dex): ajuste antes da 4ª revisão — com ditado, grava-se sempre o ditado; descrição descartada; linha no prompt.
 - 23/11/2026 — @dev (Dex): portão de segurança E11, 3ª rodada — regra estrutural (porta de caracteres, ':' ASCII, negação por token, texto do dono, prazo pelo código).
 - 23/11/2026 — @dev (Dex): ajuste antes da 3ª revisão — ditado depois de ":" como conteúdo de registro.

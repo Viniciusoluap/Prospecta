@@ -295,7 +295,9 @@ const VERBO_DE_ACAO = /\b(?:cri\w*|anot\w*|registr\w*|lembr\w*|guard\w*|esquec\w
  */
 export function partesDaOrdem(mensagemBruta: string | null | undefined): PartesDaOrdem | null {
   if (!passaNaPortaDeCaracteres(mensagemBruta)) return null;
-  const mensagem = String(mensagemBruta).normalize("NFKC").replace(/ +/g, " ").trim();
+  // Portão 4 (M-2): o NFKC não pode mudar nada do que ele digitou ("10³", largura cheia, "ﬁ", "①"…); grava-se sempre o NFC
+  if (String(mensagemBruta).normalize("NFC") !== String(mensagemBruta).normalize("NFKC")) return null;
+  const mensagem = String(mensagemBruta).normalize("NFC").replace(/ +/g, " ").trim();
   const pos: number[] = [];
   for (let i = 0; i < mensagem.length; i++) if (mensagem[i] === ":") pos.push(i);
   if (pos.length > 1) return null;
@@ -312,7 +314,9 @@ export function partesDaOrdem(mensagemBruta: string | null | undefined): PartesD
       if (!antes || !depois || depois.length > MAX_DITADO_DEPOIS_DOS_DOIS_PONTOS) return null;
     }
   }
-  if (temNegacao(antes)) return null;
+  // Portão 4 (3): negação no trecho ANTES do ":" bloqueia; sem ":", só a da MOLDURA (antes do texto gravado) — conferida em
+  // `textoPelaMoldura` / na prova; o que vem depois é conteúdo dele e fica. Negação antes do verbo sempre bloqueia (`funcaoDoPedido`).
+  if (depois !== null && temNegacao(antes)) return null;
   return { mensagem, antes, depois };
 }
 
@@ -347,8 +351,11 @@ export function textoGravadoDoDono(textoDoModelo: string | null | undefined, par
  * (5) PRAZO calculado pelo CÓDIGO: a data inequívoca da mensagem do dono ("hoje", "amanhã", "dd/mm", "dd/mm/aaaa", "dia dd" → o próximo
  * dia dd), como "AAAA-MM-DD" no horário de Imperatriz. Mais de uma data, ou nenhuma → null.
  */
+const MESES_E_SEMANA = /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|segunda|terca|quarta|quinta|sexta|sabado|domingo|que vem|proxim[oa]s?|semana|mes)\b/;
 export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | null {
   const n = normalizarNome(mensagem.replace(/\//g, " / "));
+  // Portão 4 (M-1): nome de mês, dia da semana, "que vem", "próximo/a", "semana", "mês" → o código não decide a data
+  if (MESES_E_SEMANA.test(n)) return null;
   const [ano, mes, dia] = hojeIso.split("-").map(Number);
   const iso = (a: number, m: number, d: number) => {
     const dt = new Date(Date.UTC(a, m - 1, d));
@@ -401,5 +408,100 @@ export function prazoConfere(prazoDoModelo: unknown, mensagem: string, hojeIso: 
 export function prioridadeConfere(prioridade: unknown, mensagem: string): boolean {
   if (prioridade === undefined || prioridade === null || prioridade === "media") return true;
   if (prioridade !== "alta") return false;
-  return /\burgente\b/.test(normalizarNome(mensagem)) && !normalizarNome(String(mensagem).replace(/ñ/gi, "n")).split(" ").some(t => TOKENS_DE_NEGACAO.has(t));
+  const n = normalizarNome(String(mensagem).replace(/ñ/gi, "n"));
+  // Portão 4 (B-1): "pouco/menos/nada/nem/tão/muito pouco urgente" não é urgente
+  if (/\b(?:pouco|menos|nada|nem|tao)(?: \S+)? urgente\b/.test(n)) return false;
+  return /\burgente\b/.test(n) && !n.split(" ").some(t => TOKENS_DE_NEGACAO.has(t));
+}
+
+// ── Portão de segurança E11, 4ª rodada: FUNÇÃO e TEXTO pelo CÓDIGO (a chamada do modelo é só o gatilho e tem de coincidir) ──
+
+const VOCATIVOS_DE_UMA = new Set(["dolores", "oi", "ola", "ei", "vamos"]);
+const VOCATIVOS_DE_DUAS = new Set(["por favor", "bom dia", "boa tarde", "boa noite"]);
+
+/** Quantos tokens (normalizados) de vocativo/cortesia curto abrem o pedido ("dolores", "por favor", "oi", "bom dia"…) — no máximo 3. */
+function tokensDeVocativo(ts: readonly string[]): number {
+  let j = 0;
+  while (j < ts.length && j < 3) {
+    if (VOCATIVOS_DE_UMA.has(ts[j])) { j++; continue; }
+    if (j + 1 < ts.length && VOCATIVOS_DE_DUAS.has(`${ts[j]} ${ts[j + 1]}`)) { j += 2; continue; }
+    break;
+  }
+  return j;
+}
+
+/**
+ * (1) A função da ORDEM DIRETA é a do PRIMEIRO verbo do pedido (o imperativo que o abre, depois de no máximo um vocativo/cortesia
+ * curto), no trecho antes do ":". Famílias SEPARADAS. null = o pedido não abre com um verbo da lista (→ confirmação de sempre). A
+ * chamada do modelo tem de ser desta função; outra função → confirmação. Verbos de outras famílias DEPOIS do primeiro são conteúdo.
+ */
+export function funcaoDoPedido(antes: string | null | undefined): string | null {
+  const ts = normalizarNome(String(antes ?? "").replace(/ñ/gi, "n")).split(" ").filter(Boolean);
+  const j = tokensDeVocativo(ts);
+  const v = ts[j];
+  if (!v) return null;
+  const resto = ts.slice(j + 1);
+  const temLembranca = resto.some(t => t === "lembranca" || t === "lembrancas" || t === "memoria");
+  const frase = ts.slice(j).join(" ");
+  if (/^(?:para|pare|parar|deixa|deixe|chega) de (?:me |te )?avis/.test(frase) || /^silenci/.test(v) || /^(?:volta|volte|voltar) a (?:me |te )?avis/.test(frase) || /^relig/.test(v)) return "silenciar_aviso";
+  if (/^(?:cri(?:a|e|ar)|abr(?:e|a|ir))$/.test(v)) return resto.slice(0, 3).some(t => t === "tarefa" || t === "tarefas") ? "criar_tarefa" : null;
+  if (/^(?:anot(?:a|e|ar)|registr(?:a|e|ar))$/.test(v)) return "registrar_acompanhamento";
+  if (/^(?:lembr(?:a|e|ar)|guard(?:a|e|ar)|memoriz(?:a|e|ar)|grav(?:a|e|ar))$/.test(v)) return "guardar_memoria";
+  if (/^esquec(?:e|a|er)$/.test(v)) return "esquecer_memoria";
+  if (/^(?:apag(?:a|ue|ar)|remov(?:e|a|er)|tir(?:a|e|ar))$/.test(v)) return temLembranca ? "esquecer_memoria" : null;
+  if (/^(?:corrig(?:e|ir)|corrija)$/.test(v)) return "corrigir_memoria";
+  if (/^atualiz(?:a|e|ar)$/.test(v)) return temLembranca ? "corrigir_memoria" : null;
+  if (/^(?:vincul\w*|lig(?:a|ue|ar)|classific\w*|defin(?:a|e|ir)|coloc(?:a|ar)|coloque|marc(?:a|ar)|marque|troc(?:a|ar)|troque|associ\w*|junt(?:a|ar))$/.test(v)) return "classificar_grupo";
+  if (/^(?:ignor\w*|desativ\w*)$/.test(v) || /^deix\w* de lado/.test(frase)) return "ignorar_grupo";
+  if (/^aceit\w*$/.test(v)) return "aceitar_grupo";
+  if (/^(?:deslig\w*|cal(?:a|e|ar))$/.test(v) || /^par\w* de respond/.test(frase)) return "ligar_resposta_grupo";
+  return null;
+}
+
+/** (2) A moldura do pedido: palavras que só enquadram (nunca o texto gravado). Lista FECHADA. */
+const MOLDURA = new Set(["uma", "um", "a", "o", "as", "os", "tarefa", "tarefas", "pra", "para", "pro", "ao", "de", "da", "do", "na", "no", "ai", "me", "disso", "urgente"]);
+const ARTIGOS = new Set(["a", "o", "as", "os", "um", "uma"]);
+/** Texto que começa por referência ao que NÃO está na mensagem ("aquela tarefa", "a outra", "isso") → confirmação. */
+const DEITICOS = new Set(["aquela", "aquele", "aquilo", "aquelas", "aqueles", "essa", "esse", "isso", "essas", "esses", "esta", "este", "isto", "outra", "outro", "outras", "outros", "mesma", "mesmo", "dita"]);
+export const MIN_PALAVRAS_TEXTO_DA_MOLDURA = 2;
+
+export type TextoDaMoldura = { texto: string; moldura: string } | null;
+
+/**
+ * (2) TEXTO PELO CÓDIGO, sem ":": o que sobra da mensagem, ATÉ O FIM, depois de tirada a MOLDURA inicial — o vocativo, o verbo da função,
+ * as palavras de `MOLDURA` e os NOMES provados (responsável/cliente) logo depois do verbo/preposição; depois de "que" só saem os
+ * artigos ("anota que a Emily mandou o RG" → "Emily mandou o RG": o nome fica). Vazio, menos de 2 palavras ou começando por dêitico
+ * ("aquela", "outra", "isso"…) → null (confirmação). `moldura` = o trecho tirado (a negação nele bloqueia, quem chama confere).
+ */
+export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<readonly string[]> = []): TextoDaMoldura {
+  const toks = Array.from(String(mensagem).matchAll(/\S+/g)).map(m => ({ i: m.index ?? 0, n: normalizarNome(m[0].replace(/ñ/gi, "n")) }));
+  // o vocativo é contado sobre os tokens com letras/dígitos; avança na lista real
+  const vocativo = tokensDeVocativo(toks.map(t => t.n).filter(Boolean).join(" ").split(" "));
+  let pulados = 0; let k = 0;
+  while (k < toks.length && pulados < vocativo) { if (toks[k].n) pulados += toks[k].n.split(" ").length; k++; }
+  while (k < toks.length && !toks[k].n) k++;
+  k++; // o verbo da função
+  let depoisQue = false;
+  while (k < toks.length) {
+    const n = toks[k].n;
+    if (!n) { k++; continue; }
+    if (depoisQue) { if (ARTIGOS.has(n)) { k++; continue; } break; }
+    // "tarefa que o cliente pediu…" (oração relativa sobre a tarefa) aponta para algo fora da mensagem → confirmação
+    if (n === "que") { if (k > 0 && /^tarefas?$/.test(toks[k - 1].n)) return null; depoisQue = true; k++; continue; }
+    if (MOLDURA.has(n)) { k++; continue; }
+    const nome = nomesProvados.find(p => p.length && n === p[0]);
+    if (nome) {
+      let x = 0;
+      while (k < toks.length && x < nome.length && toks[k].n === nome[x]) { k++; x++; }
+      continue;
+    }
+    break;
+  }
+  if (k >= toks.length) return null;
+  const inicio = toks[k].i;
+  const texto = mensagem.slice(inicio).trim().replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "");
+  const palavras = normalizarNome(texto).split(" ").filter(Boolean);
+  // dêitico em QUALQUER ponto ("conferir isso", "ligar sobre aquilo") aponta para fora da mensagem → confirmação
+  if (palavras.length < MIN_PALAVRAS_TEXTO_DA_MOLDURA || palavras.some(p => DEITICOS.has(p))) return null;
+  return { texto, moldura: mensagem.slice(0, inicio) };
 }
