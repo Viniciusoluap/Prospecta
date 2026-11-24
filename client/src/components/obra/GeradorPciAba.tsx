@@ -29,12 +29,15 @@ import {
   confirmarMesmaPessoaPci,
   definirCampoPci,
   errosPci,
+  formatarCnpjPci,
   formularioPciVazio,
+  localDataPci,
   misturaPessoaPci,
   numeroPci,
   pendenciasPci,
   sugestoesDoModeloPci,
   type CampoPci,
+  type EmpresaPci,
   type FormularioPci,
   type PessoaPci,
   type ResultadoPreenchimentoPci,
@@ -47,7 +50,7 @@ const brl = (v: number, casas = 2) => v.toLocaleString("pt-BR", { minimumFractio
 
 type Engenheiro = { id: string; nome: string | null; email: string | null; telefone: string | null; crea: string | null; creaUf: string | null; engenheiro: boolean };
 
-function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | number | null; onChange: (v: string | number | null) => void }) {
+function Campo({ campo, valor, onChange, dica }: { campo: CampoPci; valor: string | number | null; onChange: (v: string | number | null) => void; dica?: string }) {
   const id = `pci-${campo.id}`;
   let controle;
   if (campo.tipo === "lista") {
@@ -67,13 +70,47 @@ function Campo({ campo, valor, onChange }: { campo: CampoPci; valor: string | nu
   } else if (campo.tipo === "data") {
     controle = <Input id={id} type="date" value={typeof valor === "string" ? valor : ""} onChange={(e) => onChange(e.target.value || null)} className={campoCls} />;
   } else {
-    const placeholder = campo.tipo === "coordenada" ? (campo.id === "latitude" ? `05° 29' 18" S` : `47° 28' 30" W`) : campo.tipo === "cep" ? "00000-000" : undefined;
+    const placeholder = dica ?? (campo.tipo === "coordenada" ? (campo.id === "latitude" ? `05° 29' 18" S` : `47° 28' 30" W`) : campo.tipo === "cep" ? "00000-000" : undefined);
     controle = <Input id={id} value={valor === null ? "" : String(valor)} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={campoCls} />;
   }
   return (
     <div className={campo.largo ? "sm:col-span-2" : ""}>
       <label htmlFor={id} className="mb-1 block text-xs font-semibold text-gray-300">{campo.rotulo}{campo.celula ? <span className="ml-1 text-[10px] text-gray-500">({campo.celula})</span> : null}</label>
       {controle}
+    </div>
+  );
+}
+
+const OUTRA_EMPRESA = "__outra__";
+const soDigitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+
+/**
+ * "Construtora": lista com as empresas do módulo fiscal (BPO › Contabilidade). Escolher uma preenche o nome e o CNPJ; "Outra" libera
+ * a digitação. Sem empresa cadastrada, o campo continua de digitar.
+ */
+function CampoConstrutora({ campo, form, empresas, onEscolher }: { campo: CampoPci; form: FormularioPci; empresas: EmpresaPci[]; onEscolher: (nome: string | null, cnpj: string | null | undefined) => void }) {
+  const nome = String(form.campos.construtora ?? "");
+  const cnpj = soDigitos(form.campos.cnpjConstrutora);
+  const daLista = empresas.find((e) => e.cnpj === cnpj && cnpj) ?? empresas.find((e) => e.nome === nome && nome) ?? null;
+  const [outra, setOutra] = useState(false);
+  const digitando = outra || (!daLista && nome !== "");
+  const id = `pci-${campo.id}`;
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-semibold text-gray-300">{campo.rotulo}<span className="ml-1 text-[10px] text-gray-500">({campo.celula})</span></label>
+      <select id={id} value={digitando ? OUTRA_EMPRESA : daLista ? daLista.cnpj : ""} className={`w-full rounded-md border px-3 py-2 text-sm ${campoCls}`}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === OUTRA_EMPRESA) { setOutra(true); if (daLista) onEscolher(null, null); return; }
+          setOutra(false);
+          const empresa = empresas.find((x) => x.cnpj === v);
+          onEscolher(empresa ? empresa.nome : null, empresa ? formatarCnpjPci(empresa.cnpj) : null);
+        }}>
+        <option value="">— sem construtora —</option>
+        {empresas.map((e) => <option key={e.cnpj} value={e.cnpj}>{e.nome} — {formatarCnpjPci(e.cnpj)}{e.certificado ? " (certificado digital)" : ""}</option>)}
+        <option value={OUTRA_EMPRESA}>Outra (digitar)</option>
+      </select>
+      {digitando && <Input aria-label="Nome da construtora" value={nome} placeholder="Nome da construtora" onChange={(e) => onEscolher(e.target.value, undefined)} className={`mt-2 ${campoCls}`} />}
     </div>
   );
 }
@@ -398,7 +435,26 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     finally { setBaixando(null); }
   }
 
-  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao && (!c.visivel || c.visivel(form.campos))).map((c) => <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} />);
+  const empresas: EmpresaPci[] = d.empresas ?? [];
+  const secaoCampos = (secao: SecaoPci) => CAMPOS_PCI.filter((c) => c.secao === secao && (!c.visivel || c.visivel(form.campos))).map((c) => {
+    if (c.id === "construtora" && empresas.length > 0) {
+      return <CampoConstrutora key={c.id} campo={c} form={form} empresas={empresas} onEscolher={(nome, cnpj) => {
+        let f = definirCampoPci(form, "construtora", nome);
+        if (cnpj !== undefined) f = definirCampoPci(f, "cnpjConstrutora", cnpj);
+        setForm(f);
+      }} />;
+    }
+    // "Local e data" em branco sai sozinho na geração: a cidade do imóvel e o dia em que o documento é gerado.
+    const dica = c.id === "localData" ? `Em branco, sai sozinho: ${localDataPci(form.campos.municipio, form.campos.uf, new Date())}` : undefined;
+    return <Campo key={c.id} campo={c} valor={form.campos[c.id] ?? null} onChange={(v) => setCampo(c.id, v)} dica={dica} />;
+  });
+  // Área construída total = coberta padrão + acessória coberta (a mesma conta da planilha); tem de bater com a área cadastrada na obra.
+  const areaObra: number | null = d.areaObra ?? null;
+  const areaTotal = totais?.areaConstruida ?? null;
+  const areaDiferente = areaTotal !== null && areaObra !== null && Math.abs(areaTotal - areaObra) > 0.005;
+  const porM2 = (v: number) => (areaTotal ? brl(v / areaTotal) : "—");
+  const terreno = numeroPci(form.campos.valorTerreno) ?? 0;
+  const areaTerreno = numeroPci(form.campos.areaTerreno);
   // Revisão do PR #180: .xlsm/.xlsb geram a partir da versão .xls compatível — o servidor informa se ela existe.
   const podeGerar = !!d.modelo && d.baseCompativelDisponivel;
 
@@ -458,6 +514,17 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {(s.id === "rtp" || s.id === "rte") && <SeletorEngenheiro papel={s.id} projectId={projectId} form={form} setForm={setForm} engenheiros={d.engenheiros} />}
             {secaoCampos(s.id)}
+            {s.id === "areas" && totais && (
+              <div className="sm:col-span-2 space-y-2">
+                <p className="text-sm text-slate-200">Área construída total (AC73): <strong>{areaTotal === null ? "—" : `${brl(areaTotal)} m²`}</strong> <span className="text-xs text-gray-400">= área coberta padrão + área acessória coberta</span></p>
+                {areaDiferente && (
+                  <p role="alert" className="flex items-start gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-2 text-sm text-yellow-100">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> A área construída total da PCI ({brl(areaTotal!)} m²) é diferente da área cadastrada na obra ({brl(areaObra!)} m²). Ajuste a área coberta ou a acessória aqui, ou corrija a área em Editar obra.
+                  </p>
+                )}
+                {areaObra === null && <p className="text-xs text-gray-400">A obra está sem área cadastrada (Editar obra): não dá para conferir a área total.</p>}
+              </div>
+            )}
             {s.id === "custos" && totais && (
               <div className="sm:col-span-2 overflow-x-auto">
                 <table className="w-full text-sm">
@@ -475,9 +542,20 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                   </tbody>
                   <tfoot className="font-semibold">
                     <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(totais.totalServicos)}</td><td /></tr>
+                    <tr><td /><td className="p-1">BDI ({brl(numeroPci(form.campos.bdi) ?? 0)}%)</td><td className="p-1">{brl(totais.valorBdi)}</td><td /></tr>
                     <tr><td /><td className="p-1">Custo total com BDI</td><td className="p-1">{brl(totais.totalComBdi)}</td><td /></tr>
                   </tfoot>
                 </table>
+                <table className="mt-3 w-full text-sm" aria-label="Resumo dos custos">
+                  <thead><tr className="text-left text-gray-400"><th className="p-1">Resumo dos custos (como na planilha)</th><th className="p-1 text-right">Total (R$)</th><th className="p-1 text-right">Por m² (R$)</th></tr></thead>
+                  <tbody>
+                    <tr className="border-t border-white/10"><td className="p-1">Valor do terreno</td><td className="p-1 text-right">{brl(terreno)}</td><td className="p-1 text-right">{areaTerreno ? brl(terreno / areaTerreno) : "—"}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">Custo total de serviços</td><td className="p-1 text-right">{brl(totais.totalServicos)}</td><td className="p-1 text-right">{porM2(totais.totalServicos)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">Custo total de serviços com BDI</td><td className="p-1 text-right">{brl(totais.totalComBdi)}</td><td className="p-1 text-right">{porM2(totais.totalComBdi)}</td></tr>
+                    <tr className="border-t border-white/10 font-semibold"><td className="p-1">Custo total de produção (terreno + serviços com BDI)</td><td className="p-1 text-right">{brl(totais.custoProducao)}</td><td className="p-1 text-right">{porM2(totais.custoProducao)}</td></tr>
+                  </tbody>
+                </table>
+                <p className="mt-1 text-xs text-gray-400">O terreno é dividido pela área do terreno; os demais, pela área construída total.</p>
                 <p className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
                 {form.adicionais.map((a, i) => (
                   <div key={i} className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">

@@ -350,7 +350,11 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   let ultimaForma = restantes[0];
   for (const k of restantes.slice(1)) if (cabecalho(regs[k].dados, 0).tipo === 0xf004) ultimaForma = k;
   let insercao = ultimaForma + 1;
-  while ([R.OBJ, R.TXO, R.CONTINUE].includes(regs[insercao]?.tipo as never) && !removerIndices.includes(insercao)) insercao++;
+  // A última forma pode ter TEXTO: depois do OBJ dela vêm um MSODRAWING só com a caixa de texto (0xF00D), o TXO e os CONTINUE.
+  // Inserir a foto no meio disso quebra o desenho (LibreOffice e Google Planilhas deixam de mostrar a foto) — a foto entra depois de tudo.
+  const ehCaixaDeTexto = (r: Registro | undefined) => !!r && r.tipo === R.MSODRAWING && r.dados.length >= 8 && cabecalho(r.dados, 0).tipo === 0xf00d;
+  // (os registros da foto antiga, que vão sair, também são pulados: a caixa de texto pode estar depois deles)
+  while (insercao < regs.length && (removerIndices.includes(insercao) || [R.OBJ, R.TXO, R.CONTINUE].includes(regs[insercao].tipo as never) || ehCaixaDeTexto(regs[insercao]))) insercao++;
 
   // --- cabeçalhos da aba: tamanhos, quantidade de formas e último id
   w32(primeiro.dados, 4, dg.tam + delta);

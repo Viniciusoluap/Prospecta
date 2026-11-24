@@ -183,8 +183,8 @@ const CAMPOS_BASE_PCI: CampoPci[] = [
   l("pisoAreasMolhadas", "Revest. piso áreas molhadas", "memorial", "V104"),
   c("divisaoInterna", "Divisão interna (ambientes)", "memorial", "AC104", "texto", { largo: true }),
   l("esquadriasExternas", "Esquadrias externas", "memorial", "G106"),
-  // O106 não tem validação de dados no modelo: texto livre.
-  c("esquadriasInternas", "Esquadrias internas", "memorial", "O106"),
+  // A validação de dados do modelo cobre G106:U106 — a mesma lista vale para as esquadrias internas (O106).
+  c("esquadriasInternas", "Esquadrias internas", "memorial", "O106", "lista", { opcoes: opcoesPci("G106") }),
   c("outrosEspecificar", "Outros (especificar)", "memorial", "AC107", "texto", { largo: true }),
 
   l("sistemaConstrutivo", "Sistema construtivo", "sistema", "S75", { largo: true }),
@@ -562,6 +562,8 @@ export interface FontesPreenchimentoPci {
     termino: string | null;
   };
   cliente: { nome: string | null; cpf: string | null; email: string | null; telefone: string | null; endereco: string | null; bairro: string | null } | null;
+  /** Empresas do módulo fiscal (perfil tributário), para "Construtora" e "CNPJ da construtora". */
+  empresas?: EmpresaPci[];
   coordenadas: { lat: number; lng: number } | null;
   /** Campos lidos da PCI já vinculada à obra (mesmo mapa de células). */
   pci: FormularioPci | null;
@@ -572,6 +574,59 @@ export interface FontesPreenchimentoPci {
   rotulos?: { cliente?: string; pci?: string };
   /** Por que uma fonte não existe (ex.: "A obra não tem cliente do CRM vinculado."). */
   motivos?: Partial<Record<"cliente" | "pci" | "coordenadas" | "rtp" | "rte", string>>;
+}
+
+/** Empresa do grupo cadastrada no módulo fiscal (BPO › Contabilidade): nome, CNPJ e se tem certificado digital válido. */
+export interface EmpresaPci {
+  nome: string;
+  /** Só dígitos (14). */
+  cnpj: string;
+  certificado: boolean;
+}
+
+export function formatarCnpjPci(cnpj: string): string {
+  const d = soDigitos(cnpj);
+  return d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") : cnpj;
+}
+
+/**
+ * A empresa que entra sozinha em "Construtora": só quando há UMA candidata — a única com certificado digital válido ou, sem nenhuma
+ * com certificado, a única cadastrada. Com mais de uma, a tela oferece a lista e quem preenche escolhe (nada é adivinhado).
+ */
+export function empresaUnicaPci(empresas: readonly EmpresaPci[] | null | undefined): EmpresaPci | null {
+  const todas = (empresas ?? []).filter((e) => e.nome.trim() && soDigitos(e.cnpj).length === 14);
+  const comCertificado = todas.filter((e) => e.certificado);
+  const candidatas = comCertificado.length ? comCertificado : todas;
+  return candidatas.length === 1 ? candidatas[0] : null;
+}
+
+const UFS_PCI = new Set(["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]);
+
+/**
+ * Cidade e UF escritas no FIM de um endereço ("…, Vila Esmeralda, Imperatriz-MA.", "… Imperatriz/MA, CEP 65900-000",
+ * "…, Imperatriz - MA"). Só reconhece UF válida precedida de "-", "/" ou "–"; sem isso, null (nada é adivinhado).
+ */
+export function cidadeUfDoEnderecoPci(endereco: string | null | undefined): { cidade: string; uf: string } | null {
+  const semCep = String(endereco ?? "").replace(/[\s,.;-]*(?:CEP)?[\s:.]*\d{5}-?\d{3}[\s.]*$/i, "").replace(/[\s.,;]+$/, "");
+  const m = /(?:^|,)\s*([^,\d/–-][^,/–-]{1,60}?)\s*[-/–]\s*([A-Za-z]{2})$/.exec(semCep);
+  if (!m) return null;
+  const uf = m[2].toUpperCase();
+  const cidade = m[1].trim();
+  return UFS_PCI.has(uf) && cidade.length >= 3 && !/\d/.test(cidade) ? { cidade, uf } : null;
+}
+
+const MESES_PCI = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/**
+ * "Local e data" da assinatura quando o campo fica vazio: a cidade do imóvel (com a UF) e o dia em que a PCI é gerada, no horário de
+ * Imperatriz (UTC−3). Sem cidade, só a data. Ex.: "Imperatriz - MA, 24 de novembro de 2026".
+ */
+export function localDataPci(municipio: ValorCampoPci | undefined, uf: ValorCampoPci | undefined, agora: Date): string {
+  const d = new Date(agora.getTime() - 3 * 3_600_000);
+  const data = `${d.getUTCDate()} de ${MESES_PCI[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
+  const cidade = String(municipio ?? "").trim();
+  const estado = String(uf ?? "").trim();
+  return cidade ? `${cidade}${estado ? ` - ${estado}` : ""}, ${data}` : data;
 }
 
 /** Telefone brasileiro → DDD + número (sem o +55). */
@@ -1127,8 +1182,8 @@ const ESPERADOS_PCI: { chave: string; fonte: FonteEsperadaPci; motivo?: string }
   ...["proponenteNome", "proponenteCpf", "proponenteEmail", "proponenteTelefone"].map((chave) => ({ chave, fonte: "cliente" as const })),
   { chave: "endereco", fonte: "obra", motivo: "A obra e o cliente do CRM estão sem endereço." },
   { chave: "bairro", fonte: "cliente", motivo: "O bairro vem só do cliente do CRM ou da PCI vinculada." },
-  { chave: "municipio", fonte: "obra", motivo: "A obra está sem cidade." },
-  { chave: "uf", fonte: "obra", motivo: "A obra está sem UF." },
+  { chave: "municipio", fonte: "obra", motivo: "A obra está sem cidade e o endereço não termina com cidade-UF (ex.: Imperatriz-MA)." },
+  { chave: "uf", fonte: "obra", motivo: "A obra está sem UF e o endereço não termina com cidade-UF (ex.: Imperatriz-MA)." },
   { chave: "latitude", fonte: "coordenadas" },
   { chave: "longitude", fonte: "coordenadas" },
   { chave: "areaCoberta", fonte: "obra", motivo: "A obra está sem área construída." },
@@ -1185,8 +1240,21 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
   if (f.obra.endereco) add("endereco", f.obra.endereco, fonteObra);
   else if (cli?.endereco) add("endereco", cli.endereco, fonteCli);
   if (cli) add("bairro", cli.bairro, fonteCli);
-  add("municipio", f.obra.cidade, fonteObra);
-  add("uf", f.obra.uf, fonteObra);
+  // Cidade e UF: do cadastro da obra; sem isso, do fim do endereço ("…, Imperatriz-MA") da obra ou do cliente.
+  const doEndereco = cidadeUfDoEnderecoPci(f.obra.endereco);
+  const doCliente = doEndereco ? null : cidadeUfDoEnderecoPci(cli?.endereco);
+  const fonteEndereco = doEndereco ? "Endereço da obra (cidade-UF no fim)" : `${fonteCli} (cidade-UF no fim do endereço)`;
+  if (f.obra.cidade) add("municipio", f.obra.cidade, fonteObra);
+  else add("municipio", (doEndereco ?? doCliente)?.cidade ?? null, fonteEndereco);
+  if (f.obra.uf) add("uf", f.obra.uf, fonteObra);
+  else add("uf", (doEndereco ?? doCliente)?.uf ?? null, fonteEndereco);
+  // Construtora: a empresa do módulo fiscal, quando só uma serve (a única com certificado digital, ou a única cadastrada).
+  const empresa = empresaUnicaPci(f.empresas);
+  if (empresa) {
+    const fonteEmpresa = `Módulo fiscal (${empresa.certificado ? "empresa com certificado digital" : "empresa cadastrada"})`;
+    add("construtora", empresa.nome, fonteEmpresa);
+    add("cnpjConstrutora", formatarCnpjPci(empresa.cnpj), fonteEmpresa);
+  }
   add("areaCoberta", f.obra.area, fonteObra);
   add("valorImovel", f.obra.valorImovel, fonteObra);
   add("valorTerreno", f.obra.valorTerreno, "Custos da obra · Custo do terreno na PCI");

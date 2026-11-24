@@ -32,8 +32,10 @@ import {
   registrarConfirmacoesPci,
   resumoModeloPreenchimentoPci,
   sugestoesAutomaticasPci,
+  localDataPci,
   validarNomeModeloPci,
   validarNomeModeloPreenchimentoPci,
+  type EmpresaPci,
   type EngenheiroDaObraPci,
   type FontesPreenchimentoPci,
   type FormatoModeloPci,
@@ -245,6 +247,34 @@ async function obraDoGerador(projectId: number) {
 }
 
 /**
+ * Empresas do módulo fiscal (um perfil tributário por CNPJ) e se cada uma tem certificado digital válido — para "Construtora" e
+ * "CNPJ da construtora". Só leitura; nada do certificado sai daqui além de "tem/não tem". Sem as tabelas do fiscal (ou em qualquer
+ * falha), lista vazia: o campo continua de digitar.
+ */
+export async function empresasFiscaisPci(agora: Date = new Date()): Promise<EmpresaPci[]> {
+  const db = getDb();
+  let perfis: { cnpj: string; nome: string }[];
+  try {
+    perfis = linhas<{ cnpj: string; nome: string }>(await db.execute(sql`
+      SELECT DISTINCT ON (regexp_replace(cnpj, '[^0-9]', '', 'g')) regexp_replace(cnpj, '[^0-9]', '', 'g') AS cnpj, company_name AS nome
+      FROM tax_profiles WHERE length(regexp_replace(coalesce(cnpj, ''), '[^0-9]', '', 'g')) = 14
+      ORDER BY regexp_replace(cnpj, '[^0-9]', '', 'g'), is_active DESC, effective_from DESC, id DESC`));
+  } catch {
+    return [];
+  }
+  let comCertificado = new Set<string>();
+  try {
+    comCertificado = new Set(linhas<{ cnpj: string }>(await db.execute(sql`
+      SELECT DISTINCT e.cnpj FROM fiscal_emissores e JOIN fiscal_emissores_certificado c ON c.emissor_id = e.id
+      WHERE e.ativo AND c.valido_ate > ${agora}`)).map((l) => String(l.cnpj)));
+  } catch {
+    // sem as tabelas do certificado: ninguém marcado
+  }
+  return perfis.filter((p) => String(p.nome ?? "").trim()).map((p) => ({ nome: String(p.nome).trim(), cnpj: String(p.cnpj), certificado: comCertificado.has(String(p.cnpj)) }))
+    .sort((a, b) => Number(b.certificado) - Number(a.certificado) || a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+/**
  * EPIC-024 S-09 (portão de QA): decisão de acesso ao CPF do engenheiro. O dono pediu o CPF do
  * engenheiro preenchido na PCI; quem usa o gerador (admin ou colaborador com Obras) lê o CPF SÓ de
  * quem a própria lista de engenheiros do gerador oferece (`listarEngenheiros`, mesmo filtro).
@@ -355,6 +385,7 @@ export async function fontesAutomaticasPci(projectId: number, ids: { rtp?: strin
       valorTerreno: num(o.pciLotCost), valorFinanciado: num(o.financedAmount), inicio: iso(o.startDate), termino: iso(o.estimatedEndDate),
     },
     cliente: lead ? { nome: lead.name, cpf: lead.cpf, email: lead.email, telefone: lead.phone, endereco: lead.address, bairro: lead.neighborhood } : null,
+    empresas: await empresasFiscaisPci(),
     coordenadas,
     pci,
     rtp: eng.rtp,
@@ -594,6 +625,10 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Modelo não encontrado." });
   form = await registrarConfirmacoes(projectId, form, autor.id);
   if (opcoes.regravarRascunho !== false) await salvarRascunho(projectId, form, autor.id);
+  const agora = new Date();
+  // "Local e data" em branco: a cidade do imóvel e o dia em que o documento é gerado (o rascunho continua em branco, para a
+  // próxima geração sair com a data dela).
+  if (!String(form.campos.localData ?? "").trim()) form = { ...form, campos: { ...form.campos, localData: localDataPci(form.campos.municipio, form.campos.uf, agora) } };
   let planilha;
   try {
     planilha = gerarPlanilhaPci(modelo.bytes, modelo.formato, form);
@@ -601,7 +636,6 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
   } catch (e) {
     throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Não foi possível preencher o modelo." });
   }
-  const agora = new Date();
   const pdf = gerarPdfPci(form, { obraTitulo: obra.title, modeloVersao: modelo.versao, modeloArquivo: modelo.arquivo, geradoEm: agora, autor: autor.name });
   const nomePlanilha = nomeArquivoPciGerada(form.campos.proponenteNome, obra.title, modelo.versao, planilha.formato);
   const nomePdf = nomeArquivoPciGerada(form.campos.proponenteNome, obra.title, modelo.versao, "pdf");
@@ -643,7 +677,7 @@ export const pciModelosRouter = router({
 /** Módulo Obras (admin ou colaborador com Obras). O empreiteiro não usa o gerador. */
 export const pciGeradorRouter = router({
   obter: adminProcedure.input(projectIdInput).query(async ({ input, ctx }) => {
-    await obraDoGerador(input.projectId);
+    const obraAtual = await obraDoGerador(input.projectId);
     const [rascunho] = linhas<{ form_data: unknown; updated_at: string | Date; autor: string | null }>(await getDb().execute(sql`
       SELECT d.form_data, d.updated_at, u.name AS autor FROM pci_generator_drafts d LEFT JOIN users u ON u.id = d.updated_by WHERE d.project_id = ${input.projectId}`));
     const modelo = await modeloAtualPci();
@@ -660,6 +694,9 @@ export const pciGeradorRouter = router({
       rascunhoEm: rascunho ? new Date(rascunho.updated_at) : null,
       rascunhoAutor: rascunho?.autor ?? null,
       engenheiros,
+      // Lista para "Construtora" (módulo fiscal) e a área cadastrada na obra, para conferir com a área construída total da PCI.
+      empresas: await empresasFiscaisPci(),
+      areaObra: num(obraAtual.totalArea),
       historico: await historicoPci(input.projectId),
     };
   }),

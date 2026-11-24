@@ -29,7 +29,8 @@ beforeAll(async () => {
     CREATE TABLE leads (id integer primary key, name varchar, cpf varchar, email varchar, phone varchar, address text, neighborhood varchar, simulation_value numeric);
     INSERT INTO leads VALUES (5, 'Cliente do CRM', '123.456.789-09', 'cli@x.y', '(99) 98888-7777', 'Rua do Lead', 'Bairro Lead', 210000);
     CREATE TABLE construction_projects (id integer primary key, title varchar, address text, city varchar, state varchar, total_area integer, vgv numeric, lead_id integer,
-      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp, lead_service_id integer);
+      lot_cost numeric, financed_amount numeric, start_date timestamp, estimated_end_date timestamp, lead_service_id integer, pci_lot_cost numeric);
+    -- #339: o terreno da PCI vem de pci_lot_cost (coluna da migração 0174)
     INSERT INTO construction_projects VALUES (10, 'Obra Com PCI', 'Rua da Obra, 1', 'Imperatriz', 'MA', 80, null, 5, 60000, 150000, '2026-01-10', '2026-05-10'),
       (11, 'Obra Sem PCI', 'Rua B', 'Imperatriz', 'MA', 50, 180000, null, null, null, null, null);
     CREATE TABLE construction_pci (project_id integer primary key, data bytea);
@@ -134,6 +135,44 @@ it("EPIC-025 E3 (achado 2): gerar com regravarRascunho: false (Dolores) NÃO alt
   await pciGeradorRouter.createCaller(ctx).gerar({ projectId: 10, formulario: antes.form_data });
   expect((await pg.query<{ updated_by: number }>("SELECT updated_by FROM pci_generator_drafts WHERE project_id = 10")).rows[0].updated_by).toBe(1);
   expect((await pg.query<{ updated_at: Date }>("SELECT updated_at FROM pci_generator_drafts WHERE project_id = 10")).rows[0].updated_at).not.toEqual(antes.updated_at);
+});
+
+it("correções de 24/11: local e data sai sozinho na geração (rascunho fica em branco); a tela recebe as empresas do fiscal e a área da obra", async () => {
+  const caller = pciGeradorRouter.createCaller(ctx);
+  // sem as tabelas do módulo fiscal, a lista vem vazia e nada quebra
+  expect(await caller.obter({ projectId: 11 })).toMatchObject({ empresas: [], areaObra: 50 });
+  await pg.exec(`
+    CREATE TABLE tax_profiles (id serial primary key, cnpj varchar, company_name varchar, regime varchar, is_active boolean, effective_from date);
+    INSERT INTO tax_profiles (cnpj, company_name, regime, is_active, effective_from) VALUES
+      ('11.222.333/0001-81', 'Construtora Exemplo Um LTDA', 'simples', true, '2026-01-01'),
+      ('11.222.333/0001-81', 'Nome antigo da Um', 'simples', false, '2025-01-01'),
+      ('44.555.666/0001-81', 'Construtora Exemplo Dois LTDA', 'simples', true, '2026-01-01'),
+      ('', 'Sem CNPJ', 'simples', true, '2026-01-01');
+    CREATE TABLE fiscal_emissores (id serial primary key, cnpj varchar, ativo boolean);
+    CREATE TABLE fiscal_emissores_certificado (id serial primary key, emissor_id integer, valido_ate timestamptz);
+    INSERT INTO fiscal_emissores (cnpj, ativo) VALUES ('44555666000181', true), ('11222333000181', true);
+    INSERT INTO fiscal_emissores_certificado (emissor_id, valido_ate) VALUES (1, now() + interval '90 days'), (2, now() - interval '1 day');`);
+  const tela = await caller.obter({ projectId: 11 });
+  // a com certificado VÁLIDO vem primeiro; certificado vencido não conta; um item por CNPJ, com o nome do perfil ativo
+  expect(tela.empresas).toEqual([
+    { nome: "Construtora Exemplo Dois LTDA", cnpj: "44555666000181", certificado: true },
+    { nome: "Construtora Exemplo Um LTDA", cnpj: "11222333000181", certificado: false },
+  ]);
+  // "Dados automáticos": a ÚNICA empresa com certificado entra sozinha em Construtora e CNPJ
+  const auto = await caller.preencherAutomatico({ projectId: 11 });
+  expect(auto.campos).toMatchObject({ construtora: "Construtora Exemplo Dois LTDA", cnpjConstrutora: "44.555.666/0001-81", municipio: "Imperatriz", uf: "MA" });
+  // geração com "Local e data" em branco: a cidade do imóvel + o dia da geração; o rascunho continua em branco
+  const form = formularioPciVazio();
+  Object.assign(form.campos, { proponenteNome: "Proponente de Teste", municipio: "Imperatriz", uf: "MA" });
+  const r = await caller.gerar({ projectId: 11, formulario: form });
+  const gerada = (await pg.query<{ form_data: { campos: Record<string, unknown> }; sheet_data: Uint8Array }>("SELECT form_data, sheet_data FROM pci_generated WHERE id = $1", [r.id])).rows[0];
+  expect(String(gerada.form_data.campos.localData)).toMatch(/^Imperatriz - MA, \d{1,2} de [a-zç]+ de \d{4}$/);
+  const rascunho = (await pg.query<{ form_data: { campos: Record<string, unknown> } }>("SELECT form_data FROM pci_generator_drafts WHERE project_id = 11")).rows[0];
+  expect(rascunho.form_data.campos.localData ?? null).toBeNull();
+  // quem digitou o local e a data continua mandando
+  form.campos.localData = "Açailândia - MA, 1 de dezembro de 2026";
+  const r2 = await caller.gerar({ projectId: 11, formulario: form });
+  expect((await pg.query<{ v: string }>("SELECT form_data->'campos'->>'localData' AS v FROM pci_generated WHERE id = $1", [r2.id])).rows[0].v).toBe("Açailândia - MA, 1 de dezembro de 2026");
 });
 
 it("sem modelo .xls/.xlsm atual: gerar pede o modelo certo", async () => {
