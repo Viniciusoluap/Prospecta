@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -149,14 +149,15 @@ async function provarResponsavel(responsavel: unknown, palavras: string[], equip
   return { ok: true, nome: u.name, palavras: palavrasDoNome(u.name, palavras) };
 }
 
-/** Portão 5 (I-4): mínimo de palavras de conteúdo do dono para apontar uma lembrança pelo conteúdo. */
+/** Portões 5 e 6 (I-4): mínimo de palavras (3+ letras) de conteúdo do dono para apontar uma lembrança pelo conteúdo. */
 export const MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA = 2;
 
 /**
- * A lembrança (corrigir/esquecer) que ELE apontou entre as ATIVAS. Portão 5 (I-4) — palavra comum ("dia", "prefere") nunca escolhe:
- *  (a) pelo CONTEÚDO, nos dois sentidos: as palavras de conteúdo dele (2 ou mais, fora a moldura) são EXATAMENTE as da lembrança (todas
- *      as dele estão nela e todas as dela estão nas dele; ordem e palavras curtas à parte) — e só UMA lembrança ativa passa nisso; ou
- *  (b) pelo NOME: "esquece/corrige a lembrança do/da <nome>" — todas as palavras do <nome> estão nessa lembrança e só nela.
+ * A lembrança (corrigir/esquecer) que ELE apontou entre as ATIVAS. Palavra comum ("dia", "prefere") nunca escolhe:
+ *  (a) pelo CONTEÚDO, nos dois sentidos, com TODAS as palavras (portão 6, I-2: "sem", "com", "só", "não" contam; só o artigo sai): o
+ *      que ele escreveu depois da moldura tem exatamente as palavras da lembrança — e só UMA lembrança ativa passa nisso; ou
+ *  (b) pelo NOME: "esquece/corrige a lembrança do/da <nome>" — o <nome> é de alguém do CADASTRO (cliente ativo ou equipe; portão 6,
+ *      M-4: "a lembrança do dia" não vale) e está em uma lembrança só.
  * Qualquer outra coisa → não provado (segue a confirmação, que mostra a lembrança). Devolve as palavras que a apontaram (M-4).
  */
 async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDeNome> {
@@ -174,21 +175,26 @@ async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDe
     if (!["do", "da", "de"].includes(ts[iL + 1] ?? "")) return nao("lembrança sem nome nem conteúdo");
     const cauda = ts.slice(iL + 2);
     const nome = cauda.filter(t => t.length >= 3 && !PALAVRAS_GENERICAS.has(t));
-    // tudo o que vem depois de "do/da" tem de ser o nome (artigo/preposição curta à parte); palavra restritiva → não é um nome
-    if (!nome.length || cauda.some(t => RESTRITIVAS.has(t))) return nao("o nome não aponta uma lembrança só");
+    // tudo o que vem depois de "do/da" tem de ser o nome; palavra de condição ou de tempo → não é um nome
+    if (!nome.length || nome.length > 4 || cauda.some(t => RESTRITIVAS.has(t)) || temCondicaoOuTempo(antes)) return nao("o nome não aponta uma lembrança só");
+    // o nome é de alguém do cadastro (palavra inteira do nome de um cliente ativo ou de alguém da equipe)
+    const achados = await clientesPelasPalavras(nome);
+    const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
+    const doCadastro = new Set([...achados.clientes.flatMap(c => palavrasQueIdentificam(c.nome)), ...equipe.flatMap(u => palavrasQueIdentificam(u.name))]);
+    if (!nome.every(p => doCadastro.has(p))) return nao("o nome não é de alguém do cadastro");
     const com = ativas.filter(m => { const w = palavrasQueIdentificam(m.nome); return nome.every(p => w.includes(p)); });
     return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: nome } : nao("o nome não aponta uma lembrança só");
   }
-  // (a) conteúdo nos dois sentidos
+  // (a) conteúdo nos dois sentidos, com todas as palavras
   const conteudo = textoPelaMoldura(antes);
-  const doDono = Array.from(new Set(conteudo ? palavrasQueIdentificam(conteudo.texto) : []));
-  if (doDono.length < MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA) return nao("poucas palavras de conteúdo do dono");
-  const cobre = (texto: string | null) => {
-    const w = Array.from(new Set(palavrasQueIdentificam(texto)));
+  const doDono = conteudo ? tokensSemArtigo(conteudo.texto) : [];
+  if (doDono.filter(p => p.length >= 3).length < MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA) return nao("poucas palavras de conteúdo do dono");
+  const igual = (texto: string | null) => {
+    const w = tokensSemArtigo(texto);
     return w.length === doDono.length && doDono.every(p => w.includes(p));
   };
-  const com = ativas.filter(m => cobre(m.nome));
-  return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: doDono } : nao("as palavras dele não apontam uma lembrança só");
+  const com = ativas.filter(m => igual(m.nome));
+  return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: palavrasQueIdentificam(conteudo!.texto) } : nao("as palavras dele não apontam uma lembrança só");
 }
 
 /**
@@ -216,15 +222,15 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       // Portão 4 (M-3): as palavras do responsável não provam cliente; vínculo não provado é DESCARTADO (tarefa sem vínculo)
       const v = a.vinculo as { tipo?: unknown; id?: unknown } | undefined;
       let vinculo: unknown = undefined;
-      let nomeDoCliente: string | null = null;
       if (v?.tipo === "cliente") {
         const c = await provarCliente(v.id, antes, palavras, { excluir: quem.palavras, equipe });
         if (!c.ok && c.pergunta) return c;
-        if (c.ok) { vinculo = v; nomeDoCliente = c.nome; }
+        if (c.ok) vinculo = v;
       } else if (v?.tipo === "obra") {
         if ((await provarObra(v.id, antes, palavras.filter(p => !quem.palavras.includes(p)))).ok) vinculo = v;
       }
-      const titulo = textoDoDono([quem.nome, nomeDoCliente]);
+      // portão 6: na moldura da tarefa só sai o nome do RESPONSÁVEL; o do cliente é conteúdo do título e fica
+      const titulo = textoDoDono([quem.nome]);
       if (!titulo) return nao("o texto da tarefa não sai da mensagem do dono (vazio, curto ou com referência)");
       // Portão 5 (I-2): acima do limite da função → confirmação (nunca corte em silêncio)
       if (titulo.length > LIMITE_TEXTO.criar_tarefa) return nao("texto da tarefa maior que o limite");
@@ -272,7 +278,11 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       const i = (TIPOS_AVISO as readonly string[]).indexOf(String(a.tipo));
       if (i < 0) return nao("tipo de aviso inválido");
       const tipos = TIPOS_AVISO.map((t, j) => ({ id: j + 1, nome: `${t.replace(/_/g, " ")} ${ROTULO_TIPO_AVISO[t]}` }));
-      return unicoComPonto(palavras, tipos).escolhido === i + 1 ? SIM : nao("o tipo de aviso não saiu das palavras do dono");
+      if (unicoComPonto(palavras, tipos).escolhido !== i + 1) return nao("o tipo de aviso não saiu das palavras do dono");
+      // Portão 6 (M-1): no pedido todo, só palavra de ligação, os verbos do aviso e o NOME do tipo — "até segunda", "só hoje" → confirmação
+      const permitidas = [...normalizarNome(tipos[i].nome).split(" "), "parar", "pare", "para", "deixa", "deixe", "deixar", "chega", "volta", "volte", "voltar",
+        "silencia", "silencie", "silenciar", "religa", "religue", "religar"];
+      return soPalavrasPermitidas(antes, LIGACAO_DE_AVISO, permitidas) ? SIM : nao("palavra fora do pedido de aviso (condição ou prazo)");
     }
     default: return nao("função fora da lista");
   }
@@ -298,6 +308,8 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     if (funcaoDoPedido(textoDoDono) !== funcao) return nao("a função pedida pelo modelo não é a do primeiro verbo do dono");
     // a moldura do pedido (sem texto gravado: o trecho antes do ":", ou a mensagem toda) não pode ter negação
     if (!FUNCOES_COM_CONTEUDO_DITADO.has(funcao) && temNegacao(textoDoDono)) return nao("negação no pedido");
+    // Portão 6 (M-1): ordem que não grava texto (grupo, aviso) com CONDIÇÃO ou TEMPO ("só se…", "depois que…", "até segunda") → confirmação
+    if (String(funcao).endsWith("_grupo") && temCondicaoOuTempo(textoDoDono)) return nao("condição ou prazo no pedido");
     const a = (argumentos ?? {}) as { grupoId?: unknown; tipo?: unknown; leadId?: unknown; obraId?: unknown };
     if (partes.depois !== null && !FUNCOES_COM_CONTEUDO_DITADO.has(funcao)) return nao("mensagem com texto ditado depois de \":\": só registro de texto vai direto");
     if (!String(funcao).endsWith("_grupo")) return await provarRegistro(funcao, a as Record<string, unknown>, partes, diaFortaleza(agora) ?? agora.toISOString().slice(0, 10));
@@ -317,6 +329,28 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     const porCodigo = codigoCitado(textoDoDono, alvo.codigo);
     const porNome = doGrupo.length > 0 && unicoComPonto(doGrupo, grupos.map(g => ({ id: g.id, nome: g.nomeWhatsapp ?? g.nome }))).escolhido === alvo.id;
     if (!porCodigo && (exigeCodigoDigitado(funcao) || !porNome)) return nao(exigeCodigoDigitado(funcao) ? "aceitar grupo só com o código digitado pelo dono" : "o grupo não saiu das palavras do dono");
+    // Portão 6 (M-1), regra estrutural: depois do verbo, só palavra de ligação, o nome/código DESTE grupo, o nome do cliente/obra pedido
+    // e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente") → confirmação
+    const doAlvo = [...normalizarNome(alvo.nomeWhatsapp ?? alvo.nome).split(" "), String(alvo.codigo ?? "").toLowerCase()];
+    // dois grupos numa mensagem ("liga o grupo da Emily e o da Maria Dayane"): o nome/código de OUTRO grupo que ele também citou vale
+    for (const g of grupos) {
+      if (g.id === alvo.id) continue;
+      const citado = codigoCitado(textoDoDono, g.codigo) || palavrasQueIdentificam(g.nomeWhatsapp ?? g.nome).some(p => palavras.includes(p));
+      if (citado) doAlvo.push(...normalizarNome(g.nomeWhatsapp ?? g.nome).split(" "), String(g.codigo ?? "").toLowerCase());
+    }
+    if (funcao === "classificar_grupo") {
+      const leadDoPedido = Number(a.leadId);
+      if (Number.isSafeInteger(leadDoPedido) && leadDoPedido > 0) {
+        const [c] = await bancoDaLeitura().select({ nome: leads.name }).from(leads).where(and(eq(leads.id, leadDoPedido), isNull(leads.deletedAt))).limit(1);
+        doAlvo.push(...normalizarNome(c?.nome).split(" "));
+      }
+      const obraDoPedido = Number(a.obraId);
+      if (Number.isSafeInteger(obraDoPedido) && obraDoPedido > 0) {
+        const [o] = await bancoDaLeitura().select({ nome: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, obraDoPedido)).limit(1);
+        doAlvo.push(...normalizarNome(o?.nome).split(" "));
+      }
+    }
+    if (!soPalavrasPermitidas(textoDoDono, LIGACAO_DE_GRUPO, doAlvo.filter(Boolean))) return nao("palavra fora do pedido de grupo (condição, prazo ou outro assunto)");
     if (funcao !== "classificar_grupo") return { ok: true };
     const tipo = String(a.tipo);
     if (!tipoDitoPeloDono(tipo, textoDoDono)) return nao("o tipo não é o que o dono disse");

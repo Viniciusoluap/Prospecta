@@ -195,6 +195,44 @@ histórico dela").
 
 Testes: e11 com 81 (9 da 4ª rodada com as frases exatas e a propriedade "o gravado é o sufixo exato da mensagem depois da moldura").
 
+## Portão de segurança E11 — 5ª rodada (sobre 69d455b → FAIL) — tokenização única, limite sem corte, grupo só com "grupo"
+
+Todos os achados foram reproduzidos pelo webhook e viraram teste com a frase exata (`e11-conversa-direta.test.ts`, bloco "5ª rodada").
+
+| Achado | Correção |
+|---|---|
+| I-1 — vírgula sem espaço colava palavras e a moldura engolia conteúdo (`lembra,sem desconto para a Emily` gravava "desconto para a Emily") | `tokensDoPedido`: tokenização ÚNICA da mensagem crua, com o mesmo limite de palavra do `normalizarNome` e a posição de cada palavra; usada por `funcaoDoPedido`, pela moldura e pelo texto. Palavra restritiva (`RESTRITIVAS`: sem, só, não, nem, nunca, jamais, exceto, salvo, apenas, somente, se, caso, quando, depois, antes…) NUNCA é moldura: abre o texto gravado. Invariante conferida no código: a moldura tirada é exatamente os tokens consumidos; senão, confirmação. |
+| I-2 — título de tarefa acima de 150 caracteres cortado em silêncio | `LIMITE_TEXTO` por função (tarefa 150, anotação 1.000, memória 300): acima do limite → confirmação. A ação (`criarTarefa`, `tarefaParaFila`, `registrarAcompanhamento`) RECUSA em vez de cortar. A linha "Feito" mostra o título inteiro. |
+| I-3 — verbo de duplo sentido (liga, marca, coloca, define, troca, junta) decidia `classificar_grupo` sem a palavra "grupo" | `grupoLogoDepois`: toda função de grupo exige "grupo(s)" ou o código do grupo logo depois do verbo (aceitando artigo/demonstrativo; para desligar a resposta, também "a resposta do/no", "de responder no"). |
+| I-4 — esquecer/corrigir escolhia a lembrança por palavra comum ("dia", "prefere") | `provarMemoria`: (a) pelo conteúdo nos DOIS sentidos — as palavras de conteúdo dele (2 ou mais) são exatamente as da lembrança, e só uma lembrança ativa passa nisso; ou (b) "a lembrança do/da <nome>" com o nome em uma lembrança só. Qualquer outra coisa → confirmação. |
+| B-1 — data que é conteúdo virando prazo ("parcela 3/4", "fez dia 10") | `dataDitaPeloDono`: data só é prazo com marcador colado antes (até, para/pra, prazo, vence, vencimento) ou "hoje"/"amanhã"; verbo no passado antes da data (lista + terminação ou/eu/iu/aram/eram/iram) → o código não decide. |
+| B-2 — nome de teste que dizia o contrário do que conferia | `c5-e1-qa.test.ts`: dois testes renomeados. |
+| Usabilidade — "está" e "mesmo" bloqueavam como dêitico | `temDeitico`: dêitico só conta seguido de substantivo de pedido ("aquela tarefa") ou sozinho no fim ("conferir isso"). |
+
+Defeito do commit `7ac4ba6` (wip) achado ao terminar: `\b` do JavaScript não reconhece "ã", e "amanhã" deixou de valer como prazo; corrigido com fronteira por classe de letras.
+
+Teste de propriedade pedido pela revisão: em milhares de combinações (vocativo × verbo × pontuação colada × cauda), `normalizar(moldura) + normalizar(texto gravado)` reconstrói `normalizar(mensagem)`, nenhum token restritivo fica na moldura e a primeira palavra restritiva da mensagem está sempre no texto gravado.
+
+Custo de usabilidade aceito (falha fechada, cai no "pode"): "vincula a Emily" sem a palavra "grupo"; prazo sem marcador ("ligar dia 15/12"); esquecer lembrança citando só parte dela.
+
+## Portão de segurança E11 — 6ª rodada (sobre f7270b6 → FAIL) — moldura por gramática, lembrança com todas as palavras, lista permitida nas ordens sem texto
+
+As frases da 5ª rodada estavam corrigidas; a 6ª achou a mesma classe de erro em outras formas. A resposta foi trocar listas de bloqueio por regras ESTRUTURAIS (que falham fechadas). Testes: bloco "6ª rodada" do `e11-conversa-direta.test.ts`, com as frases exatas.
+
+| Achado | Correção |
+|---|---|
+| I-1 — a moldura engolia o "a"/"de"/"no" de locuções ("anota na Emily a não ser que ela pague" gravava "não ser que…") | `textoPelaMoldura` virou uma GRAMÁTICA fechada: vocativo · verbo · "aí" · [ponte + "tarefa" + "urgente"] (só pedido de tarefa) · [ponte + NOME provado] · "que". Artigo/preposição só sai quando LEVA a "tarefa" ou a um nome provado; sozinho é conteúdo. Depois de "que" o texto começa na palavra seguinte (o artigo fica). A lista solta `MOLDURA` acabou. Na tarefa só o nome do responsável é moldura. |
+| I-2 — esquecer pelo conteúdo ignorava "sem"/"com" ("esquece que a Emily paga sem juros" arquivava "…com juros") | `provarMemoria` (a): compara TODAS as palavras (`tokensSemArtigo`: só o artigo sai), nos dois sentidos, e só uma lembrança ativa pode passar. |
+| M-1 — ordem de grupo/aviso com condição ou prazo rodava na hora sem a condição | Lista PERMITIDA (`soPalavrasPermitidas`): depois do verbo só palavra de ligação, o nome/código do grupo (ou de outro grupo citado), o nome do cliente/obra do pedido, o nome do tipo de aviso e número. Qualquer outra palavra → confirmação. Em grupo, as palavras de condição/tempo (`CONDICAO_OU_TEMPO`) também bloqueiam. |
+| M-2 — fração virando prazo ("pra 2/3 do telhado") | A data de prazo tem de FECHAR o pedido (ou vir seguida só da hora). |
+| M-3 — "lembra a Bianca de ligar pro João" virava lembrança | Guardar lembrança só com "que" logo depois do verbo (ou o verbo sozinho/"lembra disso", com o texto ditado depois de ":"). |
+| M-4 — "a lembrança do dia" escolhia por palavra comum | No caminho pelo nome, o nome tem de ser de alguém do CADASTRO (cliente ativo ou equipe), sem palavra de condição/tempo. |
+| B-1 — "longe de ser urgente" passava como alta | "urgente" uma vez e em posição de prioridade: "tarefa urgente", ou fechando a mensagem depois de "é"/"muito". |
+| B-2 — teste de propriedade tautológico | Reescrito com oráculo independente: a mensagem é montada de moldura conhecida + conteúdo conhecido (inclusive locuções que começam por artigo/preposição) e o gravado tem de terminar com o conteúdo INTEIRO (mais de 50 mil combinações). |
+| B-3 — "hoje" depois de passado irregular ("trouxe") virava prazo | Lista de passados irregulares e terminação "-ei". |
+
+Custo de usabilidade aceito (cai no "pode"): "lembra" sem "que"; grupo com qualquer palavra fora da lista; prazo no meio da frase ("até 15/12 ligar…"); "a lembrança do Fulano" quando Fulano não está no cadastro. O texto gravado passa a manter o artigo depois de "que" ("a Emily mandou o RG").
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -261,11 +299,15 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 - `server/dolores/whatsapp.ts` — linha "Feito", confirmação nomeada, resposta só com o nome.
 - `server/dolores/leitura/grupos.ts` — `codigo` e nome do WhatsApp em `listar_grupos`.
 - `server/dolores/prompt.ts` — agir na ordem, uma pergunta só, sem lista de pendências, sem nº do CRM, iniciativa.
+- `server/dolores/acoes/tarefas.ts`, `server/dolores/acoes/acompanhamentos.ts` — 5ª rodada: recusa acima do limite, sem corte.
+- `server/dolores/c5-e1-qa.test.ts` — 5ª rodada: dois testes renomeados.
 - `server/dolores/e11-conversa-direta.test.ts` (novo), `server/dolores/grupos-automaticos.test.ts`, `server/dolores/c3-categorias-grupos.test.ts`,
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 6ª rodada — moldura por gramática, lembrança com todas as palavras, lista permitida em grupo/aviso, M-1 a M-4, B-1 a B-3 (e11 100/100).
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 5ª rodada — I-1 a I-4, B-1, B-2 e usabilidade; wip 7ac4ba6 terminado; regressões e teste de propriedade no e11 (92/92).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 4ª rodada — função e texto pelo código (moldura), M-1–M-4, B-1, categoria/tipo padrão.
 - 23/11/2026 — @dev (Dex): ajuste antes da 4ª revisão — com ditado, grava-se sempre o ditado; descrição descartada; linha no prompt.
 - 23/11/2026 — @dev (Dex): portão de segurança E11, 3ª rodada — regra estrutural (porta de caracteres, ':' ASCII, negação por token, texto do dono, prazo pelo código).

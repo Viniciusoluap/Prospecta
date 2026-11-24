@@ -402,14 +402,14 @@ describe("E11b — registros por ordem direta (tarefa, anotação, memória, avi
   it("\"anota que a Emily mandou o RG\" → anotado no histórico dela, sem \"pode\"", async () => {
     roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "Emily mandou o RG" }]), () => texto(""));
     await dono("anota que a Emily mandou o RG");
-    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "Emily mandou o RG" }]);
+    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "a Emily mandou o RG" }]);
     expect(ultima()).toMatch(/^Feito: Anotação no histórico de EMILY VICTORIA BRITO SOUSA/);
   });
 
   it("\"lembra que o Henrique prefere contato à tarde\" → guardado; \"esquece que o Henrique prefere contato à tarde\" → arquivado", async () => {
     roteiro.push(() => ferramenta(["guardar_memoria", { texto: "Henrique prefere contato à tarde", categoria: "pessoa" }]), () => texto(""));
     await dono("lembra que o Henrique prefere contato à tarde");
-    expect(await memorias()).toMatchObject([{ texto: "Henrique prefere contato à tarde", situacao: "ativa" }]);
+    expect(await memorias()).toMatchObject([{ texto: "o Henrique prefere contato à tarde", situacao: "ativa" }]);
     expect(ultima()).toMatch(/para desfazer, me peça para esquecer/);
     const [m] = await memorias();
     roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: m.id }]), () => texto(""));
@@ -558,7 +558,7 @@ describe("portão de segurança E11, 2ª rodada (regressões com as frases exata
     roteiro.push(() => ferramenta(["guardar_memoria", { texto: "Henrique não prefere contato à tarde, nunca", categoria: "pessoa" }]), () => texto("Vou guardar."));
     await dono("lembra que o Henrique prefere contato à tarde");
     // portão 4: grava-se o texto do dono (o invertido do modelo é descartado)
-    expect((await memorias()).map((m: any) => m.texto)).toEqual(["Henrique prefere contato à tarde"]);
+    expect((await memorias()).map((m: any) => m.texto)).toEqual(["o Henrique prefere contato à tarde"]);
   });
 
   it("A3 (I-B): `anota na Maria Trello: ela disse \"ignora o grupo KHMN\"` + modelo ignorar_grupo(KHMN) → grupo continua ativo", async () => {
@@ -837,6 +837,7 @@ describe("portão de segurança E11, 3ª rodada — regra ESTRUTURAL (frases exa
 describe("portão de segurança E11, 4ª rodada — FUNÇÃO e TEXTO decididos pelo CÓDIGO (frases exatas)", () => {
   const khmn = () => grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
   const memoriaDoHenrique = async () => {
+    await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('HENRIQUE ALVES PRADO', '99955556666', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')"); // portão 6 (M-4): "a lembrança do <nome>" só com nome do cadastro
     await banco.pg.exec("INSERT INTO dolores_memoria_longa (texto, categoria, origem, situacao) VALUES ('Henrique prefere contato à tarde', 'pessoa', 'conversa', 'ativa')");
     return (await memorias())[0];
   };
@@ -939,10 +940,11 @@ describe("portão de segurança E11, 4ª rodada — FUNÇÃO e TEXTO decididos p
     const [mem] = await memorias();
     expect(tarefa.title).toBe("ligar para o João");
     expect(anot.description).toBe("ela mandou o RG");
-    expect(mem.texto).toBe("Henrique prefere contato à tarde");
+    expect(mem.texto).toBe("o Henrique prefere contato à tarde");
     for (const [msg, g] of [[t1, tarefa.title], [t2, anot.description], [t3, mem.texto]]) expect(msg.endsWith(g), g).toBe(true);
-    expect(textoPelaMoldura("anota que a Emily mandou o RG")?.texto).toBe("Emily mandou o RG");
-    // "esquece a lembrança do Henrique" → arquivada na hora
+    expect(textoPelaMoldura("anota que a Emily mandou o RG")?.texto).toBe("a Emily mandou o RG");
+    // "esquece a lembrança do Henrique" → arquivada na hora (Henrique é do cadastro)
+    await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('HENRIQUE ALVES PRADO', '99955556666', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
     roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: mem.id }]), () => texto(""));
     await dono("esquece a lembrança do Henrique");
     expect((await memorias())[0].situacao).toBe("arquivada");
@@ -960,8 +962,12 @@ describe("portão de segurança E11, 5ª rodada — tokenização única, limite
     roteiro.push(() => ferramenta(["guardar_memoria", { texto: "desconto para a Emily", categoria: "regra_trabalho" }]), () => texto(""));
     await dono("lembra,sem desconto para a Emily");
     const gravadas = (await memorias()).map((m: any) => m.texto);
-    expect(gravadas).toEqual(["sem desconto para a Emily"]);
-    expect(gravadas).not.toContain("desconto para a Emily");
+    // portão 6 (M-3): "lembra" sem "que" já não guarda lembrança na hora; o que importa: o texto sem o "sem" NUNCA é gravado
+    expect(gravadas).toEqual([]);
+    expect(await q("SELECT 1 FROM dolores_memoria_longa WHERE texto = 'desconto para a Emily'")).toEqual([]);
+    roteiro = [() => ferramenta(["guardar_memoria", { texto: "desconto para a Emily", categoria: "regra_trabalho" }]), () => texto("")];
+    await dono("lembra que,sem desconto para a Emily");
+    expect((await memorias()).map((m: any) => m.texto)).toEqual(["sem desconto para a Emily"]);
     expect(textoPelaMoldura("lembra,sem desconto para a Emily")).toMatchObject({ texto: "sem desconto para a Emily", tokensDaMoldura: ["lembra"] });
   });
 
@@ -982,33 +988,40 @@ describe("portão de segurança E11, 5ª rodada — tokenização única, limite
     // o tokenizador é o mesmo do `normalizarNome`: pontuação colada separa
     expect(tokensDoPedido("Oi,anota só").map(t => t.n)).toEqual(["oi", "anota", "so"]);
     expect(funcaoDoPedido("Oi,anota só se a Emily assinar")).toBe("registrar_acompanhamento");
-    expect(funcaoDoPedido("lembra,sem desconto")).toBe("guardar_memoria");
+    expect(funcaoDoPedido("lembra,sem desconto")).toBeNull(); // portão 6 (M-3): sem "que" não é lembrança
+    expect(funcaoDoPedido("lembra que,sem desconto")).toBe("guardar_memoria");
   });
 
-  it("I-1 (propriedade): moldura + texto gravado reconstroem a mensagem, e nenhum token restritivo fica na moldura", () => {
+  it("I-1 (propriedade, com ORÁCULO independente): a mensagem é montada de MOLDURA conhecida + CONTEÚDO conhecido, e o texto gravado é o conteúdo INTEIRO", () => {
+    // o gerador sabe onde a moldura acaba; a função não pode gravar nem uma palavra a menos do que o conteúdo
     const vocativos = ["", "Oi", "Dolores", "Bom dia", "Por favor"];
-    const verbos = ["anota", "lembra", "registra", "guarda", "cria uma tarefa para a Bianca", "cria tarefa pra Bianca", "anota na Emily que", "lembra que a"];
-    const juntas = [" ", ",", ", ", ";", ". ", " - ", "!"];
-    const caudas = ["sem desconto para a Emily", "só se a Emily assinar o contrato", "não ligar antes das 10", "ligar pro cartório, sem pagar o boleto", "Emily mandou o RG",
-      "nunca dar desconto", "se chover, adiar a obra", "apenas depois de eu confirmar", "o João pagou 3/4 da parcela", "exceto o lote 4", "caso o cliente ligue, avisar",
-      "a obra só começa depois do alvará", "somente com autorização", "quando o banco liberar, avisar a Emily", "nada de desconto", "pagar o boleto so depois de eu confirmar"];
+    const molduras = ["anota", "registra", "anota aí", "lembra que", "guarda que", "anota que", "anota na Emily que", "registra na Emily", "anota pra Emily",
+      "cria uma tarefa para a Bianca", "cria tarefa pra Bianca", "cria uma tarefa urgente para a Bianca Souza", "abre uma tarefa pro Bianca", "cria aí uma tarefa pra Bianca"];
+    const juntas = [" ", ",", ", ", ";", ". ", " - ", "!", "/", " ("];
+    const conteudos = ["sem desconto para a Emily", "só se a Emily assinar o contrato", "não ligar antes das 10", "ligar pro cartório, sem pagar o boleto", "nunca dar desconto",
+      "se chover, adiar a obra", "apenas depois de eu confirmar", "exceto o lote 4", "caso o cliente ligue, avisar", "somente com autorização", "quando o banco liberar, avisar",
+      "nada de desconto", "pagar o boleto so depois de eu confirmar",
+      // locuções que começam por artigo/preposição (portão 6, I-1): o "a"/"de"/"no" é CONTEÚDO
+      "a não ser que ela pague, sem desconto", "a menos que a Emily pague, cortar o desconto", "a partir de amanhã cobrar multa", "de jeito nenhum dar desconto",
+      "no máximo 10 dias de prazo", "na dúvida não pagar", "para ninguém mexer no contrato", "o quanto antes ligar pro cartório", "a fim de evitar multa, pagar hoje",
+      "de preferência pela manhã", "ao contrário do combinado, cobrar juros", "da próxima vez pedir o RG", "um dia antes avisar o cliente", "pro João pagar só o boleto",
+      "do João só aceitar à vista", "as chaves ficam com o João", "os boletos vencem dia 10", "uma parcela só, sem juros"];
     const nomes = [["bianca", "souza"], ["emily", "victoria", "brito", "sousa"]];
     let conferidas = 0;
-    for (const voc of vocativos) for (const verbo of verbos) for (const j1 of juntas) for (const j2 of juntas) for (const cauda of caudas) {
-      const mensagem = `${voc ? voc + j1 : ""}${verbo}${j2}${cauda}`;
+    for (const voc of vocativos) for (const moldura of molduras) for (const j1 of juntas) for (const j2 of juntas) for (const conteudo of conteudos) {
+      const mensagem = `${voc ? voc + j1 : ""}${moldura}${j2}${conteudo}`;
       const t = textoPelaMoldura(mensagem, nomes);
       if (!t) continue; // sem texto pelo código → confirmação (falha fechada)
       conferidas++;
-      const reconstruida = `${normalizarNome(t.moldura)} ${normalizarNome(t.texto)}`.trim();
-      expect(reconstruida, mensagem).toBe(normalizarNome(mensagem));
+      const esperado = tokensDoPedido(conteudo).map(x => x.n);
+      const gravado = tokensDoPedido(t.texto).map(x => x.n);
+      // o gravado TERMINA com o conteúdo inteiro (pode sobrar moldura no começo, nunca faltar conteúdo)
+      expect(gravado.slice(-esperado.length), mensagem).toEqual(esperado);
+      // e é um pedaço literal da mensagem, até o fim
+      expect(mensagem.replace(/[\s.,;:!\-]+$/, "").endsWith(t.texto), mensagem).toBe(true);
       expect(t.tokensDaMoldura.some(x => RESTRITIVAS.has(x)), mensagem).toBe(false);
-      expect(normalizarNome(t.moldura), mensagem).toBe(t.tokensDaMoldura.join(" "));
-      // a primeira palavra restritiva da mensagem está SEMPRE no texto gravado
-      const primeira = tokensDoPedido(mensagem).find(x => RESTRITIVAS.has(x.n));
-      if (primeira) expect(tokensDoPedido(t.texto).map(x => x.n), mensagem).toContain(primeira.n);
-      expect(mensagem.endsWith(t.texto) || mensagem.replace(/[\s.,;:!\-]+$/, "").endsWith(t.texto), mensagem).toBe(true);
     }
-    expect(conferidas).toBeGreaterThan(3000);
+    expect(conferidas).toBeGreaterThan(50000);
   });
 
   it("I-2: título sem \":\" acima de 150 caracteres → nada na hora e nada cortado (o final \"só depois que eu confirmar\" não se perde)", async () => {
@@ -1084,6 +1097,7 @@ describe("portão de segurança E11, 5ª rodada — tokenização única, limite
     const a = await lembranca("Emily prefere reunião de manhã");
     const b = await lembranca("Emily prefere reunião de manhã na sexta");
     const h = await lembranca("Henrique atende só à tarde");
+    await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('HENRIQUE ALVES PRADO', '99955556666', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
     const situacoes = async () => (await memorias()).map((m: any) => m.situacao);
     // só parte das palavras (metade ou mais) → nada; o modelo escolhe qualquer uma das duas
     for (const [frase, alvo] of [["esquece que a Emily prefere reunião", a], ["esquece que a Emily prefere reunião", b], ["esquece a reunião de manhã", a],
@@ -1102,12 +1116,15 @@ describe("portão de segurança E11, 5ª rodada — tokenização única, limite
     roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: h.id }]), () => texto("")];
     await dono("esquece a lembrança do Henrique");
     expect(await situacoes()).toEqual(["arquivada", "ativa", "arquivada"]);
-    // lembranças que só diferem por palavra genérica ("obra") são a MESMA para o código → duas → nada na hora
+    // portão 6 (I-2): TODAS as palavras contam ("obra", "sem", "com"): a de "da obra" é outra lembrança
     const c = await lembranca("João paga no cartório");
-    await lembranca("João paga no cartório da obra");
-    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: c.id }]), () => texto("Qual?")];
+    const d = await lembranca("João paga no cartório da obra");
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: d.id }]), () => texto("Qual?")];
     await dono("esquece que o João paga no cartório");
     expect((await situacoes()).slice(3)).toEqual(["ativa", "ativa"]);
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: c.id }]), () => texto("")];
+    await dono("esquece que o João paga no cartório");
+    expect((await situacoes()).slice(3)).toEqual(["arquivada", "ativa"]);
   });
 
   it("B-1: data que é CONTEÚDO não vira prazo (\"parcela 3/4\", \"fez dia 10\"); prazo direto só com marcador", async () => {
@@ -1146,9 +1163,145 @@ describe("portão de segurança E11, 5ª rodada — tokenização única, limite
     expect(temDeitico(["conferir", "isso"])).toBe(true);
     roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "contrato" }]), () => texto(""));
     await dono("anota na Emily que o contrato está assinado, é isso mesmo");
-    expect((await anotacoes()).map((a: any) => a.description)).toEqual(["contrato está assinado, é isso mesmo"]); // depois de "que" só o artigo sai
+    expect((await anotacoes()).map((a: any) => a.description)).toEqual(["o contrato está assinado, é isso mesmo"]);
     roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "concluir", responsavel: "Bianca" }]), () => texto("Qual tarefa?"));
     await dono("cria uma tarefa para a Bianca concluir aquela tarefa");
     expect(await tarefas()).toEqual([]);
+  });
+});
+
+describe("portão de segurança E11, 6ª rodada — moldura por gramática, lembrança com todas as palavras, condição em ordem de grupo (frases exatas)", () => {
+  const khmn = () => grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+  const lembranca = async (t: string) => {
+    await banco.pg.exec(`INSERT INTO dolores_memoria_longa (texto, categoria, origem, situacao) VALUES ('${t}', 'pessoa', 'conversa', 'ativa')`);
+    return (await memorias()).at(-1);
+  };
+
+  it("I-1: \"anota na Emily a não ser que ela pague, sem desconto\" — o \"a\" da locução é conteúdo; grava-se inteiro", async () => {
+    roteiro = [() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "a não ser que ela pague" }]), () => texto("")];
+    await dono("anota na Emily a não ser que ela pague, sem desconto");
+    expect((await anotacoes()).map((a: any) => a.description)).toEqual(["a não ser que ela pague, sem desconto"]);
+    expect(await q("SELECT 1 FROM lead_activities WHERE description LIKE 'não ser que%'")).toEqual([]);
+  });
+
+  it("I-1: \"lembra a menos que a Emily pague, cortar o desconto\" — nada com sentido cortado é gravado (\"menos que…\" nunca)", async () => {
+    roteiro = [() => ferramenta(["guardar_memoria", { texto: "menos que a Emily pague, cortar o desconto", categoria: "regra_trabalho" }]), () => texto("Guardo isso?")];
+    await dono("lembra a menos que a Emily pague, cortar o desconto");
+    expect(await memorias()).toEqual([]);
+    roteiro = [() => ferramenta(["guardar_memoria", { texto: "cortar o desconto", categoria: "regra_trabalho" }]), () => texto("")];
+    await dono("lembra que a menos que a Emily pague, cortar o desconto");
+    expect((await memorias()).map((m: any) => m.texto)).toEqual(["a menos que a Emily pague, cortar o desconto"]);
+    for (const [msg, esperado] of [["lembra que a partir de amanhã cobrar multa", "a partir de amanhã cobrar multa"], ["anota de jeito nenhum dar desconto", "de jeito nenhum dar desconto"],
+      ["anota no máximo 10 dias", "no máximo 10 dias"], ["anota para ninguém mexer", "para ninguém mexer"], ["anota a favor do cliente", "a favor do cliente"]] as const)
+      expect(textoPelaMoldura(msg)?.texto, msg).toBe(esperado);
+    // a ponte só sai quando leva a um NOME provado ou a "tarefa"
+    expect(textoPelaMoldura("anota na Emily que ela mandou o RG", [["emily", "victoria"]])?.texto).toBe("ela mandou o RG");
+    expect(textoPelaMoldura("anota na Emily que ela mandou o RG")?.texto).toBe("na Emily que ela mandou o RG");
+    expect(textoPelaMoldura("cria uma tarefa para a Bianca a partir de amanhã ligar", [["bianca", "souza"]])?.texto).toBe("a partir de amanhã ligar");
+    expect(textoPelaMoldura("anota uma tarefa atrasada do João")?.texto).toBe("uma tarefa atrasada do João"); // "tarefa" só é moldura em pedido de tarefa
+  });
+
+  it("I-2: \"esquece que a Emily paga sem juros\" não arquiva \"Emily paga com juros\" (sem/com/só/não contam)", async () => {
+    const a = await lembranca("Emily paga com juros");
+    for (const frase of ["esquece que a Emily paga sem juros", "esquece que a Emily paga juros", "esquece que a Emily não paga com juros", "esquece que só a Emily paga com juros",
+      "esquece que a Emily paga com juros e multa"]) {
+      roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("Qual lembrança?")];
+      await dono(frase);
+      expect((await memorias())[0].situacao, frase).toBe("ativa");
+    }
+    roteiro = [() => ferramenta(["corrigir_memoria", { memoriaId: a.id, texto: "Emily paga sem juros" }]), () => texto("Corrijo?")];
+    await dono("corrige que a Emily paga sem juros: Emily paga à vista");
+    expect((await memorias())[0].texto).toBe("Emily paga com juros");
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("")];
+    await dono("esquece que a Emily paga com juros");
+    expect((await memorias())[0].situacao).toBe("arquivada");
+  });
+
+  it("M-1: ordem de grupo com CONDIÇÃO ou TEMPO não roda na hora (\"só se ela assinar\", \"depois que a obra terminar\", \"até segunda\")", async () => {
+    const g = await khmn();
+    const m = await grupo({ codigo: "AA7W", nome: "MARIA DAYANE SILVA SOUSA", tipo: "cliente", leadId: MARIA, situacao: "confirmado" });
+    for (const frase of ["vincula o grupo da Emily só se ela assinar o contrato", "liga o grupo da Emily só amanhã", "vincula o grupo da Emily quando ela pagar",
+      "vincula o grupo da Emily, mas ainda não", "vincula o grupo da Emily depois do contrato"]) {
+      roteiro = [() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Vinculo agora?")];
+      await dono(frase);
+      expect((await grupoPorCodigo("KHMN")).lead_id, frase).toBeNull();
+    }
+    for (const frase of ["ignora o grupo da Maria Dayane depois que a obra terminar", "ignora o grupo da Maria Dayane até segunda", "ignora o grupo da Maria Dayane se ela não pagar"]) {
+      roteiro = [() => ferramenta(["ignorar_grupo", { grupoId: m.id }]), () => texto("Ignoro agora?")];
+      await dono(frase);
+      expect((await grupoPorCodigo("AA7W")).ativo, frase).toBe(true);
+    }
+    for (const frase of ["desliga a resposta no grupo da Maria Dayane só hoje", "para de responder no grupo da Maria Dayane até amanhã"]) {
+      roteiro = [() => ferramenta(["ligar_resposta_grupo", { grupoId: m.id, ligado: false }]), () => texto("Desligo agora?")];
+      const retrato = async () => JSON.stringify([await grupoPorCodigo("AA7W"), await fila().then(f => f.filter((i: any) => i.situacao === "executada").length)]);
+      const antes = await retrato();
+      await dono(frase);
+      expect(await retrato(), frase).toBe(antes);
+    }
+    roteiro = [() => ferramenta(["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }]), () => texto("Silencio agora?")];
+    await dono("para de me avisar de obras com atraso até segunda");
+    expect(await q("SELECT 1 FROM dolores_avisos_tipos WHERE tipo = 'obra_atrasada' AND silenciado = true")).toEqual([]);
+    // palavra fora da lista permitida (condição que nenhuma lista de bloqueio conhece) → nada na hora
+    for (const frase of ["vincula o grupo da Emily assim que ela assinar", "vincula o grupo da Emily provisoriamente", "vincula o grupo da Emily mais tarde",
+      "vincula o grupo da Emily e cobra o boleto da Maria", "vincula o grupo da Emily futuramente"]) {
+      roteiro = [() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Vinculo agora?")];
+      await dono(frase);
+      expect((await grupoPorCodigo("KHMN")).lead_id, frase).toBeNull();
+    }
+    for (const frase of ["para de me avisar de obras com atraso provisoriamente", "para de me avisar de obras com atraso nesta semana", "silencia os avisos de obras com atraso e cobra a Emily"]) {
+      roteiro = [() => ferramenta(["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }]), () => texto("Silencio agora?")];
+      await dono(frase);
+      expect(await q("SELECT 1 FROM dolores_avisos_tipos WHERE tipo = 'obra_atrasada' AND silenciado = true"), frase).toEqual([]);
+    }
+    roteiro = [() => ferramenta(["silenciar_aviso", { tipo: "obra_atrasada", silenciar: true }]), () => texto("")];
+    await dono("para de me avisar de obras com atraso");
+    expect(await q("SELECT 1 FROM dolores_avisos_tipos WHERE tipo = 'obra_atrasada' AND silenciado = true")).toHaveLength(1);
+    // sem condição, a ordem continua em UMA mensagem
+    roteiro = [() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("")];
+    await dono("vincula o grupo da Emily");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+  });
+
+  it("M-2: fração do conteúdo não vira prazo (\"pra 2/3 do telhado\", \"até 1/3 do valor\")", async () => {
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "pedir orçamento", responsavel: "Bianca", prazo: "2027-03-02" }]), () => texto("Para quando?")];
+    await dono("cria uma tarefa para a Bianca pedir orçamento pra 2/3 do telhado");
+    expect(await tarefas()).toEqual([]);
+    const H = "2026-11-16";
+    for (const msg of ["pedir orçamento pra 2/3 do telhado", "pagar até 1/3 do valor", "cobrar para 3/4 das parcelas", "ver o que o João trouxe hoje", "conferir o que eu paguei hoje",
+      "ver se a Emily quis amanhã"]) expect(dataDitaPeloDono(msg, H), msg).toBeNull();
+    expect(dataDitaPeloDono("pagar até 15/12", H)).toBe("2026-12-15");
+    // a data de prazo fecha o pedido (ou vem seguida da hora)
+    for (const msg of ["pagar até 1/2 salário", "até 15/12 mais ou menos", "ligar até dia 15 e depois cobrar"]) expect(dataDitaPeloDono(msg, H), msg).toBeNull();
+    expect(dataDitaPeloDono("ligar até dia 15/12 às 14h", H)).toBe("2026-12-15");
+  });
+
+  it("M-3: \"lembra a Bianca de ligar pro João\" é recado, não lembrança — nada guardado na hora", async () => {
+    roteiro = [() => ferramenta(["guardar_memoria", { texto: "Bianca de ligar pro João", categoria: "pessoa" }]), () => texto("Quer que eu crie uma tarefa?")];
+    await dono("lembra a Bianca de ligar pro João");
+    expect(await memorias()).toEqual([]);
+    for (const frase of ["lembra a Bianca de ligar pro João", "lembra de pagar o boleto", "guarda o contrato da Emily", "lembra o João do boleto"]) expect(funcaoDoPedido(frase), frase).toBeNull();
+    for (const frase of ["lembra que o Henrique prefere tarde", "lembra aí que o João paga em dia", "guarda que a Emily viaja em dezembro", "lembra", "lembra disso"]) expect(funcaoDoPedido(frase), frase).toBe("guardar_memoria");
+  });
+
+  it("M-4: \"esquece a lembrança do dia\" não escolhe por palavra comum — o nome tem de ser de alguém do cadastro", async () => {
+    const a = await lembranca("Emily prefere pagar no dia 10");
+    for (const frase of ["esquece a lembrança do dia", "esquece a lembrança de pagar", "esquece a lembrança do pagamento"]) {
+      roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("Qual lembrança?")];
+      await dono(frase);
+      expect((await memorias())[0].situacao, frase).toBe("ativa");
+    }
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("")];
+    await dono("esquece a lembrança da Emily");
+    expect((await memorias())[0].situacao).toBe("arquivada");
+  });
+
+  it("B-1: \"longe de ser urgente\", \"zero urgente\", \"urgente nenhum\" + alta → nada na hora; \"tarefa urgente\" e \"é urgente\" no fim valem", async () => {
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "ligar para o João", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Vou criar.")];
+    await dono("cria uma tarefa para a Bianca ligar para o João, longe de ser urgente");
+    expect(await tarefas()).toEqual([]);
+    for (const msg of ["ligar para o João, longe de ser urgente", "urgente nenhum", "pouquíssimo urgente", "zero urgente", "ligar urgente depois", "urgente ou não urgente", "deixa de ser urgente"])
+      expect(prioridadeConfere("alta", msg), msg).toBe(false);
+    expect(prioridadeConfere("alta", "cria uma tarefa urgente para a Bianca ligar")).toBe(true);
+    expect(prioridadeConfere("alta", "cria uma tarefa para a Bianca ligar, é urgente")).toBe(true);
   });
 });

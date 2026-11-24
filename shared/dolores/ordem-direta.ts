@@ -352,8 +352,10 @@ export function textoGravadoDoDono(textoDoModelo: string | null | undefined, par
  * dia dd), como "AAAA-MM-DD" no horário de Imperatriz. Mais de uma data, ou nenhuma → null.
  */
 const MARCADORES_DE_PRAZO = new Set(["ate", "para", "pra", "prazo", "vence", "vencimento"]);
-const PASSADO = new Set(["fez", "pagou", "mandou", "enviou", "ligou", "deu", "recebeu", "assinou", "veio", "foi", "chegou", "fizeram", "pagaram", "mandaram", "falou", "disse", "entregou"]);
-const TERMINACAO_DE_PASSADO = /(?:ou|eu|iu|aram|eram|iram)$/;
+const PASSADO = new Set(["fez", "pagou", "mandou", "enviou", "ligou", "deu", "recebeu", "assinou", "veio", "foi", "chegou", "fizeram", "pagaram", "mandaram", "falou", "disse", "entregou",
+  // portão 6 (B-3): passados irregulares
+  "trouxe", "quis", "soube", "teve", "esteve", "pos", "viu", "houve", "coube", "pode", "fiz", "pus", "tive", "estive", "fui", "dei", "vim", "vi", "era", "estava", "tinha", "ficou"]);
+const TERMINACAO_DE_PASSADO = /(?:ou|eu|iu|ei|aram|eram|iram)$/;
 const NAO_SAO_PASSADO = new Set(["estou", "museu", "europeu", "pneu", "chapeu", "plebeu", "ateu"]);
 const MESES_E_SEMANA = /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|segunda|terca|quarta|quinta|sexta|sabado|domingo|que vem|proxim[oa]s?|semana|mes)\b/;
 export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | null {
@@ -376,6 +378,8 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     while (x >= 0 && (ps[x] === "o" || ps[x] === "dia" || ps[x] === "no")) x--;
     return x >= 0 && x >= ps.length - 3 && MARCADORES_DE_PRAZO.has(ps[x]);
   };
+  /** Depois da data não vem mais nada — ou só a hora ("às 14h", "14:30") e cortesia. */
+  const fechaOPedido = (fim: number) => normalizarNome(raw.slice(fim)).split(" ").filter(Boolean).every(t => /^(?:as|\d{1,2}h?|\d{1,2}h\d{2}|\d{2}|h|hs|horas|por|favor|sem|falta)$/.test(t));
   const achadas: Array<string | null> = [];
   // "\b" do JavaScript não vê letra acentuada ("amanhã" termina em "ã"): a fronteira é conferida pela classe de letras
   for (const x of Array.from(raw.matchAll(/(?<![0-9A-Za-zÀ-ÖØ-öø-ÿ])(hoje|amanh[aã])(?![0-9A-Za-zÀ-ÖØ-öø-ÿ])/gi))) {
@@ -387,6 +391,8 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     const ps = antesDe(x.index ?? 0);
     if (temPassado(ps) || !comMarcador(x[0].toLowerCase().startsWith("dia") ? [...ps, "dia"] : ps)) return null;
     usadas.add(x.index ?? 0);
+    // Portão 6 (M-2): "2/3 do telhado", "1/2 salário" é fração, não data — a data de prazo FECHA o pedido (ou vem seguida da hora)
+    if (!fechaOPedido((x.index ?? 0) + x[0].length)) return null;
     const d = Number(x[1]); const m = Number(x[2]);
     let a = x[3] ? Number(x[3].length === 2 ? `20${x[3]}` : x[3]) : ano;
     let r = iso(a, m, d);
@@ -397,6 +403,7 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     if (usadas.has(x.index ?? 0)) continue;
     const ps = antesDe(x.index ?? 0);
     if (temPassado(ps) || !comMarcador([...ps, "dia"])) return null;
+    if (!fechaOPedido((x.index ?? 0) + x[0].length)) return null;
     const d = Number(x[1]);
     let r = d >= dia ? iso(ano, mes, d) : null;
     if (!r) r = mes === 12 ? iso(ano + 1, 1, d) : iso(ano, mes + 1, d);
@@ -432,10 +439,14 @@ export function prazoConfere(prazoDoModelo: unknown, mensagem: string, hojeIso: 
 export function prioridadeConfere(prioridade: unknown, mensagem: string): boolean {
   if (prioridade === undefined || prioridade === null || prioridade === "media") return true;
   if (prioridade !== "alta") return false;
-  const n = normalizarNome(String(mensagem).replace(/ñ/gi, "n"));
-  // Portão 4 (B-1): "pouco/menos/nada/nem/tão/muito pouco urgente" não é urgente
-  if (/\b(?:pouco|menos|nada|nem|tao)(?: \S+)? urgente\b/.test(n)) return false;
-  return /\burgente\b/.test(n) && !n.split(" ").some(t => TOKENS_DE_NEGACAO.has(t));
+  const ts = normalizarNome(String(mensagem).replace(/ñ/gi, "n")).split(" ").filter(Boolean);
+  if (ts.some(t => TOKENS_DE_NEGACAO.has(t))) return false;
+  // Portão 6 (B-1): "urgente" uma vez só e em POSIÇÃO de prioridade — "tarefa urgente", ou fechando a mensagem depois de "é"/"muito".
+  // "longe de ser urgente", "zero urgente", "urgente nenhum", "pouco urgente" não passam
+  const onde = ts.flatMap((t, i) => (t === "urgente" ? [i] : []));
+  if (onde.length !== 1) return false;
+  const i = onde[0];
+  return ts[i - 1] === "tarefa" || ts[i - 1] === "tarefas" || (i === ts.length - 1 && (ts[i - 1] === "e" || ts[i - 1] === "muito") && ts[i - 2] !== "ser");
 }
 
 // ── Portão de segurança E11, 4ª rodada: FUNÇÃO e TEXTO pelo CÓDIGO (a chamada do modelo é só o gatilho e tem de coincidir) ──
@@ -498,7 +509,13 @@ export function funcaoDoPedido(antes: string | null | undefined): string | null 
   if (/^(?:para|pare|parar|deixa|deixe|chega) de (?:me |te )?avis/.test(frase) || /^silenci/.test(v) || /^(?:volta|volte|voltar) a (?:me |te )?avis/.test(frase) || /^relig/.test(v)) return "silenciar_aviso";
   if (/^(?:cri(?:a|e|ar)|abr(?:e|a|ir))$/.test(v)) return resto.slice(0, 3).some(t => t === "tarefa" || t === "tarefas") ? "criar_tarefa" : null;
   if (/^(?:anot(?:a|e|ar)|registr(?:a|e|ar))$/.test(v)) return "registrar_acompanhamento";
-  if (/^(?:lembr(?:a|e|ar)|guard(?:a|e|ar)|memoriz(?:a|e|ar)|grav(?:a|e|ar))$/.test(v)) return "guardar_memoria";
+  // Portão 6 (M-3): guardar lembrança só com "que" logo depois do verbo (ou só o verbo, com o texto ditado depois de ":") —
+  // "lembra a Bianca de ligar pro João" é um recado para alguém, não uma lembrança
+  if (/^(?:lembr(?:a|e|ar)|guard(?:a|e|ar)|memoriz(?:a|e|ar)|grav(?:a|e|ar))$/.test(v)) {
+    const proxima = resto[0] === "ai" ? resto[1] : resto[0];
+    const fechaComIsso = (proxima === "disso" || proxima === "isso") && resto.length === (resto[0] === "ai" ? 2 : 1); // "lembra disso: …"
+    return proxima === undefined || proxima === "que" || fechaComIsso ? "guardar_memoria" : null;
+  }
   if (/^esquec(?:e|a|er)$/.test(v)) return "esquecer_memoria";
   if (/^(?:apag(?:a|ue|ar)|remov(?:e|a|er)|tir(?:a|e|ar))$/.test(v)) return temLembranca ? "esquecer_memoria" : null;
   if (/^(?:corrig(?:e|ir)|corrija)$/.test(v)) return "corrigir_memoria";
@@ -512,9 +529,14 @@ export function funcaoDoPedido(antes: string | null | undefined): string | null 
   return null;
 }
 
-/** (2) A moldura do pedido: palavras que só enquadram (nunca o texto gravado). Lista FECHADA. */
-const MOLDURA = new Set(["uma", "um", "a", "o", "as", "os", "tarefa", "tarefas", "pra", "para", "pro", "ao", "de", "da", "do", "na", "no", "ai", "me", "disso", "urgente"]);
+/**
+ * (2) A moldura do pedido — portão 6 (I-1): GRAMÁTICA fechada, não uma lista de palavras soltas. Artigo/preposição (`PONTE`) só sai
+ * quando leva, em seguida, a "tarefa" (pedido de tarefa) ou a um NOME provado; sozinho, é conteúdo e fica ("a não ser que…", "a menos
+ * que…", "a partir de…", "de jeito nenhum…", "no máximo…" ficam inteiros).
+ */
+const PONTE = new Set(["a", "o", "as", "os", "um", "uma", "para", "pra", "pro", "ao", "na", "no", "da", "do", "de"]);
 const ARTIGOS = new Set(["a", "o", "as", "os", "um", "uma"]);
+const VERBO_DE_TAREFA = /^(?:cri(?:a|e|ar)|abr(?:e|a|ir))$/;
 /** Portão 5 (I-1): palavra RESTRITIVA logo depois do verbo/nome NUNCA é moldura — é o começo do texto gravado. */
 export const RESTRITIVAS: ReadonlySet<string> = new Set(["sem", "so", "nao", "nem", "nunca", "jamais", "exceto", "salvo", "apenas", "somente", "se", "caso", "quando", "depois", "antes", "n", "naum", "num", "nada"]);
 /**
@@ -533,31 +555,48 @@ export const MIN_PALAVRAS_TEXTO_DA_MOLDURA = 2;
 export type TextoDaMoldura = { texto: string; moldura: string; tokensDaMoldura: string[] } | null;
 
 /**
- * (2) TEXTO PELO CÓDIGO, sem ":": o que sobra da mensagem, ATÉ O FIM, depois de tirada a MOLDURA inicial — o vocativo, o verbo da função,
- * as palavras de `MOLDURA` e os NOMES provados (responsável/cliente) logo depois do verbo/preposição; depois de "que" só saem os
- * artigos ("anota que a Emily mandou o RG" → "Emily mandou o RG": o nome fica). Palavra RESTRITIVA ("sem", "só", "se"…) nunca é
- * moldura. Vazio, menos de 2 palavras, dêitico de pedido ou "tarefa que…" → null (confirmação). Portão 5 (I-1): a moldura tirada é
- * conferida — a sequência normalizada dela tem de ser EXATAMENTE a dos tokens consumidos, senão null.
+ * (2) TEXTO PELO CÓDIGO, sem ":": o que sobra da mensagem, ATÉ O FIM, depois de tirada a MOLDURA inicial, que é SÓ isto, nesta ordem:
+ *   vocativo curto · o verbo da função · "aí" · [ponte + "tarefa(s)" + "urgente"] (só em pedido de tarefa) · [ponte + NOME provado]
+ *   (cada nome uma vez, começando pelo primeiro nome da pessoa) · "que".
+ * `ponte` = até 3 artigos/preposições (`PONTE`) que LEVAM a "tarefa" ou a um nome provado; sem isso, a ponte é conteúdo e o texto
+ * começa nela. Depois de "que" o texto começa na palavra seguinte (o artigo fica). Palavra RESTRITIVA ("sem", "só", "se"…) nunca é
+ * moldura. Vazio, menos de 2 palavras, dêitico de pedido ou "tarefa que…" → null (confirmação). A moldura tirada é conferida: a
+ * sequência normalizada dela tem de ser EXATAMENTE a dos tokens consumidos, senão null.
  */
 export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<readonly string[]> = []): TextoDaMoldura {
   const toks = tokensDoPedido(mensagem);
   let k = tokensDeVocativo(toks.map(t => t.n));
+  if (k >= toks.length) return null;
+  const pedidoDeTarefa = VERBO_DE_TAREFA.test(toks[k].n);
   k++; // o verbo da função
-  let depoisQue = false;
+  if (toks[k]?.n === "ai") k++;
+  let tarefaVista = false;
+  const usados = new Set<number>();
   while (k < toks.length) {
     const n = toks[k].n;
     if (RESTRITIVAS.has(n)) break;
-    if (depoisQue) { if (ARTIGOS.has(n)) { k++; continue; } break; }
-    // "tarefa que o cliente pediu…" (oração relativa sobre a tarefa) aponta para algo fora da mensagem → confirmação
-    if (n === "que") { if (k > 0 && /^tarefas?$/.test(toks[k - 1].n)) return null; depoisQue = true; k++; continue; }
-    if (MOLDURA.has(n)) { k++; continue; }
-    const nome = nomesProvados.find(p => p.length && n === p[0]);
-    if (nome) {
-      let x = 0;
-      while (k < toks.length && x < nome.length && toks[k].n === nome[x]) { k++; x++; }
+    if (n === "que") {
+      // "tarefa que o cliente pediu…" (oração relativa sobre a tarefa) aponta para algo fora da mensagem → confirmação
+      if (/^tarefas?$/.test(toks[k - 1].n)) return null;
+      k++;
+      break;
+    }
+    let x = k;
+    while (x < toks.length && x < k + 3 && PONTE.has(toks[x].n)) x++;
+    if (x >= toks.length) break;
+    const alvo = toks[x].n;
+    if (pedidoDeTarefa && !tarefaVista && (alvo === "tarefa" || alvo === "tarefas")) {
+      tarefaVista = true;
+      k = x + 1;
+      if (toks[k]?.n === "urgente") k++;
       continue;
     }
-    break;
+    const iNome = nomesProvados.findIndex((p, i) => !usados.has(i) && p.length > 0 && p[0] === alvo && alvo.length >= 3);
+    if (iNome < 0) break;
+    usados.add(iNome);
+    const nome = nomesProvados[iNome];
+    k = x;
+    for (let y = 0; k < toks.length && y < nome.length && toks[k].n === nome[y]; y++) k++;
   }
   if (k >= toks.length) return null;
   const inicio = toks[k].inicio;
@@ -569,4 +608,39 @@ export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<
   const palavras = tokensDoPedido(texto).map(t => t.n);
   if (palavras.length < MIN_PALAVRAS_TEXTO_DA_MOLDURA || temDeitico(palavras)) return null;
   return { texto, moldura, tokensDaMoldura };
+}
+
+/**
+ * Portão 6 (M-1): palavras de CONDIÇÃO ou de TEMPO. Numa ordem que não grava texto (grupo, aviso), qualquer uma delas depois do verbo
+ * tira a ordem direta — "vincula o grupo da Emily só se ela assinar", "ignora o grupo … depois que a obra terminar", "… até segunda".
+ */
+export const CONDICAO_OU_TEMPO: ReadonlySet<string> = new Set([...Array.from(RESTRITIVAS), "ate", "enquanto", "desde", "durante", "apos", "amanha", "hoje", "dia", "dias",
+  "semana", "mes", "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo", "hora", "horas", "minuto", "minutos", "mas", "porem", "menos", "talvez", "ainda"]);
+/** As palavras do pedido depois do vocativo e do verbo que o abre (portão 6: conferência por LISTA PERMITIDA nas ordens sem texto). */
+export function palavrasDepoisDoVerbo(antes: string | null | undefined): string[] {
+  const ts = tokensDoPedido(antes).map(t => t.n);
+  return ts.slice(tokensDeVocativo(ts) + 1);
+}
+/**
+ * Portão 6 (M-1), regra ESTRUTURAL: numa ordem que não grava texto, depois do verbo só pode haver palavra de ligação desta lista, o
+ * nome/código do alvo (quem chama passa) e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente", "mais tarde")
+ * → confirmação. Lista permitida, nunca lista de bloqueio.
+ */
+export const LIGACAO_DE_GRUPO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "ao", "aos", "na", "no", "em", "com", "como", "sendo", "e",
+  "grupo", "grupos", "cliente", "clientes", "obra", "pos", "venda", "atendimento", "engenharia", "para", "pra", "pro", "n", "numero", "esse", "essa", "este", "esta", "ai", "la",
+  "agora", "ja", "por", "favor", "lado", "resposta", "respostas", "responder", "dela", "dele", "tambem", "vincular", "vincula", "ligar", "liga"]);
+export const LIGACAO_DE_AVISO: ReadonlySet<string> = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "me", "te", "em", "com", "e", "sobre", "avisar", "avisa", "avise",
+  "aviso", "avisos", "agora", "ja", "por", "favor", "tipo", "esse", "essa", "esses", "essas"]);
+export function soPalavrasPermitidas(antes: string | null | undefined, ligacao: ReadonlySet<string>, doAlvo: Iterable<string>): boolean {
+  const alvo = new Set(doAlvo);
+  return palavrasDepoisDoVerbo(antes).every(t => ligacao.has(t) || alvo.has(t) || /^\d+$/.test(t));
+}
+export function temCondicaoOuTempo(antes: string | null | undefined): boolean {
+  const ts = tokensDoPedido(antes).map(t => t.n);
+  return ts.slice(tokensDeVocativo(ts) + 1).some(t => CONDICAO_OU_TEMPO.has(t));
+}
+
+/** Os tokens de um texto sem os artigos (comparação de lembrança, portão 6 I-2): "sem", "com", "só", "não" CONTAM. */
+export function tokensSemArtigo(texto: string | null | undefined): string[] {
+  return Array.from(new Set(tokensDoPedido(texto).map(t => t.n).filter(t => !ARTIGOS.has(t))));
 }
