@@ -101,7 +101,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
           // QA E11 (M3): grupo em que OUTRA pessoa (ou não se sabe quem) pôs a Dolores — o nome é texto de terceiro: não liga sozinha;
           // UMA pergunta curta com o cliente que o nome aponta ("pode"/"sim" confirma, pela proposta de sempre)
           if (auto.leadId && !grupoDoDono(g)) {
-            const p = await proporVinculo(g, auto.leadId, origem);
+            const p = await proporVinculo(g, auto.leadId, "cliente", origem);
             if (p) return { ok: true, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. Pelo nome, ele parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
           }
           if (auto.leadId && grupoDoDono(g)) {
@@ -144,8 +144,11 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
         }
         // QA E11 (M3): grupo de terceiro — o cliente que o nome aponta vai como UMA pergunta, nunca ligado sozinho
         if (!grupoDoDono(g) && origem.via === "whatsapp") {
-          const p = await proporVinculo(g, auto.leadId, origem);
+          const p = await proporVinculo(g, auto.leadId, d.tipo, origem);
           if (p) return { ok: false, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: pelo nome, o grupo ${nomeDoGrupo} parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
+          // Codex #341 (P1): sem a pergunta de confirmação (ex.: o grupo ainda precisa ser aceito), o grupo de terceiro NUNCA é ligado sozinho
+          await auditar("recusada", "grupo de terceiro: a proposta de vínculo não pôde ser criada; nada mudou", { grupoId: g.id });
+          return { ok: false, grupoId: g.id, texto: `Dolores: não liguei o grupo ${nomeDoGrupo} a nenhum cliente. Como outra pessoa me colocou nele, primeiro aceite o grupo («grupo ${g.codigo ?? "CÓDIGO"} aceitar») e depois me diga o tipo. Nada mudou.` };
         }
         d = { ...d, numero: auto.leadId };
       }
@@ -243,7 +246,7 @@ export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<Orig
  * QA E11 (M3) — a proposta de ligar um grupo de TERCEIRO ao cliente que o nome aponta: o MESMO item da fila e a MESMA pergunta do sistema
  * da conversa (resumo exato + hash; "pode"/"sim" confirma — `tratarConfirmacao`). Falhou → null (quem chama segue a pergunta pelo nome).
  */
-async function proporVinculo(g: DoloresGrupo, leadId: number, origem: OrigemDecisao): Promise<{ pergunta: string; pendenciaId: number; nome: string | null } | null> {
+async function proporVinculo(g: DoloresGrupo, leadId: number, tipo: "cliente" | "pos_atendimento", origem: OrigemDecisao): Promise<{ pergunta: string; pendenciaId: number; nome: string | null } | null> {
   if (origem.via !== "whatsapp") return null;
   try {
     const [{ prepararClassificarGrupo }, { porNaFila }, { abrirPendencia }, { usuarioDolores }, { VALIDADE_ITEM_CONFIRMAVEL_MS }] = await Promise.all([
@@ -251,7 +254,7 @@ async function proporVinculo(g: DoloresGrupo, leadId: number, origem: OrigemDeci
     const agora = origem.agora ?? new Date();
     const autorId = origem.autor ?? await usuarioDolores();
     const ctx = { agora, autorId, mensagemId: origem.mensagemId, pedidoId: `wa:${origem.mensagemId}`, aprovacaoId: null, motivoContaminacao: null, validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS };
-    const preparo = await prepararClassificarGrupo({ grupoId: g.id, tipo: "cliente", leadId }, ctx);
+    const preparo = await prepararClassificarGrupo({ grupoId: g.id, tipo, leadId }, ctx);
     const criados = await porNaFila("classificar_grupo", preparo, ctx);
     const p = await abrirPendencia({ mensagemId: origem.mensagemId, codigos: criados.map(c => c.codigo), agora, autor: autorId });
     if (!p) return null;

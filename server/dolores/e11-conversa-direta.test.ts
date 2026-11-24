@@ -1806,6 +1806,29 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     });
   });
 
+  it("Codex #341 (P1): \"vincula o grupo KHMN como cliente 5\" + leadId do nome do grupo → nada na hora (número no pedido)", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+    const antes = await retrato();
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Confirma?"));
+    await dono("vincula o grupo KHMN como cliente 5");
+    expect(await retrato()).toBe(antes);
+  });
+
+  it("Codex #341 (P1): grupo de terceiro ainda RECUSADO + \"grupo KHMN 1\" → não é ligado nem aceito sozinho", async () => {
+    await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO", situacao: "recusado", adicionadoPor: "outra_pessoa" });
+    await dono("grupo KHMN 1");
+    expect(await grupoPorCodigo("KHMN")).toMatchObject({ lead_id: null, situacao_confirmacao: "recusado" });
+    expect(ultima()).toMatch(/Nada mudou/);
+  });
+
+  it("Codex #341 (P2): grupo de terceiro já aceito + \"grupo KHMN 2\" e \"sim\" → grava PÓS-ATENDIMENTO (o tipo pedido)", async () => {
+    await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO SOUSA", adicionadoPor: "outra_pessoa", prova: "aceito_pelo_dono" });
+    await dono("grupo KHMN 2");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    await dono("sim");
+    expect(await grupoPorCodigo("KHMN")).toMatchObject({ tipo: "pos_atendimento", lead_id: EMILY });
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();

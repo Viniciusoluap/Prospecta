@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, codigoDigitadoDeProposito, PONTE, FECHO_DO_DITADO, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, palavrasDepoisDoVerbo, codigoDigitadoDeProposito, PONTE, FECHO_DO_DITADO, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -353,6 +353,8 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
       // Portão 11 (R3/R4): obra escolhida junto com o grupo é um SEGUNDO alvo (Opção A: um alvo só) → confirmação, como "cliente N"
       if (a.obraId !== undefined && a.obraId !== null) return nao("grupo com obra: segundo alvo pede a confirmação");
     }
+    // Codex #341 (P1): número solto que não é do nome/código do grupo ("…como cliente 5") → ele apontou outro alvo: confirmação
+    if (palavrasDepoisDoVerbo(textoDoDono).some(t => /^\d+$/.test(t) && !doAlvo.includes(t))) return nao("número no pedido de grupo: pede a confirmação");
     if (!soPalavrasPermitidas(textoDoDono, LIGACAO_DE_GRUPO, doAlvo.filter(Boolean))) return nao("palavra fora do pedido de grupo (condição, prazo ou outro assunto)");
     if (funcao !== "classificar_grupo") return { ok: true };
     const tipo = String(a.tipo);
