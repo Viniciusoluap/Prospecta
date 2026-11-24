@@ -353,6 +353,8 @@ export function textoGravadoDoDono(textoDoModelo: string | null | undefined, par
  */
 const MARCADORES_DE_PRAZO = new Set(["ate", "para", "pra", "prazo", "vence", "vencimento"]);
 const PASSADO = new Set(["fez", "pagou", "mandou", "enviou", "ligou", "deu", "recebeu", "assinou", "veio", "foi", "chegou", "fizeram", "pagaram", "mandaram", "falou", "disse", "entregou"]);
+const TERMINACAO_DE_PASSADO = /(?:ou|eu|iu|aram|eram|iram)$/;
+const NAO_SAO_PASSADO = new Set(["estou", "museu", "europeu", "pneu", "chapeu", "plebeu", "ateu"]);
 const MESES_E_SEMANA = /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|segunda|terca|quarta|quinta|sexta|sabado|domingo|que vem|proxim[oa]s?|semana|mes)\b/;
 export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | null {
   const n = normalizarNome(mensagem.replace(/\//g, " / "));
@@ -367,14 +369,16 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
   // Portão 5 (B-1): a data só é PRAZO com marcador colado antes ("até", "para/pra [o dia]", "prazo", "vence"), nunca depois de um verbo no
   // passado ("o João fez dia 10", "pagou 3/4"); data que não é prazo (sem marcador) → o código não decide (null)
   const antesDe = (i: number) => normalizarNome(raw.slice(Math.max(0, i - 40), i)).split(" ").filter(Boolean);
-  const temPassado = (ps: readonly string[]) => ps.slice(-5).some(t => PASSADO.has(t));
+  // verbo no passado antes da data ("quitou hoje", "recebeu amanhã cedo", "saíram dia 10"): a lista E a terminação (ou/eu/iu/aram/eram/iram)
+  const temPassado = (ps: readonly string[]) => ps.slice(-5).some(t => PASSADO.has(t) || (t.length >= 4 && TERMINACAO_DE_PASSADO.test(t) && !NAO_SAO_PASSADO.has(t)));
   const comMarcador = (ps: readonly string[]) => {
     let x = ps.length - 1;
     while (x >= 0 && (ps[x] === "o" || ps[x] === "dia" || ps[x] === "no")) x--;
     return x >= 0 && x >= ps.length - 3 && MARCADORES_DE_PRAZO.has(ps[x]);
   };
   const achadas: Array<string | null> = [];
-  for (const x of Array.from(raw.matchAll(/\b(hoje|amanh[aã])\b/gi))) {
+  // "\b" do JavaScript não vê letra acentuada ("amanhã" termina em "ã"): a fronteira é conferida pela classe de letras
+  for (const x of Array.from(raw.matchAll(/(?<![0-9A-Za-zÀ-ÖØ-öø-ÿ])(hoje|amanh[aã])(?![0-9A-Za-zÀ-ÖØ-öø-ÿ])/gi))) {
     if (temPassado(antesDe(x.index ?? 0))) return null;
     achadas.push(/^hoje$/i.test(x[1]) ? hojeIso : iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
   }
@@ -470,9 +474,10 @@ function tokensDeVocativo(ts: readonly string[]): number {
 /** Portão 5 (I-3): logo depois do verbo de grupo vem "grupo(s)" ou o código do grupo (aceitando artigo/demonstrativo). */
 const ANTES_DE_GRUPO = new Set(["o", "a", "os", "as", "esse", "essa", "este", "esta", "aquele", "aquela", "meu", "nosso"]);
 const CODIGO_DE_GRUPO_NO_TEXTO = /^[acdefghjkmnprtuvwxy234679]{4}$/;
-function grupoLogoDepois(ts: readonly string[], j: number): boolean {
+const DA_RESPOSTA = new Set(["resposta", "respostas", "responder", "de", "do", "da", "no", "na", "em"]);
+function grupoLogoDepois(ts: readonly string[], j: number, tambem?: ReadonlySet<string>): boolean {
   let x = j + 1;
-  while (x < ts.length && x <= j + 2 && ANTES_DE_GRUPO.has(ts[x])) x++;
+  while (x < ts.length && x <= j + (tambem ? 5 : 2) && (ANTES_DE_GRUPO.has(ts[x]) || tambem?.has(ts[x]))) x++;
   return x < ts.length && (ts[x] === "grupo" || ts[x] === "grupos" || (CODIGO_DE_GRUPO_NO_TEXTO.test(ts[x]) && /\d|[^aeiou]{4}/.test(ts[x])));
 }
 
@@ -502,7 +507,8 @@ export function funcaoDoPedido(antes: string | null | undefined): string | null 
   if (/^(?:vincul\w*|lig(?:a|ue|ar)|classific\w*|defin(?:a|e|ir)|coloc(?:a|ar)|coloque|marc(?:a|ar)|marque|troc(?:a|ar)|troque|associ\w*|junt(?:a|ar))$/.test(v)) return grupo ? "classificar_grupo" : null;
   if (/^(?:ignor\w*|desativ\w*)$/.test(v) || /^deix\w* de lado/.test(frase)) return grupo || /^deix\w* de lado (?:o |a )?grupo/.test(frase) ? "ignorar_grupo" : null;
   if (/^aceit\w*$/.test(v)) return grupo ? "aceitar_grupo" : null;
-  if (/^(?:deslig\w*|cal(?:a|e|ar))$/.test(v) || /^par\w* de respond/.test(frase)) return resto.includes("grupo") ? "ligar_resposta_grupo" : null;
+  // desligar a resposta: "grupo"/o código logo depois do verbo, aceitando só "a resposta do/no", "de responder no" no meio
+  if (/^(?:deslig\w*|cal(?:a|e|ar))$/.test(v) || /^par\w* de respond/.test(frase)) return grupoLogoDepois(ts, j, DA_RESPOSTA) ? "ligar_resposta_grupo" : null;
   return null;
 }
 

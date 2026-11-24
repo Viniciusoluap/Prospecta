@@ -14,9 +14,9 @@ import { configuracaoAnthropicPainel } from "../_core/anthropic-painel.js";
 import { ENV } from "../_core/env.js";
 import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
-import { descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
+import { normalizarNome, descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
+  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -804,7 +804,9 @@ describe("portão de segurança E11, 3ª rodada — regra ESTRUTURAL (frases exa
     await cria("cria uma tarefa urgente para a Bianca ligar para o João", { titulo: "ligar para o João", prioridade: "critica" });
     await naoCriou();
     expect(dataDitaPeloDono("amanhã", "2026-11-16")).toBe("2026-11-17");
-    expect(dataDitaPeloDono("dia 15/12", "2026-11-16")).toBe("2026-12-15");
+    // portão 5 (B-1): a data só é prazo com marcador ("até", "para", "prazo", "vence")
+    expect(dataDitaPeloDono("dia 15/12", "2026-11-16")).toBeNull();
+    expect(dataDitaPeloDono("até dia 15/12", "2026-11-16")).toBe("2026-12-15");
     expect(dataDitaPeloDono("hoje ou amanhã", "2026-11-16")).toBeNull();
     expect(prazoConfere("2026-11-17T10:00", "amanhã", "2026-11-16")).toBe(false); // hora que ele não escreveu
     expect(prioridadeConfere("alta", "urgente, não")).toBe(false);
@@ -944,5 +946,209 @@ describe("portão de segurança E11, 4ª rodada — FUNÇÃO e TEXTO decididos p
     roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: mem.id }]), () => texto(""));
     await dono("esquece a lembrança do Henrique");
     expect((await memorias())[0].situacao).toBe("arquivada");
+  });
+});
+
+describe("portão de segurança E11, 5ª rodada — tokenização única, limite sem corte, grupo só com \"grupo\", lembrança sem palavra comum (frases exatas)", () => {
+  const khmn = () => grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+  const lembranca = async (t: string) => {
+    await banco.pg.exec(`INSERT INTO dolores_memoria_longa (texto, categoria, origem, situacao) VALUES ('${t}', 'pessoa', 'conversa', 'ativa')`);
+    return (await memorias()).at(-1);
+  };
+
+  it("I-1: \"lembra,sem desconto para a Emily\" — a vírgula colada não cola palavras; o \"sem\" fica no texto gravado", async () => {
+    roteiro.push(() => ferramenta(["guardar_memoria", { texto: "desconto para a Emily", categoria: "regra_trabalho" }]), () => texto(""));
+    await dono("lembra,sem desconto para a Emily");
+    const gravadas = (await memorias()).map((m: any) => m.texto);
+    expect(gravadas).toEqual(["sem desconto para a Emily"]);
+    expect(gravadas).not.toContain("desconto para a Emily");
+    expect(textoPelaMoldura("lembra,sem desconto para a Emily")).toMatchObject({ texto: "sem desconto para a Emily", tokensDaMoldura: ["lembra"] });
+  });
+
+  it("I-1: \"Oi,anota só se a Emily assinar o contrato\" — a condição (\"só se\") nunca é moldura", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "se a Emily assinar o contrato" }]), () => texto(""));
+    await dono("Oi,anota só se a Emily assinar o contrato");
+    const gravadas = (await anotacoes()).map((a: any) => a.description);
+    expect(gravadas).toEqual(["só se a Emily assinar o contrato"]);
+    expect(gravadas).not.toContain("se a Emily assinar o contrato");
+    expect(textoPelaMoldura("Oi,anota só se a Emily assinar o contrato")).toMatchObject({ texto: "só se a Emily assinar o contrato", tokensDaMoldura: ["oi", "anota"] });
+  });
+
+  it("I-1: a palavra restritiva logo depois do verbo, do nome ou da moldura abre o texto — nunca é engolida (com e sem espaço na pontuação)", () => {
+    expect(textoPelaMoldura("cria uma tarefa para a Bianca,sem pagar o boleto", [["bianca", "souza"]])?.texto).toBe("sem pagar o boleto");
+    expect(textoPelaMoldura("cria uma tarefa pra Bianca só depois do contrato", [["bianca", "souza"]])?.texto).toBe("só depois do contrato");
+    expect(textoPelaMoldura("anota;nunca dar desconto")?.texto).toBe("nunca dar desconto");
+    expect(textoPelaMoldura("lembra que,se a Emily atrasar, cobrar multa")?.texto).toBe("se a Emily atrasar, cobrar multa");
+    // o tokenizador é o mesmo do `normalizarNome`: pontuação colada separa
+    expect(tokensDoPedido("Oi,anota só").map(t => t.n)).toEqual(["oi", "anota", "so"]);
+    expect(funcaoDoPedido("Oi,anota só se a Emily assinar")).toBe("registrar_acompanhamento");
+    expect(funcaoDoPedido("lembra,sem desconto")).toBe("guardar_memoria");
+  });
+
+  it("I-1 (propriedade): moldura + texto gravado reconstroem a mensagem, e nenhum token restritivo fica na moldura", () => {
+    const vocativos = ["", "Oi", "Dolores", "Bom dia", "Por favor"];
+    const verbos = ["anota", "lembra", "registra", "guarda", "cria uma tarefa para a Bianca", "cria tarefa pra Bianca", "anota na Emily que", "lembra que a"];
+    const juntas = [" ", ",", ", ", ";", ". ", " - ", "!"];
+    const caudas = ["sem desconto para a Emily", "só se a Emily assinar o contrato", "não ligar antes das 10", "ligar pro cartório, sem pagar o boleto", "Emily mandou o RG",
+      "nunca dar desconto", "se chover, adiar a obra", "apenas depois de eu confirmar", "o João pagou 3/4 da parcela", "exceto o lote 4", "caso o cliente ligue, avisar",
+      "a obra só começa depois do alvará", "somente com autorização", "quando o banco liberar, avisar a Emily", "nada de desconto", "pagar o boleto so depois de eu confirmar"];
+    const nomes = [["bianca", "souza"], ["emily", "victoria", "brito", "sousa"]];
+    let conferidas = 0;
+    for (const voc of vocativos) for (const verbo of verbos) for (const j1 of juntas) for (const j2 of juntas) for (const cauda of caudas) {
+      const mensagem = `${voc ? voc + j1 : ""}${verbo}${j2}${cauda}`;
+      const t = textoPelaMoldura(mensagem, nomes);
+      if (!t) continue; // sem texto pelo código → confirmação (falha fechada)
+      conferidas++;
+      const reconstruida = `${normalizarNome(t.moldura)} ${normalizarNome(t.texto)}`.trim();
+      expect(reconstruida, mensagem).toBe(normalizarNome(mensagem));
+      expect(t.tokensDaMoldura.some(x => RESTRITIVAS.has(x)), mensagem).toBe(false);
+      expect(normalizarNome(t.moldura), mensagem).toBe(t.tokensDaMoldura.join(" "));
+      // a primeira palavra restritiva da mensagem está SEMPRE no texto gravado
+      const primeira = tokensDoPedido(mensagem).find(x => RESTRITIVAS.has(x.n));
+      if (primeira) expect(tokensDoPedido(t.texto).map(x => x.n), mensagem).toContain(primeira.n);
+      expect(mensagem.endsWith(t.texto) || mensagem.replace(/[\s.,;:!\-]+$/, "").endsWith(t.texto), mensagem).toBe(true);
+    }
+    expect(conferidas).toBeGreaterThan(3000);
+  });
+
+  it("I-2: título sem \":\" acima de 150 caracteres → nada na hora e nada cortado (o final \"só depois que eu confirmar\" não se perde)", async () => {
+    const longo = `ligar para o cartório do segundo ofício e pedir a certidão de inteiro teor da matrícula do lote 4 da quadra 18 do loteamento, conferir os dados do proprietário e pagar a taxa só depois que eu confirmar`;
+    expect(longo.length).toBeGreaterThan(150);
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: longo.slice(0, 150), responsavel: "Bianca" }]), () => texto("Ficou longo; posso criar?"));
+    await dono(`cria uma tarefa para a Bianca ${longo}`);
+    expect(await tarefas()).toEqual([]);
+    expect(await q("SELECT title FROM tasks WHERE title LIKE 'ligar para o cartório do segundo%'")).toEqual([]);
+    // no limite (150) vai na hora, inteiro
+    const justo = `${"conferir a certidão do lote 4 ".repeat(5)}só depois que eu confirmar`.slice(-150).trim();
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "conferir", responsavel: "Bianca" }]), () => texto(""));
+    await dono(`cria uma tarefa para a Bianca ${justo}`);
+    expect((await tarefas()).map((t: any) => t.title)).toEqual([justo]);
+    expect(ultima()).toContain("só depois que eu confirmar");
+  });
+
+  it("I-2: ditado depois de \":\" maior que o limite da tarefa → nada na hora; a ação nunca corta o título em silêncio", async () => {
+    const ditado = `${"pedir a certidão de inteiro teor no cartório ".repeat(4)}só depois que eu confirmar`.slice(-190).trim();
+    expect(ditado.length).toBeGreaterThan(150);
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: ditado.slice(0, 150), responsavel: "Bianca" }]), () => texto("Ficou longo."));
+    await dono(`cria uma tarefa para a Bianca: ${ditado}`);
+    expect(await tarefas()).toEqual([]);
+    const { criarTarefa } = await import("./acoes/tarefas.js");
+    await expect(criarTarefa({ titulo: "x".repeat(151), responsavel: "Bianca", prioridade: "media" } as never, {} as never)).rejects.toThrow();
+  });
+
+  it("I-3: \"liga pra Emily amanhã e pergunta do RG\" não vincula grupo; verbo de duplo sentido só é de grupo com \"grupo\"/o código logo depois", async () => {
+    const g = await khmn();
+    for (const frase of ["liga pra Emily amanhã e pergunta do RG", "marca a Emily para amanhã", "coloca a Emily na agenda", "define a Emily como prioridade",
+      "troca a Emily de horário", "junta a Emily com o engenheiro", "liga para a Emily e avisa o grupo"]) {
+      roteiro = [() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Certo.")];
+      await dono(frase);
+      expect((await grupoPorCodigo("KHMN")).lead_id, frase).toBeNull();
+      expect(funcaoDoPedido(frase), frase).toBeNull();
+    }
+    for (const frase of ["ignora a Emily", "aceita a Emily", "desliga o alarme e avisa o grupo da Emily"]) expect(funcaoDoPedido(frase), frase).toBeNull();
+    expect((await grupoPorCodigo("KHMN")).ativo).toBe(true);
+    expect(funcaoDoPedido("liga o grupo da Emily")).toBe("classificar_grupo");
+    expect(funcaoDoPedido("vincula o KHMN na Emily")).toBe("classificar_grupo");
+    expect(funcaoDoPedido("ignora esse grupo da Emily")).toBe("ignorar_grupo");
+    expect(funcaoDoPedido("desliga a resposta no grupo da Emily")).toBe("ligar_resposta_grupo");
+    expect(funcaoDoPedido("para de responder no grupo da Emily")).toBe("ligar_resposta_grupo");
+    // o legítimo continua em UMA mensagem
+    roteiro = [() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("")];
+    await dono("vincula o grupo da Emily");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+  });
+
+  it("I-4: esquecer/corrigir nunca escolhe a lembrança por palavra comum (\"dia\", \"prefere\")", async () => {
+    const a = await lembranca("Emily prefere pagar no dia 10");
+    const b = await lembranca("Henrique prefere contato à tarde");
+    for (const [frase, alvo] of [["esquece que o João prefere dia de sol", a], ["esquece que ele prefere assim", b], ["esquece o dia 10", a], ["esquece que prefere", a],
+      ["esquece que o Henrique prefere pagar no dia 10", a]] as const) {
+      roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: alvo.id }]), () => texto("Qual lembrança?")];
+      await dono(frase);
+      expect((await memorias()).map((m: any) => m.situacao), frase).toEqual(["ativa", "ativa"]);
+    }
+    roteiro = [() => ferramenta(["corrigir_memoria", { memoriaId: a.id, texto: "Henrique prefere de manhã" }]), () => texto("Qual?")];
+    await dono("corrige que prefere dia: Henrique prefere contato de manhã");
+    expect((await memorias()).map((m: any) => m.texto)).toEqual(["Emily prefere pagar no dia 10", "Henrique prefere contato à tarde"]);
+    // a lembrança certa pelas palavras de conteúdo dele (nos dois sentidos) vai na hora, mesmo com outra que tem "prefere"
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("")];
+    await dono("esquece que a Emily prefere pagar no dia 10");
+    expect((await memorias()).map((m: any) => m.situacao)).toEqual(["arquivada", "ativa"]);
+    // o modelo aponta OUTRA lembrança que não a das palavras dele → nada
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: b.id }]), () => texto("Qual?")];
+    await dono("esquece que a Emily prefere pagar no dia 10");
+    expect((await memorias())[1].situacao).toBe("ativa");
+  });
+
+  it("I-4: cobertura parcial nunca basta; nome que está em duas → nada na hora; conteúdo exato ou nome próprio único → vai", async () => {
+    const a = await lembranca("Emily prefere reunião de manhã");
+    const b = await lembranca("Emily prefere reunião de manhã na sexta");
+    const h = await lembranca("Henrique atende só à tarde");
+    const situacoes = async () => (await memorias()).map((m: any) => m.situacao);
+    // só parte das palavras (metade ou mais) → nada; o modelo escolhe qualquer uma das duas
+    for (const [frase, alvo] of [["esquece que a Emily prefere reunião", a], ["esquece que a Emily prefere reunião", b], ["esquece a reunião de manhã", a],
+      ["esquece a lembrança da Emily", a], ["esquece a lembrança da Emily", b], ["esquece a lembrança", h], ["esquece a lembrança do Henrique só amanhã", h]] as const) {
+      roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: alvo.id }]), () => texto("Qual das duas?")];
+      await dono(frase);
+      expect(await situacoes(), frase).toEqual(["ativa", "ativa", "ativa"]);
+    }
+    // o conteúdo exato aponta UMA (a outra tem "sexta" a mais)
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: b.id }]), () => texto("Qual?")];
+    await dono("esquece que a Emily prefere reunião de manhã");
+    expect(await situacoes()).toEqual(["ativa", "ativa", "ativa"]); // o modelo apontou a outra → nada
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: a.id }]), () => texto("")];
+    await dono("esquece que a Emily prefere reunião de manhã");
+    expect(await situacoes()).toEqual(["arquivada", "ativa", "ativa"]);
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: h.id }]), () => texto("")];
+    await dono("esquece a lembrança do Henrique");
+    expect(await situacoes()).toEqual(["arquivada", "ativa", "arquivada"]);
+    // lembranças que só diferem por palavra genérica ("obra") são a MESMA para o código → duas → nada na hora
+    const c = await lembranca("João paga no cartório");
+    await lembranca("João paga no cartório da obra");
+    roteiro = [() => ferramenta(["esquecer_memoria", { memoriaId: c.id }]), () => texto("Qual?")];
+    await dono("esquece que o João paga no cartório");
+    expect((await situacoes()).slice(3)).toEqual(["ativa", "ativa"]);
+  });
+
+  it("B-1: data que é CONTEÚDO não vira prazo (\"parcela 3/4\", \"fez dia 10\"); prazo direto só com marcador", async () => {
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "cobrar a parcela", responsavel: "Bianca", prazo: "2027-04-03" }]), () => texto("Para quando?")];
+    await dono("cria uma tarefa para a Bianca cobrar a parcela 3/4 do João");
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "conferir", responsavel: "Bianca", prazo: "2026-12-10" }]), () => texto("Para quando?")];
+    await dono("cria uma tarefa para a Bianca conferir o que o João fez dia 10");
+    expect(await tarefas()).toEqual([]);
+    // sem prazo do modelo, a tarefa sai na hora SEM prazo e com a data dentro do texto
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "cobrar", responsavel: "Bianca" }]), () => texto("")];
+    await dono("cria uma tarefa para a Bianca cobrar a parcela 3/4 do João");
+    expect(await q("SELECT title, due_at FROM tasks WHERE title LIKE 'cobrar a parcela%'")).toEqual([{ title: "cobrar a parcela 3/4 do João", due_at: null }]);
+    // com marcador, o prazo é o do código
+    roteiro = [() => ferramenta(["criar_tarefa", { titulo: "ligar", responsavel: "Bianca", prazo: "2026-12-15" }]), () => texto("")];
+    await dono("cria uma tarefa para a Bianca ligar para o cartório até dia 15/12");
+    const [comPrazo] = await q<any>("SELECT title, due_at FROM tasks WHERE title LIKE 'ligar para o cartório%'");
+    expect(comPrazo.title).toBe("ligar para o cartório até dia 15/12");
+    expect(new Date(comPrazo.due_at).toISOString().slice(0, 10)).toBe("2026-12-15");
+    const H = "2026-11-16";
+    for (const m of ["cobrar a parcela 3/4", "o João fez dia 10", "pagou 3/4", "ligar dia 15/12", "reunião do dia 20", "o cliente pagou hoje", "ela mandou o RG amanhã cedo, foi o que disse"])
+      expect(dataDitaPeloDono(m, H), m).toBeNull();
+    expect(dataDitaPeloDono("ligar até 15/12", H)).toBe("2026-12-15");
+    expect(dataDitaPeloDono("ligar para o dia 20", H)).toBe("2026-11-20");
+    expect(dataDitaPeloDono("o boleto vence dia 5", H)).toBe("2026-12-05");
+    expect(dataDitaPeloDono("prazo 30/11/2026", H)).toBe("2026-11-30");
+    expect(dataDitaPeloDono("ligar amanhã", H)).toBe("2026-11-17");
+    for (const m of ["conferir se a Emily quitou hoje", "ver se o banco liberou amanhã cedo", "os pedreiros saíram dia 10", "o cliente recebeu até dia 10"]) expect(dataDitaPeloDono(m, H), m).toBeNull();
+    expect(dataDitaPeloDono("ligar hoje", H)).toBe(H);
+    expect(prazoConfere("2027-04-03", "cobrar a parcela 3/4 do João", H)).toBe(false);
+  });
+
+  it("usabilidade: \"está\" e \"mesmo\" não bloqueiam; dêitico só com substantivo de pedido ou sozinho no fim", async () => {
+    expect(temDeitico(["emily", "esta", "com", "o", "contrato", "mesmo"])).toBe(false);
+    expect(temDeitico(["ligar", "para", "esse", "cliente"])).toBe(false);
+    expect(temDeitico(["concluir", "aquela", "tarefa"])).toBe(true);
+    expect(temDeitico(["conferir", "isso"])).toBe(true);
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "contrato" }]), () => texto(""));
+    await dono("anota na Emily que o contrato está assinado, é isso mesmo");
+    expect((await anotacoes()).map((a: any) => a.description)).toEqual(["contrato está assinado, é isso mesmo"]); // depois de "que" só o artigo sai
+    roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "concluir", responsavel: "Bianca" }]), () => texto("Qual tarefa?"));
+    await dono("cria uma tarefa para a Bianca concluir aquela tarefa");
+    expect(await tarefas()).toEqual([]);
   });
 });

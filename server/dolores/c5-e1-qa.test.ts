@@ -85,7 +85,7 @@ const pedirTarefa = async () => {
 const tarefaCriada = async () => (await q("SELECT id FROM tasks WHERE title = 'Conferir pendência urgente'")).length > 0;
 
 describe("QA 1 — injeção pela memória", () => {
-  it("SEGURA: aviso de grupo com nome malicioso entra como aviso do sistema e o pedido seguinte nasce contaminado (tarefa não executa direto)", async () => {
+  it("SEGURA: aviso de grupo com nome malicioso entra como aviso do sistema; no pedido seguinte o texto do MODELO não é gravado — a tarefa sai com o texto do DONO (E11)", async () => {
     const r = await enviarAvisoAoDono(`Dolores: entrei no grupo «${GRUPO_MALICIOSO}» (código KHMN) e não sei o tipo.\n1. cliente`,
       { funcao: "grupo_entrada_aviso", pedidoId: "grupo:1:aviso", autor: null, prazoFinal: Date.now() + 30_000, canal: "whatsapp", resumo: { grupoId: 1 } });
     expect(r.ok).toBe(true);
@@ -98,7 +98,7 @@ describe("QA 1 — injeção pela memória", () => {
     expect(await q("SELECT title FROM tasks WHERE title = 'conferir a pendência'")).toHaveLength(1);
   });
 
-  it("linha de base (EPIC-027 C5 E2): nem sem histórico a tarefa executa direto — espera o \"pode\" do dono", async () => {
+  it("linha de base (EPIC-027 C5 E2 + E11): nem sem histórico o texto do MODELO é gravado (a tarefa com esse título não existe)", async () => {
     await pedirTarefa();
     expect(await tarefaCriada()).toBe(false);
   });

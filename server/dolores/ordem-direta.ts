@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, PALAVRAS_GENERICAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -34,6 +34,7 @@ import { normalizarNome } from "../../shared/dolores/grupos-tipo.js";
 export const MAX_GRUPOS_CONFERIDOS = 2_000;
 export const MAX_CLIENTES_CONFERIDOS = 20_000;
 export const MAX_CANDIDATOS_POR_PALAVRA = 300;
+export const MAX_LEMBRANCAS_CONFERIDAS = 500;
 
 const SEM_ACENTO_DE = "áàâãäéèêëíìîïóòôõöúùûüçñ";
 const SEM_ACENTO_PARA = "aaaaaeeeeiiiiooooouuuucn";
@@ -148,38 +149,46 @@ async function provarResponsavel(responsavel: unknown, palavras: string[], equip
   return { ok: true, nome: u.name, palavras: palavrasDoNome(u.name, palavras) };
 }
 
+/** Portão 5 (I-4): mínimo de palavras de conteúdo do dono para apontar uma lembrança pelo conteúdo. */
+export const MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA = 2;
+
 /**
- * A lembrança (corrigir/esquecer) que ELE apontou entre as ATIVAS. Portão 5 (I-4): provada só se
- *  (a) é a ÚNICA com ponto pelas palavras dele, E (b) as palavras de conteúdo dele (fora a moldura) cobrem ao menos metade das da
- *      lembrança E todas as dele estão nela; ou
- *  (c) "esquece/corrige a lembrança do/da <nome>": o <nome> está nessa lembrança e só nela.
- * Devolve as palavras que a apontaram (M-4).
+ * A lembrança (corrigir/esquecer) que ELE apontou entre as ATIVAS. Portão 5 (I-4) — palavra comum ("dia", "prefere") nunca escolhe:
+ *  (a) pelo CONTEÚDO, nos dois sentidos: as palavras de conteúdo dele (2 ou mais, fora a moldura) são EXATAMENTE as da lembrança (todas
+ *      as dele estão nela e todas as dela estão nas dele; ordem e palavras curtas à parte) — e só UMA lembrança ativa passa nisso; ou
+ *  (b) pelo NOME: "esquece/corrige a lembrança do/da <nome>" — todas as palavras do <nome> estão nessa lembrança e só nela.
+ * Qualquer outra coisa → não provado (segue a confirmação, que mostra a lembrança). Devolve as palavras que a apontaram (M-4).
  */
 async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDeNome> {
   const id = Number(memoriaId);
   if (!Number.isSafeInteger(id) || id <= 0) return nao("sem lembrança");
   const ativas = await bancoDaLeitura().select({ id: doloresMemoriaLonga.id, nome: doloresMemoriaLonga.texto }).from(doloresMemoriaLonga)
-    .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(500);
-  const alvo = ativas.find(m => m.id === id);
-  if (!alvo) return nao("lembrança não encontrada");
+    .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(MAX_LEMBRANCAS_CONFERIDAS + 1);
+  // passou do teto → não dá para garantir que é a única
+  if (ativas.length > MAX_LEMBRANCAS_CONFERIDAS) return nao("lembranças demais para conferir");
+  if (!ativas.some(m => m.id === id)) return nao("lembrança não encontrada");
   const ts = tokensDoPedido(antes).map(t => t.n);
-  // (c) "a lembrança do/da <nome>"
+  // (b) "a lembrança do/da <nome>"
   const iL = ts.findIndex(t => t === "lembranca" || t === "memoria");
-  if (iL >= 0 && ["do", "da", "de"].includes(ts[iL + 1] ?? "") && ts[iL + 2]) {
-    const nome = ts.slice(iL + 2).filter(t => !PALAVRAS_GENERICAS.has(t));
-    const com = ativas.filter(m => nome.length && nome.every(p => palavrasQueIdentificam(m.nome).includes(p)));
-    if (com.length === 1 && com[0].id === id) return { ok: true, nome: null, palavras: nome };
-    return nao("o nome não aponta uma lembrança só");
+  if (iL >= 0) {
+    if (!["do", "da", "de"].includes(ts[iL + 1] ?? "")) return nao("lembrança sem nome nem conteúdo");
+    const cauda = ts.slice(iL + 2);
+    const nome = cauda.filter(t => t.length >= 3 && !PALAVRAS_GENERICAS.has(t));
+    // tudo o que vem depois de "do/da" tem de ser o nome (artigo/preposição curta à parte); palavra restritiva → não é um nome
+    if (!nome.length || cauda.some(t => RESTRITIVAS.has(t))) return nao("o nome não aponta uma lembrança só");
+    const com = ativas.filter(m => { const w = palavrasQueIdentificam(m.nome); return nome.every(p => w.includes(p)); });
+    return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: nome } : nao("o nome não aponta uma lembrança só");
   }
-  // (a) + (b)
+  // (a) conteúdo nos dois sentidos
   const conteudo = textoPelaMoldura(antes);
-  const doDono = conteudo ? palavrasQueIdentificam(conteudo.texto) : [];
-  if (!doDono.length) return nao("sem palavras de conteúdo do dono");
-  if (unicoComPonto(doDono, ativas).escolhido !== id) return nao("a lembrança não saiu das palavras do dono");
-  const daLembranca = palavrasQueIdentificam(alvo.nome);
-  const cobertas = daLembranca.filter(p => doDono.includes(p)).length;
-  if (cobertas * 2 < daLembranca.length || !doDono.every(p => daLembranca.includes(p))) return nao("as palavras dele não cobrem a lembrança");
-  return { ok: true, nome: null, palavras: palavrasDoNome(alvo.nome, doDono) };
+  const doDono = Array.from(new Set(conteudo ? palavrasQueIdentificam(conteudo.texto) : []));
+  if (doDono.length < MIN_PALAVRAS_PARA_APONTAR_LEMBRANCA) return nao("poucas palavras de conteúdo do dono");
+  const cobre = (texto: string | null) => {
+    const w = Array.from(new Set(palavrasQueIdentificam(texto)));
+    return w.length === doDono.length && doDono.every(p => w.includes(p));
+  };
+  const com = ativas.filter(m => cobre(m.nome));
+  return com.length === 1 && com[0].id === id ? { ok: true, nome: null, palavras: doDono } : nao("as palavras dele não apontam uma lembrança só");
 }
 
 /**

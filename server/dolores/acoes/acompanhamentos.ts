@@ -37,7 +37,9 @@ export async function gravarAcompanhamento(ctx: ContextoAcao, p: { leadId: numbe
 export async function registrarAcompanhamento(args: z.infer<typeof entradaRegistrarAcompanhamento>, ctx: ContextoAcao): Promise<ResultadoAcao> {
   const lead = await getLeadById(args.leadId, bancoDaAcao());
   if (!lead || lead.deletedAt) throw new RecusaAcao(`Cliente ${args.leadId} não encontrado no CRM (ou excluído).`);
-  const texto = textoDoDono(args.texto).slice(0, 1000);
+  // EPIC-025 E11 portão 5 (I-2): acima do limite, recusa — a anotação nunca é cortada em silêncio
+  const texto = textoDoDono(args.texto);
+  if (texto.length > 1000) throw new RecusaAcao("A anotação passa de 1.000 caracteres. Encurte ou divida em duas. Nada foi registrado.");
   // item aprovado da fila (QA R2 N3): o texto gravado é exatamente o que o dono leu
   conferirMostrado(ctx, [`: "${texto}"`]);
   const frase = textoDeDado(`${args.tipo === "ligacao" ? "Ligação" : "Anotação"} no histórico de ${lead.name}: "${texto.slice(0, 80)}${texto.length > 80 ? "…" : ""}"`, 300);
