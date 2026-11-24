@@ -443,3 +443,11 @@ Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`.
    conversa de cliente, nome de terceiro) nunca dispara ação sozinho — nesse caso ela pergunta, uma vez. A execução direta só vale quando
    os alvos foram determinados por CÓDIGO a partir das palavras digitadas pelo dono (nunca pelo modelo, nunca por texto lido).
 7. Isto substitui, para as ações do item 1, a exigência antiga de "pode" na fila. Portão de QA antes de publicar, como sempre.
+8. **Opção A (decisão do dono em 24/11/2026)**, depois de oito portões de segurança reprovados pela mesma causa (numa frase livre o
+   código não separa com segurança moldura, conteúdo e segundo alvo): o item 1 passa a valer SÓ para (a) tarefa e anotação ditadas com
+   dois-pontos ("cria uma tarefa para a Bianca: ligar para o João", "anota na Emily: ela mandou o RG"; grava-se o ditado inteiro, antes
+   do ":" só moldura; prioridade alta só com "tarefa urgente" antes do ":"); (b) ordem de grupo com UM alvo ("vincula o grupo da Emily",
+   "ignora o grupo da Maria Dayane", "desliga a resposta no grupo da Emily", "aceita o grupo KHMN"), e em vincular/classificar só quando o
+   cliente é o que o nome do grupo aponta; (c) silenciar aviso. Voltam a pedir o "pode": guardar/corrigir/esquecer lembrança (todas as
+   formas), tarefa e anotação sem ":", dois grupos ou dois nomes na mesma frase, e classificar com "cliente N" ou cliente diferente do
+   nome do grupo. Story: `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md` (seção "Opção A").

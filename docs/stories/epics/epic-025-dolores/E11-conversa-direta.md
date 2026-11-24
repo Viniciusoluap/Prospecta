@@ -246,6 +246,33 @@ Custo de usabilidade aceito (cai no "pode"): "lembra" sem "que"; grupo com qualq
 
 Teste antigo ajustado: "cria tarefa pra Bianca ligar: pro cartório" agora cai na confirmação (antes gravava só "pro cartório"). `c5-memoria-longa.test.ts`: o "esquece que…" direto usa a lembrança inteira.
 
+## Opção A do dono (24/11/2026) — o que vai direto
+
+**Decisão do dono em 24/11/2026:** reduzir o que vai direto (sem "pode"). **Motivo:** oito portões de segurança reprovados pela mesma
+causa: numa frase livre, o código não consegue saber com segurança o papel de cada palavra (moldura, conteúdo, condição, segundo alvo).
+Em vez de remendar a gramática pela nona vez, o caminho direto ficou só onde o código separa as partes sem adivinhar.
+
+**Vai direto (uma mensagem, linha "Feito"):**
+1. Tarefa e anotação **ditadas com dois-pontos**: `cria uma tarefa para a Bianca: ligar para o João`, `anota na Emily: ela mandou o RG`.
+   O texto gravado é o ditado inteiro; antes do ":" só moldura (`molduraInteira`).
+2. Ordem de grupo com **um alvo só**: `vincula o grupo da Emily`, `ignora o grupo da Maria Dayane`, `desliga a resposta no grupo da Emily`,
+   `aceita o grupo KHMN`. Em `classificar_grupo`, só quando o cliente é o que o NOME DO GRUPO aponta (`clienteDoNomeDoGrupo`).
+3. Silenciar aviso: `para de me avisar de obras com atraso`.
+
+**Pede o "pode" (cai na confirmação de sempre, pela fila):** guardar, corrigir e esquecer lembrança (todas as formas, inclusive
+`lembra disso: …`); tarefa e anotação sem ":"; dois grupos ou dois nomes na mesma frase (`liga o grupo da Emily e o da Maria Dayane`,
+`vincula o grupo da Emily à Maria Dayane`); `classificar_grupo` com "cliente N" ou cliente diferente do nome do grupo.
+
+**Achados da 8ª revisão tratados:**
+
+| Achado | Correção |
+|---|---|
+| I-8a — "urgente" tirado do título sumia; a prioridade vinha do modelo | Prioridade decidida pelo código (`tarefaUrgenteNaMoldura`): "tarefa urgente" antes do ":" = alta; senão média. |
+| I-8b — segundo nome na ordem de grupo ("à Maria Dayane", "com a Maria Dayane") | Um alvo só: `LIGACAO_DE_GRUPO` sem "e", "com", "para/pra/pro", "ao", "também", "grupos"; cliente = o do nome do grupo. |
+| M-8c — data dentro de oração virava prazo mesmo com marcador ("perguntar se o João paga até 10/12") | Oração antes da data bloqueia o prazo, com ou sem marcador. |
+| M-8d — o sinal de "-500" era aparado | `apararPontas` mantém o "-" colado em número. |
+| M-8e — duas chamadas da mesma função com "tipo" diferente gravavam duas vezes | Na ordem direta, uma execução por função e por alvo em cada mensagem (`ponte.ts`). |
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -319,6 +346,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
 
 ## Change Log
 
+- 24/11/2026 — @dev (Dex): Opção A do dono — direto só tarefa/anotação com ":", grupo com um alvo e silenciar aviso; lembrança volta ao "pode"; achados I-8a, I-8b, M-8c, M-8d, M-8e; testes atualizados e bloco "Opção A" no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 7ª rodada — I-1 a I-3, M-1, M-2, B-1 (e11 106/106 nos blocos; lotes dos demais arquivos a rodar).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 6ª rodada — moldura por gramática, lembrança com todas as palavras, lista permitida em grupo/aviso, M-1 a M-4, B-1 a B-3 (e11 100/100).
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 5ª rodada — I-1 a I-4, B-1, B-2 e usabilidade; wip 7ac4ba6 terminado; regressões e teste de propriedade no e11 (92/92).
