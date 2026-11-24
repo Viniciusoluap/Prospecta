@@ -80,8 +80,8 @@ describe("Gerador de PCI — mapa de células (ida e volta)", () => {
 
   it("inclui a imagem de localização no quadro da poligonal do .xls", () => {
     const form = formularioCompleto();
-    // PNG 1x1 válido
-    form.imagem = { tipo: "png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" };
+    // PNG panorâmico, na proporção do quadro.
+    form.imagem = { tipo: "png", base64: "iVBORw0KGgoAAAANSUhEUgAAAS8AAABkAQAAAAD/TYtuAAAAG0lEQVR4nO3BgQAAAADDoPlT3+AEVQEAAADPAA88AAHIV8DrAAAAAElFTkSuQmCC" };
     const r = gerarPlanilhaPci(MODELO, "xls", form);
     expect(r.avisos).toEqual([]);
     expect(lerPci(r.bytes).identificacao.proponente).toBe("MARIA DIGITADA");
