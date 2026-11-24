@@ -759,7 +759,7 @@ export const pciGeradorRouter = router({
         RETURNING sheet_drive_file_id, pdf_drive_file_id`),
     );
     if (!gerada) throw new TRPCError({ code: "NOT_FOUND", message: "PCI gerada não encontrada nesta obra." });
-    await Promise.all([...new Set([gerada.sheet_drive_file_id, gerada.pdf_drive_file_id])].map(id => lixeiraDoArquivo(id)));
+    await Promise.all(Array.from(new Set([gerada.sheet_drive_file_id, gerada.pdf_drive_file_id])).map(id => lixeiraDoArquivo(id)));
     return { ok: true };
   }),
   historico: adminProcedure.input(projectIdInput).query(({ input }) => historicoPci(input.projectId)),
