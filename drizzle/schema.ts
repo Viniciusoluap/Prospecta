@@ -523,6 +523,7 @@ export const constructionProjects = pgTable("construction_projects", {
   }),
   constructionSpent: decimal("construction_spent", { precision: 15, scale: 2 }),
   lotCost: decimal("lot_cost", { precision: 15, scale: 2 }),
+  pciLotCost: decimal("pci_lot_cost", { precision: 15, scale: 2 }),
   brokerName: varchar("broker_name", { length: 255 }),
   brokerPaid: decimal("broker_paid", { precision: 15, scale: 2 }).default("0"),
   constructionCost: decimal("construction_cost", { precision: 15, scale: 2 }),

@@ -237,7 +237,7 @@ async function obraDoGerador(projectId: number) {
     id: constructionProjects.id, title: constructionProjects.title, address: constructionProjects.address, city: constructionProjects.city,
     state: constructionProjects.state, totalArea: constructionProjects.totalArea, vgv: constructionProjects.vgv, leadId: constructionProjects.leadId,
     leadServiceId: constructionProjects.leadServiceId,
-    lotCost: constructionProjects.lotCost, financedAmount: constructionProjects.financedAmount, startDate: constructionProjects.startDate,
+    pciLotCost: constructionProjects.pciLotCost, financedAmount: constructionProjects.financedAmount, startDate: constructionProjects.startDate,
     estimatedEndDate: constructionProjects.estimatedEndDate,
   }).from(constructionProjects).where(eq(constructionProjects.id, projectId)).limit(1);
   if (!o) throw new TRPCError({ code: "NOT_FOUND", message: "Obra não encontrada." });
@@ -352,7 +352,7 @@ export async function fontesAutomaticasPci(projectId: number, ids: { rtp?: strin
     obra: {
       titulo: o.title, endereco: o.address, cidade: o.city, uf: o.state, area: num(o.totalArea),
       valorImovel: num(vgvDaObra({ leadId: o.leadId, simulationValue: lead?.simulationValue ?? null, vgv: o.vgv })),
-      valorTerreno: num(o.lotCost), valorFinanciado: num(o.financedAmount), inicio: iso(o.startDate), termino: iso(o.estimatedEndDate),
+      valorTerreno: num(o.pciLotCost), valorFinanciado: num(o.financedAmount), inicio: iso(o.startDate), termino: iso(o.estimatedEndDate),
     },
     cliente: lead ? { nome: lead.name, cpf: lead.cpf, email: lead.email, telefone: lead.phone, endereco: lead.address, bairro: lead.neighborhood } : null,
     coordenadas,

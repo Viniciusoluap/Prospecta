@@ -50,10 +50,11 @@ beforeAll(async () => {
     CREATE TABLE operational_projects (id integer primary key, name varchar, engineer_user_id integer, lead_service_id integer, status varchar);
     INSERT INTO operational_projects VALUES (1, 'Projeto Casa Lote 1', 7, 300, 'execucao'), (2, 'Projeto Cancelado', 8, 301, 'cancelado');
   `);
-  for (const n of ["0087_pci_gerador.sql", "0096_pci_lote3.sql", "0088_perfil_engenheiro.sql", "0098_engineer_profile_cpf.sql", "0118_pci_modelos_preenchimento.sql"]) {
+  for (const n of ["0087_pci_gerador.sql", "0096_pci_lote3.sql", "0088_perfil_engenheiro.sql", "0098_engineer_profile_cpf.sql", "0118_pci_modelos_preenchimento.sql", "0174_obra_custo_terreno_pci.sql"]) {
     await pg.exec(migracao(n));
     await pg.exec(migracao(n));
   }
+  await pg.exec("UPDATE construction_projects SET pci_lot_cost = 42500.25 WHERE id = 20");
   await pg.exec(`
     INSERT INTO engineer_profiles (user_id, active, cpf, phone, crea_number, crea_state) VALUES
       (7, true, '${CPF_RAFAEL}', '(99) 99111-2222', '1122334455', 'MA'),
@@ -108,6 +109,12 @@ describe("A — CPF do engenheiro", () => {
 });
 
 describe("B — Dados automáticos", () => {
+  it("lê o custo da PCI e ignora o custo geral do terreno", async () => {
+    const comCustoPci = await admin.sugestoesAutomaticas({ projectId: 20 });
+    expect(comCustoPci.sugestoes.find(s => s.chave === "valorTerreno")).toMatchObject({ valor: 42500.25 });
+    const semCustoPci = await admin.sugestoesAutomaticas({ projectId: 21 });
+    expect(semCustoPci.ausencias.some(a => a.chave === "valorTerreno")).toBe(true);
+  });
   it("abertura sem rascunho: RTP do projeto do mesmo serviço, com a fonte no relatório (como no botão)", async () => {
     const d = await admin.obter({ projectId: 20 });
     expect(d.origem).toBe("automatico");

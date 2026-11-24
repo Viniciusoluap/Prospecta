@@ -31,6 +31,7 @@ export interface FormFinanceiro {
   fgts: string | null;
   subsidio: string | null;
   custoTerreno: string | null;
+  custoTerrenoPci: string | null;
   comissao: string | null;
   comissaoPercentual: string | null;
   orcamentoPrevisto: string | null;
@@ -53,6 +54,7 @@ export function formInicial(resumo: Resumo): FormFinanceiro {
     fgts: v.fgts,
     subsidio: v.subsidio,
     custoTerreno: v.custoTerreno,
+    custoTerrenoPci: v.custoTerrenoPci,
     comissao: v.comissao,
     comissaoPercentual: v.comissaoPercentual,
     orcamentoPrevisto: v.orcamentoPrevisto,
@@ -595,6 +597,11 @@ export function CustosAba({ projectId, resumo, form, setForm, calculo, corretor,
           </div>
           <ComissaoCampos resumo={resumo} form={form} setForm={setForm} />
           <Leitura label="Corretor vinculado" valor={corretor ?? "Sem corretor no lead"} ajuda="Vem do lead no CRM." />
+          <div className="space-y-1">
+            <Label htmlFor="custo-terreno-pci" className="text-gray-300">Custo do terreno na PCI (R$)</Label>
+            <CampoDecimal id="custo-terreno-pci" valor={form.custoTerrenoPci} onChange={set("custoTerrenoPci")} prefixo="R$" />
+            <p className="text-xs text-gray-400">Fonte do valor proposto do terreno nos Dados automáticos da PCI.</p>
+          </div>
         </CardContent>
       </Card>
       </fieldset>
