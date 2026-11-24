@@ -297,6 +297,17 @@ como palavra de alvo).
   como ligação nunca prova alvo — sem depender de lembrar palavra por palavra.
 - Regressões: A1, A2, A3 e a regra pura no bloco "5." do e11 (141 testes no arquivo).
 
+### Portão de segurança, 11ª rodada (24/11/2026) — FAIL, corrigido
+A varredura das palavras de alvo ficou COMPLETA (nenhuma palavra que não é nome sobra). Os achados foram em outros caminhos de prova:
+- **R1 (importante)** `cria uma tarefa para a Ana: ligar para o João` + responsável "ana li" do modelo → a prova apontava a Ana Paula e a
+  execução (busca por trecho) gravava para a Mariana Lima. **Correção:** o responsável gravado é o nome EXATO do usuário provado.
+- **R2 (médio)** `aceita o grupo da Vera` com outro grupo de código sorteado "VERA" → aceitava o grupo de terceiro. **Correção:**
+  `codigoDigitadoDeProposito` — código que tem vogal e nenhum dígito (pode ser palavra/nome) só vale em MAIÚSCULAS numa mensagem que não
+  está toda em maiúsculas; e o código só entra na lista permitida quando foi ele que provou o grupo.
+- **R3/R4** `classifica o grupo da Emily como engenharia` + obra escolhida pelo modelo → ligava à obra. **Correção:** classificar grupo
+  COM obra é segundo alvo → confirmação (engenharia sem obra continua direto).
+- Regressões R1, R2, R3/R4 no bloco "5." do e11 (144 testes no arquivo).
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -369,6 +380,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 11ª rodada (R1–R4) corrigido; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 10ª rodada (A1, A2, A3) — palavra de ligação nunca prova alvo; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 9ª rodada (I-9a, I-9b, I-9c, M-9) corrigido; regressões no e11.
 

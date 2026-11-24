@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, PONTE, FECHO_DO_DITADO, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, codigoDigitadoDeProposito, PONTE, FECHO_DO_DITADO, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -242,7 +242,9 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       // Portão 5 (I-2): acima do limite da função → confirmação (nunca corte em silêncio)
       if (titulo.length > LIMITE_TEXTO.criar_tarefa) return nao("texto da tarefa maior que o limite");
       const { descricao: _d, vinculo: _v, ...resto } = a;
-      return { ok: true, argumentos: { ...resto, titulo, prioridade: prioridadeFinal } };
+      // Portão 11 (R1): o responsável gravado é o PROVADO (nome exato do cadastro) — nunca a string do modelo ("ana li" → Mariana Lima)
+      if (!quem.nome) return nao("responsável sem nome no cadastro");
+      return { ok: true, argumentos: { ...resto, titulo, prioridade: prioridadeFinal, responsavel: quem.nome } };
     }
     case "registrar_acompanhamento": {
       const equipe = (await getAssignableUsers(bancoDaLeitura() as never)).filter(u => u.name?.trim());
@@ -334,23 +336,21 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     // QA E11 (qualidade: dois grupos numa mensagem): o grupo é provado pelas palavras dele QUE ESTÃO no nome deste grupo — e essas
     // palavras precisam apontar só este grupo (outro grupo com o mesmo nome → empate → não provado)
     const doGrupo = palavras.filter(p => nomeDoAlvo.has(p));
-    const porCodigo = codigoCitado(textoDoDono, alvo.codigo);
+    // Portão 11 (R2): código que é palavra comum ou nome ("VERA") só vale digitado de propósito (em maiúsculas)
+    const porCodigo = codigoDigitadoDeProposito(textoDoDono, alvo.codigo);
     const porNome = doGrupo.length > 0 && unicoComPonto(doGrupo, grupos.map(g => ({ id: g.id, nome: g.nomeWhatsapp ?? g.nome }))).escolhido === alvo.id;
     if (!porCodigo && (exigeCodigoDigitado(funcao) || !porNome)) return nao(exigeCodigoDigitado(funcao) ? "aceitar grupo só com o código digitado pelo dono" : "o grupo não saiu das palavras do dono");
     // Portão 6 (M-1), regra estrutural: depois do verbo, só palavra de ligação, o nome/código DESTE grupo, o nome do cliente/obra pedido
     // e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente") → confirmação
-    const doAlvo = [...normalizarNome(alvo.nomeWhatsapp ?? alvo.nome).split(" "), String(alvo.codigo ?? "").toLowerCase()];
+    const doAlvo = [...normalizarNome(alvo.nomeWhatsapp ?? alvo.nome).split(" "), ...(porCodigo ? [String(alvo.codigo ?? "").toLowerCase()] : [])];
     if (funcao === "classificar_grupo") {
       const leadDoPedido = Number(a.leadId);
       if (Number.isSafeInteger(leadDoPedido) && leadDoPedido > 0) {
         const [c] = await bancoDaLeitura().select({ nome: leads.name }).from(leads).where(and(eq(leads.id, leadDoPedido), isNull(leads.deletedAt))).limit(1);
         doAlvo.push(...normalizarNome(c?.nome).split(" "));
       }
-      const obraDoPedido = Number(a.obraId);
-      if (Number.isSafeInteger(obraDoPedido) && obraDoPedido > 0) {
-        const [o] = await bancoDaLeitura().select({ nome: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, obraDoPedido)).limit(1);
-        doAlvo.push(...normalizarNome(o?.nome).split(" "));
-      }
+      // Portão 11 (R3/R4): obra escolhida junto com o grupo é um SEGUNDO alvo (Opção A: um alvo só) → confirmação, como "cliente N"
+      if (a.obraId !== undefined && a.obraId !== null) return nao("grupo com obra: segundo alvo pede a confirmação");
     }
     if (!soPalavrasPermitidas(textoDoDono, LIGACAO_DE_GRUPO, doAlvo.filter(Boolean))) return nao("palavra fora do pedido de grupo (condição, prazo ou outro assunto)");
     if (funcao !== "classificar_grupo") return { ok: true };
@@ -363,13 +363,8 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
       // inteiro). "cliente N", outro cliente ou segundo nome na frase → confirmação (portão 8, I-8b)
       return (await clienteDoNomeDoGrupo(alvo)).leadId === leadId ? { ok: true } : nao("o cliente não é o do nome do grupo");
     }
-    // engenharia: com obra, a obra também precisa sair das palavras dele
-    if (a.obraId === undefined || a.obraId === null) return { ok: true };
-    const obraId = Number(a.obraId);
-    if (numeroCitado(textoDoDono, obraId)) return { ok: true };
-    const obras = palavras.length ? await bancoDaLeitura().select({ id: constructionProjects.id, nome: constructionProjects.title }).from(constructionProjects)
-      .where(or(...palavras.slice(0, 8).map(p => contem(sql`${constructionProjects.title}`, p)))).limit(MAX_CANDIDATOS_POR_PALAVRA) : [];
-    return unicoComPonto(palavras, obras).escolhido === obraId ? { ok: true } : nao("a obra não saiu das palavras do dono");
+    // engenharia sem obra (com obra já foi para a confirmação acima)
+    return { ok: true };
   } catch (e) {
     console.error("[dolores/ordem-direta] não consegui conferir os alvos; segue a confirmação", erroParaLog(e));
     return nao("falha ao conferir");

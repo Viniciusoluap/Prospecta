@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { normalizarNome, descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, LIGACAO_DE_GRUPO, preparadoPodeIrDireto,
+  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, codigoDigitadoDeProposito, LIGACAO_DE_GRUPO, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -1686,6 +1686,46 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
       const antes = await retrato();
       roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: id, texto: "ela mandou o RG" }]), () => texto("Em qual cliente?"));
       await dono("anota o seguinte: ela mandou o RG");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("R1 (11ª): \"cria uma tarefa para a Ana: ligar para o João\" + responsável \"ana li\" do modelo → a tarefa sai para a Ana Paula (a provada), nunca para a Mariana Lima", async () => {
+      await banco.pg.exec(`INSERT INTO users ("openId", name, role, active, "passwordHash") VALUES ('ana-equipe', 'Ana Paula', 'colaborador', true, 'hash'), ('mariana-equipe', 'Mariana Lima', 'colaborador', true, 'hash')`);
+      for (const responsavel of ["ana li", "ana l"]) {
+        roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "ligar para o João", responsavel }]), () => texto(""));
+        await dono("cria uma tarefa para a Ana: ligar para o João");
+      }
+      const feitas = await tarefas();
+      expect(feitas.length).toBeGreaterThan(0);
+      for (const t of feitas) expect(t.assigned_to).toBe("Ana Paula");
+    });
+
+    it("R2 (11ª): \"aceita o grupo da Vera\" / \"ignora o grupo da Vera\" com OUTRO grupo de código VERA → nada na hora; \"ignora o grupo VERA\" (maiúsculas) vale", async () => {
+      await grupo({ codigo: "KHMN", nome: "LUCIA SANTOS" });
+      const g = await grupo({ codigo: "VERA", nome: "PARCEIROS DO FULANO", situacao: "recusado", adicionadoPor: "outra_pessoa" });
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["aceitar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("aceita o grupo da Vera");
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("ignora o grupo da Vera");
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("IGNORA O GRUPO DA VERA");
+      expect(await retrato()).toBe(antes);
+      expect(codigoDigitadoDeProposito("ignora o grupo da Vera", "VERA")).toBe(false);
+      expect(codigoDigitadoDeProposito("IGNORA O GRUPO DA VERA", "VERA")).toBe(false);
+      expect(codigoDigitadoDeProposito("ignora o grupo VERA", "VERA")).toBe(true);
+      expect(codigoDigitadoDeProposito("ignora o grupo khmn", "KHMN")).toBe(true);
+      expect(codigoDigitadoDeProposito("ignora o grupo aa7w", "AA7W")).toBe(true);
+    });
+
+    it("R3/R4 (11ª): \"classifica o grupo da Emily como engenharia\" + obra escolhida pelo modelo → nada na hora (obra é segundo alvo)", async () => {
+      const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+      const g2 = await grupo({ codigo: "AA7W", nome: "OBRA 2 SILVA" });
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "engenharia", obraId: 1 }]), () => texto("Qual obra?"));
+      await dono("classifica o grupo da Emily como engenharia");
+      roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g2.id, tipo: "engenharia", obraId: 2 }]), () => texto("Qual obra?"));
+      await dono("classifica o grupo obra 2 silva como engenharia");
       expect(await retrato()).toBe(antes);
     });
 

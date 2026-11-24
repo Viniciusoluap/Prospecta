@@ -70,6 +70,19 @@ export function codigoCitado(texto: string | null | undefined, codigo: string | 
   return normalizarNome(texto).split(" ").includes(codigo.toLowerCase());
 }
 
+/**
+ * Portão 11 (R2): o código foi digitado DE PROPÓSITO? Código sorteado pode coincidir com palavra comum ou nome ("VERA", "DUDA", "PARA",
+ * "CADA"): esse só vale quando o dono o escreveu em MAIÚSCULAS numa mensagem que não está toda em maiúsculas. Código com dígito ou só
+ * de consoantes ("KHMN", "AA7W") não é palavra — vale em qualquer caixa. `textoCru`: a mensagem como ele escreveu.
+ */
+export function codigoDigitadoDeProposito(textoCru: string | null | undefined, codigo: string | null | undefined): boolean {
+  if (!codigoCitado(textoCru, codigo)) return false;
+  const c = String(codigo);
+  if (/\d/.test(c) || !/[aeiou]/i.test(c)) return true;
+  const cru = String(textoCru ?? "");
+  return /[a-zà-ÿ]/.test(cru) && new RegExp(`(?:^|[^0-9A-Za-zÀ-ÿ])${c.toUpperCase()}(?:[^0-9A-Za-zÀ-ÿ]|$)`).test(cru);
+}
+
 /** "cliente 29", "nº 29", "número 29" no texto do dono (nunca um número solto: "1" pode ser a opção da lista). */
 export function numeroCitado(texto: string | null | undefined, id: number): boolean {
   const n = normalizarNome(String(texto ?? "").replace(/[º°]/g, " "));
