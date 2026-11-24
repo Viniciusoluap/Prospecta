@@ -352,7 +352,7 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
     // ("Pagar o fornecedor", palavras que ele não escreveu) só fica proposta — nunca é criada sem o "pode"
     await banco.pg.exec("DELETE FROM dolores_conversa");
     roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza" }], ["criar_tarefa", { titulo: "Pagar o fornecedor", responsavel: "Bianca Souza" }]), () => texto("Vou criar."));
-    await dono("cria uma tarefa para a Bianca ligar para o João");
+    await dono("cria uma tarefa para a Bianca: ligar para o João"); // Opção A do dono (24/11/2026): direto só com ":"
     // portão 4: o texto é do CÓDIGO — as duas chamadas viram a MESMA tarefa com as palavras do dono; o "Pagar o fornecedor" da lembrança
     // injetada nunca chega ao banco nem à fila
     expect(await q("SELECT title FROM tasks WHERE title IN ('ligar para o João', 'Ligar para o João', 'Pagar o fornecedor')")).toEqual([{ title: "ligar para o João" }]);
@@ -411,7 +411,7 @@ describe("a memória entra no contexto do DONO — e só dele", () => {
 });
 
 describe("corrigir e esquecer pela conversa", () => {
-  it("\"corrige…\" troca o texto com o \"pode\"; \"esquece que…\" ARQUIVA (não apaga) e ela some do contexto", async () => {
+  it("\"corrige…\" troca o texto com o \"pode\"; \"esquece que…\" com o \"pode\" ARQUIVA (não apaga) e ela some do contexto", async () => {
     await inserir(PREFERENCIA);
     roteiro.push(() => ferramenta(["corrigir_memoria", { memoriaId: 1, texto: "Prefiro o resumo das obras às terças de manhã" }]), () => texto("Vou corrigir."));
     await dono("corrige aquela memória: prefiro o resumo das obras às terças");
@@ -420,13 +420,17 @@ describe("corrigir e esquecer pela conversa", () => {
     await dono("pode");
     expect((await memorias())[0].texto).toBe("Prefiro o resumo das obras às terças de manhã");
 
-    // EPIC-025 E11b: "esquece que…" apontando UMA lembrança pelas palavras dele arquiva na hora (sem "pode"); nunca apaga
-    roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: 1 }]), () => texto(""));
-    // E11 portões 5 a 7: a lembrança é apontada pelo conteúdo EXATO (mesmas palavras, na ordem); parte dela cai no "pode"
+    // Opção A do dono (24/11/2026): "esquece que…" volta a pedir o "pode" (nada muda na hora); com o "pode", ARQUIVA — nunca apaga
+    roteiro.push(() => ferramenta(["esquecer_memoria", { memoriaId: 1 }]), () => texto("Esqueço?"));
     await dono("esquece que prefiro o resumo das obras às terças de manhã");
+    expect(await memorias()).toMatchObject([{ id: 1, situacao: "ativa" }]);
+    expect(ultima()).toMatch(/Posso fazer isto\?/);
+    await dono("pode");
     expect(await memorias()).toMatchObject([{ id: 1, situacao: "arquivada" }]);
-    expect(ultima()).toMatch(/^Feito: .*fica arquivada; para voltar, me peça para lembrar de novo/);
+    expect(ultima()).toMatch(/^Pronto: esqueci: "Prefiro o resumo das obras às terças de manhã"/);
     expect((await memorias())[0].arquivado_em).not.toBeNull();
+    // Opção A: a proposta e o "Pronto" citam o texto na conversa recente; limpa-se a conversa para conferir só o bloco de memória
+    await banco.pg.exec("DELETE FROM dolores_conversa");
     roteiro.push(() => texto("Bom dia."));
     await dono("bom dia");
     expect(JSON.stringify(pedidosModelo.at(-1)!.mensagens)).not.toContain("terças de manhã\"");

@@ -124,15 +124,23 @@ describe("teste de aceite da etapa 3 pelo WhatsApp", () => {
   // c5-e2-resolve/c5-e2-qa (tarefa cujo texto NÃO saiu das palavras dele) e pela cobrança acima (séria)
   // Portão 4: o texto gravado é calculado pelo código (o que sobra da mensagem depois da moldura); o título reescrito pelo modelo é
   // descartado — a tarefa é criada NA HORA com as palavras do dono
-  it("tarefa pedida pelo dono com título reescrito pelo modelo (portão 4): criada na hora com o texto do dono", async () => {
+  it("tarefa pedida pelo dono com título reescrito pelo modelo (portão 4): ditada com \":\", criada na hora com o texto do dono", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Cobrar certidão no cartório", responsavel: "Bianca Souza", prazo: "2026-11-20", vinculo: { tipo: "cliente", id: 2 } }]),
       () => texto("Vou criar a tarefa para a Bianca."),
     ];
+    // Opção A do dono (24/11/2026): sem ":" a tarefa pede o "pode" — nada gravado na hora, nem o texto do modelo
     await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca cobrar a certidão do João no cartório até 20/11." }));
+    expect(await q("SELECT title FROM tasks WHERE title IN ('Cobrar certidão no cartório', 'cobrar a certidão do João no cartório até 20/11')")).toEqual([]);
+    roteiro = [
+      () => ferramenta(["criar_tarefa", { titulo: "Cobrar certidão no cartório", responsavel: "Bianca Souza", prazo: "2026-11-20", vinculo: { tipo: "cliente", id: 2 } }]),
+      () => texto(""),
+    ];
+    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca: cobrar a certidão do João no cartório até 20/11." }));
     expect(await q("SELECT title FROM tasks WHERE title = 'Cobrar certidão no cartório'")).toEqual([]);
     expect(await q("SELECT title FROM tasks WHERE title = 'cobrar a certidão do João no cartório até 20/11'")).toHaveLength(1);
-    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "cobrar a certidão do João no cartório até 20\/11" para Bianca Souza \(20\/11\/2026; cliente João Atrasado\)/);
+    // o cliente citado só depois do ":" não prova o vínculo (descartado); o prazo sai do ditado
+    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "cobrar a certidão do João no cartório até 20\/11" para Bianca Souza \(20\/11\/2026/);
   });
 });
 

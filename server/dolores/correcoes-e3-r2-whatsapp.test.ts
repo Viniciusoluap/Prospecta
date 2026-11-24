@@ -127,10 +127,11 @@ describe("R2-N1 invertido — texto de terceiro COLADO na mensagem do dono não 
 
   // EPIC-025 E11b: o pedido curto e direto do dono com o texto e os alvos nas palavras dele grava NA HORA (pela mesma fila: resumo +
   // hash + decidir); o texto que NÃO saiu das palavras dele continua esperando o "pode" (segundo caso)
-  it("GARANTIA (E11b): pedido curto e direto do dono grava na hora; tarefa cujo texto não saiu das palavras dele espera o \"pode\"", async () => {
+  it("GARANTIA (E11b, Opção A): pedido curto e direto do dono, ditado com \":\", grava na hora; tarefa cujo texto não saiu das palavras dele espera o \"pode\"", async () => {
     roteiro = [() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("")];
-    await chamar(aviso({ texto: "cria uma tarefa para a Bianca ligar para o João amanhã" }));
-    // portão 3: grava o trecho do PRÓPRIO dono (a caixa dele)
+    // Opção A do dono (24/11/2026): direto só a tarefa ditada com ":"
+    await chamar(aviso({ texto: "cria uma tarefa para a Bianca: ligar para o João amanhã" }));
+    // grava o ditado do PRÓPRIO dono (a caixa dele)
     expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para o João amanhã"]);
     expect((await fila()).map(i => i.situacao)).toEqual(["executada"]);
     expect(ultimaResposta()).toMatch(/^Feito: Tarefa #\d+ "ligar para o João amanhã"/);
@@ -152,7 +153,7 @@ describe("R2-N2 invertido — texto de dados que volta de AÇÃO contamina (ou n
       () => ferramenta(["criar_tarefa", { titulo: "Revisar o contrato", responsavel: "Bianca" }]),
       () => texto("Feito."),
     ];
-    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca revisar o contrato." }));
+    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca: revisar o contrato." })); // Opção A (24/11): com ":"
     // E11b: feita na hora (ordem direta); o resultado ao modelo continua sem o nome do cadastro (só a contagem do que foi feito)
     expect(resultadosAoModelo(1)).not.toContain("SISTEMA");
     expect(resultadosAoModelo(1)).not.toContain("Bianca Souza");
