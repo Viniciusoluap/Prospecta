@@ -1133,7 +1133,7 @@ const ESPERADOS_PCI: { chave: string; fonte: FonteEsperadaPci; motivo?: string }
   { chave: "longitude", fonte: "coordenadas" },
   { chave: "areaCoberta", fonte: "obra", motivo: "A obra está sem área construída." },
   { chave: "valorImovel", fonte: "obra", motivo: "Sem VGV na obra e sem valor de simulação no cliente do CRM." },
-  { chave: "valorTerreno", fonte: "obra", motivo: "A obra está sem custo do lote." },
+  { chave: "valorTerreno", fonte: "obra", motivo: "Preencha Custo do terreno na PCI na aba Custos da obra." },
   { chave: "prazoMeses", fonte: "obra", motivo: "A obra está sem início e término previstos (ou o prazo passa de 24 meses)." },
   ...(["rtp", "rte"] as const).flatMap((papel) => ["Nome", "Cpf", "Registro", "Uf", "Email", "Telefone"].map((s) => ({ chave: `${papel}${s}`, fonte: papel }))),
   { chave: "custos", fonte: "pci", motivo: "Os custos vêm só da PCI vinculada ou de um modelo de preenchimento." },
@@ -1162,7 +1162,9 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
     const p = normalizarFormularioPci(f.pci);
     const fonte = f.rotulos?.pci ?? "PCI vinculada à obra";
     const add = (chave: string, valor: unknown) => s.push({ chave, valor, fonte, origem: "pci" });
-    for (const campo of CAMPOS_PCI) add(campo.id, p.campos[campo.id]);
+    for (const campo of CAMPOS_PCI) {
+      if (campo.id !== "valorTerreno") add(campo.id, p.campos[campo.id]);
+    }
     add("custos", p.custos);
     add("adicionais", p.adicionais);
     add("cronograma", p.cronograma);
@@ -1187,7 +1189,7 @@ export function sugestoesAutomaticasPci(f: FontesPreenchimentoPci): { sugestoes:
   add("uf", f.obra.uf, fonteObra);
   add("areaCoberta", f.obra.area, fonteObra);
   add("valorImovel", f.obra.valorImovel, fonteObra);
-  add("valorTerreno", f.obra.valorTerreno, fonteObra);
+  add("valorTerreno", f.obra.valorTerreno, "Custos da obra · Custo do terreno na PCI");
   add("valorFinanciado", f.obra.valorFinanciado, fonteObra);
   add("prazoMeses", prazoEmMeses(f.obra.inicio, f.obra.termino), "Cadastro da obra (início e término previstos)");
   if (f.coordenadas) {

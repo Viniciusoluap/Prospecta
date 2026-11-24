@@ -146,6 +146,14 @@ describe("Gerador de PCI — pré-preenchimento e engenheiro", () => {
       endereco: "Rua A, 1", bairro: "Centro", municipio: "Imperatriz", uf: "MA", areaCoberta: 70, valorImovel: 200000, valorTerreno: 50000, valorFinanciado: 150000, prazoMeses: 6,
       latitude: `05° 30' 28.4" S`, longitude: `47° 28' 39.7" W`, rtpRegistro: null, rteRegistro: null });
   });
+  it("preenche o terreno apenas pelo custo específico da PCI, inclusive quando é zero", () => {
+    const pci = formularioCompleto();
+    expect(pci.campos.valorTerreno).toBe(80000);
+    for (const valorTerreno of [50000.25, 0, null]) {
+      const f = preencherPciAutomatico({ obra: { ...obra, valorTerreno }, cliente: null, coordenadas: null, pci });
+      expect(f.campos.valorTerreno).toBe(valorTerreno);
+    }
+  });
   it("a PCI vinculada tem prioridade; o cadastro só completa lacunas (nunca de outra pessoa)", () => {
     const pci = lerFormularioPci(MODELO);
     const f = preencherPciAutomatico({ obra, cliente: { nome: "Outro Nome", cpf: null, email: "x@y.z", telefone: null, endereco: null, bairro: null }, coordenadas: null, pci });

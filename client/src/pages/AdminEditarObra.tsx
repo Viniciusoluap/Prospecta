@@ -179,6 +179,7 @@ export default function AdminEditarObra({ modo = "admin" }: { modo?: "admin" | "
           fgts: formFin.fgts,
           subsidio: formFin.subsidio,
           custoTerreno: formFin.custoTerreno,
+          custoTerrenoPci: formFin.custoTerrenoPci,
           comissao: formFin.comissao,
           comissaoPercentual: formFin.comissaoPercentual,
           orcamentoPrevisto: formFin.orcamentoPrevisto,
