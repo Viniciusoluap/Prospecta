@@ -12,14 +12,23 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
 fi
 
 (
-  if ! command -v graphify >/dev/null 2>&1; then
+  # O graphify precisa do anyio para "graphify query/path/explain" e o pacote não o instala sozinho
+  # (sem ele a consulta quebra com "No module named 'anyio'"; visto em 24/11/2026).
+  graphify_completo() {
+    command -v graphify >/dev/null 2>&1 || return 1
+    py="$(head -1 "$(command -v graphify)" | sed 's/^#!//')"
+    [ -x "$py" ] || return 0
+    "$py" -c "import anyio" >/dev/null 2>&1
+  }
+  if ! graphify_completo; then
     if command -v uv >/dev/null 2>&1; then
-      uv tool install -q "graphifyy[sql]" >/dev/null 2>&1
+      uv tool install -q --force "graphifyy[sql]" --with anyio >/dev/null 2>&1
     elif command -v pipx >/dev/null 2>&1; then
-      pipx install "graphifyy[sql]" >/dev/null 2>&1
+      pipx install --force "graphifyy[sql]" >/dev/null 2>&1
+      pipx inject graphifyy anyio >/dev/null 2>&1
     else
-      pip install -q --user "graphifyy[sql]" >/dev/null 2>&1 \
-        || pip install -q --break-system-packages "graphifyy[sql]" >/dev/null 2>&1
+      pip install -q --user "graphifyy[sql]" anyio >/dev/null 2>&1 \
+        || pip install -q --break-system-packages "graphifyy[sql]" anyio >/dev/null 2>&1
     fi
   fi
   command -v graphify >/dev/null 2>&1 && graphify update . >/dev/null 2>&1

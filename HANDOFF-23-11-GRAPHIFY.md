@@ -21,3 +21,24 @@
 - Usar por uma semana e comparar o consumo de créditos por sessão. Se não render, basta remover a seção do
   CLAUDE.md e os hooks.
 - Opcional: modo estrito (`graphify install --project --strict`), que obriga o uso do mapa em vez de só sugerir.
+
+## 24/11 — correção: o graphify instalado pelo hook não respondia consultas
+- Problema: o pacote `graphifyy` não instala o `anyio`. Com a instalação automática, `graphify update .` funcionava,
+  mas `graphify query/path/explain` quebrava com `ModuleNotFoundError: No module named 'anyio'`.
+- Correção em `.claude/hooks/graphify-setup.sh`: instala o graphify junto com o `anyio` (uv `--with anyio`,
+  `pipx inject` ou pip) e, se encontrar um graphify já instalado sem `anyio`, reinstala sozinho. Se estiver completo,
+  não reinstala.
+- Observação: o hook só roda quando a sessão abre dentro da pasta da Prospecta. Numa sessão aberta na pasta-mãe
+  (`/home/user`, com vários repositórios), ele não dispara: rodar `bash .claude/hooks/graphify-setup.sh` à mão.
+
+### Testes
+- (a) Automáticos (nesta máquina): `bash -n` sem erro; três casos, todos com saída 0 e
+  `graphify query "emissão de NFS-e"` encontrando `server/fiscal/emissao.ts` ao final:
+  1. graphify instalado sem `anyio` (consulta falhava) → o hook reinstalou e a consulta passou;
+  2. sem graphify → o hook instalou e montou o mapa (21.532 nós, 60.375 ligações, ~40 s);
+  3. graphify completo → o hook não reinstalou, só atualizou o mapa.
+- (b) Manuais: nenhum.
+- (c) Pendente: confirmar numa sessão nova aberta direto na Prospecta que a consulta funciona logo de início.
+
+### Próximo passo
+- Abrir uma sessão nova na Prospecta e rodar `graphify query "<qualquer pergunta>"` depois de ~1 minuto.
