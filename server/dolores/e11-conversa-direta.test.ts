@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { normalizarNome, descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, codigoDigitadoDeProposito, LIGACAO_DE_GRUPO, preparadoPodeIrDireto,
+  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, tipoDitoPeloDono, palavrasDoAlvo, codigoDigitadoDeProposito, LIGACAO_DE_GRUPO, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -1727,6 +1727,47 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
       roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g2.id, tipo: "engenharia", obraId: 2 }]), () => texto("Qual obra?"));
       await dono("classifica o grupo obra 2 silva como engenharia");
       expect(await retrato()).toBe(antes);
+    });
+
+    it("T1 (12ª): \"classifica o grupo da Emily como engenharia\" + tipo \"cliente\" do modelo → nada na hora (o tipo é o que ele disse)", async () => {
+      const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+      const antes = await retrato();
+      for (const frase of ["classifica o grupo da Emily como engenharia", "vincula o grupo da Emily como pós-venda", "classifica o grupo da Emily como jurídico"]) {
+        roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: EMILY }]), () => texto("Confirma?"));
+        await dono(frase);
+        expect(await retrato(), frase).toBe(antes);
+      }
+      expect(tipoDitoPeloDono("cliente", "vincula o grupo da Emily")).toBe(true);
+      expect(tipoDitoPeloDono("cliente", "classifica o grupo da Emily como engenharia")).toBe(false);
+    });
+
+    it("12ª (concerns 1 e 2): código e nome apontando grupos diferentes → nada na hora", async () => {
+      await grupo({ codigo: "KHMN", nome: "VERA LUCIA OBRA", tipo: "cliente", situacao: "confirmado" });
+      const g = await grupo({ codigo: "VERA", nome: "PARCEIROS DO FULANO", tipo: "parceiros", situacao: "confirmado" });
+      await grupo({ codigo: "AA7W", nome: "MCMV RESIDENCIAL", tipo: "engenharia", situacao: "confirmado" });
+      const m = await grupo({ codigo: "MCMV", nome: "SOCIOS", tipo: "administrativo", situacao: "confirmado" });
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }]), () => texto("Qual grupo?"));
+      await dono("ignora o grupo da VERA");
+      roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: m.id }]), () => texto("Qual grupo?"));
+      await dono("ignora o grupo mcmv");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("12ª (concern 3): \"anota na Emily: mudou o telefone\" + tipo ligação do modelo → grava como ANOTAÇÃO", async () => {
+      roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "mudou o telefone", tipo: "ligacao" }]), () => texto(""));
+      await dono("anota na Emily: mudou o telefone");
+      const gravadas = await q<any>("SELECT type, description FROM lead_activities WHERE performed_by = 'Dolores (funcionária digital)'");
+      expect(gravadas.map(g => g.description)).toEqual(["mudou o telefone"]);
+      expect(gravadas[0].type).not.toBe("call");
+    });
+
+    it("12ª (concern 4): \"…: ligar para o João amanhã às 9h\" + prazo só com a data → nada na hora (a hora dita não some)", async () => {
+      roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "x", responsavel: "Bianca", prazo: "2026-11-17" }]), () => texto("Crio?"));
+      await dono("cria uma tarefa para a Bianca: ligar para o João amanhã às 9h");
+      expect(await tarefas()).toEqual([]);
+      expect(prazoConfere("2026-11-17", "ligar para o João amanhã às 9h", "2026-11-16")).toBe(false);
+      expect(prazoConfere("2026-11-17T09:00", "ligar para o João amanhã às 9h", "2026-11-16")).toBe(true);
     });
 
     it("regra pura (10ª): palavra da lista permitida do pedido nunca é palavra de alvo", () => {

@@ -308,6 +308,16 @@ A varredura das palavras de alvo ficou COMPLETA (nenhuma palavra que não é nom
   COM obra é segundo alvo → confirmação (engenharia sem obra continua direto).
 - Regressões R1, R2, R3/R4 no bloco "5." do e11 (144 testes no arquivo).
 
+### Portão de segurança, 12ª rodada (24/11/2026) — FAIL, corrigido
+R1–R4 (11ª) e os da 9ª/10ª fechados. Conferência campo a campo de cada função (tabela no relatório):
+- **T1 (médio)** `classifica o grupo da Emily como engenharia` + tipo "cliente" do modelo → gravava cliente. **Correção:**
+  `tipoDitoPeloDono("cliente")` só vale se a frase não traz a palavra de outro tipo (engenharia, pós, jurídico, administrativo, sócios…).
+- **Código × nome (baixo)** `ignora o grupo da VERA` / `…grupo mcmv` com outro grupo de código igual à palavra → **Correção:** código e
+  palavras da frase apontando grupos diferentes → confirmação.
+- **Tipo da anotação (baixo):** na ordem direta é sempre "anotação" (o tipo do modelo é descartado).
+- **Hora (baixo)** `…amanhã às 9h` + prazo só com data → caía nas 18:00. **Correção:** se ele escreveu hora, o prazo tem de trazer essa hora.
+- Regressões no bloco "5." do e11 (148 testes no arquivo).
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -380,6 +390,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 12ª rodada (T1 e 4 pontos baixos) corrigido; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 11ª rodada (R1–R4) corrigido; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 10ª rodada (A1, A2, A3) — palavra de ligação nunca prova alvo; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 9ª rodada (I-9a, I-9b, I-9c, M-9) corrigido; regressões no e11.

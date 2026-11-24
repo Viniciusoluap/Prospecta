@@ -162,7 +162,8 @@ export function tipoDitoPeloDono(tipo: string, textoDoDono: string | null | unde
   const n = normalizarNome(textoDoDono);
   if (tipo === "engenharia") return /\bengenhar/.test(n);
   if (tipo === "pos_atendimento") return /\bpos\b|\bposvenda\b|\bpos atendimento\b/.test(n);
-  return tipo === "cliente";
+  // Portão 12 (T1): "cliente" só quando a frase não traz a palavra de OUTRO tipo ("…como engenharia" nunca vira grupo de cliente)
+  return tipo === "cliente" && !/\bengenhar|\bpos\b|\bposvenda\b|\bjuridic|\badministr|\bsoci[oa]s?\b|\bparceir|\bcorretor|\bintern[oa]s?\b/.test(n);
 }
 
 // ── Confirmação nomeada: "o grupo da Emily pode", "pode o da Maria Dayane", "pode todos" ──
@@ -461,7 +462,9 @@ export function prazoConfere(prazoDoModelo: unknown, mensagem: string, hojeIso: 
   const m = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?$/.exec(String(prazoDoModelo));
   if (!m) return false;
   if (dataDitaPeloDono(mensagem, hojeIso) !== m[1]) return false;
-  return m[2] ? horaDitaPeloDono(mensagem) === m[2] : true;
+  // Portão 12 (concern 4): se ele escreveu uma hora ("amanhã às 9h"), o prazo tem de trazer ESSA hora — nunca cair nas 18:00 em silêncio
+  const temHora = /\b\d{1,2}(?::\d{2}|h(?:\d{2})?)\b/.test(String(mensagem).normalize("NFKC"));
+  return m[2] || temHora ? horaDitaPeloDono(mensagem) === m[2] : true;
 }
 
 /** Prioridade direta: só "média" (padrão) ou "alta" com "urgente" e nenhuma negação em parte alguma da mensagem. */

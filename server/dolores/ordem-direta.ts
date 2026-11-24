@@ -253,10 +253,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       const texto = textoDoDono([c.nome]);
       if (!texto) return nao("a anotação não sai da mensagem do dono (vazia, curta ou com referência)");
       if (texto.length > LIMITE_TEXTO.registrar_acompanhamento) return nao("anotação maior que o limite");
-      // "ligação" só quando ele disse que ligou; senão, o padrão do código (anotação)
-      const ligou = /\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(normalizarNome(partes.mensagem));
-      if (a.tipo === "ligacao" && !ligou) return nao("o dono não disse que houve ligação");
-      return { ok: true, argumentos: { leadId: a.leadId, texto, tipo: a.tipo === "ligacao" ? "ligacao" : "anotacao" } };
+      // Portão 12 (concern 3): na ordem direta o tipo é sempre "anotação" (o do modelo é descartado; "ligação" só com o "pode")
+      return { ok: true, argumentos: { leadId: a.leadId, texto, tipo: "anotacao" } };
     }
     case "guardar_memoria": {
       let nome: string | null = null;
@@ -339,6 +337,9 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     // Portão 11 (R2): código que é palavra comum ou nome ("VERA") só vale digitado de propósito (em maiúsculas)
     const porCodigo = codigoDigitadoDeProposito(textoDoDono, alvo.codigo);
     const porNome = doGrupo.length > 0 && unicoComPonto(doGrupo, grupos.map(g => ({ id: g.id, nome: g.nomeWhatsapp ?? g.nome }))).escolhido === alvo.id;
+    // Portão 12 (concerns 1 e 2): o código bate, mas as palavras da frase estão no nome de OUTRO grupo ("ignora o grupo da VERA" com o
+    // grupo «VERA LUCIA»; "…grupo mcmv" com «MCMV RESIDENCIAL») → código e nome apontam grupos diferentes → confirmação
+    if (porCodigo && grupos.some(g => g.id !== alvo.id && palavrasQueIdentificam(g.nomeWhatsapp ?? g.nome).some(p => palavras.includes(p)))) return nao("o código e o nome apontam grupos diferentes");
     if (!porCodigo && (exigeCodigoDigitado(funcao) || !porNome)) return nao(exigeCodigoDigitado(funcao) ? "aceitar grupo só com o código digitado pelo dono" : "o grupo não saiu das palavras do dono");
     // Portão 6 (M-1), regra estrutural: depois do verbo, só palavra de ligação, o nome/código DESTE grupo, o nome do cliente/obra pedido
     // e número. Qualquer outra palavra ("assim que ela assinar", "provisoriamente") → confirmação
