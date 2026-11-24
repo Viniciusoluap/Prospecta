@@ -141,3 +141,6 @@ logs/
 
 # Cópias de trabalho de agentes paralelos (não versionar)
 .claude/worktrees/
+
+# Mapa do código gerado pelo graphify (montado a cada sessão, não versionar)
+graphify-out/
