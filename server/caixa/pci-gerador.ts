@@ -246,7 +246,33 @@ function gerarXls(modelo: Uint8Array, form: FormularioPci): ResultadoGeracaoPci 
       avisos.push(`Imagem de localização não incluída no Excel: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  corAutomaticaVisivelNoGooglePlanilhas(p);
   return { bytes: p.salvar(), formato: "xls", avisos };
+}
+
+/**
+ * O modelo oficial tem regras de formatação condicional cuja fonte usa a cor "automática" (índice 0x7FFF). No Excel e no LibreOffice a
+ * cor automática é o preto de sempre; o Google Planilhas a lê como BRANCO e esconde os valores (nº da ART, área construída total,
+ * valor do terreno, unitários por m²). Aqui a cor automática dessas regras vira o preto explícito da paleta (índice 8): nada muda no
+ * Excel, e o Google Planilhas passa a mostrar. Só esse campo de 4 bytes é alterado; nenhuma regra é removida. Pedido do dono (24/11/2026).
+ */
+const REG_CF = 0x01b1;
+const COR_AUTOMATICA = 0x7fff;
+const COR_PRETA = 8;
+export function corAutomaticaVisivelNoGooglePlanilhas(p: PastaBiff8): number {
+  let trocadas = 0;
+  for (const r of p.registros) {
+    if (r.tipo !== REG_CF || r.dados.length < 12 + 118) continue;
+    const d = r.dados;
+    const flags = (d[6] | (d[7] << 8) | (d[8] << 16)) + d[9] * 0x1000000;
+    if (((flags >>> 26) & 1) === 0) continue; // regra sem bloco de fonte
+    const o = 12 + 80; // cor da fonte, dentro do bloco de fonte (118 bytes) que vem logo depois do cabeçalho de 12
+    const cor = (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16)) + d[o + 3] * 0x1000000;
+    if (cor !== COR_AUTOMATICA) continue;
+    d[o] = COR_PRETA; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = 0;
+    trocadas++;
+  }
+  return trocadas;
 }
 
 // ─── .xlsm (Office Open XML) ─────────────────────────────────────────────────

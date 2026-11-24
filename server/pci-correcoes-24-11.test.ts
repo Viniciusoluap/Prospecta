@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PastaBiff8, R, type Registro } from "./caixa/biff8.js";
 import { imagensDaAba, proporcaoDoQuadro, substituirFotos } from "./caixa/biff8-imagens.js";
+import { corAutomaticaVisivelNoGooglePlanilhas, gerarPlanilhaPci } from "./caixa/pci-gerador.js";
 import {
   ABA_PROPOSTA_PCI, CAMPOS_PCI, PROPORCAO_QUADRO_LOCALIZACAO_PCI, fotoNoFormatoDoQuadroPci, recorteParaQuadroPci, baseDosCustosPci, calcularTotaisPci, custoDaIncidenciaPci, custosDigitadosComoPercentualPci, incidenciaDoCustoPci, QUADRO_LOCALIZACAO_PCI, cidadeUfDoEnderecoPci, empresaUnicaPci, errosPci, formatarCnpjPci, formularioPciVazio, localDataPci,
   preencherPciAutomatico, sugestoesAutomaticasPci, type FontesPreenchimentoPci,
@@ -201,5 +202,45 @@ describe("foto recortada na proporção do quadro (preenche o quadro, sem faixas
     }
     expect(fotoNoFormatoDoQuadroPci(1554, 1281)).toBe(false);
     expect(recorteParaQuadroPci(0, 0)).toEqual({ x: 0, y: 0, largura: 0, altura: 0 });
+  });
+});
+
+describe("planilha visível no Google Planilhas", () => {
+  const coresDasRegras = (bytes: Uint8Array) => {
+    const cores: number[] = [];
+    for (const r of PastaBiff8.abrir(bytes).registros) {
+      if (r.tipo !== 0x01b1 || r.dados.length < 130) continue;
+      const d = r.dados;
+      const flags = (d[6] | (d[7] << 8) | (d[8] << 16)) + d[9] * 0x1000000;
+      if (((flags >>> 26) & 1) === 1) cores.push((d[92] | (d[93] << 8) | (d[94] << 16)) + d[95] * 0x1000000);
+    }
+    return cores;
+  };
+  /** O modelo de teste (anonimizado) não tem a cor automática nas regras; o oficial em uso tem (22 regras). Aqui 5 regras ganham essa cor. */
+  const modeloComCorAutomatica = () => {
+    const p = PastaBiff8.abrir(MODELO);
+    let n = 0;
+    for (const r of p.registros) {
+      if (r.tipo !== 0x01b1 || r.dados.length < 130 || n >= 5) continue;
+      const flags = (r.dados[6] | (r.dados[7] << 8) | (r.dados[8] << 16)) + r.dados[9] * 0x1000000;
+      if (((flags >>> 26) & 1) === 0) continue;
+      r.dados.set([0xff, 0x7f, 0, 0], 92);
+      n++;
+    }
+    return p.salvar();
+  };
+  it("a cor \"automática\" (que o Google Planilhas lê como branco) vira preto explícito nas regras condicionais; o resto fica igual", () => {
+    const modelo = modeloComCorAutomatica();
+    const antes = coresDasRegras(modelo);
+    expect(antes.filter((c) => c === 0x7fff)).toHaveLength(5);
+    const f = formularioPciVazio();
+    f.campos.proponenteNome = "Proponente de Teste";
+    const gerada = gerarPlanilhaPci(modelo, "xls", f).bytes;
+    const depois = coresDasRegras(gerada);
+    expect(depois).toHaveLength(antes.length); // nenhuma regra removida
+    expect(depois.filter((c) => c === 0x7fff)).toEqual([]);
+    expect(depois).toEqual(antes.map((c) => (c === 0x7fff ? 8 : c))); // só a cor automática mudou
+    // aplicar de novo não muda nada
+    expect(corAutomaticaVisivelNoGooglePlanilhas(PastaBiff8.abrir(gerada))).toBe(0);
   });
 });

@@ -23,8 +23,10 @@ Ramo: `claude/inspiring-feynman-e8rqmc` (PR #338, rascunho). **Nada publicado ai
 - Portão de QA rápido da parte da tela (commit `ddc7863`): PASS, com 3 observações baixas (a do CNPJ com letras foi corrigida).
 
 ## Pendências
-- Google Planilhas (iPad) esconde ART, área total, terreno e unitários na PLANILHA (formatação condicional do modelo oficial). O PDF novo
-  mostra tudo. Avaliar neutralizar a regra no .xls gerado, desde que nada mude no Excel/LibreOffice.
+- **Google Planilhas:** as regras condicionais do modelo oficial usam a cor de fonte "automática" (0x7FFF), que o Google Planilhas lê como
+  branco. A planilha gerada troca essa cor por preto explícito (`corAutomaticaVisivelNoGooglePlanilhas`, só o campo da cor; nenhuma regra
+  sai). Conferido: página renderizada no LibreOffice idêntica, pixel a pixel, à de antes. **Falta o dono confirmar no iPad** (não há como
+  abrir o Google Planilhas daqui).
 - O PDF usa Helvetica (o modelo pede "CAIXA Std"): alguns textos longos quebram em linha diferente do Excel.
 - Avisos do PDF com motivo técnico entre parênteses: simplificar o texto se aparecerem para o usuário.
 - Conferir em produção na obra da cliente.
