@@ -88,7 +88,8 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
     relatedType, relatedId, priority: PRIORIDADE[args.prioridade], status: "pending", dueAt,
   }, tx);
   const prazoTexto = dueAt ? diaFortaleza(dueAt)!.split("-").reverse().join("/") : "sem prazo";
-  const frase = textoDeDado(`Tarefa #${criada.id} "${titulo.slice(0, 80)}" para ${responsavel.name} (${prazoTexto}; ${vinculo})`, 300);
+  // EPIC-025 E11 portão 5 (I-2): o título inteiro (até 150) na linha do que foi feito — nunca cortado em silêncio
+  const frase = textoDeDado(`Tarefa #${criada.id} "${titulo}" para ${responsavel.name} (${prazoTexto}; ${vinculo})`, 400);
   await registrarAutoria(ctx, { tabela: "tasks", registroId: criada.id, funcao: "criar_tarefa", descricao: frase });
   return {
     // QA R2 N2: ao modelo vão só ids, datas e códigos do sistema — nenhum texto do banco (o nome do responsável e o do

@@ -351,6 +351,8 @@ export function textoGravadoDoDono(textoDoModelo: string | null | undefined, par
  * (5) PRAZO calculado pelo CÓDIGO: a data inequívoca da mensagem do dono ("hoje", "amanhã", "dd/mm", "dd/mm/aaaa", "dia dd" → o próximo
  * dia dd), como "AAAA-MM-DD" no horário de Imperatriz. Mais de uma data, ou nenhuma → null.
  */
+const MARCADORES_DE_PRAZO = new Set(["ate", "para", "pra", "prazo", "vence", "vencimento"]);
+const PASSADO = new Set(["fez", "pagou", "mandou", "enviou", "ligou", "deu", "recebeu", "assinou", "veio", "foi", "chegou", "fizeram", "pagaram", "mandaram", "falou", "disse", "entregou"]);
 const MESES_E_SEMANA = /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|segunda|terca|quarta|quinta|sexta|sabado|domingo|que vem|proxim[oa]s?|semana|mes)\b/;
 export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | null {
   const n = normalizarNome(mensagem.replace(/\//g, " / "));
@@ -361,18 +363,36 @@ export function dataDitaPeloDono(mensagem: string, hojeIso: string): string | nu
     const dt = new Date(Date.UTC(a, m - 1, d));
     return dt.getUTCFullYear() === a && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? `${a}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}` : null;
   };
+  const raw = String(mensagem).normalize("NFC");
+  // Portão 5 (B-1): a data só é PRAZO com marcador colado antes ("até", "para/pra [o dia]", "prazo", "vence"), nunca depois de um verbo no
+  // passado ("o João fez dia 10", "pagou 3/4"); data que não é prazo (sem marcador) → o código não decide (null)
+  const antesDe = (i: number) => normalizarNome(raw.slice(Math.max(0, i - 40), i)).split(" ").filter(Boolean);
+  const temPassado = (ps: readonly string[]) => ps.slice(-5).some(t => PASSADO.has(t));
+  const comMarcador = (ps: readonly string[]) => {
+    let x = ps.length - 1;
+    while (x >= 0 && (ps[x] === "o" || ps[x] === "dia" || ps[x] === "no")) x--;
+    return x >= 0 && x >= ps.length - 3 && MARCADORES_DE_PRAZO.has(ps[x]);
+  };
   const achadas: Array<string | null> = [];
-  if (/\bhoje\b/.test(n)) achadas.push(hojeIso);
-  if (/\bamanha\b/.test(n)) achadas.push(iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
-  const barra = String(mensagem).normalize("NFKC").matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g);
-  for (const x of Array.from(barra)) {
+  for (const x of Array.from(raw.matchAll(/\b(hoje|amanh[aã])\b/gi))) {
+    if (temPassado(antesDe(x.index ?? 0))) return null;
+    achadas.push(/^hoje$/i.test(x[1]) ? hojeIso : iso(ano, mes, dia + 1) ?? new Date(Date.UTC(ano, mes - 1, dia + 1)).toISOString().slice(0, 10));
+  }
+  const usadas = new Set<number>();
+  for (const x of Array.from(raw.matchAll(/\b(?:dia\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/gi))) {
+    const ps = antesDe(x.index ?? 0);
+    if (temPassado(ps) || !comMarcador(x[0].toLowerCase().startsWith("dia") ? [...ps, "dia"] : ps)) return null;
+    usadas.add(x.index ?? 0);
     const d = Number(x[1]); const m = Number(x[2]);
     let a = x[3] ? Number(x[3].length === 2 ? `20${x[3]}` : x[3]) : ano;
     let r = iso(a, m, d);
     if (r && !x[3] && r < hojeIso) { a += 1; r = iso(a, m, d); }
     achadas.push(r);
   }
-  for (const x of Array.from(n.matchAll(/\bdia (\d{1,2})\b/g))) {
+  for (const x of Array.from(raw.matchAll(/\bdia\s+(\d{1,2})\b(?!\s*\/)/gi))) {
+    if (usadas.has(x.index ?? 0)) continue;
+    const ps = antesDe(x.index ?? 0);
+    if (temPassado(ps) || !comMarcador([...ps, "dia"])) return null;
     const d = Number(x[1]);
     let r = d >= dia ? iso(ano, mes, d) : null;
     if (!r) r = mes === 12 ? iso(ano + 1, 1, d) : iso(ano, mes + 1, d);
@@ -419,7 +439,24 @@ export function prioridadeConfere(prioridade: unknown, mensagem: string): boolea
 const VOCATIVOS_DE_UMA = new Set(["dolores", "oi", "ola", "ei", "vamos"]);
 const VOCATIVOS_DE_DUAS = new Set(["por favor", "bom dia", "boa tarde", "boa noite"]);
 
-/** Quantos tokens (normalizados) de vocativo/cortesia curto abrem o pedido ("dolores", "por favor", "oi", "bom dia"…) — no máximo 3. */
+export type Token = { n: string; inicio: number; fim: number };
+/**
+ * Portão 5 (I-1) — a tokenização ÚNICA do pedido (usada por `funcaoDoPedido`, pela moldura e pelo texto): palavras pelo MESMO limite do
+ * `normalizarNome` (sequências de letras/dígitos; vírgula, ponto, ";" colados separam), cada uma com a posição no texto cru.
+ */
+export function tokensDoPedido(mensagem: string | null | undefined): Token[] {
+  const m = String(mensagem ?? "");
+  const r: Token[] = [];
+  for (const x of Array.from(m.matchAll(/[0-9A-Za-zÀ-ÖØ-öø-ÿ]+/g))) {
+    const n = normalizarNome(x[0].replace(/ñ/gi, "n"));
+    if (!n) continue;
+    // um pedaço cru pode virar mais de uma palavra normalizada só em casos fora da porta; aqui fica uma palavra por pedaço
+    r.push({ n: n.split(" ")[0], inicio: x.index ?? 0, fim: (x.index ?? 0) + x[0].length });
+  }
+  return r;
+}
+
+/** Quantos tokens de vocativo/cortesia curto abrem o pedido ("dolores", "por favor", "oi", "bom dia"…) — no máximo 3. */
 function tokensDeVocativo(ts: readonly string[]): number {
   let j = 0;
   while (j < ts.length && j < 3) {
@@ -430,13 +467,23 @@ function tokensDeVocativo(ts: readonly string[]): number {
   return j;
 }
 
+/** Portão 5 (I-3): logo depois do verbo de grupo vem "grupo(s)" ou o código do grupo (aceitando artigo/demonstrativo). */
+const ANTES_DE_GRUPO = new Set(["o", "a", "os", "as", "esse", "essa", "este", "esta", "aquele", "aquela", "meu", "nosso"]);
+const CODIGO_DE_GRUPO_NO_TEXTO = /^[acdefghjkmnprtuvwxy234679]{4}$/;
+function grupoLogoDepois(ts: readonly string[], j: number): boolean {
+  let x = j + 1;
+  while (x < ts.length && x <= j + 2 && ANTES_DE_GRUPO.has(ts[x])) x++;
+  return x < ts.length && (ts[x] === "grupo" || ts[x] === "grupos" || (CODIGO_DE_GRUPO_NO_TEXTO.test(ts[x]) && /\d|[^aeiou]{4}/.test(ts[x])));
+}
+
 /**
  * (1) A função da ORDEM DIRETA é a do PRIMEIRO verbo do pedido (o imperativo que o abre, depois de no máximo um vocativo/cortesia
  * curto), no trecho antes do ":". Famílias SEPARADAS. null = o pedido não abre com um verbo da lista (→ confirmação de sempre). A
  * chamada do modelo tem de ser desta função; outra função → confirmação. Verbos de outras famílias DEPOIS do primeiro são conteúdo.
+ * Portão 5 (I-3): função de GRUPO só com "grupo"/o código logo depois do verbo ("liga pra Emily…" não é grupo).
  */
 export function funcaoDoPedido(antes: string | null | undefined): string | null {
-  const ts = normalizarNome(String(antes ?? "").replace(/ñ/gi, "n")).split(" ").filter(Boolean);
+  const ts = tokensDoPedido(antes).map(t => t.n);
   const j = tokensDeVocativo(ts);
   const v = ts[j];
   if (!v) return null;
@@ -451,40 +498,49 @@ export function funcaoDoPedido(antes: string | null | undefined): string | null 
   if (/^(?:apag(?:a|ue|ar)|remov(?:e|a|er)|tir(?:a|e|ar))$/.test(v)) return temLembranca ? "esquecer_memoria" : null;
   if (/^(?:corrig(?:e|ir)|corrija)$/.test(v)) return "corrigir_memoria";
   if (/^atualiz(?:a|e|ar)$/.test(v)) return temLembranca ? "corrigir_memoria" : null;
-  if (/^(?:vincul\w*|lig(?:a|ue|ar)|classific\w*|defin(?:a|e|ir)|coloc(?:a|ar)|coloque|marc(?:a|ar)|marque|troc(?:a|ar)|troque|associ\w*|junt(?:a|ar))$/.test(v)) return "classificar_grupo";
-  if (/^(?:ignor\w*|desativ\w*)$/.test(v) || /^deix\w* de lado/.test(frase)) return "ignorar_grupo";
-  if (/^aceit\w*$/.test(v)) return "aceitar_grupo";
-  if (/^(?:deslig\w*|cal(?:a|e|ar))$/.test(v) || /^par\w* de respond/.test(frase)) return "ligar_resposta_grupo";
+  const grupo = grupoLogoDepois(ts, j);
+  if (/^(?:vincul\w*|lig(?:a|ue|ar)|classific\w*|defin(?:a|e|ir)|coloc(?:a|ar)|coloque|marc(?:a|ar)|marque|troc(?:a|ar)|troque|associ\w*|junt(?:a|ar))$/.test(v)) return grupo ? "classificar_grupo" : null;
+  if (/^(?:ignor\w*|desativ\w*)$/.test(v) || /^deix\w* de lado/.test(frase)) return grupo || /^deix\w* de lado (?:o |a )?grupo/.test(frase) ? "ignorar_grupo" : null;
+  if (/^aceit\w*$/.test(v)) return grupo ? "aceitar_grupo" : null;
+  if (/^(?:deslig\w*|cal(?:a|e|ar))$/.test(v) || /^par\w* de respond/.test(frase)) return resto.includes("grupo") ? "ligar_resposta_grupo" : null;
   return null;
 }
 
 /** (2) A moldura do pedido: palavras que só enquadram (nunca o texto gravado). Lista FECHADA. */
 const MOLDURA = new Set(["uma", "um", "a", "o", "as", "os", "tarefa", "tarefas", "pra", "para", "pro", "ao", "de", "da", "do", "na", "no", "ai", "me", "disso", "urgente"]);
 const ARTIGOS = new Set(["a", "o", "as", "os", "um", "uma"]);
-/** Texto que começa por referência ao que NÃO está na mensagem ("aquela tarefa", "a outra", "isso") → confirmação. */
-const DEITICOS = new Set(["aquela", "aquele", "aquilo", "aquelas", "aqueles", "essa", "esse", "isso", "essas", "esses", "esta", "este", "isto", "outra", "outro", "outras", "outros", "mesma", "mesmo", "dita"]);
+/** Portão 5 (I-1): palavra RESTRITIVA logo depois do verbo/nome NUNCA é moldura — é o começo do texto gravado. */
+export const RESTRITIVAS: ReadonlySet<string> = new Set(["sem", "so", "nao", "nem", "nunca", "jamais", "exceto", "salvo", "apenas", "somente", "se", "caso", "quando", "depois", "antes", "n", "naum", "num", "nada"]);
+/**
+ * Referência ao que NÃO está na mensagem → confirmação. Portão 5 (usabilidade): o dêitico só conta seguido de um substantivo de pedido
+ * ("aquela tarefa", "essa lembrança", "a outra tarefa") ou sozinho no fim ("conferir isso", "ver aquilo"). "está", "este", "mesmo" saíram.
+ */
+const DEITICOS = new Set(["aquela", "aquele", "aquelas", "aqueles", "essa", "esse", "essas", "esses", "outra", "outro", "outras", "outros", "dita"]);
+const DEITICOS_SOZINHOS = new Set(["isso", "aquilo", "isto"]);
+const SUBSTANTIVOS_DE_PEDIDO = new Set(["tarefa", "tarefas", "lembranca", "lembrancas", "memoria", "anotacao", "coisa", "coisas", "assunto", "item", "pedido", "grupo", "caso", "historia"]);
+export function temDeitico(palavras: readonly string[]): boolean {
+  return palavras.some((p, i) => (DEITICOS.has(p) && (SUBSTANTIVOS_DE_PEDIDO.has(palavras[i + 1] ?? "") || (DEITICOS.has(palavras[i + 1] ?? "") && SUBSTANTIVOS_DE_PEDIDO.has(palavras[i + 2] ?? ""))))
+    || (DEITICOS_SOZINHOS.has(p) && i === palavras.length - 1));
+}
 export const MIN_PALAVRAS_TEXTO_DA_MOLDURA = 2;
 
-export type TextoDaMoldura = { texto: string; moldura: string } | null;
+export type TextoDaMoldura = { texto: string; moldura: string; tokensDaMoldura: string[] } | null;
 
 /**
  * (2) TEXTO PELO CÓDIGO, sem ":": o que sobra da mensagem, ATÉ O FIM, depois de tirada a MOLDURA inicial — o vocativo, o verbo da função,
  * as palavras de `MOLDURA` e os NOMES provados (responsável/cliente) logo depois do verbo/preposição; depois de "que" só saem os
- * artigos ("anota que a Emily mandou o RG" → "Emily mandou o RG": o nome fica). Vazio, menos de 2 palavras ou começando por dêitico
- * ("aquela", "outra", "isso"…) → null (confirmação). `moldura` = o trecho tirado (a negação nele bloqueia, quem chama confere).
+ * artigos ("anota que a Emily mandou o RG" → "Emily mandou o RG": o nome fica). Palavra RESTRITIVA ("sem", "só", "se"…) nunca é
+ * moldura. Vazio, menos de 2 palavras, dêitico de pedido ou "tarefa que…" → null (confirmação). Portão 5 (I-1): a moldura tirada é
+ * conferida — a sequência normalizada dela tem de ser EXATAMENTE a dos tokens consumidos, senão null.
  */
 export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<readonly string[]> = []): TextoDaMoldura {
-  const toks = Array.from(String(mensagem).matchAll(/\S+/g)).map(m => ({ i: m.index ?? 0, n: normalizarNome(m[0].replace(/ñ/gi, "n")) }));
-  // o vocativo é contado sobre os tokens com letras/dígitos; avança na lista real
-  const vocativo = tokensDeVocativo(toks.map(t => t.n).filter(Boolean).join(" ").split(" "));
-  let pulados = 0; let k = 0;
-  while (k < toks.length && pulados < vocativo) { if (toks[k].n) pulados += toks[k].n.split(" ").length; k++; }
-  while (k < toks.length && !toks[k].n) k++;
+  const toks = tokensDoPedido(mensagem);
+  let k = tokensDeVocativo(toks.map(t => t.n));
   k++; // o verbo da função
   let depoisQue = false;
   while (k < toks.length) {
     const n = toks[k].n;
-    if (!n) { k++; continue; }
+    if (RESTRITIVAS.has(n)) break;
     if (depoisQue) { if (ARTIGOS.has(n)) { k++; continue; } break; }
     // "tarefa que o cliente pediu…" (oração relativa sobre a tarefa) aponta para algo fora da mensagem → confirmação
     if (n === "que") { if (k > 0 && /^tarefas?$/.test(toks[k - 1].n)) return null; depoisQue = true; k++; continue; }
@@ -498,10 +554,13 @@ export function textoPelaMoldura(mensagem: string, nomesProvados: ReadonlyArray<
     break;
   }
   if (k >= toks.length) return null;
-  const inicio = toks[k].i;
+  const inicio = toks[k].inicio;
+  const moldura = mensagem.slice(0, inicio);
+  const tokensDaMoldura = toks.slice(0, k).map(t => t.n);
+  // invariante: o que foi tirado é exatamente a moldura consumida (nada de conteúdo engolido por pontuação colada)
+  if (normalizarNome(moldura) !== tokensDaMoldura.join(" ") || tokensDaMoldura.some(t => RESTRITIVAS.has(t))) return null;
   const texto = mensagem.slice(inicio).trim().replace(/^[\s.,;:!\-]+|[\s.,;:!\-]+$/g, "");
-  const palavras = normalizarNome(texto).split(" ").filter(Boolean);
-  // dêitico em QUALQUER ponto ("conferir isso", "ligar sobre aquilo") aponta para fora da mensagem → confirmação
-  if (palavras.length < MIN_PALAVRAS_TEXTO_DA_MOLDURA || palavras.some(p => DEITICOS.has(p))) return null;
-  return { texto, moldura: mensagem.slice(0, inicio) };
+  const palavras = tokensDoPedido(texto).map(t => t.n);
+  if (palavras.length < MIN_PALAVRAS_TEXTO_DA_MOLDURA || temDeitico(palavras)) return null;
+  return { texto, moldura, tokensDaMoldura };
 }

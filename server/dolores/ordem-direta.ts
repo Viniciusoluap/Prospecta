@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, prioridadeConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, PALAVRAS_GENERICAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -79,6 +79,9 @@ export const grupoDoDono = (g: { adicionadoPor?: string | null; origem?: string 
  * `pergunta` (E11b): o nome que ele digitou aponta MAIS de um cliente/responsável — em vez de uma confirmação com um deles, a Dolores
  * pergunta qual, com os nomes (texto do sistema). Nada é posto na fila.
  */
+/** Portão 5 (I-2): tamanho máximo do texto gravado por função (o mesmo da tela/zod); acima → confirmação, nunca corte. */
+export const LIMITE_TEXTO = { criar_tarefa: 150, registrar_acompanhamento: 1000, guardar_memoria: 300, corrigir_memoria: 300 } as const;
+
 export type Prova = { ok: true; argumentos?: Record<string, unknown> } | { ok: false; motivo: string; pergunta?: string };
 const nao = (motivo: string, pergunta?: string): Extract<Prova, { ok: false }> => ({ ok: false, motivo, ...(pergunta ? { pergunta } : {}) });
 const SIM: Prova = { ok: true };
@@ -145,14 +148,38 @@ async function provarResponsavel(responsavel: unknown, palavras: string[], equip
   return { ok: true, nome: u.name, palavras: palavrasDoNome(u.name, palavras) };
 }
 
-/** A lembrança (corrigir/esquecer) que as palavras dele apontam entre as ATIVAS; devolve as palavras que a apontaram (M-4). */
-async function provarMemoria(memoriaId: unknown, palavras: string[]): Promise<ProvaDeNome> {
+/**
+ * A lembrança (corrigir/esquecer) que ELE apontou entre as ATIVAS. Portão 5 (I-4): provada só se
+ *  (a) é a ÚNICA com ponto pelas palavras dele, E (b) as palavras de conteúdo dele (fora a moldura) cobrem ao menos metade das da
+ *      lembrança E todas as dele estão nela; ou
+ *  (c) "esquece/corrige a lembrança do/da <nome>": o <nome> está nessa lembrança e só nela.
+ * Devolve as palavras que a apontaram (M-4).
+ */
+async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDeNome> {
   const id = Number(memoriaId);
   if (!Number.isSafeInteger(id) || id <= 0) return nao("sem lembrança");
   const ativas = await bancoDaLeitura().select({ id: doloresMemoriaLonga.id, nome: doloresMemoriaLonga.texto }).from(doloresMemoriaLonga)
     .where(eq(doloresMemoriaLonga.situacao, "ativa")).limit(500);
-  if (unicoComPonto(palavras, ativas).escolhido !== id) return nao("a lembrança não saiu das palavras do dono");
-  return { ok: true, nome: null, palavras: palavrasDoNome(ativas.find(m => m.id === id)!.nome, palavras) };
+  const alvo = ativas.find(m => m.id === id);
+  if (!alvo) return nao("lembrança não encontrada");
+  const ts = tokensDoPedido(antes).map(t => t.n);
+  // (c) "a lembrança do/da <nome>"
+  const iL = ts.findIndex(t => t === "lembranca" || t === "memoria");
+  if (iL >= 0 && ["do", "da", "de"].includes(ts[iL + 1] ?? "") && ts[iL + 2]) {
+    const nome = ts.slice(iL + 2).filter(t => !PALAVRAS_GENERICAS.has(t));
+    const com = ativas.filter(m => nome.length && nome.every(p => palavrasQueIdentificam(m.nome).includes(p)));
+    if (com.length === 1 && com[0].id === id) return { ok: true, nome: null, palavras: nome };
+    return nao("o nome não aponta uma lembrança só");
+  }
+  // (a) + (b)
+  const conteudo = textoPelaMoldura(antes);
+  const doDono = conteudo ? palavrasQueIdentificam(conteudo.texto) : [];
+  if (!doDono.length) return nao("sem palavras de conteúdo do dono");
+  if (unicoComPonto(doDono, ativas).escolhido !== id) return nao("a lembrança não saiu das palavras do dono");
+  const daLembranca = palavrasQueIdentificam(alvo.nome);
+  const cobertas = daLembranca.filter(p => doDono.includes(p)).length;
+  if (cobertas * 2 < daLembranca.length || !doDono.every(p => daLembranca.includes(p))) return nao("as palavras dele não cobrem a lembrança");
+  return { ok: true, nome: null, palavras: palavrasDoNome(alvo.nome, doDono) };
 }
 
 /**
@@ -190,6 +217,8 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       }
       const titulo = textoDoDono([quem.nome, nomeDoCliente]);
       if (!titulo) return nao("o texto da tarefa não sai da mensagem do dono (vazio, curto ou com referência)");
+      // Portão 5 (I-2): acima do limite da função → confirmação (nunca corte em silêncio)
+      if (titulo.length > LIMITE_TEXTO.criar_tarefa) return nao("texto da tarefa maior que o limite");
       const { descricao: _d, vinculo: _v, ...resto } = a;
       return { ok: true, argumentos: { ...resto, titulo, ...(vinculo ? { vinculo } : {}) } };
     }
@@ -199,6 +228,7 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       if (!c.ok) return c;
       const texto = textoDoDono([c.nome]);
       if (!texto) return nao("a anotação não sai da mensagem do dono (vazia, curta ou com referência)");
+      if (texto.length > LIMITE_TEXTO.registrar_acompanhamento) return nao("anotação maior que o limite");
       // "ligação" só quando ele disse que ligou; senão, o padrão do código (anotação)
       const ligou = /\b(?:ligac\w*|ligu\w*|ligou|ligamos|telefon\w*)\b/.test(normalizarNome(partes.mensagem));
       if (a.tipo === "ligacao" && !ligou) return nao("o dono não disse que houve ligação");
@@ -210,22 +240,24 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       else if (a.obraId) { const o = await provarObra(a.obraId, antes, palavras); if (!o.ok) return o; }
       const texto = textoDoDono([nome]);
       if (!texto) return nao("a lembrança não sai da mensagem do dono (vazia, curta ou com referência)");
+      if (texto.length > LIMITE_TEXTO.guardar_memoria) return nao("lembrança maior que o limite");
       // categoria: o padrão do código (o do modelo é descartado)
       return { ok: true, argumentos: { texto, categoria: "fato_negocio", ...(a.leadId ? { leadId: a.leadId } : {}), ...(a.obraId ? { obraId: a.obraId } : {}) } };
     }
     case "corrigir_memoria": {
       // sem ":" o texto novo não tem como ser separado da moldura com segurança → confirmação
       if (partes.depois === null) return nao("corrigir lembrança só com o texto novo ditado depois de \":\"");
-      const m = await provarMemoria(a.memoriaId, palavras);
+      const m = await provarMemoria(a.memoriaId, antes);
       if (!m.ok) return m;
       const texto = textoDoDono([]);
       if (!texto) return nao("texto novo vazio");
+      if (texto.length > LIMITE_TEXTO.corrigir_memoria) return nao("texto novo maior que o limite");
       // Portão 4 (M-4): o ditado tem de trazer ao menos uma das palavras que apontaram a lembrança (senão perde o sujeito)
       const noDitado = new Set(palavrasQueIdentificam(texto));
       if (!m.palavras.some(p => noDitado.has(p))) return nao("o texto novo não traz o sujeito da lembrança");
       return { ok: true, argumentos: { memoriaId: a.memoriaId, texto } };
     }
-    case "esquecer_memoria": { const m = await provarMemoria(a.memoriaId, palavras); return m.ok ? SIM : m; }
+    case "esquecer_memoria": { const m = await provarMemoria(a.memoriaId, antes); return m.ok ? SIM : m; }
     case "silenciar_aviso": {
       if (typeof a.silenciar !== "boolean" || !direcaoDoAvisoDita(a.silenciar, antes)) return nao("a direção (parar/voltar) não é a que o dono disse");
       const i = (TIPOS_AVISO as readonly string[]).indexOf(String(a.tipo));
