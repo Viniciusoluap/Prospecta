@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard compact || true",
+            "command": "PATH=\"$HOME/.local/bin:$PATH\"; command -v graphify >/dev/null 2>&1 && graphify hook-guard compact || true",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard search || true",
+            "command": "PATH=\"$HOME/.local/bin:$PATH\"; command -v graphify >/dev/null 2>&1 && graphify hook-guard search || true",
             "timeout": 10
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || true",
+            "command": "PATH=\"$HOME/.local/bin:$PATH\"; command -v graphify >/dev/null 2>&1 && graphify hook-guard read || true",
             "timeout": 10
           }
         ]

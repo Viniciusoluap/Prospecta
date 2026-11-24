@@ -5,6 +5,12 @@
 set -u
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}" || exit 0
 
+# Deixa o graphify instalado em ~/.local/bin visível para os outros hooks e para o agente na sessão.
+export PATH="$HOME/.local/bin:$PATH"
+if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
+fi
+
 (
   if ! command -v graphify >/dev/null 2>&1; then
     if command -v uv >/dev/null 2>&1; then
@@ -15,7 +21,6 @@ cd "${CLAUDE_PROJECT_DIR:-$(pwd)}" || exit 0
       pip install -q --user "graphifyy[sql]" >/dev/null 2>&1 \
         || pip install -q --break-system-packages "graphifyy[sql]" >/dev/null 2>&1
     fi
-    export PATH="$HOME/.local/bin:$PATH"
   fi
   command -v graphify >/dev/null 2>&1 && graphify update . >/dev/null 2>&1
 ) </dev/null >/dev/null 2>&1 &
