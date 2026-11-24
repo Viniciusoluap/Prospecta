@@ -18,7 +18,7 @@ import { ROTULO_TIPO_AVISO, TIPOS_AVISO } from "../../shared/dolores/avisos.js";
 import { getAssignableUsers } from "../db.js";
 import { descobrirTipoDoGrupo, type ClienteParaTipo } from "../../shared/dolores/grupos-tipo.js";
 import {
-  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, podeExecutarPorOrdemDireta,
+  codigoCitado, direcaoDoAvisoDita, unicoComPonto, exigeCodigoDigitado, prazoConfere, funcaoDoPedido, textoPelaMoldura, temNegacao, tokensDoPedido, tokensSemArtigo, mesmaSequencia, molduraInteira, apararPontas, tarefaUrgenteNaMoldura, temCondicaoOuTempo, soPalavrasPermitidas, LIGACAO_DE_GRUPO, LIGACAO_DE_AVISO, PALAVRAS_GENERICAS, RESTRITIVAS, type PartesDaOrdem, intencaoDaFuncao, numeroCitado, palavrasQueIdentificam, palavrasDoAlvo, PONTE, FECHO_DO_DITADO, podeExecutarPorOrdemDireta,
   tipoDitoPeloDono,
 } from "../../shared/dolores/ordem-direta.js";
 import { lerConfigWhatsapp } from "./consumo.js";
@@ -201,10 +201,13 @@ async function provarMemoria(memoriaId: unknown, antes: string): Promise<ProvaDe
  * devolvidos; o texto do modelo é descartado. Prazo/prioridade pelo código; categoria da memória e tipo da anotação, o padrão do
  * código (salvo "ligação", conferida). Qualquer dúvida → confirmação.
  */
+/** Verbos do pedido de aviso: permitidos na frase, nunca apontam o tipo (portão 10). */
+const VERBOS_DE_AVISO: ReadonlySet<string> = new Set(["parar", "pare", "para", "deixa", "deixe", "deixar", "chega", "volta", "volte", "voltar",
+  "silencia", "silencie", "silenciar", "religa", "religue", "religar"]);
 async function provarRegistro(funcao: string, a: Record<string, unknown>, partes: PartesDaOrdem, hojeIso: string): Promise<Prova> {
   const antes = partes.antes;
   // Portão 9 (I-9a/b): vocativo, saudação e verbo nunca apontam alvo
-  const palavras = palavrasDoAlvo(antes);
+  const palavras = palavrasDoAlvo(antes, funcao === "silenciar_aviso" ? [LIGACAO_DE_AVISO, VERBOS_DE_AVISO] : [PONTE, FECHO_DO_DITADO]);
   /** O texto do dono: o ditado, ou o que sobra depois da moldura (com os nomes provados), sem negação na moldura. */
   // Opção A do dono (24/11/2026): registro por ordem direta SÓ com o texto DITADO depois de ":" — o texto gravado é o ditado inteiro.
   // Sem ":", o código não tem como separar moldura de conteúdo com segurança (origem dos achados dos portões 5 a 8) → confirmação.
@@ -285,8 +288,7 @@ async function provarRegistro(funcao: string, a: Record<string, unknown>, partes
       const tipos = TIPOS_AVISO.map((t, j) => ({ id: j + 1, nome: `${t.replace(/_/g, " ")} ${ROTULO_TIPO_AVISO[t]}` }));
       if (unicoComPonto(palavras, tipos).escolhido !== i + 1) return nao("o tipo de aviso não saiu das palavras do dono");
       // Portão 6 (M-1): no pedido todo, só palavra de ligação, os verbos do aviso e o NOME do tipo — "até segunda", "só hoje" → confirmação
-      const permitidas = [...normalizarNome(tipos[i].nome).split(" "), "parar", "pare", "para", "deixa", "deixe", "deixar", "chega", "volta", "volte", "voltar",
-        "silencia", "silencie", "silenciar", "religa", "religue", "religar"];
+      const permitidas = [...normalizarNome(tipos[i].nome).split(" "), ...Array.from(VERBOS_DE_AVISO)];
       return soPalavrasPermitidas(antes, LIGACAO_DE_AVISO, permitidas) ? SIM : nao("palavra fora do pedido de aviso (condição ou prazo)");
     }
     default: return nao("função fora da lista");
@@ -327,7 +329,7 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
     const alvo = grupos.find(g => g.id === grupoId);
     if (!alvo) return nao("grupo não é da conexão da empresa");
     // Portão 9 (I-9c): "Dolores, ignora esse grupo" não escolhe o grupo «DOLORES …»
-    const palavras = palavrasDoAlvo(textoDoDono);
+    const palavras = palavrasDoAlvo(textoDoDono, [LIGACAO_DE_GRUPO]);
     const nomeDoAlvo = new Set(palavrasQueIdentificam(alvo.nomeWhatsapp ?? alvo.nome));
     // QA E11 (qualidade: dois grupos numa mensagem): o grupo é provado pelas palavras dele QUE ESTÃO no nome deste grupo — e essas
     // palavras precisam apontar só este grupo (outro grupo com o mesmo nome → empate → não provado)

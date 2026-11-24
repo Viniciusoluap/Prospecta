@@ -553,7 +553,7 @@ export function funcaoDoPedido(antes: string | null | undefined): string | null 
  * quando leva, em seguida, a "tarefa" (pedido de tarefa) ou a um NOME provado; sozinho, é conteúdo e fica ("a não ser que…", "a menos
  * que…", "a partir de…", "de jeito nenhum…", "no máximo…" ficam inteiros).
  */
-const PONTE = new Set(["a", "o", "as", "os", "um", "uma", "para", "pra", "pro", "ao", "na", "no", "da", "do", "de"]);
+export const PONTE: ReadonlySet<string> = new Set(["a", "o", "as", "os", "um", "uma", "para", "pra", "pro", "ao", "na", "no", "da", "do", "de"]);
 const ARTIGOS = new Set(["a", "o", "as", "os", "um", "uma"]);
 const VERBO_DE_TAREFA = /^(?:cri(?:a|e|ar)|abr(?:e|a|ir))$/;
 /** Portão 5 (I-1): palavra RESTRITIVA logo depois do verbo/nome NUNCA é moldura — é o começo do texto gravado. */
@@ -640,7 +640,7 @@ function consumirMoldura(mensagem: string, toks: readonly Token[], nomesProvados
  * [ponte + nome provado], "que" e, no fim, "disso"/"isso"/"o seguinte". Sobrou qualquer palavra ("se a Emily atrasar", "caso ela
  * ligue", "o boato de que") → false (confirmação): o que ele escreveu antes do ":" nunca é jogado fora em silêncio.
  */
-const FECHO_DO_DITADO = new Set(["disso", "isso", "seguinte", "assim"]);
+export const FECHO_DO_DITADO: ReadonlySet<string> = new Set(["disso", "isso", "seguinte", "assim"]);
 export function molduraInteira(antes: string, nomesProvados: ReadonlyArray<readonly string[]> = []): boolean {
   const toks = tokensDoPedido(antes);
   const { k, tarefaQue } = consumirMoldura(antes, toks, nomesProvados);
@@ -693,8 +693,10 @@ const MOLDURA_FIXA: ReadonlySet<string> = new Set(["dolores", "ola", "vamos", "f
  * Portão 9: as palavras do pedido que PODEM apontar um alvo — só as que vêm DEPOIS do vocativo e do verbo que abre o pedido, com 3+
  * letras, fora das genéricas e da moldura fixa. O vocativo ("Dolores, …"), a saudação ("Boa tarde, …") e o verbo nunca escolhem ninguém.
  */
-export function palavrasDoAlvo(antes: string | null | undefined): string[] {
-  return palavrasDepoisDoVerbo(antes).filter(p => p.length >= 3 && !PALAVRAS_GENERICAS.has(p) && !MOLDURA_FIXA.has(p));
+export function palavrasDoAlvo(antes: string | null | undefined, ligacao: ReadonlyArray<ReadonlySet<string>> = []): string[] {
+  // Portão 10 (A1–A3): palavra que a LISTA PERMITIDA do pedido aceita como ligação ("por", "como", "engenharia", "seguinte"…) nunca
+  // prova alvo — quem chama passa as listas permitidas do próprio pedido, em vez de depender de lembrar cada palavra aqui
+  return palavrasDepoisDoVerbo(antes).filter(p => p.length >= 3 && !PALAVRAS_GENERICAS.has(p) && !MOLDURA_FIXA.has(p) && !ligacao.some(l => l.has(p)));
 }
 /**
  * Portão 6 (M-1), regra ESTRUTURAL: numa ordem que não grava texto, depois do verbo só pode haver palavra de ligação desta lista, o

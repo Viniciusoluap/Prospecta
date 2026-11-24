@@ -16,7 +16,7 @@ import { getDb } from "../db.js";
 import { exigeConfirmoNoCodigo, nivelDoItem } from "../../shared/dolores/confirmacao.js";
 import { normalizarNome, descobrirTipoDoGrupo, lerDecisaoDeGrupo, lerRespostaNumerada, textoDasOpcoes } from "../../shared/dolores/grupos-tipo.js";
 import {
-  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, preparadoPodeIrDireto,
+  partesDaOrdem, funcaoDoPedido, textoPelaMoldura, molduraInteira, tokensSemArtigo, mesmaSequencia, tokensDoPedido, temDeitico, RESTRITIVAS, passaNaPortaDeCaracteres, temNegacao, textoGravadoDoDono, dataDitaPeloDono, prazoConfere, prioridadeConfere, ehPedidoDeDesfazer, escolherPorNome, unicoComPonto, intencaoDaFuncao, lerConfirmacaoNomeada, lerNomeDeCliente, linhaDoFeito, negaAcao, podeExecutarPorOrdemDireta, palavrasDoAlvo, LIGACAO_DE_GRUPO, preparadoPodeIrDireto,
 } from "../../shared/dolores/ordem-direta.js";
 import { definirClienteModelo, type PedidoModelo, type RespostaModelo } from "./cerebro.js";
 import { definirSorteioCodigo } from "./aprovacoes.js";
@@ -1656,6 +1656,43 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
       roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "x", responsavel: "Bianca", prioridade: "alta" }]), () => texto("Crio?"));
       await dono("cria uma tarefa para a Bianca: perguntar ao João se ele viu a tarefa urgente da Maria");
       expect(await tarefas()).toEqual([]);
+    });
+
+    it("A1 (10ª): \"ignora esse grupo por favor\" com o grupo «VENDAS POR INDICACAO» → nada na hora (o \"por\" não aponta grupo)", async () => {
+      await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO" });
+      const g = await grupo({ codigo: "AA7W", nome: "VENDAS POR INDICACAO", tipo: "parceiros", situacao: "confirmado" });
+      const antes = await retrato();
+      for (const frase of ["ignora esse grupo por favor", "ignora o grupo, por favor", "desliga a resposta do grupo por favor"]) {
+        roteiro.push(() => ferramenta(["ignorar_grupo", { grupoId: g.id }], ["ligar_resposta_grupo", { grupoId: g.id, ligado: false }]), () => texto("Qual grupo?"));
+        await dono(frase);
+        expect(await retrato(), frase).toBe(antes);
+      }
+    });
+
+    it("A2 (10ª): \"classifica esse grupo como engenharia\" com o grupo «ENGENHARIA CANAA» → nada na hora (a palavra do tipo não aponta grupo)", async () => {
+      await grupo({ codigo: "KHMN", nome: "OBRA RESIDENCIAL ALFA" });
+      const g = await grupo({ codigo: "AA7W", nome: "ENGENHARIA CANAA" });
+      const antes = await retrato();
+      for (const frase of ["classifica esse grupo como engenharia", "marca o grupo como engenharia", "define esse grupo como engenharia"]) {
+        roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "engenharia" }]), () => texto("Qual grupo?"));
+        await dono(frase);
+        expect(await retrato(), frase).toBe(antes);
+      }
+    });
+
+    it("A3 (10ª): \"anota o seguinte: ela mandou o RG\" com a cliente «JOSE SEGUINTE» → nada na hora (fecho do ditado não aponta cliente)", async () => {
+      await banco.pg.exec("INSERT INTO leads (name, phone, city, stage, created_at, updated_at) VALUES ('JOSE SEGUINTE', '99933335555', 'Imperatriz', 'attending', '2026-03-01', '2026-11-01')");
+      const id = Number((await q<any>("SELECT id FROM leads WHERE name = 'JOSE SEGUINTE'"))[0].id);
+      const antes = await retrato();
+      roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: id, texto: "ela mandou o RG" }]), () => texto("Em qual cliente?"));
+      await dono("anota o seguinte: ela mandou o RG");
+      expect(await retrato()).toBe(antes);
+    });
+
+    it("regra pura (10ª): palavra da lista permitida do pedido nunca é palavra de alvo", () => {
+      expect(palavrasDoAlvo("ignora esse grupo por favor", [LIGACAO_DE_GRUPO])).toEqual([]);
+      expect(palavrasDoAlvo("classifica o grupo da Emily como engenharia", [LIGACAO_DE_GRUPO])).toEqual(["emily"]);
+      for (const p of Array.from(LIGACAO_DE_GRUPO)) expect(palavrasDoAlvo(`ignora o grupo ${p}`, [LIGACAO_DE_GRUPO]), p).toEqual([]);
     });
 
     it("regra pura: palavrasDoAlvo tira vocativo, saudação, verbo e moldura fixa", () => {

@@ -286,6 +286,17 @@ Causa única: o alvo era escolhido por palavras do dono que não nomeiam ningué
   prioridade é só a da moldura ("tarefa urgente" antes do ":"); alta pedida pelo modelo sem isso → confirmação.
 - Regressões: bloco "5. achados da 9ª revisão" em `server/dolores/e11-conversa-direta.test.ts` (7 testes, frases exatas).
 
+### Portão de segurança, 10ª rodada (24/11/2026) — FAIL, corrigido
+Os 4 achados da 9ª ficaram fechados; a mesma classe apareceu por outro caminho (palavra que a lista permitida aceita e que ainda contava
+como palavra de alvo).
+- **A1** `ignora esse grupo por favor` → o "por" escolhia o grupo «VENDAS POR INDICACAO».
+- **A2** `classifica esse grupo como engenharia` → a palavra do tipo escolhia o grupo «ENGENHARIA CANAA».
+- **A3** (baixo) `anota o seguinte: …` → "seguinte" escolhia a cliente «JOSE SEGUINTE».
+- **Correção estrutural:** `palavrasDoAlvo(antes, listas)` tira das palavras de alvo TODA palavra das listas permitidas do próprio pedido
+  (grupo: `LIGACAO_DE_GRUPO`; aviso: `LIGACAO_DE_AVISO` + verbos do aviso; registro: `PONTE` + `FECHO_DO_DITADO`). O que o código aceita
+  como ligação nunca prova alvo — sem depender de lembrar palavra por palavra.
+- Regressões: A1, A2, A3 e a regra pura no bloco "5." do e11 (141 testes no arquivo).
+
 ## Critérios de aceite
 
 - [x] AC1 — "Grupo AA7W aceitar" com nome que bate com UM cliente → aceito e ligado, uma linha, sem pergunta e sem a IA.
@@ -358,6 +369,7 @@ regra nova (feito na hora) e, quando a propriedade era de contaminação, o text
   `server/dolores/c5-e1-voz.test.ts`.
 
 ## Change Log
+- 24/11/2026 — @dev (Dex): portão de segurança E11, 10ª rodada (A1, A2, A3) — palavra de ligação nunca prova alvo; regressões no e11.
 - 24/11/2026 — @dev (Dex): portão de segurança E11, 9ª rodada (I-9a, I-9b, I-9c, M-9) corrigido; regressões no e11.
 
 - 24/11/2026 — @dev (Dex): Opção A do dono — direto só tarefa/anotação com ":", grupo com um alvo e silenciar aviso; lembrança volta ao "pode"; achados I-8a, I-8b, M-8c, M-8d, M-8e; testes atualizados e bloco "Opção A" no e11.
