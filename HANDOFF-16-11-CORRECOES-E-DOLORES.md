@@ -821,3 +821,21 @@ s7-qa) 279/279; tsc e vite build limpos. A suíte INTEIRA `server/dolores` não 
 **Pendências do dono:** `PENDENCIAS-DO-DONO-23-11.md` (raiz). **Dívidas de segurança do Jurídico:** ROADMAP.
 **Próximo passo exato:** dono faz o passo 3 do arquivo de pendências (ambiente "Produção restrita (teste)" → "Liberar emissão desta empresa" →
 "Buscar alíquotas oficiais" → emitir um rascunho); a sessão acompanha a resposta da Sefin (nomes dos campos JSON só confirmáveis com o A1).
+
+## 24/11/2026 — Área da obra com decimais + sino de notificações (#334, publicado) e situação da E11
+
+**Concluído (#334, squash `9fea3d9`, produção READY):** `construction_projects.total_area` de `integer` para `double precision`
+(migração `drizzle/0173_obra_area_total_decimal.sql`, aplicada no Neon antes do merge; 21 obras com área conferidas, nenhum valor mudou);
+`client/src/pages/AdminEditarObra.tsx` deixou de usar `parseInt`; `Obras.tsx`/`ObraDetalhes.tsx` mostram a área em pt-BR;
+`client/src/components/Navbar.tsx`: o título "Notificações" e "Ver todas as notificações" abrem `/notificacoes` mesmo sem novas.
+**Testes:** (a) automáticos — `tsc` limpo, `vite build` ok, `pci-gerador-db` + `pci-s09-db` 23/23; Codex sem achados; (b) manuais — nenhum;
+(c) pendentes em produção — o dono digitar 166,56 em Editar obra e clicar em "Notificações" no sino.
+**Paridade:** portar as duas correções no Grupo Santa Fé (ROADMAP).
+
+**E11 da Dolores (conversa direta) — NÃO publicada.** Ramo `claude/dolores-e11-conversa-direta` (GitHub em `7303ab2`, sem PR). O portão
+@qa reprovou 4 rodadas (achados e correções na story `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`). Em andamento: correção
+da 4ª rodada (função e texto decididos pelo CÓDIGO a partir da mensagem do dono; a chamada do modelo só dispara) — trabalho sem commit na
+worktree `dolores-e11`. **Próximo passo exato:** concluir essa correção, `tsc` + testes por arquivo, push, 5ª rodada do @qa sobre o commit
+novo; só com PASS abrir PR, Codex, prévia, merge e conferir produção.
+**Pendências do dono:** trocar o modelo de "Dolores — conversa pelo WhatsApp" para Sonnet (hoje vale o preferencial, Haiku); decidir se grupo
+vinculado nasce com resposta ligada ("mantém"/"desligada") e se a troca de cliente de um grupo segue com confirmação ("mantém"/"direto").
