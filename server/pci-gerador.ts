@@ -45,6 +45,7 @@ import { vgvDaObra } from "../shared/obra-localizacao.js";
 import { getTokenFromRequest, verifySessionToken } from "./_core/auth-utils.js";
 import { adminProcedure, canAccessAdminProcedure, router } from "./_core/trpc.js";
 import { gerarPdfPci, gerarPlanilhaPci, lerFormularioPci, validarModeloPci } from "./caixa/pci-gerador.js";
+import { gerarPdfFielPci } from "./caixa/pci-pdf-fiel.js";
 import { compararEstruturasPci, lerEstruturaModeloPci, xlsCompativelCom, type EstruturaModeloPci, type RelatorioCompatibilidadePci } from "./caixa/pci-modelo-estrutura.js";
 import { getDb, getUserById } from "./db.js";
 import { copiarParaDrive } from "./drive-organizacao.js";
@@ -602,7 +603,18 @@ export async function gerarPciDaObra(projectId: number, entrada: unknown, autor:
     throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Não foi possível preencher o modelo." });
   }
   const agora = new Date();
-  const pdf = gerarPdfPci(form, { obraTitulo: obra.title, modeloVersao: modelo.versao, modeloArquivo: modelo.arquivo, geradoEm: agora, autor: autor.name });
+  // Pedido de 24/11/2026: o PDF é a própria planilha impressa (mesmas células, cores, logotipo e valores
+  // recalculados). Se o desenho fiel falhar, sai o PDF simples de antes e a PCI é gerada mesmo assim.
+  let pdf: Uint8Array;
+  try {
+    const fiel = gerarPdfFielPci(planilha.bytes, { hoje: agora });
+    pdf = fiel.bytes;
+    for (const aviso of fiel.avisos) planilha.avisos.push(`PDF: ${aviso}`);
+  } catch (e) {
+    console.warn(JSON.stringify({ evento: "pci.pdf_fiel_falhou", projectId, motivo: e instanceof Error ? e.message : String(e) }));
+    pdf = gerarPdfPci(form, { obraTitulo: obra.title, modeloVersao: modelo.versao, modeloArquivo: modelo.arquivo, geradoEm: agora, autor: autor.name });
+    planilha.avisos.push("O PDF foi gerado no formato simples, porque não foi possível desenhar a planilha completa.");
+  }
   const nomePlanilha = nomeArquivoPciGerada(form.campos.proponenteNome, obra.title, modelo.versao, planilha.formato);
   const nomePdf = nomeArquivoPciGerada(form.campos.proponenteNome, obra.title, modelo.versao, "pdf");
   const r = await getDb().execute(sql`
