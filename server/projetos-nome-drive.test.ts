@@ -100,42 +100,42 @@ function trocaQueFalha(drive: DriveSimulado, falha: (id: string) => Error | unde
     return original(id, nome, prazo);
   });
 }
-type Antes = { drive_file_id: string; drive_renamed_at: Date | null; drive_name_before: string | null; drive_name_before_origem: string | null; canonical_name_before: string | null; list_name_before: string | null; list_original_added: boolean | null };
-const antesDe = async (id: number) => (await pg.query<Antes>(`SELECT drive_file_id, drive_renamed_at, drive_name_before, drive_name_before_origem,
-  canonical_name_before, list_name_before, list_original_added FROM project_documents WHERE id = $1`, [id])).rows[0];
+type Antes = { drive_file_id: string; drive_renamed_at: Date | null; drive_name_before: string | null; drive_name_before_origem: string | null; canonical_name_before: string | null; list_name_before: string | null; list_original_added: boolean | null; drive_name_target: string | null; drive_patch_attempted: boolean | null };
+const COLUNAS_ANTES = `drive_file_id, drive_renamed_at, drive_name_before, drive_name_before_origem, canonical_name_before, list_name_before,
+  list_original_added, drive_name_target, drive_patch_attempted`;
+const antesDe = async (id: number) => (await pg.query<Antes>(`SELECT ${COLUNAS_ANTES} FROM project_documents WHERE id = $1`, [id])).rows[0];
 const filesDo = async (projetoId: number) => JSON.parse((await pg.query<{ files: string }>("SELECT files FROM operational_projects WHERE id = $1", [projetoId])).rows[0].files);
 
-/** Os passos do "Como desfazer" da story, para UM registro. */
+/** Os passos do "Como desfazer" da story, para UM registro, seguidos à risca. */
 async function desfazer(id: number, drive: DriveSimulado) {
-  const [r] = (await pg.query<Antes & { project_id: number }>(`SELECT project_id, drive_file_id, drive_renamed_at, drive_name_before, drive_name_before_origem,
-    canonical_name_before, list_name_before, list_original_added FROM project_documents WHERE id = $1`, [id])).rows;
-  // 2. Drive: só se a rotina o renomeou e o nome anterior foi lido no Drive
-  if (r.drive_renamed_at && r.drive_name_before_origem === "drive") drive.nomes[r.drive_file_id] = r.drive_name_before!;
-  // 3. lista (ou entrega)
+  const [r] = (await pg.query<Antes & { project_id: number }>(`SELECT project_id, ${COLUNAS_ANTES} FROM project_documents WHERE id = $1`, [id])).rows;
+  // 2. Drive: só com a marca de PATCH tentado e o "antes" lido no Drive; volta só se o nome atual é o alvo da rotina
+  if (r.drive_patch_attempted && r.drive_name_before_origem === "drive" && drive.nomes[r.drive_file_id] === r.drive_name_target) {
+    drive.nomes[r.drive_file_id] = r.drive_name_before!;
+  }
+  // 3. lista (ou entrega): só se o nome que está nela hoje é o alvo da rotina (a rotina chegou a gravá-la)
   const volta = (el: Record<string, unknown>, nome: string, original: string) => {
+    if (r.list_name_before == null || el[nome] !== r.drive_name_target) return false;
     el[nome] = r.list_name_before;
     if (r.list_original_added) delete el[original];
+    return true;
   };
   const files = await filesDo(r.project_id);
   const i = files.findIndex((f: { documentId?: number; driveFileId?: string; url?: string }) => f.documentId === id || f.driveFileId === r.drive_file_id || f.url === url(r.drive_file_id));
   if (i >= 0) {
-    volta(files[i], "name", "originalName");
-    await pg.query("UPDATE operational_projects SET files = $1 WHERE id = $2", [JSON.stringify(files), r.project_id]);
+    if (volta(files[i], "name", "originalName")) await pg.query("UPDATE operational_projects SET files = $1 WHERE id = $2", [JSON.stringify(files), r.project_id]);
   } else {
     for (const rev of (await pg.query<{ id: number; deliveries: string }>("SELECT id, deliveries FROM project_revision_requests WHERE project_id = $1", [r.project_id])).rows) {
       const entregas = JSON.parse(rev.deliveries);
       const j = entregas.findIndex((d: { documentId?: number; driveFileId?: string }) => d.documentId === id || d.driveFileId === r.drive_file_id);
-      if (j < 0) continue;
-      volta(entregas[j], "nome", "nomeOriginal");
-      await pg.query("UPDATE project_revision_requests SET deliveries = $1 WHERE id = $2", [JSON.stringify(entregas), rev.id]);
+      if (j >= 0 && volta(entregas[j], "nome", "nomeOriginal")) await pg.query("UPDATE project_revision_requests SET deliveries = $1 WHERE id = $2", [JSON.stringify(entregas), rev.id]);
     }
   }
   // 4. registro
-  await pg.query(`UPDATE project_documents SET canonical_name = canonical_name_before, drive_renamed_at = NULL, drive_name_before = NULL,
-    drive_name_before_origem = NULL, canonical_name_before = NULL, list_name_before = NULL, list_original_added = NULL WHERE id = $1`, [id]);
+  await pg.query(`UPDATE project_documents SET canonical_name = COALESCE(canonical_name_before, canonical_name), drive_renamed_at = NULL,
+    drive_name_before = NULL, drive_name_before_origem = NULL, canonical_name_before = NULL, list_name_before = NULL,
+    list_original_added = NULL, drive_name_target = NULL, drive_patch_attempted = NULL WHERE id = $1`, [id]);
 }
-
-afterEach(async () => { vi.restoreAllMocks(); await pg?.close(); });
 
 describe("conferir (dry-run)", () => {
   beforeEach(() => montar());
@@ -343,6 +343,57 @@ describe("renomear", () => {
     expect(JSON.parse((await pg.query<{ deliveries: string }>("SELECT deliveries FROM project_revision_requests WHERE id = 4")).rows[0].deliveries)[0]).toEqual(entregaAntes);
     expect(drive.nomes.d15).toBe("antigo-d15");
   });
+  it("desfazer no estado \"PATCH aplicado, banco não gravou\", ANTES da passagem seguinte: volta o Drive e não mexe no resto", async () => {
+    const drive = driveSimulado({ d11: "PRANCHA NO DRIVE.pdf" });
+    const filesAntes = await filesDo(7);
+    await pg.exec(`CREATE FUNCTION barra() RETURNS trigger AS $$ BEGIN
+      IF NEW.canonical_name IS DISTINCT FROM OLD.canonical_name THEN RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'barrado'; END IF;
+      RETURN NEW; END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER barra BEFORE UPDATE ON project_documents FOR EACH ROW EXECUTE FUNCTION barra();`);
+    await expect(renomearDocumentosProjetoNoDrive({ conferir: false }, drive)).rejects.toThrow();
+    await pg.exec("DROP TRIGGER barra ON project_documents");
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+    expect(await antesDe(11)).toMatchObject({ drive_renamed_at: null, drive_name_before: "PRANCHA NO DRIVE.pdf", drive_name_target: "Eletrico-Maylanne-Araujo-2.pdf", drive_patch_attempted: true });
+    // aqui o canonical_name ainda é o antigo: o passo 2 compara com o ALVO, e não com ele
+    expect((await linha(11)).canonical_name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
+    await desfazer(11, drive);
+    expect(drive.nomes.d11).toBe("PRANCHA NO DRIVE.pdf");
+    expect(await filesDo(7)).toEqual(filesAntes);
+    expect((await linha(11)).canonical_name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
+  });
+  it.each([
+    ["403 (recusado)", new ErroDrive("upload", 403, "insufficientFilePermissions", undefined)],
+    ["503 (pode ter sido aplicado)", new ErroDrive("upload", 503, "backendError", undefined)],
+  ])("PATCH falhou com %s e alguém renomeou à mão: a passagem seguinte guarda o nome lido AGORA, e o desfazer volta para ele", async (_, erro) => {
+    const drive = driveSimulado({ d11: "X.pdf" });
+    trocaQueFalha(drive, id => (id === "d11" ? erro : undefined));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    drive.nomes.d11 = "Y.pdf"; // renomeado à mão no Drive
+    drive.trocar = vi.fn(async (id: string, nome: string) => { drive.chamadas.push([id, nome]); drive.nomes[id] = nome; });
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r.renomeados).toBe(1);
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+    expect(await antesDe(11)).toMatchObject({ drive_name_before: "Y.pdf", drive_name_before_origem: "drive", drive_patch_attempted: true });
+    await desfazer(11, drive);
+    expect(drive.nomes.d11).toBe("Y.pdf");
+  });
+  it("PATCH recusado (4xx) e depois renomeado À MÃO para o nome padrão: não é atribuído à rotina", async () => {
+    const drive = driveSimulado({ d11: "X.pdf" });
+    trocaQueFalha(drive, id => (id === "d11" ? new ErroDrive("upload", 404, "notFound", undefined) : undefined));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    // 4xx: nada foi aplicado — o "antes" do Drive, o alvo e a marca foram limpos
+    expect(await antesDe(11)).toMatchObject({ drive_name_before: null, drive_name_before_origem: null, drive_name_target: null, drive_patch_attempted: null });
+    drive.nomes.d11 = "Eletrico-Maylanne-Araujo-2.pdf"; // alguém pôs o nome padrão à mão
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r).toMatchObject({ renomeados: 0, jaEstavam: 1 });
+    const a = await antesDe(11);
+    expect(a).toMatchObject({ drive_renamed_at: null, drive_name_before: "PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf", drive_name_before_origem: "registro", drive_patch_attempted: null });
+    // o desfazer não mexe no Drive (a rotina não o renomeou)
+    await desfazer(11, drive);
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+  });
   it("trava do projeto ocupada por mais de 2 s (lock_timeout): pula o projeto sem contar falha do arquivo", async () => {
     const banco = db.getDb();
     const ocupada = Object.assign(new Error("Failed query"), { cause: Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" }) });
@@ -408,18 +459,18 @@ describe("lote e limite de tempo", () => {
     expect(r2).toMatchObject({ pendentes: 8, renomeados: 8, restante: false });
     expect(await nomesDaTela(7)).toEqual(tela);
   });
-  it("só começa um arquivo se ainda couber o pior caso inteiro (2 × (8 s do Drive + 2 s de trava) = 20 s)", async () => {
-    expect(ORCAMENTO_ARQUIVO_MS).toBe(20_000);
+  it("só começa um arquivo se ainda couber o pior caso inteiro (2 × 8 s do Drive + 4 × 2 s de trava = 24 s)", async () => {
+    expect(ORCAMENTO_ARQUIVO_MS).toBe(24_000);
     let t = 0;
     const drive = driveSimulado({}, { agora: () => t });
     trocaQueFalha(drive, () => { t += 1_000; return undefined; });
-    // começa em t = 0, 1, 2 e 3 s (3 + 20 = 23, ainda cabe); em t = 4 s já não cabe
-    const r = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 23_000 }, drive);
+    // começa em t = 0, 1, 2 e 3 s (3 + 24 = 27, ainda cabe); em t = 4 s já não cabe
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 27_000 }, drive);
     expect(r.renomeados).toBe(4);
     expect(r.restante).toBe(true);
     expect(drive.prazos).toEqual(Array(8).fill(8_000)); // leitura e troca de cada um
     // prazo menor que o pior caso de um arquivo: nem começa
-    const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 19_999 }, driveSimulado({}));
+    const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 23_999 }, driveSimulado({}));
     expect(r2.renomeados).toBe(0);
     // pior caso no cron: até 30 s depois de no máximo 20 s dos avisos (total até 50 s < 60 s da Vercel)
   });

@@ -38,13 +38,19 @@ export const PRAZO_ARQUIVO_DRIVE_MS = 8_000;
 /** Espera máxima por uma trava do banco (lock_timeout de cada transação). */
 export const ESPERA_TRAVA_MS = 2_000;
 /**
- * Pior caso de um arquivo: leitura no Drive + espera da trava (guardar o "antes") + espera da trava + troca no Drive.
+ * Pior caso de um arquivo: leitura no Drive + 2 transações × 2 travas (advisory + linha do projeto) + troca no Drive.
  * O lote só começa um arquivo se esse tempo inteiro ainda couber no prazo.
  */
-export const ORCAMENTO_ARQUIVO_MS = 2 * (PRAZO_ARQUIVO_DRIVE_MS + ESPERA_TRAVA_MS);
+export const ORCAMENTO_ARQUIVO_MS = 2 * PRAZO_ARQUIVO_DRIVE_MS + 4 * ESPERA_TRAVA_MS;
+/** Rede de segurança: nenhuma consulta das transações da rotina passa disto (as esperas de trava já param em 2 s). */
+export const LIMITE_CONSULTA_MS = 3_000;
 
 type Linhas<T> = { rows: T[] };
-type Doc = { id: number; project_id: number; original_name: string; canonical_name: string; drive_file_id: string; drive_rename_failures: number; drive_name_before: string | null; drive_name_before_origem: string | null };
+type Doc = {
+  id: number; project_id: number; original_name: string; canonical_name: string; drive_file_id: string; drive_rename_failures: number;
+  drive_renamed_at: Date | string | null; drive_name_before: string | null; drive_name_before_origem: string | null;
+  drive_name_target: string | null; drive_patch_attempted: boolean | null;
+};
 type Projeto = { id: number; client_name: string | null; types: string | null; checklist: string | null; files: string | null };
 type Revisao = { id: number; project_id: number; deliveries: string | null };
 type Arquivo = { documentId?: number; driveFileId?: string; url?: string; itemId?: string | null; kind?: string | null; version?: number | null; name?: string | null; originalName?: string | null };
@@ -191,9 +197,18 @@ export function codigoDeErroBanco(e: unknown): string {
   return "falha";
 }
 const ate255 = (s: string | null | undefined) => (typeof s === "string" ? s.slice(0, 255) : null);
+/**
+ * O arquivo já está com `nome` porque um PATCH NOSSO foi aplicado numa passagem que não terminou? Exige a marca de PATCH
+ * tentado, o mesmo alvo e um "antes" lido no Drive diferente do alvo. (A marca só sobrevive a sucesso, 5xx e tempo
+ * esgotado; num 4xx ela é limpa.)
+ */
+function patchNossoAplicado(doc: Doc, nome: string): boolean {
+  return doc.drive_patch_attempted === true && doc.drive_name_target === nome
+    && doc.drive_name_before_origem === "drive" && doc.drive_name_before != null && doc.drive_name_before !== nome;
+}
 
 type Executor = Pick<ReturnType<typeof getDb>, "execute">;
-const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_name_before, drive_name_before_origem FROM project_documents
+const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_renamed_at, drive_name_before, drive_name_before_origem, drive_name_target, drive_patch_attempted FROM project_documents
   WHERE status IN ('active', 'substituted') AND drive_file_id IS NOT NULL AND drive_file_id <> ''
   ${projetoId === undefined ? sql`` : sql`AND project_id = ${projetoId}`} ORDER BY project_id, id`;
 const lerDocs = async (db: Executor, projetoId?: number) => (await db.execute(DOCS_SQL(projetoId)) as unknown as Linhas<Doc>).rows;
@@ -251,7 +266,8 @@ export async function renomearDocumentosProjetoNoDrive(
   const projetosOcupados = new Set<number>();
   /** Prazo de uma chamada ao Drive agora: no máximo PRAZO_ARQUIVO_DRIVE_MS e nunca além do prazo do lote. */
   const prazoDrive = () => Math.max(1, Math.min(PRAZO_ARQUIVO_DRIVE_MS, prazoMs - (deps.agora() - inicio)));
-  type Erro = { tipo: "erro"; codigo: string; limiteDeTaxa: boolean; contaFalha: boolean };
+  /** `naTroca`: o erro veio do PATCH (e não da leitura). */
+  type Erro = { tipo: "erro"; codigo: string; limiteDeTaxa: boolean; contaFalha: boolean; naTroca: boolean };
   type Desfecho = { tipo: "renomeado" | "ja_estava" | "mudou" | "colisao" } | { tipo: "nao_tocado"; resultado: "lixeira" | "sem_permissao" } | Erro;
 
   /**
@@ -262,6 +278,7 @@ export async function renomearDocumentosProjetoNoDrive(
   type Conferido = { alvo: Alvo; projeto: Projeto; revs: Revisao[] };
   async function sobTrava<T>(tx: Executor, projetoId: number, docId: number, nome: string, fn: (c: Conferido) => Promise<T>): Promise<T | { tipo: "mudou" } | { tipo: "colisao" }> {
     await tx.execute(sql.raw(`SET LOCAL lock_timeout = '${ESPERA_TRAVA_MS}ms'`));
+    await tx.execute(sql.raw(`SET LOCAL statement_timeout = '${LIMITE_CONSULTA_MS}ms'`));
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-document:${projetoId}`}))`);
     const [projeto] = (await tx.execute(sql`SELECT id, client_name, types, checklist, files FROM operational_projects WHERE id = ${projetoId} FOR UPDATE`) as unknown as Linhas<Projeto>).rows;
     if (!projeto) return { tipo: "mudou" };
@@ -298,23 +315,35 @@ export async function renomearDocumentosProjetoNoDrive(
         // 1. LER no Drive (sem trava): o nome atual, lixeira e permissão
         let info: ArquivoNoDrive;
         try { info = await deps.ler(fileId, prazoDrive()); }
-        catch (e) { return { tipo: "erro", ...codigoDoErro(e) }; }
+        catch (e) { return { tipo: "erro", ...codigoDoErro(e), naTroca: false }; }
         if (info.lixeira) return { tipo: "nao_tocado", resultado: "lixeira" };
         const jaNoNovo = info.nome === candidato.nome;
         if (!jaNoNovo && !info.podeRenomear) return { tipo: "nao_tocado", resultado: "sem_permissao" };
 
-        // 2. GUARDAR o "antes" e CONFIRMAR (transação própria, curta) ANTES de qualquer escrita no Drive. Nunca
-        //    sobrescreve o que já foi guardado; nunca guarda como "nome do Drive" um nome novo vindo de "já estava".
+        // 2. GUARDAR o "antes" e CONFIRMAR (transação própria, curta) ANTES de qualquer escrita no Drive.
+        //    - Ainda não renomeado por nós (drive_renamed_at nulo) e o nome lido NÃO é o alvo: o "antes" do Drive é o
+        //      nome lido AGORA (sobrescreve um "antes" de passagem anterior que não chegou ao fim — alguém pode ter
+        //      renomeado à mão no meio); grava também o alvo e a marca de "PATCH tentado".
+        //    - Já está com o nome novo: só é nosso se houver a marca, com o mesmo alvo e um "antes" lido no Drive
+        //      diferente dele (PATCH aplicado numa passagem que não terminou). Sem isso, alguém renomeou à mão (ou já
+        //      estava): o "antes" segue a regra do registro (canonical_name anterior, ESTIMADO) e marca/alvo são limpos.
+        //    - Já renomeado por nós antes (drive_renamed_at preenchido): o "antes" fica como está (COALESCE).
         const guardado = await db.transaction(tx => sobTrava(tx, projetoId, docId, candidato.nome, async c => {
           const l = naLista(c);
           const doc = c.alvo.doc;
-          // já estava com o nome novo e nada foi lido antes: o melhor que há é o canonical_name anterior (estimado)
-          const estimado = jaNoNovo && doc.drive_name_before == null && doc.canonical_name !== candidato.nome ? doc.canonical_name : null;
-          const lido = jaNoNovo ? estimado : info.nome;
-          const origem = jaNoNovo ? (estimado ? "registro" : null) : "drive";
+          let antes = doc.drive_name_before, origem = doc.drive_name_before_origem;
+          let alvoDrive = doc.drive_name_target, marca = doc.drive_patch_attempted;
+          if (!jaNoNovo) {
+            if (doc.drive_renamed_at == null) { antes = ate255(info.nome); origem = "drive"; }
+            alvoDrive = ate255(candidato.nome); marca = true;
+          } else if (doc.drive_renamed_at == null && !patchNossoAplicado(doc, candidato.nome)) {
+            antes = doc.canonical_name !== candidato.nome ? ate255(doc.canonical_name) : null;
+            origem = antes ? "registro" : null;
+            alvoDrive = null; marca = null;
+          }
           await tx.execute(sql`UPDATE project_documents SET
-            drive_name_before_origem = CASE WHEN drive_name_before IS NULL THEN ${origem} ELSE drive_name_before_origem END,
-            drive_name_before = COALESCE(drive_name_before, ${ate255(lido)}),
+            drive_name_before = ${antes}, drive_name_before_origem = ${origem},
+            drive_name_target = ${alvoDrive}, drive_patch_attempted = ${marca},
             canonical_name_before = COALESCE(canonical_name_before, canonical_name),
             list_name_before = COALESCE(list_name_before, ${ate255(l.nome)}),
             list_original_added = COALESCE(list_original_added, ${l.semOriginal})
@@ -329,7 +358,7 @@ export async function renomearDocumentosProjetoNoDrive(
           const { alvo, projeto, revs } = c;
           if (!jaNoNovo) {
             try { await deps.trocar(fileId, alvo.nome, prazoDrive()); }
-            catch (e) { return { tipo: "erro", ...codigoDoErro(e) }; }
+            catch (e) { return { tipo: "erro", ...codigoDoErro(e), naTroca: true }; }
           }
           // grava (congela) o nome mostrado: a tela passa a mostrar este nome como "gravado", sem recalcular
           // (updated_at do projeto/pedido não muda: não é atividade de ninguém)
@@ -345,9 +374,10 @@ export async function renomearDocumentosProjetoNoDrive(
             entregas[indice] = { ...d, nome: alvo.nome, nomeOriginal: d.nomeOriginal || alvo.doc.original_name };
             await tx.execute(sql`UPDATE project_revision_requests SET deliveries = ${JSON.stringify(entregas)} WHERE id = ${revisaoId}`);
           }
-          // "já estava" com o nome REAL anterior lido numa passagem antes (banco falhou depois do PATCH, ou o tempo
-          // esgotou com o Google já tendo aplicado): o Drive FOI renomeado por nós.
-          const fomosNos = !jaNoNovo || (alvo.doc.drive_name_before_origem === "drive" && alvo.doc.drive_name_before != null && alvo.doc.drive_name_before !== alvo.nome);
+          // "já estava" com a marca de PATCH tentado para este alvo e o nome REAL anterior lido numa passagem antes (banco
+          // falhou depois do PATCH, ou o tempo esgotou com o Google já tendo aplicado): o Drive FOI renomeado por nós.
+          // Sem a marca (alguém renomeou à mão): não é atribuído à rotina.
+          const fomosNos = !jaNoNovo || patchNossoAplicado(alvo.doc, alvo.nome);
           // só o nome do Drive (canonical_name) muda no registro; original_name fica como estava
           await tx.execute(sql`UPDATE project_documents SET canonical_name = ${alvo.nome}, drive_rename_error = NULL,
             drive_renamed_at = ${!jaNoNovo ? sql`now()` : fomosNos ? sql`COALESCE(drive_renamed_at, now())` : sql`drive_renamed_at`},
@@ -373,6 +403,12 @@ export async function renomearDocumentosProjetoNoDrive(
         break;
       case "erro":
         console.error("[projetos/nome-drive] documento", docId, desfecho.codigo);
+        if (desfecho.naTroca && (desfecho.contaFalha || desfecho.limiteDeTaxa)) {
+          // PATCH recusado (4xx, inclusive limite de taxa): NÃO foi aplicado — limpa o "antes" do Drive, o alvo e a
+          // marca (a passagem seguinte lê de novo). Só se a rotina ainda não renomeou este arquivo antes.
+          await db.execute(sql`UPDATE project_documents SET drive_name_before = NULL, drive_name_before_origem = NULL,
+            drive_name_target = NULL, drive_patch_attempted = NULL WHERE id = ${docId} AND drive_renamed_at IS NULL`);
+        }
         if (desfecho.limiteDeTaxa) { processados = limite; break; } // limite de taxa do Google: para o lote sem contar como falha do arquivo
         if (!desfecho.contaFalha) {
           // 5xx / tempo esgotado: registra o código, sem contar para a desistência

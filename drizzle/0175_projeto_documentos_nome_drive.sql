@@ -18,3 +18,8 @@ ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS list_original_added boole
 -- (ESTIMADO). Nulo = nada guardado.
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS canonical_name_before varchar(255);
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_before_origem varchar(20);
+-- 3ª rodada do portão de QA (26/11): o nome que a rotina TENTOU pôr no Drive e a marca de "PATCH tentado" (gravados
+-- antes do PATCH; a marca só permanece em sucesso, 5xx ou tempo esgotado — num 4xx, que não foi aplicado, é limpa).
+-- Sem a marca, "já estava com o nome novo" quer dizer que alguém renomeou à mão: não é atribuído à rotina.
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_target varchar(255);
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_patch_attempted boolean;
