@@ -1885,6 +1885,21 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect((await fila()).filter((i: any) => i.situacao === "aguardando")).toEqual([]);
   });
 
+  it("Codex #341 (6ª passada): \"pode todas as tarefas\" é o lote das tarefas; grupo «POS EMILY…» aceito fica como PÓS", async () => {
+    expect(lerConfirmacaoNomeada("pode todas as tarefas")).toMatchObject({ todos: true, entidade: "tarefa" });
+    expect(lerConfirmacaoNomeada("pode todas as anotações")).toBeNull(); // "anotações" casa com verbo de pedido novo: segue o caminho comum
+    expect(lerConfirmacaoNomeada("pode todos os avisos")).toMatchObject({ todos: true, entidade: "aviso" });
+    await grupo({ codigo: "AA7W", nome: "POS EMILY VICTORIA BRITO", situacao: "recusado", adicionadoPor: "dono" });
+    await dono("grupo AA7W aceitar");
+    expect(await grupoPorCodigo("AA7W")).toMatchObject({ tipo: "pos_atendimento", lead_id: EMILY });
+    // e pela ordem direta o tipo "cliente" não entra direto num grupo que o nome diz ser pós
+    const g = await grupo({ codigo: "KHMN", nome: "POS MARIA DAYANE SILVA SOUSA" });
+    const antes = await retrato();
+    roteiro.push(() => ferramenta(["classificar_grupo", { grupoId: g.id, tipo: "cliente", leadId: MARIA }]), () => texto("Confirma?"));
+    await dono("vincula o grupo da Maria Dayane");
+    expect(await retrato()).toBe(antes);
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();

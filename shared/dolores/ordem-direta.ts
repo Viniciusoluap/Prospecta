@@ -229,7 +229,9 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   // confirmar é AGORA; a palavra de tempo não pode virar "nome" ignorável
   if (ps.some(p => CONDICAO_OU_TEMPO.has(p) || /^\d{1,2}h(?:\d{2})?$/.test(p) || MESES_E_SEMANA.test(p)) || /\d[:/]\d/.test(bruto)) return null;
   const confirmo = ps.includes("confirmo");
-  const resto = (fim ? ps.slice(0, -1) : ps.slice(1)).filter(p => !AFIRMA.has(p) && !LIGACAO.has(p) && p !== "sim");
+  // Codex #341 (6ª passada, P2): a palavra da entidade ("tarefas", "anotações") sai antes de decidir se é "todos" —
+  // "pode todas as tarefas" é o lote das tarefas (a restrição da entidade continua valendo na execução)
+  const resto = (fim ? ps.slice(0, -1) : ps.slice(1)).filter(p => !AFIRMA.has(p) && !LIGACAO.has(p) && p !== "sim" && !ENTIDADE_DA_PALAVRA[p]);
   if (!resto.length || resto.length > 6) return null;
   const todos = resto.every(p => p === "todos" || p === "todas" || p === "tudo");
   // "todos" misturado com um nome ("pode todos o da Emily") é ambíguo → não é confirmação

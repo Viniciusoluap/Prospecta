@@ -99,15 +99,15 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
         // EPIC-025 E11 (regra do dono de 19/11, também logo depois do "aceitar"): o nome do grupo aponta UM cliente → liga sozinha e
         // avisa em uma linha; ele só responde se estiver errado. Mais de um → oferece os nomes; nenhum → uma pergunta curta.
         if (origem.via === "whatsapp") {
-          const auto = await clienteDoNomeDoGrupo(g, { parcial: true }).catch(() => ({ leadId: null, candidatos: [] }));
+          const auto: Awaited<ReturnType<typeof clienteDoNomeDoGrupo>> = await clienteDoNomeDoGrupo(g, { parcial: true }).catch(() => ({ leadId: null, candidatos: [] }));
           // QA E11 (M3): grupo em que OUTRA pessoa (ou não se sabe quem) pôs a Dolores — o nome é texto de terceiro: não liga sozinha;
           // UMA pergunta curta com o cliente que o nome aponta ("pode"/"sim" confirma, pela proposta de sempre)
           if (auto.leadId && !grupoDoDono(g) && !origem.semProposta) {
-            const p = await proporVinculo(g, auto.leadId, "cliente", origem);
+            const p = await proporVinculo(g, auto.leadId, auto.tipo ?? "cliente", origem);
             if (p) return { ok: true, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. Pelo nome, ele parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
           }
           if (auto.leadId && grupoDoDono(g)) {
-            const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: "cliente", numero: auto.leadId }, origem);
+            const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: auto.tipo ?? "cliente", numero: auto.leadId }, origem);
             if (r.ok) return { ...r, texto: r.texto.replace(/^Dolores: feito\. /, "Dolores: aceito. ") };
           }
           await marcarPerguntaDoTipo(g.id, origem);

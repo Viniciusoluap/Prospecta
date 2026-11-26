@@ -64,11 +64,12 @@ async function clientesAtivos(): Promise<ClienteParaTipo[]> {
  */
 export async function clienteDoNomeDoGrupo(g: Pick<DoloresGrupo, "nome" | "nomeWhatsapp"> & { adicionadoPor?: string | null; origem?: string | null },
   /** `parcial`: aceita o nível nome + sobrenome. Padrão: só para grupo do dono (QA E11, M3); `true` só para SUGERIR numa pergunta. */
-  o: { parcial?: boolean } = {}): Promise<{ leadId: number | null; candidatos: ClienteParaTipo[] }> {
+  o: { parcial?: boolean } = {}): Promise<{ leadId: number | null; candidatos: ClienteParaTipo[]; tipo?: "cliente" | "pos_atendimento" }> {
   const clientes = await clientesAtivos();
   // QA E11 (M3): grupo que outra pessoa (ou não se sabe quem) criou: para PROVAR, só o nome INTEIRO conta — o nome é texto de terceiro
   const d = descobrirTipoDoGrupo(g.nomeWhatsapp ?? g.nome, clientes, { parcial: o.parcial ?? grupoDoDono(g) });
-  if ((d.tipo === "cliente" || d.tipo === "pos_atendimento") && d.leadId) return { leadId: d.leadId, candidatos: [] };
+  // Codex #341 (6ª passada, P2): o tipo que o NOME do grupo indica ("Pós EMILY…" = pós-atendimento) vai junto
+  if ((d.tipo === "cliente" || d.tipo === "pos_atendimento") && d.leadId) return { leadId: d.leadId, candidatos: [], tipo: d.tipo };
   const ids = new Set(d.candidatos ?? []);
   return { leadId: null, candidatos: clientes.filter(c => ids.has(c.id)).slice(0, 5) };
 }
@@ -364,7 +365,9 @@ export async function provarAlvosDoDono(funcao: string, argumentos: unknown, par
       if (!Number.isSafeInteger(leadId) || leadId <= 0) return nao("sem cliente");
       // Opção A do dono (24/11/2026): direto só quando o cliente é o que o NOME DO GRUPO aponta (um só; grupo de terceiro, só o nome
       // inteiro). "cliente N", outro cliente ou segundo nome na frase → confirmação (portão 8, I-8b)
-      return (await clienteDoNomeDoGrupo(alvo)).leadId === leadId ? { ok: true } : nao("o cliente não é o do nome do grupo");
+      const doNome = await clienteDoNomeDoGrupo(alvo);
+      // o tipo também tem de ser o que o nome do grupo indica (grupo «Pós EMILY…» nunca vira "cliente" direto)
+      return doNome.leadId === leadId && (doNome.tipo ?? "cliente") === tipo ? { ok: true } : nao("o cliente ou o tipo não é o do nome do grupo");
     }
     // engenharia sem obra (com obra já foi para a confirmação acima)
     return { ok: true };
