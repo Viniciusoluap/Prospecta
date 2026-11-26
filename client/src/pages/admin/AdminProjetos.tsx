@@ -57,7 +57,7 @@ const blank = () => ({
 });
 /** EPIC-031 S-1: mesmo link do Drive de antes; muda só o texto (nome padrão), com o original na dica. */
 function ArquivoProjeto({ file, nome, rotulo, className }: { file: FileLink; nome: string; rotulo?: string; className?: string }) {
-  return <a className={className ?? "underline"} href={file.url} target="_blank" rel="noopener noreferrer" title={file.originalName ? `Nome original: ${file.originalName}` : undefined}>{rotulo}{nome}</a>;
+  return <a className={className ?? "underline"} href={file.url} target="_blank" rel="noopener noreferrer" title={(file.originalName || file.name) && (file.originalName || file.name) !== nome ? `Nome original: ${file.originalName || file.name}` : undefined}>{rotulo}{nome}</a>;
 }
 const nomesDosArquivos = (files: FileLink[], clientName: string, checklist: Check[]) => {
   const nomes = nomesPadraoArquivosProjeto(files, { clientName, checklist });

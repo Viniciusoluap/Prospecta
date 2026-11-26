@@ -73,7 +73,7 @@ export function RevisoesProjeto({ projectId, clientName = "" }: { projectId: num
                 // EPIC-031 S-1: nome padrão calculado na leitura; o original fica na dica.
                 const nome = nomePadraoArquivoProjeto({ item: "Revisao", cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
                 const rotulo = `${d.tipo === "pdf" ? "PDF" : "Editável"}: ${nome}`;
-                return <li key={d.driveFileId}><a className="underline" href={d.url} target="_blank" rel="noopener noreferrer" title={d.nomeOriginal ? `Nome original: ${d.nomeOriginal}` : undefined}>{rotulo}</a> — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>;
+                return <li key={d.driveFileId}><a className="underline" href={d.url} target="_blank" rel="noopener noreferrer" title={d.nomeOriginal || d.nome ? `Nome original: ${d.nomeOriginal || d.nome}` : undefined}>{rotulo}</a> — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>;
               })}
             </ul>
           )}
