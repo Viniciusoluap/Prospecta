@@ -562,7 +562,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   // espera o tipo (nenhum → segue o caminho normal). Mesmas travas do comando acima (só o dono, conversa direta, sem mídia, sem IA).
   const opcao = msg.temMidia ? null : lerRespostaNumerada(msg.texto);
   if (opcao) {
-    const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
+    const r = await decidirPelaOpcao(opcao, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora(), enviadaEm: msg.enviadaEm })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pela opção", erroCurto(e)); return { ok: false, texto: "Dolores: não consegui gravar a decisão agora; nada mudou.", grupoId: null }; });
     if (r) {
       await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: opcao.tipo, pelaOpcao: true, ok: r.ok }, prazoFinal, memoria: { codigos: [] }, pendenciaId: ("pendenciaId" in r ? r.pendenciaId : null) ?? null });
@@ -609,7 +609,7 @@ async function tratarComando(cfg: DoloresWhatsappConfig, msg: { id: number; nume
   // espera o tipo (pergunta dos últimos 30 min): o servidor acha UM cliente ativo por essas palavras e liga; senão segue o caminho comum.
   const nomeDoCliente = msg.temMidia ? null : lerNomeDeCliente(msg.texto);
   if (nomeDoCliente) {
-    const r = await decidirPeloNome(nomeDoCliente, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora() })
+    const r = await decidirPeloNome(nomeDoCliente, { via: "whatsapp", autor, mensagemId: msg.id, agora: deps.agora(), enviadaEm: msg.enviadaEm })
       .catch(e => { console.error("[dolores/whatsapp] falha na decisão de grupo pelo nome", erroCurto(e)); return null; });
     if (r) {
       await responderAoDono(cfg, msg.numero, r.texto, { mensagemId: msg.id, autor, resumo: { decisaoDeGrupo: nomeDoCliente.tipo, peloNome: true, ok: r.ok }, prazoFinal, memoria: {} });

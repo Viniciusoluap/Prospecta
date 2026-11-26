@@ -1912,6 +1912,20 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
   });
 
+  it("Codex #341 (8ª passada): nome escrito ANTES da pergunta do grupo não vale como resposta a ela", async () => {
+    await grupo({ codigo: "KHMN", nome: "CASA NOVA" });
+    await dono("grupo KHMN 1"); // a pergunta "de qual cliente é?" sai em `agora`
+    // mensagem atrasada: escrita 8 s ANTES da pergunta, entregue depois
+    const atrasada = aviso({ texto: "Emily" });
+    atrasada.data.messageTimestamp = Math.floor((agora.getTime() - 5_000 - 8_000) / 1000);
+    roteiro.push(() => texto("Sobre o que é?"));
+    await chamar(atrasada);
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    // escrita depois da pergunta: vale
+    await dono("Emily");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();

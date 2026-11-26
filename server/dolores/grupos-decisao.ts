@@ -28,6 +28,8 @@ import { FRASE_SO_QUANDO_MARCADA } from "../../shared/dolores/ordem-direta.js";
 
 /** `agora` (WhatsApp): o relógio do aviso, para a hora da PERGUNTA do tipo (a resposta só com o número vale por 30 min). */
 export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date;
+  /** quando o dono escreveu a mensagem (respostas só com nome ou número valem só para pergunta ANTERIOR a ela) */
+  enviadaEm?: Date | null;
   /** Codex #341 (P2): quem chama não mostra ao dono o texto desta resposta (aceite vindo da fila) — nenhuma proposta nova é aberta. */
   semProposta?: boolean } | { via: "tela"; userId: number };
 
@@ -209,7 +211,11 @@ export async function marcarPerguntaDoTipo(grupoId: number, origem: OrigemDecisa
  * Grupos que esperam o dono dizer o TIPO (aceitos, de tipo indefinido, ativos) e cuja PERGUNTA saiu há no máximo 30 min (QA-SEG
  * EPIC-027, achado 2): os únicos que a resposta só com o número resolve.
  */
-export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> {
+/**
+ * `enviadaEm` (Codex #341, P2): a hora em que o dono ESCREVEU a resposta. Só vale para grupo cuja pergunta saiu ANTES dela (segundo
+ * inteiro, estritamente depois — como nas confirmações): mensagem atrasada, escrita antes da pergunta, não responde a ela.
+ */
+export async function gruposEsperandoTipo(agora: Date, enviadaEm?: Date | null): Promise<DoloresGrupo[]> {
   // Revisão automática: a elegibilidade (tipo indefinido, entrada provada, pergunta dos últimos 30 min) vai no SQL, ANTES do limite —
   // senão 50 linhas inelegíveis escondem as elegíveis e uma resposta ambígua pareceria ter um grupo só. As mesmas regras são
   // conferidas de novo abaixo (tipoEfetivo/semProvaDoDono), e o limite folgado basta para ver que há 2 ou mais (pede o código).
@@ -225,7 +231,8 @@ export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> 
     isNotNull(doloresGrupos.perguntaTipoEm), gte(doloresGrupos.perguntaTipoEm, desde), lte(doloresGrupos.perguntaTipoEm, ate),
   )).orderBy(asc(doloresGrupos.id)).limit(50);
   return linhas.filter(g => tipoEfetivo(g) === "indefinido" && !semProvaDoDono(g) && !!g.perguntaTipoEm
-    && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000);
+    && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000
+    && (!enviadaEm || Math.floor(enviadaEm.getTime() / 1000) > Math.floor(g.perguntaTipoEm.getTime() / 1000)));
 }
 
 /**
@@ -235,7 +242,7 @@ export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> 
  * dono, na conversa direta, não encaminhada e sem mídia (whatsapp.ts).
  */
 export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
-  const esperando = await gruposEsperandoTipo(origem.agora);
+  const esperando = await gruposEsperandoTipo(origem.agora, origem.enviadaEm);
   if (!esperando.length) return null;
   if (esperando.length > 1) {
     const lista = esperando.slice(0, 6).map(g => `${aspas(g.nomeWhatsapp ?? g.nome)} (código ${g.codigo ?? g.id})`).join("; ");
@@ -300,7 +307,7 @@ async function nomeDoVinculo(leadId: number | null): Promise<string> {
  * mensagem segue o caminho comum). Mais de um cliente → os nomes para ele escolher (nada muda). Só a conversa direta do dono.
  */
 export async function decidirPeloNome(r: { palavras: string[]; tipo: "cliente" | "pos_atendimento" }, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
-  const esperando = await gruposEsperandoTipo(origem.agora);
+  const esperando = await gruposEsperandoTipo(origem.agora, origem.enviadaEm);
   if (esperando.length !== 1) return null;
   const [g] = esperando;
   const achados = await clientesPelasPalavras(r.palavras);
