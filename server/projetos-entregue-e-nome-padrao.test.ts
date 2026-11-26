@@ -7,12 +7,12 @@ import { getTableColumns, type Table } from "drizzle-orm";
 import express from "express";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const driveRange = vi.hoisted(() => vi.fn());
+const iniciarUpload = vi.hoisted(() => vi.fn());
 vi.mock("./drive-documents.js", () => ({
-  iniciarUploadProjetoDrive: vi.fn(),
+  iniciarUploadProjetoDrive: iniciarUpload,
   enviarParteProjetoDrive: vi.fn(),
-  readPrivateDocumentRange: driveRange,
 }));
+vi.mock("./_core/secret-vault.js", () => ({ encryptSecret: (v: string) => v, decryptSecret: (v: string) => v }));
 vi.mock("./_core/auth-utils.js", () => ({
   getTokenFromRequest: (req: { headers: Record<string, string> }) => req.headers["x-teste-token"] || null,
   verifySessionToken: async (token: string) => (token === "ok" ? { userId: 1, sessionVersion: 1 } : token === "corretor" ? { userId: 2, sessionVersion: 1 } : null),
@@ -45,7 +45,7 @@ beforeEach(() => {
   vi.spyOn(db, "getDb").mockReturnValue(drizzle(pg) as never);
   vi.spyOn(db, "getUserById").mockImplementation(async (id: number) =>
     ({ id, role: id === 1 ? "admin" : "corretor", active: true, sessionVersion: 1, permissions: null }) as never);
-  driveRange.mockImplementation(async (_id: string, inicio: number, fim: number) => Buffer.alloc(fim - inicio, 7));
+  iniciarUpload.mockResolvedValue("https://www.googleapis.com/upload/sessao-simulada");
 });
 afterEach(() => vi.restoreAllMocks());
 afterAll(() => pg.close());
@@ -80,6 +80,8 @@ describe("nome padrão e curto", () => {
   it("item: tabela fixa, texto livre curto, revisão e sem item", () => {
     expect(itemCurtoArquivoProjeto({ type: "projeto_hidrossanitario", text: "Projeto Hidrossanitário" })).toBe("Hidrossanitario");
     expect(itemCurtoArquivoProjeto({ text: "ART / RRT" })).toBe("ART");
+    expect(itemCurtoArquivoProjeto({ type: "projeto_arquitetonico", text: "Projeto Arquitetônico" })).toBe("Planta");
+    expect(itemCurtoArquivoProjeto({ text: "Projeto Arquitetônico" })).toBe("Planta");
     expect(itemCurtoArquivoProjeto({ text: "Planta de situação e localização" })).toBe("Planta-Situacao");
     expect(itemCurtoArquivoProjeto({ text: "Memorial descritivo completo da obra" })).toBe("Memorial");
     expect(itemCurtoArquivoProjeto({ itemId: "revisao-4", text: "Revisão 4" })).toBe("Revisao");
@@ -106,38 +108,41 @@ describe("nome padrão e curto", () => {
   });
 });
 
-describe("download com o nome padrão (arquivo novo e antigo)", () => {
+describe("envio novo já grava o nome padrão; o antigo não é alterado", () => {
   async function comServidor(teste: (base: string) => Promise<void>) {
     const app = express();
+    app.use(express.json());
     app.use("/api", rotas);
     const server = app.listen(0);
     try { await teste(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/projetos/7/documentos`); }
     finally { server.close(); }
   }
-  it("arquivo antigo: nome padrão no cabeçalho, sem alterar o que está gravado; partes de 1 MB", async () => {
+  const iniciar = (base: string, itemId: string, name: string, kind: "pdf" | "editable", token = "ok") => fetch(base, {
+    method: "POST", headers: { "Content-Type": "application/json", "x-teste-token": token },
+    body: JSON.stringify({ action: "start", itemId, name, size: 10, kind, mime: kind === "pdf" ? "application/pdf" : "application/acad" }),
+  });
+
+  it("item do tipo: nome padrão na reserva e no Drive, com a versão seguinte; original guardado", async () => {
     await comServidor(async base => {
-      const r = await fetch(`${base}/11/arquivo`, { headers: { "x-teste-token": "ok" } });
+      const r = await iniciar(base, "projeto_eletrico", "PRANCHA nova (2) cópia FINAL.PDF", "pdf");
       expect(r.status).toBe(200);
-      expect(r.headers.get("content-disposition")).toBe('attachment; filename="Eletrico-Maylanne-Araujo-2.pdf"');
-      expect(r.headers.get("x-document-name")).toBe("Eletrico-Maylanne-Araujo-2.pdf");
-      expect(r.headers.get("x-document-size")).toBe("1500000");
-      expect((await r.arrayBuffer()).byteLength).toBe(1024 * 1024);
-      const resto = await fetch(`${base}/11/arquivo?offset=${1024 * 1024}`, { headers: { "x-teste-token": "ok" } });
-      expect((await resto.arrayBuffer()).byteLength).toBe(1500000 - 1024 * 1024);
-      expect(driveRange).toHaveBeenLastCalledWith("drive-antigo", 1024 * 1024, 1500000);
-      const gravado = await pg.query<{ original_name: string; canonical_name: string }>("SELECT original_name, canonical_name FROM project_documents WHERE id = 11");
-      expect(gravado.rows[0]).toEqual({ original_name: "PRANCHA FINAL revisada 03 (1) cópia.pdf", canonical_name: "PROJETO_TECNICO_RESIDENCIA_MAYLANNE_DE_SOUSA_ARAUJO_PROJETO_ELETRICO_V02.pdf" });
+      const novo = await pg.query<{ original_name: string; canonical_name: string; version: number }>("SELECT original_name, canonical_name, version FROM project_documents WHERE project_id = 7 AND item_id = 'projeto_eletrico' AND version = 3");
+      expect(novo.rows[0]).toEqual({ original_name: "PRANCHA nova (2) cópia FINAL.PDF", canonical_name: "Eletrico-Maylanne-Araujo-3.pdf", version: 3 });
+      expect(iniciarUpload).toHaveBeenLastCalledWith(expect.objectContaining({ canonicalName: "Eletrico-Maylanne-Araujo-3.pdf", name: "PRANCHA nova (2) cópia FINAL.PDF" }));
+      const antigo = await pg.query<{ canonical_name: string }>("SELECT canonical_name FROM project_documents WHERE id = 11");
+      expect(antigo.rows[0].canonical_name).toBe("PROJETO_TECNICO_RESIDENCIA_MAYLANNE_DE_SOUSA_ARAUJO_PROJETO_ELETRICO_V02.pdf");
     });
   });
-  it("arquivo novo de item livre: nome padrão; apagado, outro projeto, sem sessão e sem permissão são recusados", async () => {
+  it("item de texto livre e sem permissão", async () => {
     await comServidor(async base => {
-      const r = await fetch(`${base}/12/arquivo`, { headers: { "x-teste-token": "ok" } });
-      expect(r.headers.get("x-document-name")).toBe("Planta-Situacao-Maylanne-Araujo-1.dwg");
-      expect((await fetch(`${base}/13/arquivo`, { headers: { "x-teste-token": "ok" } })).status).toBe(404);
-      expect((await fetch(`${base.replace("/7/", "/8/")}/11/arquivo`, { headers: { "x-teste-token": "ok" } })).status).toBe(404);
-      expect((await fetch(`${base}/11/arquivo?offset=1500000`, { headers: { "x-teste-token": "ok" } })).status).toBe(400);
-      expect((await fetch(`${base}/11/arquivo`)).status).toBe(401);
-      expect((await fetch(`${base}/11/arquivo`, { headers: { "x-teste-token": "corretor" } })).status).toBe(403);
+      expect((await iniciar(base, "x1", "planta situação.DWG", "editable")).status).toBe(200);
+      expect(iniciarUpload).toHaveBeenLastCalledWith(expect.objectContaining({ canonicalName: "Planta-Situacao-Maylanne-Araujo-3.dwg" }));
+      expect((await iniciar(base, "x1", "a.dwg", "editable", "corretor")).status).toBe(403);
     });
+  });
+  it("arquivo antigo na lista: nome padrão calculado na leitura a partir dos metadados", () => {
+    const checklist = [{ id: "projeto_eletrico", type: "projeto_eletrico", text: "Projeto Elétrico", done: false }];
+    expect(nomesPadraoArquivosProjeto([{ itemId: "projeto_eletrico", kind: "pdf", version: 2, name: "PROJETO_TECNICO_RESIDENCIA_MAYLANNE_DE_SOUSA_ARAUJO_PROJETO_ELETRICO_V02.pdf", originalName: "PRANCHA FINAL revisada 03 (1) cópia.pdf" }], { clientName: "Maylanne 🌻 de Sousa Araújo", checklist }))
+      .toEqual(["Eletrico-Maylanne-Araujo-2.pdf"]);
   });
 });

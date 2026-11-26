@@ -39,7 +39,7 @@ const capitalizar = (palavra: string) => palavra.charAt(0).toUpperCase() + palav
  * (`PROJECT_TYPE_LABELS`) ou o texto do item sem acento, em minúsculas.
  */
 export const ITEM_ARQUIVO_PROJETO_CURTO: Record<string, string> = {
-  projeto_arquitetonico: "Arquitetonico", "projeto arquitetonico": "Arquitetonico",
+  projeto_arquitetonico: "Planta", "projeto arquitetonico": "Planta",
   projeto_estrutural: "Estrutural", "projeto estrutural": "Estrutural",
   projeto_eletrico: "Eletrico", "projeto eletrico": "Eletrico",
   projeto_hidrossanitario: "Hidrossanitario", "projeto hidrossanitario": "Hidrossanitario",

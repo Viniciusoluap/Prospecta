@@ -6,8 +6,8 @@ import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { encryptSecret, decryptSecret } from "../_core/secret-vault.js";
-import { iniciarUploadProjetoDrive, enviarParteProjetoDrive, readPrivateDocumentRange } from "../drive-documents.js";
-import { clienteCurtoArquivoProjeto, itemCurtoArquivoProjeto, nomePadraoArquivoProjeto, nomePadraoDocumentoProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
+import { iniciarUploadProjetoDrive, enviarParteProjetoDrive } from "../drive-documents.js";
+import { clienteCurtoArquivoProjeto, itemCurtoArquivoProjeto, nomePadraoArquivoProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
 import { PROJECT_TYPE_LABELS } from "../../shared/operacional.js";
 const router = Router();
 type Session = { uid: number; projectId: number; revisionId?: number; documentId: number; itemId: string; kind: "editable" | "pdf"; name: string; canonicalName: string; version: number; mime: string; size: number; location: string; expires: number };
@@ -127,45 +127,6 @@ router.post("/projetos/:projectId/documentos", async (req, res) => {
     return res.json({ ...result, file, checklist });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : "Não foi possível enviar o arquivo ao Drive." });
-  }
-});
-/**
- * EPIC-031 S-1 — GET /api/projetos/:projectId/documentos/:documentId/arquivo?offset=N
- * Baixa o arquivo do Drive em partes de 1 MB (limite de resposta da Vercel), sempre com o
- * NOME PADRÃO calculado na leitura (vale para arquivo antigo também; nada é renomeado no Drive
- * nem no banco). X-Document-Size = tamanho total; X-Document-Name = nome padrão.
- */
-router.get("/projetos/:projectId/documentos/:documentId/arquivo", async (req, res) => {
-  try {
-    const token = getTokenFromRequest(req);
-    const payload = token ? await verifySessionToken(token) : null;
-    const user = payload ? await getUserById(payload.userId) : null;
-    if (!user || !payload || !user.active || !sessaoAindaValida(user, payload.sessionVersion)) return res.status(401).json({ error: "Entre novamente." });
-    if (!canAccessAdminProcedure(user, "projetos.list")) return res.status(403).json({ error: "Sem permissão para projetos." });
-    const projectId = Number(req.params.projectId);
-    const documentId = Number(req.params.documentId);
-    if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(documentId) || documentId <= 0) return res.status(404).json({ error: "Documento não encontrado." });
-    const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
-    if (!Number.isSafeInteger(offset) || offset < 0) return res.status(400).json({ error: "Parte inválida." });
-    const [project] = await getDb().select().from(projects).where(eq(projects.id, projectId)).limit(1);
-    const [document] = await getDb().select().from(projectDocuments).where(and(eq(projectDocuments.id, documentId), eq(projectDocuments.projectId, projectId))).limit(1);
-    if (!project || !document || !document.driveFileId || document.status === "deleted" || document.status === "uploading") return res.status(404).json({ error: "Documento não encontrado." });
-    if (offset >= document.size) return res.status(400).json({ error: "Parte inválida." });
-    const checklist = projectChecklist(parseArray<string>(project.types), parseArray<ProjectCheck>(project.checklist), PROJECT_TYPE_LABELS);
-    const nome = nomePadraoDocumentoProjeto(document, { clientName: project.clientName, checklist });
-    const corpo = await readPrivateDocumentRange(document.driveFileId, offset, Math.min(offset + PROJECT_CHUNK_SIZE, document.size));
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Length", String(corpo.length));
-    res.setHeader("Content-Disposition", `attachment; filename="${nome}"`);
-    res.setHeader("X-Document-Size", String(document.size));
-    res.setHeader("X-Document-Name", nome);
-    res.setHeader("X-Document-Mime", document.mime);
-    res.setHeader("Cache-Control", "private, no-store");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    return res.end(corpo);
-  } catch (error) {
-    console.error("[projeto-documentos] leitura:", error instanceof Error ? error.message : "falha");
-    return res.status(500).json({ error: "Não foi possível baixar o arquivo do Drive." });
   }
 });
 export default router;

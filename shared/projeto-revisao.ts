@@ -21,7 +21,6 @@ export interface EntregaRevisao {
   /** Gravados pelo envio (rota de documentos do projeto); entregas antigas podem não ter. */
   nomeOriginal?: string;
   versao?: number;
-  documentId?: number;
   url: string;
   driveFileId: string;
   tipo: "editable" | "pdf";
