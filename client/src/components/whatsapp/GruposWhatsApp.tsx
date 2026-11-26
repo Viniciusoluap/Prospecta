@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Bot, Hand, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BuscaClienteOuObra } from "@/components/admin/BuscaClienteOuObra";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -17,7 +18,7 @@ const hora = (d: string | Date) => new Date(d).toLocaleString("pt-BR", { day: "2
 const botaoSec = "h-7 text-xs border-[#C9A961]/30 text-[#C9A961]";
 
 type TipoDaTela = (typeof CATEGORIAS_GRUPO)[number]["tipo"];
-type GrupoDaLista = { id: number; nome: string; tipo: TipoGrupo; leadId: number | null; obraId: number | null; semProvaDoDono: boolean };
+type GrupoDaLista = { id: number; nome: string; tipo: TipoGrupo; leadId: number | null; obraId: number | null; cliente?: string | null; obra?: string | null; semProvaDoDono: boolean };
 
 /**
  * "Definir tipo" dentro da Central — SÓ para o administrador (regra do dono de 21/11/2026: o colaborador com o módulo WhatsApp
@@ -38,31 +39,39 @@ function DefinirTipo({ g, onFeito }: { g: GrupoDaLista; onFeito: () => void }) {
   });
   // grupo em que o dono ainda não provou quem colocou a empresa: só o dono aceita, pelo WhatsApp (a tela nunca aceita)
   if (g.semProvaDoDono) return null;
-  const precisaNumero = tipo === "cliente" || tipo === "pos_atendimento";
+  const vinculoDe = (t: string) => (t === "cliente" || t === "pos_atendimento" ? "cliente" : t === "engenharia" ? "obra" : null);
+  const precisaNumero = vinculoDe(tipo) === "cliente";
+  const idNumero = numero ? Number(numero) : null;
   if (!aberto) {
     return (
       <Button size="sm" variant="outline" className={botaoSec} onClick={() => {
-        setTipo(g.tipo !== "indefinido" && CATEGORIAS_GRUPO.some(c => c.tipo === g.tipo) ? g.tipo : CATEGORIAS_GRUPO[0].tipo);
-        setNumero(String(g.leadId ?? g.obraId ?? "")); setAberto(true);
+        const t = g.tipo !== "indefinido" && CATEGORIAS_GRUPO.some(c => c.tipo === g.tipo) ? g.tipo : CATEGORIAS_GRUPO[0].tipo;
+        setTipo(t); setNumero(String((vinculoDe(t) === "cliente" ? g.leadId : vinculoDe(t) === "obra" ? g.obraId : null) ?? "")); setAberto(true);
       }}>Definir tipo</Button>
     );
   }
   return (
     <div className="w-full flex flex-wrap items-end gap-2 rounded border border-[#C9A961]/20 p-2">
       <div><Label htmlFor={`tipo-central-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
-        <select id={`tipo-central-${g.id}`} value={tipo} onChange={e => setTipo(e.target.value)}
+        <select id={`tipo-central-${g.id}`} value={tipo} onChange={e => {
+          // trocar entre "cliente" e "obra" zera o vínculo escolhido (o nº de um não vale para o outro)
+          if (vinculoDe(e.target.value) !== vinculoDe(tipo)) setNumero("");
+          setTipo(e.target.value);
+        }}
           className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
           {CATEGORIAS_GRUPO.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
         </select>
         <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(tipo)?.explica ?? ""}</p>
         <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
       {(precisaNumero || tipo === "engenharia") && (
-        <div><Label htmlFor={`numero-central-${g.id}`} className="text-xs text-gray-300">{precisaNumero ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
-          <Input id={`numero-central-${g.id}`} inputMode="numeric" value={numero} onChange={e => setNumero(e.target.value.replace(/\D/g, ""))} className="mt-1 h-8 w-32 bg-[#1A2332] border-[#C9A961]/30 text-white" /></div>
+        <div><Label htmlFor={`numero-central-${g.id}`} className="text-xs text-gray-300">{precisaNumero ? "Cliente do CRM (procure pelo nome)" : "Obra (opcional — procure pelo nome)"}</Label>
+          <BuscaClienteOuObra id={`numero-central-${g.id}`} tipo={precisaNumero ? "cliente" : "obra"} value={idNumero}
+            nomeAtual={precisaNumero ? (idNumero === g.leadId ? g.cliente : null) : (idNumero === g.obraId ? g.obra : null)}
+            onChange={v => setNumero(v ? String(v) : "")} /></div>
       )}
       <Button size="sm" className="h-7 bg-[#C9A961] text-xs font-bold text-[#1A2332] hover:bg-[#B8985A]"
         disabled={definir.isPending || (precisaNumero && !numero)}
-        onClick={() => definir.mutate({ grupoId: g.id, tipo: tipo as TipoDaTela, numero: numero ? Number(numero) : null })}>Salvar</Button>
+        onClick={() => definir.mutate({ grupoId: g.id, tipo: tipo as TipoDaTela, numero: idNumero })}>Salvar</Button>
       <Button size="sm" variant="outline" className={botaoSec} onClick={() => setAberto(false)}>Cancelar</Button>
     </div>
   );

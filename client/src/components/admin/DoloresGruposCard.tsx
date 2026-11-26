@@ -16,6 +16,7 @@ import { CATEGORIAS_GRUPO, ROTULO_AUTORIA_PENDENTE, ROTULO_SITUACAO_CONFIRMACAO,
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BuscaClienteOuObra } from "@/components/admin/BuscaClienteOuObra";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
@@ -98,10 +99,10 @@ export function DoloresGruposCard() {
                 <Input id="grupo-jid" value={novo.grupoJid} onChange={e => setNovo({ ...novo, grupoJid: e.target.value.trim() })} className={campo} placeholder="120363000000000000@g.us" /></div>
               <div><Label htmlFor="grupo-nome" className="text-xs text-gray-300">Rótulo (como a equipe chama o grupo)</Label>
                 <Input id="grupo-nome" value={novo.nome} maxLength={120} onChange={e => setNovo({ ...novo, nome: e.target.value })} className={campo} placeholder="Documentação — Maria Souza" /></div>
-              <div><Label htmlFor="grupo-lead" className="text-xs text-gray-300">Nº do cliente no CRM (opcional)</Label>
-                <Input id="grupo-lead" inputMode="numeric" value={novo.leadId} onChange={e => setNovo({ ...novo, leadId: e.target.value.replace(/\D/g, ""), obraId: "" })} className={campo} placeholder="sem card ainda" /></div>
-              <div><Label htmlFor="grupo-obra" className="text-xs text-gray-300">ou Nº da obra (opcional)</Label>
-                <Input id="grupo-obra" inputMode="numeric" value={novo.obraId} onChange={e => setNovo({ ...novo, obraId: e.target.value.replace(/\D/g, ""), leadId: "" })} className={campo} /></div>
+              <div><Label htmlFor="grupo-lead" className="text-xs text-gray-300">Cliente do CRM (opcional — procure pelo nome)</Label>
+                <BuscaClienteOuObra id="grupo-lead" tipo="cliente" value={numero(novo.leadId)} onChange={v => setNovo({ ...novo, leadId: v ? String(v) : "", obraId: v ? "" : novo.obraId })} /></div>
+              <div><Label htmlFor="grupo-obra" className="text-xs text-gray-300">ou Obra (opcional — procure pelo nome)</Label>
+                <BuscaClienteOuObra id="grupo-obra" tipo="obra" value={numero(novo.obraId)} onChange={v => setNovo({ ...novo, obraId: v ? String(v) : "", leadId: v ? "" : novo.leadId })} /></div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" disabled={cadastrar.isPending || !novo.grupoJid || novo.nome.trim().length < 2} className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]"
@@ -327,6 +328,7 @@ function GruposSecao(p: {
   const aguardando = p.grupos.filter(g => g.ativo && g.situacaoConfirmacao === "aguardando_dono" && !autoriaPendente(g)).length;
   const semAutoria = p.grupos.filter(g => g.ativo && autoriaPendente(g)).length;
   const precisaNumero = (t: string) => t === "cliente" || t === "pos_atendimento";
+  const tipoDoVinculo = (t: string) => (precisaNumero(t) ? "cliente" : t === "engenharia" ? "obra" : null);
   const n = (k: string) => (tetos[k] !== undefined && tetos[k] !== "" ? Number(tetos[k]) : undefined);
   return (
     <section className="space-y-2">
@@ -395,15 +397,21 @@ function GruposSecao(p: {
               {editando?.id === g.id ? (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
                   <div><Label htmlFor={`tipo-${g.id}`} className="text-xs text-gray-300">Tipo</Label>
-                    <select id={`tipo-${g.id}`} value={editando.tipo} onChange={e => setEditando({ ...editando, tipo: e.target.value })}
+                    <select id={`tipo-${g.id}`} value={editando.tipo} onChange={e => {
+                      // trocar entre "cliente" e "obra" zera o vínculo escolhido (o nº de um não vale para o outro)
+                      const t = e.target.value;
+                      setEditando({ ...editando, tipo: t, numero: tipoDoVinculo(t) === tipoDoVinculo(editando.tipo) ? editando.numero : "" });
+                    }}
                       className="mt-1 block rounded border border-[#C9A961]/30 bg-[#1A2332] p-1 text-xs text-white">
                       {CATEGORIAS_GRUPO.map(c => <option key={c.tipo} value={c.tipo}>{c.opcao}. {c.rotulo}</option>)}
                     </select>
                     <p className="mt-1 max-w-xs text-[11px] text-gray-400">{categoriaDoTipo(editando.tipo)?.explica ?? ""}</p>
                     <p className="mt-1 max-w-xs text-[11px] text-gray-400">O dono recebe um aviso no WhatsApp com a mudança.</p></div>
                   {(precisaNumero(editando.tipo) || editando.tipo === "engenharia") && (
-                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Nº do cliente no CRM" : "Nº da obra (opcional)"}</Label>
-                      <Input id={`numero-${g.id}`} inputMode="numeric" value={editando.numero} onChange={e => setEditando({ ...editando, numero: e.target.value.replace(/\D/g, "") })} className={campo} /></div>
+                    <div><Label htmlFor={`numero-${g.id}`} className="text-xs text-gray-300">{precisaNumero(editando.tipo) ? "Cliente do CRM (procure pelo nome)" : "Obra (opcional — procure pelo nome)"}</Label>
+                      <BuscaClienteOuObra id={`numero-${g.id}`} tipo={precisaNumero(editando.tipo) ? "cliente" : "obra"} value={numero(editando.numero)}
+                        nomeAtual={precisaNumero(editando.tipo) ? (numero(editando.numero) === g.leadId ? g.cliente : null) : (numero(editando.numero) === g.obraId ? g.obra : null)}
+                        onChange={v => setEditando({ ...editando, numero: v ? String(v) : "" })} /></div>
                   )}
                   <Button size="sm" className="bg-[#C9A961] font-bold text-[#1A2332] hover:bg-[#B8985A]" disabled={definir.isPending || (precisaNumero(editando.tipo) && !editando.numero)}
                     onClick={() => definir.mutate({ grupoId: g.id, tipo: editando.tipo as TipoDaTela, numero: editando.numero ? Number(editando.numero) : null })}>Salvar</Button>
@@ -417,7 +425,7 @@ function GruposSecao(p: {
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" className={botaoSec} onClick={() => setEditando({ id: g.id, tipo: g.tipo === "indefinido" ? "cliente" : g.tipo, numero: String(g.leadId ?? g.obraId ?? "") })}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
+                  <Button size="sm" variant="outline" className={botaoSec} onClick={() => { const t = g.tipo === "indefinido" ? "cliente" : g.tipo; setEditando({ id: g.id, tipo: t, numero: String((precisaNumero(t) ? g.leadId : t === "engenharia" ? g.obraId : null) ?? "") }); }}>{g.tipo === "indefinido" ? "Definir tipo ou vínculo" : "Corrigir tipo ou vínculo"}</Button>
                   {g.ativo && <Button size="sm" variant="outline" className={botaoSec} disabled={definir.isPending} onClick={() => definir.mutate({ grupoId: g.id, tipo: "ignorar" })}>Ignorar este grupo</Button>}
                 </div>
               )}

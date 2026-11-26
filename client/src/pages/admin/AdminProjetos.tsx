@@ -1,6 +1,7 @@
 import { AcoesExcluir } from "@/components/AcoesExcluir";
 import { uploadProjectDocument } from "@/lib/project-upload";
-import { projectChecklist, reconcileProjectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
+import { nomesPadraoArquivosProjeto, projectChecklist, reconcileProjectChecklist, type ProjectCheck } from "@shared/projeto-documentos";
+import { filtrarListaProjetos } from "@shared/projetos-lista";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -54,6 +55,14 @@ const blank = () => ({
   approvalStatus: "",
   approvalNotes: "",
 });
+/** EPIC-031 S-1: mesmo link do Drive de antes; muda só o texto (nome padrão), com o original na dica. */
+function ArquivoProjeto({ file, nome, rotulo, className }: { file: FileLink; nome: string; rotulo?: string; className?: string }) {
+  return <a className={className ?? "underline"} href={file.url} target="_blank" rel="noopener noreferrer" title={(file.originalName || file.name) && (file.originalName || file.name) !== nome ? `Nome original: ${file.originalName || file.name}` : undefined}>{rotulo}{nome}</a>;
+}
+const nomesDosArquivos = (files: FileLink[], clientName: string, checklist: Check[]) => {
+  const nomes = nomesPadraoArquivosProjeto(files, { clientName, checklist });
+  return new Map(files.map((file, i) => [file, nomes[i]]));
+};
 export default function AdminProjetos() {
   const list = trpc.projetos.list.useQuery();
   const leads = trpc.projetos.options.useQuery();
@@ -80,14 +89,10 @@ export default function AdminProjetos() {
     const achado = list.data.find(p => p.id === alvo);
     if (achado) setDetail(achado);
   }, [list.data]);
-  const rows = ordenarProjetosPorPrazo((list.data || []).filter(
-    r =>
-      `${r.name} ${r.clientName} ${r.engineer}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (!status || r.status === status)
-  ), r => r.deadline, r => r.pendingRevisionCount > 0 || r.status === "revisao");
+  // EPIC-031 S-1: entregue sai da lista; só volta com o filtro "Entregue".
+  const rows = ordenarProjetosPorPrazo(filtrarListaProjetos(list.data || [], { busca: search, status }), r => r.deadline, r => r.pendingRevisionCount > 0 || r.status === "revisao");
 
+  const nomesForm = nomesDosArquivos(form.files, form.clientName, form.checklist);
   async function excluirDocumento(file: FileLink) {
     if (!id || !file.documentId) return;
     const response = await fetch(`/api/projetos/${id}/documentos`, {
@@ -133,6 +138,7 @@ export default function AdminProjetos() {
           onChange={setStatus}
           options={choices(PROJECT_STATUS)}
         />
+        <p className="text-xs text-slate-600 sm:col-span-2">Projetos entregues saem desta lista e ficam guardados: para vê-los, escolha “Entregue” no filtro Status.</p>
       </div>
       <Rows
         headers={[
@@ -219,7 +225,7 @@ export default function AdminProjetos() {
           );
         })}
       </Rows>
-      {detail && <Dialog open onOpenChange={aberto => { if (!aberto) setDetail(null); }}><DialogContent aria-describedby={undefined} showCloseButton={false} className="block space-y-4 bg-white text-slate-900 sm:max-w-3xl"><div className="flex justify-between gap-3"><DialogTitle className="text-xl font-bold">{detail.name}</DialogTitle><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description],...(detail.incorporationStudyId ? [["Órgão (aprovação externa)",detail.approvalAuthority],["Protocolo",detail.approvalProtocol],["Situação de aprovação externa",detail.approvalProcessId ? rotuloStatusAprovacao(detail.approvalStatus) : "Processo excluído na Incorporação"],["Observações do processo",detail.approvalNotes]] : [])].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl>{detail.incorporationStudyId && <a className="block text-sm font-semibold underline" href={`/admin/incorporacao/${detail.incorporationStudyId}`}>Abrir o estudo de Incorporação (Projeto Aprovado)</a>}<h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{parseArray<FileLink>(detail.files).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""}{file.name}</a>)}<div className="flex justify-end"><Button variant="outline" onClick={() => setRevisao({ id: detail.id, name: detail.name, engineer: detail.engineer })}>Solicitar revisão</Button></div><RevisoesProjeto projectId={detail.id} /></DialogContent></Dialog>}
+      {detail && <Dialog open onOpenChange={aberto => { if (!aberto) setDetail(null); }}><DialogContent aria-describedby={undefined} showCloseButton={false} className="block space-y-4 bg-white text-slate-900 sm:max-w-3xl"><div className="flex justify-between gap-3"><DialogTitle className="text-xl font-bold">{detail.name}</DialogTitle><Button variant="outline" onClick={() => setDetail(null)}>Fechar</Button></div><dl className="grid gap-3 sm:grid-cols-2">{[["Cliente",detail.clientName],["Telefone",detail.clientPhone],["Engenheiro",detail.engineer],["Habilitação técnica",detail.engineerRegistration],["Status",rotulo(detail.status)],["Prazo",exibirDiaPrazoProjeto(detail.deadline)],["Tipos",parseArray<string>(detail.types).map(v => PROJECT_TYPE_LABELS[v] ?? v).join(", ")],["Descrição",detail.description],...(detail.incorporationStudyId ? [["Órgão (aprovação externa)",detail.approvalAuthority],["Protocolo",detail.approvalProtocol],["Situação de aprovação externa",detail.approvalProcessId ? rotuloStatusAprovacao(detail.approvalStatus) : "Processo excluído na Incorporação"],["Observações do processo",detail.approvalNotes]] : [])].map(([label,value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd>{value || "—"}</dd></div>)}</dl>{detail.incorporationStudyId && <a className="block text-sm font-semibold underline" href={`/admin/incorporacao/${detail.incorporationStudyId}`}>Abrir o estudo de Incorporação (Projeto Aprovado)</a>}<h3 className="font-semibold">Checklist</h3>{projectChecklist(parseArray<string>(detail.types),parseArray<Check>(detail.checklist),PROJECT_TYPE_LABELS).map((check,i) => <p key={check.id ?? i}>{check.done ? "✓" : "○"} {check.text}</p>)}<h3 className="font-semibold">Documentos</h3>{(() => { const files = parseArray<FileLink>(detail.files); const nomes = nomesDosArquivos(files, detail.clientName, projectChecklist(parseArray<string>(detail.types), parseArray<Check>(detail.checklist), PROJECT_TYPE_LABELS)); return files.map(file => <ArquivoProjeto key={file.url} className="block underline" file={file} nome={nomes.get(file) ?? file.name} rotulo={file.kind === "pdf" ? "PDF — " : file.kind === "editable" ? "Editável — " : ""} />); })()}<div className="flex justify-end"><Button variant="outline" onClick={() => setRevisao({ id: detail.id, name: detail.name, engineer: detail.engineer })}>Solicitar revisão</Button></div><RevisoesProjeto projectId={detail.id} clientName={detail.clientName} /></DialogContent></Dialog>}
       {revisao && <SolicitarRevisaoModal projeto={revisao} onClose={() => setRevisao(null)} />}
       <Editor
         title={id ? "Detalhes do projeto" : "Novo projeto"}
@@ -425,7 +431,7 @@ export default function AdminProjetos() {
                 </label>)}
               </div>
               <div className="flex gap-2 text-xs"><span className={c.pdfDone ? "font-bold text-emerald-700" : "text-slate-500"}>PDF {c.pdfDone ? "✓" : "○"}</span><span className={c.editableDone ? "font-bold text-emerald-700" : "text-slate-500"}>Editável {c.editableDone ? "✓" : "○"}</span></div>
-              {form.files.filter(file => file.itemId === (c.id || `legacy-${i}`)).map(file => <div key={file.url} className="flex items-center gap-2 text-sm"><a href={file.url} target="_blank" rel="noopener noreferrer" className="underline">{file.kind === "pdf" ? "PDF" : "Editável"}: {file.name}</a>{file.originalName && <span className="text-xs text-slate-500">original: {file.originalName}</span>}{file.documentId && <Button type="button" size="sm" variant="outline" onClick={() => void excluirDocumento(file)}>Excluir</Button>}</div>)}
+              {form.files.filter(file => file.itemId === (c.id || `legacy-${i}`)).map(file => <div key={file.url} className="flex items-center gap-2 text-sm"><ArquivoProjeto file={file} nome={nomesForm.get(file) ?? file.name} rotulo={file.kind === "pdf" ? "PDF: " : "Editável: "} />{file.originalName && <span className="text-xs text-slate-500">original: {file.originalName}</span>}{file.documentId && <Button type="button" size="sm" variant="outline" onClick={() => void excluirDocumento(file)}>Excluir</Button>}</div>)}
             </div>
           ))}
           <Button
@@ -443,7 +449,7 @@ export default function AdminProjetos() {
         </section>
         {uploading && <p role="status">Enviando ao Google Drive: {progress}%</p>}
         <p className="text-sm text-slate-600">Até 300 MB por arquivo. Salve alterações no checklist antes de enviar arquivos para itens novos.</p>
-        {form.files.filter(file => !file.itemId).length > 0 && <section><h2 className="font-semibold">Documentos anteriores</h2>{form.files.filter(file => !file.itemId).map(file => <a className="block underline" key={file.url} href={file.url} target="_blank" rel="noopener noreferrer">{file.name}</a>)}</section>}
+        {form.files.filter(file => !file.itemId).length > 0 && <section><h2 className="font-semibold">Documentos anteriores</h2>{form.files.filter(file => !file.itemId).map(file => <ArquivoProjeto key={file.url} className="block underline" file={file} nome={nomesForm.get(file) ?? file.name} />)}</section>}
       </Editor>
     </OperationalPage>
   );

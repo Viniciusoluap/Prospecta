@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectChecklist, projectDocumentCanonicalName, reconcileProjectChecklist, validateProjectUpload, PROJECT_UPLOAD_LIMIT } from "../shared/projeto-documentos.js";
+import { projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_UPLOAD_LIMIT } from "../shared/projeto-documentos.js";
 
 describe("documentos de projetos", () => {
   it("gera itens dos tipos escolhidos e preserva itens manuais e históricos", () => {
@@ -19,11 +19,6 @@ describe("documentos de projetos", () => {
     expect(() => validateProjectUpload("../arquivo.dwg", 10, "editable")).toThrow();
     expect(() => validateProjectUpload("projeto.dwg", 10, "pdf")).toThrow();
     expect(() => validateProjectUpload("projeto.pdf", 10, "editable")).toThrow();
-  });
-
-  it("gera nome canônico versionado e preserva a extensão", () => {
-    expect(projectDocumentCanonicalName({ projectName: "Casa São Luís", clientName: "João D'Ávila", itemName: "Projeto Elétrico", version: 2, originalName: "qualquer nome.DWG", mime: "application/octet-stream" }))
-      .toBe("CASA_SAO_LUIS_JOAO_D_AVILA_PROJETO_ELETRICO_V02.dwg");
   });
 
   it("deriva o checklist somente dos documentos ativos", () => {
