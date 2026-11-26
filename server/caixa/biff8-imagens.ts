@@ -265,19 +265,45 @@ function referenciasDeImagens(regs: Registro[], ignorar: Set<number>): Set<numbe
   return usadas;
 }
 
-/**
- * FBSE vazio ("slot" de imagem apagada), pela [MS-ODRAW] OfficeArtFBSE: tipo msoblipERROR (0) no Windows e no Mac (é também o
- * recInstance), sem identificador, size 0, cRef 0, foDelay 0, sem nome e sem a imagem embutida — 8 + 36 bytes.
- */
-export const FBSE_VAZIO = Uint8Array.from([0x02, 0x00, 0x07, 0xf0, 0x24, 0x00, 0x00, 0x00, ...new Array(36).fill(0)]);
+/** PNG 1×1 transparente (67 bytes), válido: põe no lugar das imagens que nenhuma forma usa. */
+export const PNG_MINIMO = Uint8Array.from(
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==", "base64"),
+);
 
-/** Troca os FBSE `pibs` (base 1) pelo slot vazio e acerta os tamanhos do BStore e do dggContainer. */
-function esvaziarImagens(g: Uint8Array, bstore: { o: number; h: Cabecalho }, fbses: { o: number; h: Cabecalho }[], pibs: number[]): Uint8Array {
-  const alvo = new Set(pibs);
+/**
+ * S-2 do EPIC-030 — causa confirmada pela CAIXA: "O tamanho máximo permitido para o arquivo é 5120 KB". Toda imagem do
+ * armazenamento (BStore) que nenhuma forma da pasta usa — nenhuma propriedade com o bit fBid (pib, fillBlip…), em nenhuma aba,
+ * gráfico embutido ou grupo — troca os bytes por um PNG 1×1 válido. A tabela continua igual (mesmas posições, pib intactos), só
+ * com uma imagem mínima; a contagem de referências vai a 0. Imagem em uso não é tocada (byte a byte).
+ * Por segurança não mexe em nada se a pasta tiver imagem de cabeçalho/rodapé (HEADERIMG 0x0866), que guarda desenhos à parte.
+ */
+export function trocarImagensSemUso(pasta: PastaBiff8): { trocadas: number; bytesLiberados: number } {
+  const regs = pasta.registros;
+  const nada = { trocadas: 0, bytesLiberados: 0 };
+  if (regs.some((r) => r.tipo === 0x0866)) return nada;
+  const grupo = lerGrupo(regs);
+  if (!grupo) return nada;
+  const g = grupo.bytes;
+  const raiz = cabecalho(g, 0);
+  if (raiz.tipo !== 0xf000) return nada;
+  const bstore = filhos(g, 8, 8 + raiz.tam).find((f) => f.h.tipo === 0xf001);
+  if (!bstore) return nada;
+  const usadas = referenciasDeImagens(regs, new Set());
+  const fbses = filhos(g, bstore.o + 8, bstore.o + 8 + bstore.h.tam);
+  const minimo = montarBlip({ dados: PNG_MINIMO, tipo: "png" });
+  w32(minimo, 32, 0); // cRef 0: nenhuma forma usa
+  let trocadas = 0;
   const partes: Uint8Array[] = [g.subarray(0, bstore.o + 8)];
-  fbses.forEach((f, i) => partes.push(alvo.has(i + 1) ? FBSE_VAZIO : g.subarray(f.o, f.o + 8 + f.h.tam)));
+  fbses.forEach((f, i) => {
+    const original = g.subarray(f.o, f.o + 8 + f.h.tam);
+    if (f.h.tipo === 0xf007 && !usadas.has(i + 1) && original.length > minimo.length) {
+      partes.push(minimo);
+      trocadas++;
+    } else partes.push(original);
+  });
+  if (!trocadas) return nada;
   partes.push(g.subarray(bstore.o + 8 + bstore.h.tam));
-  const total = partes.reduce((s, p) => s + p.length, 0);
+  const total = partes.reduce((n, p) => n + p.length, 0);
   const novo = new Uint8Array(total);
   let o = 0;
   for (const p of partes) {
@@ -286,8 +312,29 @@ function esvaziarImagens(g: Uint8Array, bstore: { o: number; h: Cabecalho }, fbs
   }
   const encolheu = g.length - total;
   w32(novo, bstore.o + 4, bstore.h.tam - encolheu);
-  w32(novo, 4, cabecalho(g, 0).tam - encolheu);
-  return novo;
+  w32(novo, 4, raiz.tam - encolheu);
+  const pedacos: Registro[] = [];
+  for (let k = 0; k < novo.length; k += MAX_REGISTRO) {
+    pedacos.push({ tipo: pedacos.length ? R.CONTINUE : R.MSODRAWINGGROUP, dados: novo.slice(k, k + MAX_REGISTRO) });
+  }
+  regs.splice(grupo.inicio, grupo.fim - grupo.inicio, ...pedacos);
+  return { trocadas, bytesLiberados: encolheu };
+}
+
+/**
+ * Só normaliza o id das fotos (sem trocar foto nenhuma): para regravar uma PCI já gerada pelo código antigo.
+ */
+export function normalizarIdsDasFotosDaPasta(pasta: PastaBiff8): void {
+  const regs = pasta.registros;
+  const grupo = lerGrupo(regs);
+  if (!grupo) return;
+  const g = grupo.bytes;
+  const fdgg = filhos(g, 8, 8 + cabecalho(g, 0).tam).find((f) => f.h.tipo === 0xf006);
+  if (!fdgg) return;
+  normalizarIdsDasFotos(regs, g, fdgg.o + 8);
+  const pedacos: Registro[] = [];
+  for (let k = 0; k < g.length; k += MAX_REGISTRO) pedacos.push({ tipo: pedacos.length ? R.CONTINUE : R.MSODRAWINGGROUP, dados: g.slice(k, k + MAX_REGISTRO) });
+  regs.splice(grupo.inicio, grupo.fim - grupo.inicio, ...pedacos);
 }
 
 /** Registro FBSE + BLIP (foto embutida no armazenamento do arquivo). */
@@ -390,28 +437,14 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   // --- liberar referências das fotos antigas no armazenamento
   if (bstore) {
     const fbses = filhos(g, bstore.o + 8, bstore.o + 8 + bstore.h.tam);
-    const zeradas = new Set<number>();
     for (const pib of blipsLiberados) {
       const f = fbses[pib - 1];
       if (f && f.h.tipo === 0xf007) {
         const ref = u32(g, f.o + 8 + 24);
         if (ref > 0) w32(g, f.o + 8 + 24, ref - 1);
-        if (ref <= 1) zeradas.add(pib);
       }
     }
-    // S-2 do EPIC-030 (achado do QA): a foto que o gerador tirou e que nenhuma forma usa mais vira "slot vazio" — sem isso, cada
-    // regeração a partir de uma PCI já gerada carregava as fotos antigas inteiras (5,47 → 6,88 → 8,29 MB). A posição na tabela fica
-    // (os pib das outras formas não mudam). Imagem do modelo com cRef ≥ 1 não é tocada.
-    if (zeradas.size) {
-      const usadas = referenciasDeImagens(regs, new Set(removerIndices));
-      const vazias = Array.from(zeradas).filter((pib) => !usadas.has(pib));
-      if (vazias.length) {
-        g = esvaziarImagens(g, bstore, fbses, vazias);
-        const novosFilhos = filhos(g, 8, 8 + cabecalho(g, 0).tam);
-        fdgg = novosFilhos.find((f) => f.h.tipo === 0xf006)!;
-        bstore = novosFilhos.find((f) => f.h.tipo === 0xf001)!;
-      }
-    }
+    // a foto antiga que nenhuma forma usa mais deixa de pesar em `trocarImagensSemUso`, chamada antes de salvar
   }
 
   // --- novas fotos no armazenamento (BStore)

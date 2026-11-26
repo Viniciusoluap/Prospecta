@@ -6,9 +6,9 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ABA_PROPOSTA_PCI, formularioPciVazio, normalizarFormularioPci, type FormularioPci } from "../../shared/pci-gerador.js";
+import { ABA_PROPOSTA_PCI, AVISO_TAMANHO_PCI_KB, avisoTamanhoPci, formularioPciVazio, LIMITE_ANEXO_CAIXA_KB, normalizarFormularioPci, type FormularioPci } from "../../shared/pci-gerador.js";
 import { PastaBiff8, R, type Registro } from "./biff8.js";
-import { FBSE_VAZIO, substituirFotos } from "./biff8-imagens.js";
+import { PNG_MINIMO, substituirFotos } from "./biff8-imagens.js";
 import { validarFluxoWorkbook, validarXls } from "./biff8-validador.js";
 import { gerarPlanilhaPci } from "./pci-gerador.js";
 
@@ -99,6 +99,64 @@ function spidsDasFotos(arquivo: Uint8Array): number[] {
   return out;
 }
 
+/** Entradas do armazenamento de imagens (FBSE inteiro) e se a imagem é o PNG 1×1 de substituição. */
+function imagensDoArmazenamento(arquivo: Uint8Array): { fbse: Uint8Array; png1x1: boolean }[] {
+  const regs = PastaBiff8.abrir(arquivo).registros;
+  const i = regs.findIndex((r) => r.tipo === R.MSODRAWINGGROUP);
+  let k = i + 1;
+  while (regs[k].tipo === R.CONTINUE) k++;
+  const g = new Uint8Array(regs.slice(i, k).reduce((s, r) => s + r.dados.length, 0));
+  let o = 0;
+  for (const r of regs.slice(i, k)) {
+    g.set(r.dados, o);
+    o += r.dados.length;
+  }
+  const out: { fbse: Uint8Array; png1x1: boolean }[] = [];
+  let q = 8;
+  while (q < g.length) {
+    const tipo = u16(g, q + 2);
+    const tam = u32(g, q + 4);
+    if (tipo === 0xf001) {
+      let f = q + 8;
+      while (f < q + 8 + tam) {
+        const t = u32(g, f + 4);
+        const fbse = g.slice(f, f + 8 + t);
+        const dados = fbse.subarray(8 + 36 + 8 + 17);
+        out.push({ fbse, png1x1: Buffer.compare(Buffer.from(dados), Buffer.from(PNG_MINIMO)) === 0 });
+        f += 8 + t;
+      }
+    }
+    q += 8 + tam;
+  }
+  return out;
+}
+
+/** pib usados por alguma forma (propriedades com o bit fBid), em qualquer aba. */
+function referenciadas(arquivo: Uint8Array): Set<number> {
+  const usadas = new Set<number>();
+  for (const r of PastaBiff8.abrir(arquivo).registros) {
+    if (r.tipo !== R.MSODRAWING) continue;
+    const d = r.dados;
+    const andar = (o: number, fim: number) => {
+      while (o + 8 <= fim) {
+        const vi = u16(d, o);
+        const tipo = u16(d, o + 2);
+        const tam = u32(d, o + 4);
+        if (tipo === 0xf00b || tipo === 0xf121 || tipo === 0xf122) {
+          for (let j = 0; j < vi >> 4 && o + 14 + 6 * j <= d.length; j++) {
+            const pid = u16(d, o + 8 + 6 * j);
+            if (pid & 0x4000 && !(pid & 0x8000)) usadas.add(u32(d, o + 10 + 6 * j));
+          }
+        }
+        if ((vi & 0xf) === 0xf) andar(o + 8, Math.min(fim, o + 8 + tam));
+        o += 8 + tam;
+      }
+    };
+    andar(0, d.length);
+  }
+  return usadas;
+}
+
 describe("PCI .xls — estrutura que o Excel e a CAIXA exigem (S-2 do EPIC-030)", () => {
   const modeloOficial = modeloComIndicesDeLinhas(MODELO, 143934);
 
@@ -162,31 +220,46 @@ describe("PCI .xls — estrutura que o Excel e a CAIXA exigem (S-2 do EPIC-030)"
     expect(validarXls(segunda.bytes)).toEqual([]);
   });
 
-  it("gerar 3 vezes em cadeia com foto de ~1 MB não faz o arquivo crescer (a foto antiga vira slot vazio)", () => {
+  it("gerar 3 vezes em cadeia com foto de ~1 MB não faz o arquivo crescer e fica abaixo do limite da CAIXA", () => {
     const tamanhos: number[] = [];
     let atual = modeloOficial;
     for (let i = 0; i < 3; i++) {
       const r = gerarPlanilhaPci(atual, "xls", formulario(jpegSintetico(1_000_000 + i)));
       expect(r.avisos).toEqual([]);
       expect(validarXls(r.bytes)).toEqual([]);
+      expect(r.bytes.length / 1024).toBeLessThan(AVISO_TAMANHO_PCI_KB);
       tamanhos.push(r.bytes.length);
       atual = r.bytes;
     }
     expect(Math.abs(tamanhos[2] - tamanhos[0])).toBeLessThan(16 * 1024);
-    // o slot vazio fica na mesma posição da tabela, com os 44 bytes da especificação
-    const p = PastaBiff8.abrir(atual);
-    const i = p.registros.findIndex((r) => r.tipo === R.MSODRAWINGGROUP);
-    let k = i + 1;
-    while (p.registros[k].tipo === R.CONTINUE) k++;
-    const g = new Uint8Array(p.registros.slice(i, k).reduce((s, r) => s + r.dados.length, 0));
-    let o = 0;
-    for (const r of p.registros.slice(i, k)) {
-      g.set(r.dados, o);
-      o += r.dados.length;
-    }
-    const hexG = Buffer.from(g).toString("hex");
-    const vazio = Buffer.from(FBSE_VAZIO).toString("hex");
-    expect(hexG.split(vazio).length - 1).toBeGreaterThanOrEqual(2); // as fotos das 1ª e 2ª gerações
+    // as fotos antigas viraram o PNG 1×1 válido, na mesma posição da tabela
+    const imagens = imagensDoArmazenamento(atual);
+    expect(imagens.filter((x) => x.png1x1).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("imagem sem uso deixa de pesar; imagem em uso fica intacta byte a byte", () => {
+    // o modelo tem imagens que nenhuma forma usa (cRef 0) e as usadas (logos, ícones)
+    const antes = imagensDoArmazenamento(modeloOficial);
+    const usadasAntes = referenciadas(modeloOficial);
+    const r = gerarPlanilhaPci(modeloOficial, "xls", formulario());
+    const depois = imagensDoArmazenamento(r.bytes);
+    expect(depois.length).toBe(antes.length); // mesmas posições: nenhum pib muda
+    let liberado = 0;
+    antes.forEach((img, i) => {
+      if (usadasAntes.has(i + 1)) expect(Buffer.compare(Buffer.from(depois[i].fbse), Buffer.from(img.fbse))).toBe(0);
+      else {
+        expect(depois[i].png1x1).toBe(true);
+        liberado += img.fbse.length - depois[i].fbse.length;
+      }
+    });
+    expect(liberado).toBeGreaterThan(100_000);
+    expect(validarXls(r.bytes)).toEqual([]);
+  });
+
+  it("avisa (nunca em silêncio) quando a planilha passa do limite de anexo da CAIXA", () => {
+    expect(avisoTamanhoPci(4_900 * 1024)).toBeNull();
+    expect(avisoTamanhoPci(5_342 * 1024)).toMatch(/5\.342 KB.*até 5\.120 KB/);
+    expect(LIMITE_ANEXO_CAIXA_KB).toBe(5120);
   });
 
   it("foto com id fora do grupo (PCI salva pelo gerador antigo) é corrigida quando outra aba recebe foto", () => {

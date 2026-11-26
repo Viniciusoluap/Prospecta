@@ -302,6 +302,21 @@ export const MAX_ETAPAS_PCI = 24;
 export const QUADRO_LOCALIZACAO_PCI = { coluna1: 6, linha1: 193, coluna2: 48, linha2: 213 } as const;
 export const LIMITE_IMAGEM_PCI_BYTES = 1.5 * 1024 * 1024;
 /**
+ * S-2 do EPIC-030 — o sistema da CAIXA recusa anexo acima de 5.120 KB ("O tamanho máximo permitido para o arquivo é 5120 KB").
+ * A foto de localização é preparada na tela com lado maior até 1.600 px e JPEG ~0,82, mirando até 400 KB.
+ */
+export const LIMITE_ANEXO_CAIXA_KB = 5120;
+/** Acima disto a geração avisa (folga sobre os 5.120 KB da CAIXA). */
+export const AVISO_TAMANHO_PCI_KB = 5000;
+export const ALVO_FOTO_PCI_BYTES = 400 * 1024;
+export const LADO_MAXIMO_FOTO_PCI = 1600;
+/** Aviso mostrado na tela quando a planilha passa do limite de anexo da CAIXA (null se está dentro). */
+export function avisoTamanhoPci(bytes: number): string | null {
+  const kb = Math.ceil(bytes / 1024);
+  if (kb <= AVISO_TAMANHO_PCI_KB) return null;
+  return `A planilha ficou com ${kb.toLocaleString("pt-BR")} KB; o sistema da CAIXA aceita até ${LIMITE_ANEXO_CAIXA_KB.toLocaleString("pt-BR")} KB. Troque a foto de localização por uma menor (ou gere sem foto) e, se o modelo enviado for uma PCI já preenchida, envie a planilha oficial em branco como modelo.`;
+}
+/**
  * Largura ÷ altura do quadro "Inserir Poligonal do Terreno" no modelo oficial (colunas G..AW, linhas 194..214): ~3,03. A foto é
  * RECORTADA nessa proporção na tela (pedido do dono em 24/11: preencher o quadro, sem faixas sobrando e sem esticar).
  */

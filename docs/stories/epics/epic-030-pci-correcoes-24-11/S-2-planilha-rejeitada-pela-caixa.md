@@ -1,6 +1,33 @@
 # EPIC-030 S-2 — PCI .xls rejeitada pela CAIXA e "reparada" pelo Excel
 
-**Status:** InReview (correção e testes prontos; aceitação pelo Excel real e pelo sistema da CAIXA depende do dono)
+**Status:** InReview (causa confirmada pela CAIXA: tamanho acima de 5.120 KB; correção e testes prontos; anexar de novo depende do dono)
+
+## Causa CONFIRMADA (26/11/2026): tamanho do arquivo
+
+Print do sistema da CAIXA enviado pelo dono, com a planilha gerada já com a 1ª correção (3d61d9a): **"Operação não permitida. O tamanho
+máximo permitido para o arquivo é 5120 KB. Tamanho deste arquivo: 5342 KB."**
+
+O que pesava no arquivo de produção (5.470.208 bytes): um PNG de 3.484.635 bytes no armazenamento de imagens que NENHUMA forma usa
+(veio no modelo enviado, com cRef 1), a foto de localização (337 KB) e, a cada regeração, as fotos antigas (3d61d9a: +1 MB por vez).
+
+Correção (3ª etapa):
+- `trocarImagensSemUso` (`biff8-imagens.ts`), chamada antes de salvar na PCI e na medição/PLS: toda imagem do armazenamento que nenhuma
+  forma usa — nenhuma propriedade com o bit fBid (pib, fillBlip…), em nenhuma aba, gráfico embutido ou grupo; formas que vão sair não
+  contam — troca os bytes por um PNG 1×1 transparente VÁLIDO (67 bytes), com o FBSE normal (btWin32/btMacOS 6 = PNG, rgbUid = MD5 da
+  imagem, como as fotos que o gerador já insere, tag 0xFF, cRef 0). Mesma posição na tabela (nenhum pib muda); BStore, dggContainer e
+  CONTINUE recalculados. Se a pasta tiver imagem de cabeçalho/rodapé (HEADERIMG), nada é trocado. Imagem em uso fica byte a byte igual.
+  Isto substitui o "slot vazio" do 20cb79b, que não tinha exemplo gravado pelo Excel.
+- Foto de localização preparada na tela (`GeradorPciAba.tsx`): lado maior até 1.600 px, JPEG 0,82, mirando até 400 KB (se passar, 1.280 px/0,78
+  e 1.024 px/0,72); o servidor continua recusando foto acima de 1,5 MB com mensagem ("A imagem de localização deve ter até 1,5 MB.").
+  As fotos da medição já vão com 1.024 px e até 200 KB.
+- Trava final: acima de 5.000 KB a geração devolve o aviso "A planilha ficou com X KB; o sistema da CAIXA aceita até 5.120 KB. Troque a foto
+  de localização por uma menor (ou gere sem foto) e, se o modelo enviado for uma PCI já preenchida, envie a planilha oficial em branco
+  como modelo." O tamanho em KB aparece no botão de baixar a planilha do histórico (vermelho acima de 5.000 KB).
+
+Números: arquivo do dono regravado SEM mudar dado (só a imagem sem uso e o id da foto) — 5.470.208 → 1.956.352 bytes (1.911 KB);
+validador 0; registros comparados um a um (23.705): nenhuma célula, fórmula ou texto mudou; só 1 MSODRAWING mudou (o id da foto);
+render do LibreOffice das 15 páginas idêntico pixel a pixel (60 e 150 dpi), com logos, ícones e a foto. Regerado do arquivo de produção
+com foto sintética de ~1 MB: 1× 2.563 KB, 2× 2.563 KB, 3× 2.564 KB (antes: 6.478 → 7.487 → 8.496 KB); validador 0; foto de 4 MB recusada.
 
 ## Sintoma (25/11/2026)
 
@@ -42,8 +69,8 @@ campo certo: nenhum CF do modelo tem o bloco de formato de número antes da font
    anexando", se o sistema da CAIXA tiver limite de tamanho.
 
 Observação: o arquivo de produção carrega uma imagem PNG de 3,4 MB no armazenamento de imagens que nenhuma forma usa (veio no modelo
-enviado; provavelmente a foto de uma PCI anterior usada como modelo). Não foi apagada — mexer no armazenamento do modelo tem risco
-próprio. Se o tamanho virar problema na CAIXA, enviar como modelo a planilha oficial em branco.
+enviado; provavelmente a foto de uma PCI anterior usada como modelo). Na 1ª e 2ª etapas ela não foi tocada; o tamanho virou o
+problema confirmado (26/11) e a 3ª etapa a troca pelo PNG 1×1 (ver "Causa CONFIRMADA").
 
 ## Correção
 
@@ -53,13 +80,7 @@ próprio. Se o tamanho virar problema na CAIXA, enviar como modelo a planilha of
 - [x] `biff8-imagens.ts`: o id da foto sai do grupo de ids que pertence ao desenho da aba (depois do maior id usado nele) e o
   contador do grupo é atualizado; o id do OBJ é o maior da aba + 1. Sem grupo livre, erro explícito (aviso na geração), nunca em silêncio.
 - [x] `pci-gerador.ts`: a troca da cor automática do CF pula regras com bloco de formato de número (o deslocamento 12+80 não vale nelas).
-- [x] `biff8-imagens.ts` (2ª etapa): a foto que o gerador tirou e que nenhuma forma usa mais (cRef chegou a 0 nesta geração e
-  nenhuma propriedade com fBid aponta para ela, em nenhuma aba ou gráfico) vira slot vazio na MESMA posição da tabela (os `pib` das
-  outras formas não mudam); BStore e dggContainer são recalculados e o MSODRAWINGGROUP é dividido de novo em CONTINUE. Slot vazio
-  (44 bytes): `02 00 07 F0 24 00 00 00` + 36 zeros — recInstance = btWin32 = btMacOS = 0 (msoblipERROR), rgbUid e tag zerados, size 0,
-  cRef 0, foDelay 0, cbName 0, sem imagem embutida. Referência: a especificação [MS-ODRAW] (OfficeArtFBSE). O modelo não tem exemplo
-  de slot vazio: as imagens com cRef 0 que ele traz (7 no modelo do repositório, ~255 KB) mantêm os bytes e não são tocadas, assim
-  como as de cRef ≥ 1 (inclusive o PNG de 3,4 MB do arquivo de produção).
+- [x] `biff8-imagens.ts` (2ª etapa, SUBSTITUÍDA na 3ª): o "slot vazio" deu lugar ao PNG 1×1 válido de `trocarImagensSemUso` (acima).
 - [x] `biff8-imagens.ts` (2ª etapa, achado baixo): sempre que `substituirFotos` roda (PCI ou medição/PLS), toda forma COM imagem cujo
   id está fora do grupo de ids do desenho da sua aba ganha um id livre no grupo certo — corrige a PCI salva pelo código antigo
   (foto 143935). Lista suspensa (OBJ 0x14) e formas sem imagem não são tocadas.
@@ -68,11 +89,13 @@ próprio. Se o tamanho virar problema na CAIXA, enviar como modelo a planilha of
 
 ## Testes
 
-(a) Automáticos — `server/caixa/pci-xls-estrutura.test.ts` (8 testes): o modelo do repositório ganha INDEX/DBCELL e o `spidCur` 143934
+(a) Automáticos — `server/caixa/pci-xls-estrutura.test.ts` (10 testes): o modelo do repositório ganha INDEX/DBCELL e o `spidCur` 143934
 como o oficial (sem dado de cliente); gera sem foto, com JPEG sintético de 20 KB e de 1,4 MB, e regera a partir de uma PCI já gerada:
 validador sem nenhuma inconsistência e foto no grupo 1024–2047. Controle: o validador acusa INDEX/DBCELL/id adulterados. Com o código
 antigo os 6 primeiros falham; só com a correção do INDEX, falham os 3 com foto (id fora do grupo). 2ª etapa: gerar 3 vezes em
-cadeia com foto sintética de ~1 MB mantém o tamanho (diferença < 16 KB) e o validador em 0, com os slots vazios das fotos antigas;
+cadeia com foto sintética de ~1 MB mantém o tamanho (diferença < 16 KB), abaixo de 5.000 KB e com validador 0, e as fotos antigas
+viram o PNG 1×1; 3ª etapa: imagem sem uso deixa de pesar (> 100 KB liberados no modelo do repositório) e imagem em uso fica igual byte a
+byte; o aviso de tamanho sai acima de 5.000 KB;
 uma PCI com a foto no id 143935 sai normalizada quando a PLS recebe foto. Suítes da PCI e da medição (`server/pci-*.test.ts`,
 `server/caixa/*.test.ts`, `server/medicao*.test.ts`, `server/pls-fiel-pci.test.ts`, `server/caixa-medicao.test.ts`) passam; `tsc --noEmit` limpo.
 
@@ -82,7 +105,7 @@ de ~1 MB — 3d61d9a: 6.477.824 → 7.486.976 → 8.495.616; agora: 6.137.856 �
 converte a 3ª e mantém a foto e os ícones. O LibreOffice converte o arquivo novo para .xlsx sem aviso (o LibreOffice é mais
 tolerante que o Excel: isso não prova a aceitação pelo Excel).
 
-(c) Pendente do dono: gerar a PCI de novo na produção (depois de publicado), abrir no Excel do computador e conferir que não aparece a
+(c) Pendente do dono (a causa de tamanho foi confirmada pela CAIXA; falta conferir a entrega): gerar a PCI de novo na produção (depois de publicado), abrir no Excel do computador e conferir que não aparece a
 mensagem de reparo; anexar no sistema da CAIXA e confirmar que aceita.
 
 ## Arquivos
@@ -92,3 +115,6 @@ mensagem de reparo; anexar no sistema da CAIXA e confirmar que aceita.
 - `server/caixa/pci-gerador.ts`
 - `server/caixa/biff8-validador.ts` (novo)
 - `server/caixa/pci-xls-estrutura.test.ts` (novo)
+- `server/caixa/medicao-xls.ts`
+- `shared/pci-gerador.ts`
+- `client/src/components/obra/GeradorPciAba.tsx`
