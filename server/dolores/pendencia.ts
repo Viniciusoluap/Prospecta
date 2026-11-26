@@ -25,6 +25,8 @@ import {
 } from "../../shared/dolores/confirmacao.js";
 import { ALFABETO_CODIGO, textoDeDado } from "../../shared/dolores/fila.js";
 import { MAX_CARACTERES_WHATSAPP } from "../../shared/dolores/whatsapp.js";
+import { normalizarNome } from "../../shared/dolores/grupos-tipo.js";
+import { unicoComPonto, funcaoDaEntidade, type ConfirmacaoNomeada } from "../../shared/dolores/ordem-direta.js";
 import { getDb } from "../db.js";
 import { decidir, type ResultadoDecisao } from "./aprovacoes.js";
 import { registrarAcao } from "./auditoria.js";
@@ -42,16 +44,38 @@ type ItemDaPendencia = { id: number; codigo: string; funcao: string; argumentos:
 const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number | null; autor: number | null; pedidoId?: string }) =>
   registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: c.pedidoId ?? `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
 
+/**
+ * Codex #341 (P2) — a IDENTIDADE do item para a confirmação pelo nome: o resumo SEM o texto que o dono ditou. Numa anotação ou
+ * lembrança, o nome citado DENTRO do texto ("ela falou com Maria") não é de quem o item trata — "pode a nota da Maria" não confirma a
+ * anotação da Emily. Tarefa fica com o título: é por ele que ela é reconhecida ("pode o do cartório").
+ */
+const FUNCOES_COM_TEXTO_DITADO = new Set(["registrar_acompanhamento", "guardar_memoria", "corrigir_memoria"]);
+function identidadeDoItem(i: ItemDaPendencia): string {
+  const resumo = textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER);
+  if (!FUNCOES_COM_TEXTO_DITADO.has(i.funcao)) return resumo;
+  const ditado = normalizarNome(String((i.argumentos as { texto?: unknown } | null)?.texto ?? "")).split(" ").filter(Boolean);
+  const ts = normalizarNome(resumo).split(" ").filter(Boolean);
+  if (!ditado.length) return ts.join(" ");
+  // tira do resumo cada ocorrência da sequência ditada (inteira; ou o começo dela, quando o resumo corta o texto)
+  const fora = new Array<boolean>(ts.length).fill(false);
+  for (let a = 0; a < ts.length; a++) {
+    let k = 0;
+    while (a + k < ts.length && k < ditado.length && ts[a + k] === ditado[k]) k++;
+    if (k === ditado.length || (k >= 3 && a + k === ts.length) || (k >= Math.min(3, ditado.length) && k >= ditado.length - 1)) for (let x = 0; x < k; x++) fora[a + x] = true;
+  }
+  return ts.filter((_, x) => !fora[x]).join(" ");
+}
+
 const CODIGO_ENTRE_COLCHETES = new RegExp(`\\[[${ALFABETO_CODIGO}]{5}\\]\\s*`, "g");
 const PEDIDO_COM_CODIGO = new RegExp(`"?(?:aprovar|recusar) [${ALFABETO_CODIGO}]{5}"?`, "gi");
 /** Texto do sistema sobre um item, sem o código dele (o dono responde "pode"; o modelo e a memória nunca veem código). */
 export const semCodigoDoItem = (t: string) => t.replace(CODIGO_ENTRE_COLCHETES, "").replace(PEDIDO_COM_CODIGO, "\"pode\"").trim();
 
-async function itens(ids: readonly number[]): Promise<ItemDaPendencia[]> {
+async function itens(ids: readonly number[], limite: number = MAX_ITENS_PENDENCIA): Promise<ItemDaPendencia[]> {
   if (!ids.length) return [];
   return getDb().select({ id: doloresAprovacoes.id, codigo: doloresAprovacoes.codigo, funcao: doloresAprovacoes.funcao, argumentos: doloresAprovacoes.argumentos,
     resumo: doloresAprovacoes.resumo, situacao: doloresAprovacoes.situacao, venceEm: doloresAprovacoes.venceEm })
-    .from(doloresAprovacoes).where(inArray(doloresAprovacoes.id, ids.slice(0, MAX_ITENS_PENDENCIA))).orderBy(doloresAprovacoes.id);
+    .from(doloresAprovacoes).where(inArray(doloresAprovacoes.id, ids.slice(0, limite))).orderBy(doloresAprovacoes.id);
 }
 
 const paraMotivo = (i: ItemDaPendencia) => ({ funcao: i.funcao, argumentos: i.argumentos });
@@ -322,4 +346,88 @@ async function respostaDoResultado(lista: ItemDaPendencia[], rs: ResultadoDecisa
     if (nova) { partes.push(nova.pergunta); novaId = nova.id; }
   }
   return { texto: partes.join("\n") || "Nada foi feito.", novaId };
+}
+
+/** EPIC-025 E11: itens que a confirmação nomeada consegue achar (os mais recentes que esperam a resposta do dono). */
+export const MAX_ITENS_CONFIRMACAO_NOMEADA = 30;
+/** Teto de propostas mostradas consideradas na confirmação pelo nome; acima dele não se confirma pelo nome (nada fica de fora da conta). */
+export const MAX_PROPOSTAS_CONFIRMACAO_NOMEADA = 20;
+
+/**
+ * EPIC-025 E11 — "o grupo da Emily pode", "pode o da Maria Dayane", "pode todos": a resposta que NOMEIA o que ele confirma, já
+ * reconhecida por código (`lerConfirmacaoNomeada`). Vale só para itens da fila que ainda esperam e cuja PERGUNTA ele já recebeu (numa
+ * proposta enviada a ele — aberta, ou substituída por outra depois) ANTES de escrever esta resposta (a mesma trava de hora da QA
+ * C5-E2, A1). O nome aponta UM item (empate ou nada → null: segue o caminho comum). "pode todos" = todos os de registro ("pode"); os
+ * sérios só com "confirmo". O que executa é o item gravado e conferido por hash (`decidir`), nunca uma reinterpretação do modelo.
+ */
+export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Contexto): Promise<RespostaDaConfirmacao | null> {
+  if (!ctx.enviadaEm || Number.isNaN(ctx.enviadaEm.getTime())) return null;
+  let mostradas: Array<{ id: number; aprovacaoIds: number[]; perguntaEnviadaEm: Date | null; situacao: string }>;
+  try {
+    mostradas = await getDb().select({ id: doloresConversaPendencia.id, aprovacaoIds: doloresConversaPendencia.aprovacaoIds, perguntaEnviadaEm: doloresConversaPendencia.perguntaEnviadaEm,
+      situacao: doloresConversaPendencia.situacao })
+      .from(doloresConversaPendencia).where(and(sql`${doloresConversaPendencia.perguntaEnviadaEm} IS NOT NULL`, inArray(doloresConversaPendencia.situacao, ["aberta", "substituida"]),
+        sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`)).orderBy(desc(doloresConversaPendencia.id)).limit(MAX_PROPOSTAS_CONFIRMACAO_NOMEADA + 1);
+  } catch (e) {
+    console.error("[dolores/pendencia] propostas indisponíveis (confirmação nomeada)", erroParaLog(e));
+    return null;
+  }
+  // Codex #341 (12ª passada): proposta fora da consulta poderia esconder um item que empata com o nome → sem garantia, não confirma
+  if (mostradas.length > MAX_PROPOSTAS_CONFIRMACAO_NOMEADA) return null;
+  // só os itens cuja pergunta saiu ANTES de ele escrever (segundo inteiro, estritamente depois)
+  const antesDela = mostradas.filter(m => m.perguntaEnviadaEm && segundo(ctx.enviadaEm!) > segundo(m.perguntaEnviadaEm));
+  const vistos = new Set(antesDela.flatMap(m => m.aprovacaoIds));
+  // Portão de QA E11 (M4): só os itens da proposta ABERTA valem para "todos" e para o que é SÉRIO
+  const daAberta = new Set(antesDela.filter(m => m.situacao === "aberta").flatMap(m => m.aprovacaoIds));
+  if (!vistos.size) return null;
+  // Codex #341 (11ª passada): TODOS os itens mostrados entram na conferência — se houver mais do que o teto, não dá para garantir
+  // que o nome aponta um só (um item fora da conta poderia empatar) → não é confirmação
+  if (vistos.size > MAX_ITENS_CONFIRMACAO_NOMEADA) return null;
+  const candidatos = (await itens(Array.from(vistos), MAX_ITENS_CONFIRMACAO_NOMEADA))
+    .filter(i => i.situacao === "aguardando" && i.venceEm.getTime() > ctx.agora.getTime());
+  if (!candidatos.length) return null;
+  let escolhidos: ItemDaPendencia[];
+  if (c.todos) {
+    // "pode todos"/"confirmo todos": só os de REGISTRO da proposta aberta (sério nunca vai em lote; de proposta substituída, nunca)
+    const doLote = c.entidade ? candidatos.filter(i => funcaoDaEntidade(i.funcao, c.entidade!)) : candidatos;
+    escolhidos = doLote.filter(i => daAberta.has(i.id) && nivelDoItem(i.funcao, i.argumentos) === "registro");
+    if (!escolhidos.length) {
+      const serios = doLote.filter(i => daAberta.has(i.id));
+      if (!serios.length) return null;
+      return { pendenciaId: null, codigos: serios.map(i => i.codigo), situacao: "falta_confirmo", texto: `${fraseFaltaConfirmo(serios.map(paraMotivo))} (um por vez, à pergunta do sistema; "todos" vale só para registro).` };
+    }
+  } else {
+    // portão 2 (M-C): o nome aponta UM item só (outro item com a mesma palavra → segue o caminho comum)
+    // Codex #341 (P2): "o GRUPO da Emily pode" só confirma item de grupo (nunca a anotação da Emily que também espera)
+    const daEntidade = c.entidade ? candidatos.filter(i => funcaoDaEntidade(i.funcao, c.entidade!)) : candidatos;
+    const escolha = unicoComPonto(c.referencia, daEntidade.map(i => ({ id: i.id, nome: identidadeDoItem(i) })));
+    const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
+    if (!item) return null;
+    // Codex #341 (5ª passada), regra ESTRUTURAL: TODA palavra de referência tem de estar no resumo do item escolhido — palavra que
+    // sobra ("amanhã", "menos", outro nome) quer dizer outra coisa → não é confirmação deste item
+    const doResumo = new Set(normalizarNome(identidadeDoItem(item)).split(" "));
+    if (!(c.todas ?? c.referencia).every(p => doResumo.has(p))) return null;
+    // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova
+    if (nivelDoItem(item.funcao, item.argumentos) === "serio" && !daAberta.has(item.id)) {
+      await auditar("recusada", "confirmação nomeada de item sério de proposta substituída; nada foi feito", { itens: 1 }, ctx);
+      return { pendenciaId: null, codigos: [item.codigo], situacao: "falta_confirmo", texto: "Essa proposta ficou de lado e é das que pedem confirmação por escrito; nada foi feito. Me peça de novo e responda \"confirmo\" à pergunta nova." };
+    }
+    escolhidos = [item];
+  }
+  const nivel = nivelDosItens(escolhidos);
+  const codigos = escolhidos.map(i => i.codigo);
+  if (nivel === "serio" && c.tipo !== "confirmo") {
+    await auditar("recusada", "confirmação nomeada de item sério sem \"confirmo\"; nada foi feito", { itens: escolhidos.length }, ctx);
+    return { pendenciaId: null, codigos, situacao: "falta_confirmo", texto: fraseFaltaConfirmo(escolhidos.map(paraMotivo)) };
+  }
+  await auditar("ok", `o dono confirmou pelo nome ("${c.tipo === "confirmo" ? "confirmo" : "pode"}"): executando`, { itens: escolhidos.length, nivel, todos: c.todos }, ctx);
+  const resultados = await decidir(codigos, "aprovar", { via: "whatsapp", userId: null, agora: ctx.agora, mensagemId: ctx.mensagemId, prazoFinal: ctx.prazoFinal, relogio: ctx.relogio, confirmado: c.tipo === "confirmo" });
+  // a proposta aberta cujos itens já não esperam nada fica decidida (um "pode" solto depois não repete nada)
+  await getDb().update(doloresConversaPendencia).set({ situacao: "confirmada", decididaEm: ctx.agora, decididaMensagemId: ctx.mensagemId })
+    .where(and(eq(doloresConversaPendencia.situacao, "aberta"),
+      sql`NOT EXISTS (SELECT 1 FROM dolores_aprovacoes a WHERE a.id = ANY(${doloresConversaPendencia.aprovacaoIds}) AND a.situacao = 'aguardando')`))
+    .catch(e => console.error("[dolores/pendencia] falha ao fechar a proposta depois da confirmação nomeada", erroParaLog(e)));
+  const venceEm = new Date(Math.min(...escolhidos.map(i => i.venceEm.getTime())));
+  const r = await respostaDoResultado(escolhidos, resultados, { ...ctx, venceEm });
+  return { pendenciaId: r.novaId, codigos, texto: r.texto, situacao: "confirmada" };
 }

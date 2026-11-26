@@ -12,6 +12,7 @@ import { ehPedidoDeRelatorio, intencaoDeAcao, pareceColagem, trechoDoDono, type 
 import { intencaoDeMemoria } from "../../shared/dolores/memoria-longa.js";
 import { FUNCOES_DAS_MESAS, intencaoDeMesa } from "../../shared/dolores/mesas.js";
 import { lerConfirmacao } from "../../shared/dolores/confirmacao.js";
+import { partesDaOrdem } from "../../shared/dolores/ordem-direta.js";
 import { ACOES_FISCAIS, FERRAMENTAS_FISCAIS, intencaoFiscal } from "../../shared/dolores/fiscal.js";
 import { ACOES, acaoPorNome } from "./acoes/registro.js";
 import { AVISO_DADOS, leituraPorNome } from "./funcoes.js";
@@ -205,6 +206,11 @@ export type ResultadoComando = {
   previasFiscais: number[];
   /** S-3b (item 3): prévias que o modelo pediu na retomada em segundo plano (somenteLeitura) e que NÃO foram mandadas. */
   previasRecusadas?: number[];
+  /**
+   * EPIC-025 E11: frases (montadas pelo SISTEMA) do que foi feito NA HORA por ordem direta do dono — vão ao dono numa linha
+   * "Feito: …" (whatsapp.ts), nunca pelo texto do modelo. Vazio = nada foi feito sem confirmação.
+   */
+  feitosNaHora: string[];
 };
 
 export type PedidoComando = {
@@ -238,6 +244,8 @@ export type PedidoComando = {
   somenteLeitura?: boolean;
   /** Voltas deste pedido (padrão MAX_VOLTAS; a retomada usa MAX_VOLTAS_TAREFA). */
   maxVoltas?: number;
+  /** EPIC-025 E11: a hora do aviso (a janela das mensagens anteriores do dono); padrão: agora. */
+  agora?: Date;
 };
 
 const usoDe = (r: RespostaModelo): UsoDaChamada => ({
@@ -359,6 +367,16 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const pedidoDeMesa = abreMesa ? { texto: comando, tipos: tiposMesa } : null;
   // EPIC-029 S-3: o texto da mensagem do dono, para as ações fiscais conferirem que o texto livre gravado saiu das palavras dele
   const pedidoFiscal = acoesFiscais ? { texto: comando } : null;
+  // EPIC-025 E11: ordem direta = confirmação para o reversível — só a conversa direta do dono, com intenção de ação por código, sem
+  // texto colado, sem anexo e fora da retomada em segundo plano. Quem confere os alvos contra estas palavras é o servidor (ponte.ts).
+  // Portão de QA E11 (I1b): verbo e alvos saem da MESMA mensagem (nunca somando mensagens anteriores; um "pode" solto só confirma o que
+  // o SISTEMA perguntou, pela proposta). (M1): mensagem com negação antes do verbo ("não vincula…", "nunca ignore…") nunca é ordem direta.
+  // Portão 2 (I-B) + ajuste antes da 3ª revisão: verbo, função, código e alvos só do trecho ANTES do ":"; o texto ditado depois do ":"
+  // só vale como CONTEÚDO de registro (tarefa, anotação, lembrança). Aspas, ">", quebra de linha, mais de um ":", ditado longo, "?" ou
+  // negação antes do ":" → nada de ordem direta (confirmação de sempre). Ver shared/dolores/ordem-direta.ts#partesDaOrdem.
+  // Portão 3: porta de caracteres (lista permitida), todos os ":" contados e a negação — tudo dentro de `partesDaOrdem` (uma função só)
+  const ordemDireta = comAcoes && !pareceColagem(p.comando) && !p.comMidia && !p.somenteLeitura && !lerConfirmacao(comando) ? partesDaOrdem(p.comando) : null;
+  const feitosNaHora: string[] = [];
   const previasFiscais = new Set<number>();
   const previasRecusadas = new Set<number>();
   const tokens = { entrada: 0, saida: 0 };
@@ -463,7 +481,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
         { canal: "whatsapp", mensagemId: p.mensagemId, prazoMs: Math.max(1000, Math.min(PRAZO_CONSULTA_MS, restante() - 1000)),
           contaminado, motivoContaminacao, semAcoes: !(comAcoes || (acoesFiscais && ACOES_FISCAIS_SET.has(String(u.name)))), aoPorNaFila: cs => cs.forEach(c => codigosNaFila.add(c)),
           // EPIC-027 C5 (E2): no WhatsApp do dono, nada executa na hora — tudo espera o "pode"/"confirmo" dele
-          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal },
+          exigirConfirmacao: true, confirmacaoNatural: podeConfirmar, pedidoDeMemoria, pedidoDoDono, pedidoDeMesa, pedidoFiscal,
+          ordemDireta, aoExecutar: fs => { for (const f of fs) if (!feitosNaHora.includes(f)) feitosNaHora.push(f); } },
       );
       // EPIC-027 C5-COM: só das leituras da conversa do dono (texto montado pelo sistema, já pelo filtro da porta)
       if (resp.body.ok === true && leituraPorNome(String(u.name))?.soConversaDoDono) {
@@ -523,7 +542,8 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const sobreAcoes = `${ferramentaCortada ? ` ${AVISO_FERRAMENTA_CORTADA}` : ""} ${fezAcao ? CONFIRA_O_QUADRO : NADA_ALTERADO}`;
   let texto: string;
   if (!parou) {
-    texto = corpo || "Dolores: não tenho o que responder a esse pedido com os dados do sistema.";
+    // EPIC-025 E11: feito por ordem direta e o modelo não acrescentou nada → só a linha "Feito: …" do sistema (whatsapp.ts)
+    texto = corpo || (feitosNaHora.length ? "" : "Dolores: não tenho o que responder a esse pedido com os dados do sistema.");
     // resumo depois de um corte com pedido de ferramenta: o texto veio sem a consulta/ação — o dono fica sabendo
     if (ferramentaCortada) texto = `${texto}\n\n(${sobreAcoes.trim()})`;
   } else if (parou === "max_tokens" && corpo) {
@@ -539,5 +559,5 @@ export async function executarComando(p: PedidoComando): Promise<ResultadoComand
   const anexos = Array.from(new Set(paraODono.filter(d => !texto.includes(d.seFaltar)).map(d => d.texto)));
   // EPIC-027 C5 (REURB): o aviso fixo no fim da resposta, por código, quando a análise deu caso analisável
   texto = comAvisoReurb(texto, analisouReurb);
-  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais), previasRecusadas: Array.from(previasRecusadas) };
+  return { texto, parou, voltas, consultas, tokens, codigosNaFila: Array.from(codigosNaFila), contaminado, referencias: referenciasDoTurno(refsPorConsulta), respondeu: corpo.length > 0, podeConfirmar, anexos, previasFiscais: Array.from(previasFiscais), previasRecusadas: Array.from(previasRecusadas), feitosNaHora };
 }

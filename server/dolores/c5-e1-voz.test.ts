@@ -143,7 +143,10 @@ describe("prompt de sistema novo (trava de regressão)", () => {
       for (const n of [...FUNCOES.map(f => f.nome), ...LEITURAS_DO_DONO.map(f => f.nome), ...ACOES.map(a => a.nome)]) expect(p, n).not.toContain(n);
       // o que existe hoje: 6 tipos de grupo, atende cliente cadastrado; EPIC-027 C5 (E2): ela resolve pela conversa com o "pode"
       for (const t of ["cliente, pós-atendimento, jurídico, administrativo (sócios), parceiros comerciais ou\n  engenharia", "Cliente cadastrado", "Resolver por aqui, quando ele pedir",
-        "ele responde \"pode\" (ou \"confirmo\", no que é sério)", "Não pergunte você mesma"]) expect(p).toContain(t);
+        // EPIC-025 E11: ordem dele é para agir; a pergunta, quando existe, é só a do sistema; nunca o nº do CRM; sem lista repetida
+        "Ordem\n  dele é para agir", "quem pergunta \"pode\"/\"confirmo\" é o sistema, uma vez: nunca peça você mesma", "nunca peça o número do CRM",
+        "Não repita a lista de pendências se\n  ele não pediu"]) expect(p).toContain(t);
+      expect(p).not.toMatch(/logo abaixo o sistema mostra/);
       expect(p).not.toContain("Ainda não dá para fazer pela conversa");
       // nada dinâmico (o cache do texto do sistema vale entre pedidos)
       expect(promptSistemaWhatsapp(mascarar)).toBe(p);

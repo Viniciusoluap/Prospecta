@@ -25,7 +25,7 @@ export const DESCRICAO_FUNCOES_ANTHROPIC: Record<FuncaoAnthropic, DescricaoFunca
     id: "dolores_whatsapp",
     rotulo: "Dolores — conversa pelo WhatsApp",
     descricao: "Responde aos comandos do dono pelo WhatsApp da Dolores. Só gasta com o interruptor da IA dela ligado, a cada comando, até os limites mensais definidos no cartão da Dolores.",
-    recomendacao: "Um modelo mais barato (ex.: Haiku) costuma bastar.",
+    recomendacao: "Prefira um modelo intermediário ou mais capaz (ex.: Sonnet): é ele que entende o contexto, decide e age na conversa com o dono. O mais barato (Haiku) confunde ordens e responde pior.",
   },
   dolores_documentos: {
     id: "dolores_documentos",

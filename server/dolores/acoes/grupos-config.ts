@@ -166,7 +166,7 @@ export async function executarAceitarAprovado(args: z.infer<typeof entradaGrupoA
   soPeloWhatsapp(ctx);
   const g = await grupoDaEmpresa(args.grupoId);
   if (!semProvaDoDono(g)) return { dados: { grupoId: g.id, jaAceito: true }, resumo: { grupoId: g.id, jaAceito: true }, feitos: [`o grupo ${nomeDoGrupo(g)} já estava aceito`] };
-  const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: "aceitar", numero: null }, { via: "whatsapp", autor: ctx.autorId, mensagemId: mensagemDaDecisao(ctx), agora: ctx.agora });
+  const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: "aceitar", numero: null }, { via: "whatsapp", autor: ctx.autorId, mensagemId: mensagemDaDecisao(ctx), agora: ctx.agora, semProposta: true });
   if (!r.ok) throw new RecusaAcao(semCodigoDoGrupo(r.texto));
   return { dados: { grupoId: g.id }, resumo: { grupoId: g.id, aceito: true }, feitos: [args.frase] };
 }

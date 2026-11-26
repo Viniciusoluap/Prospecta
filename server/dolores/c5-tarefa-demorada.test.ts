@@ -279,7 +279,8 @@ describe("conversa livre durante a tarefa", () => {
   it("com uma proposta aberta esperando o \"pode\", o resultado ESPERA (não tira a proposta de ordem)", async () => {
     await criarTarefa();
     roteiro.push(() => ferramenta(["criar_tarefa", { titulo: "Ligar para o João", responsavel: "Bianca Souza", prazo: "2026-11-17" }]), () => texto("Vou criar a tarefa."));
-    await dono("cria uma tarefa para a Bianca ligar para o João amanhã");
+    // E11b: "aquela tarefa" (texto que não saiu das palavras dele) — fica como proposta esperando o "pode"
+    await dono("cria aquela tarefa para a Bianca");
     expect(await q("SELECT * FROM dolores_conversa_pendencia WHERE situacao = 'aberta' AND adjacente")).toHaveLength(1);
     const r = await situacaoDeEnvio();
     expect(r.body).toMatchObject({ tarefa: "proposta-aberta" });

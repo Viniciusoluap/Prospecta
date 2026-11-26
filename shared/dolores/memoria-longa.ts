@@ -55,7 +55,8 @@ const PALAVRAS_DE_MOLDURA = new Set([
   "para", "pelo", "pela", "com", "sem", "mais", "menos", "antes", "depois", "agora", "partir", "frente", "diante", "todo", "toda", "todos", "todas",
   "usar", "usa", "falar", "fala", "tratar", "trata", "responsavel", "empresa", "prospecta", "dolores", "isso", "esse", "essa", "ela", "ele",
 ]);
-const palavrasDeConteudo = (s: string) => normalizarMemoria(s).split(/[^a-z0-9]+/).filter(p => p.length >= 4 && !PALAVRAS_DE_MOLDURA.has(p));
+/** EPIC-025 E11b: exportada para a ordem direta conferir texto de tarefa/anotação (mesma regra das palavras de conteúdo). */
+export const palavrasDeConteudo = (s: string) => normalizarMemoria(s).split(/[^a-z0-9]+/).filter(p => p.length >= 4 && !PALAVRAS_DE_MOLDURA.has(p));
 
 /**
  * O texto a guardar veio das PALAVRAS DO DONO? Pelo menos metade das palavras de conteúdo (4+ letras, fora a moldura) tem de estar na

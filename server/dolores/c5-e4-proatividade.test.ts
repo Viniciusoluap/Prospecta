@@ -371,25 +371,26 @@ describe("C5-E4 — regras sobre os dados (cenário: segunda 16/11, 09:00)", () 
     await expect(c.salvar({ ligado: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("silenciar pela conversa: \"para de me avisar de tarefas vencidas\" → proposta → \"pode\" → silenciado; religar do mesmo jeito", async () => {
+  // EPIC-025 E11b: ordem direta do dono (o tipo de aviso e a direção nas palavras dele) — feito na hora, sem "pode"; a proposta com
+  // "pode" para avisos continua coberta abaixo (proposta aberta x aviso) e o mecanismo do "pode" em c5-e2-resolve/c5-e2-qa
+  it("silenciar pela conversa: \"para de me avisar de tarefas vencidas\" → silenciado na hora (\"Feito\"); religar do mesmo jeito", async () => {
     await banco.pg.exec("UPDATE dolores_whatsapp_config SET ia_ligada = true");
     await ligar();
     await rodar(SEG_9H); // um aviso antes (fica na memória)
-    roteiro.push(() => ferramenta("silenciar_aviso", { tipo: "tarefa_vencida", silenciar: true }), () => textoModelo("Vou parar de te avisar de tarefas vencidas."));
+    roteiro.push(() => ferramenta("silenciar_aviso", { tipo: "tarefa_vencida", silenciar: true }), () => textoModelo(""));
     agora = hora("2026-11-16T12:10:00Z");
     await doDono("para de me avisar de tarefas vencidas");
-    expect(await q("SELECT * FROM dolores_avisos_tipos")).toHaveLength(0); // nada muda sem o "pode"
-    expect(mensagens().at(-1)!.texto).toMatch(/parar de te avisar de tarefas vencidas paradas[\s\S]*pode/i);
-    agora = hora("2026-11-16T12:11:00Z");
-    await doDono("pode");
     expect(await q<any>("SELECT tipo, silenciado, via FROM dolores_avisos_tipos")).toEqual([{ tipo: "tarefa_vencida", silenciado: true, via: "whatsapp" }]);
-    expect(mensagens().at(-1)!.texto).toMatch(/não aviso mais de tarefas vencidas/i);
+    expect(mensagens().at(-1)!.texto).toMatch(/^Feito: não aviso mais de tarefas vencidas/i);
     // religar
-    roteiro.push(() => ferramenta("silenciar_aviso", { tipo: "tarefa_vencida", silenciar: false }), () => textoModelo("Vou voltar a te avisar de tarefas vencidas."));
+    roteiro.push(() => ferramenta("silenciar_aviso", { tipo: "tarefa_vencida", silenciar: false }), () => textoModelo(""));
     agora = hora("2026-11-16T12:20:00Z");
     await doDono("volta a me avisar de tarefas vencidas");
-    agora = hora("2026-11-16T12:21:00Z");
-    await doDono("pode");
+    expect((await q<any>("SELECT silenciado FROM dolores_avisos_tipos"))[0].silenciado).toBe(false);
+    // a direção que ele NÃO disse (o modelo pede o contrário) não roda na hora: fica proposta
+    roteiro.push(() => ferramenta("silenciar_aviso", { tipo: "tarefa_vencida", silenciar: true }), () => textoModelo("Vou parar."));
+    agora = hora("2026-11-16T12:30:00Z");
+    await doDono("volta a me avisar de tarefas vencidas");
     expect((await q<any>("SELECT silenciado FROM dolores_avisos_tipos"))[0].silenciado).toBe(false);
   });
 

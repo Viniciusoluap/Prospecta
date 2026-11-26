@@ -194,7 +194,7 @@ async function entrarAgora(p: PedidoDeEntrada, chave: string): Promise<Resultado
       return { resultado: "entrada-teto", grupo: null };
     }
     const bruto = p.nomeNoWhatsapp ?? meta?.nome ?? null;
-    const descoberto = bruto ? descobrirTipoDoGrupo(bruto, await clientesDoCrm()) : { tipo: "indefinido" as TipoGrupo, leadId: null, motivo: "a Evolution não informou o nome do grupo" };
+    const descoberto = bruto ? descobrirTipoDoGrupo(bruto, await clientesDoCrm(), { parcial: peloDono }) : { tipo: "indefinido" as TipoGrupo, leadId: null, motivo: "a Evolution não informou o nome do grupo" };
     const nomeWhatsapp = nomeDoWhatsappParaGravar(bruto);
     const rotulo = nomeWhatsapp ?? `Grupo sem nome (final ${p.grupoJid.replace(/@g\.us$/, "").slice(-4)})`;
     const situacao = peloDono ? (descoberto.tipo === "indefinido" ? "aguardando_dono" as const : "avisado" as const) : reserva ? "aguardando_dono" as const : "recusado" as const;

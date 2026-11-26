@@ -271,6 +271,9 @@ describe("QA C3 — resposta só com o número", () => {
     expect(JSON.stringify(enviarAoDono.mock.calls)).toMatch(/confirma\?.*libera.*4 sim/);
     await chamar(doDono("1"));
     expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "indefinido" });
+    // E11 (Codex #341): a resposta só vale para pergunta ANTERIOR à mensagem; nesta suíte a hora das mensagens é fixa (antes de AGORA)
+    // e o "1" acima remarcou a pergunta em AGORA — volta-se a pergunta para antes da mensagem, como no relógio real
+    await banco.pg.exec(`UPDATE dolores_grupos SET pergunta_tipo_em = '${new Date(AGORA.getTime() - 5 * 60_000).toISOString()}' WHERE grupo_jid = '${ESPERA}'`);
     await chamar(doDono("4 sim"));
     expect(await grupoPorJid(ESPERA)).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado", decidido_por: "whatsapp:dono" });
   });
