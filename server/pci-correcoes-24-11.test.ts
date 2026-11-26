@@ -159,13 +159,20 @@ describe("custos pelos dois campos: percentual (incidência) e valor em R$", () 
     f.adicionais[0] = { descricao: "Movimentação de terra", valor: custoDaIncidenciaPci(base, 2) };
     f.adicionais[1] = { descricao: "Muro de divisa", valor: custoDaIncidenciaPci(base, 7.99) };
     PCT.forEach((p, i) => expect(incidenciaDoCustoPci(f, f.custos[i]), `serviço ${i + 1}`).toBe(p));
+    expect(incidenciaDoCustoPci(f, f.adicionais[0].valor)).toBe(2);
+    expect(incidenciaDoCustoPci(f, f.adicionais[1].valor)).toBe(7.99);
     const t = calcularTotaisPci(f);
+    expect(t.outros).toBeCloseTo(14392.38, 8);
+    expect(incidenciaDoCustoPci(f, t.outros)).toBe(9.99);
     expect(Math.abs(t.totalServicos - base)).toBeLessThan(0.2); // só centavos de arredondamento
     expect(Math.abs(t.custoProducao - 230000)).toBeLessThan(0.3);
     expect(t.areaConstruida).toBe(57.14);
     // digitar o valor em R$ recalcula o percentual
     f.custos[0] = 14406.78;
     expect(incidenciaDoCustoPci(f, f.custos[0])).toBe(10);
+    f.adicionais[0].valor = 1440.68;
+    expect(incidenciaDoCustoPci(f, f.adicionais[0].valor)).toBe(1);
+    expect(incidenciaDoCustoPci(f, calcularTotaisPci(f).outros)).toBe(8.99);
   });
   it("percentuais digitados no campo de R$ (somam 100) são reconhecidos e convertidos; valores em R$ de verdade, não", () => {
     const f = form();

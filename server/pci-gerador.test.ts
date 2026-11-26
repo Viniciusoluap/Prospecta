@@ -80,14 +80,15 @@ describe("Gerador de PCI — mapa de células (ida e volta)", () => {
 
   it("inclui a imagem de localização no quadro da poligonal do .xls", () => {
     const form = formularioCompleto();
-    // PNG 1x1 válido
-    form.imagem = { tipo: "png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" };
+    // PNG panorâmico, na proporção do quadro.
+    form.imagem = { tipo: "png", base64: "iVBORw0KGgoAAAANSUhEUgAAAS8AAABkAQAAAAD/TYtuAAAAG0lEQVR4nO3BgQAAAADDoPlT3+AEVQEAAADPAA88AAHIV8DrAAAAAElFTkSuQmCC" };
     const r = gerarPlanilhaPci(MODELO, "xls", form);
     expect(r.avisos).toEqual([]);
     expect(lerPci(r.bytes).identificacao.proponente).toBe("MARIA DIGITADA");
     const imgs = imagensDaAba(PastaBiff8.abrir(r.bytes), "Proposta_Constr_Individual");
     const quadro = imgs.filter((i) => i.coluna1 >= 6 && i.linha1 >= 193 && i.linha2 - i.linha1 >= 5);
     expect(quadro).toHaveLength(1);
+    expect(quadro[0]).toMatchObject({ coluna1: 6, linha1: 193, coluna2: 48, linha2: 213 });
     expect(quadro[0].imagem.dados.length).toBeLessThan(200);
   });
 
