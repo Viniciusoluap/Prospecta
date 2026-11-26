@@ -5,10 +5,11 @@
  * fórmulas, validações e desenhos que nenhuma biblioteca livre regrava sem
  * perdas. Por isso o arquivo NÃO é reconstruído: os registros originais são
  * mantidos byte a byte e só as células de entrada (campos roxos) mudam. Os
- * deslocamentos das abas (BOUNDSHEET) e o índice de strings (EXTSST) são
- * recalculados na gravação.
+ * deslocamentos das abas (BOUNDSHEET), o índice de strings (EXTSST) e os índices
+ * de linhas (INDEX/DBCELL, S-2 do EPIC-030) são recalculados na gravação.
  */
 import * as CFB from "cfb";
+import { dbcellEsperado } from "./biff8-validador.js";
 
 export const R = {
   BOF: 0x0809,
@@ -675,6 +676,59 @@ export class PastaBiff8 {
     this.registros[iExt] = { tipo: R.EXTSST, dados: ext };
   }
 
+  /**
+   * DBCELL (S-2 do EPIC-030): distâncias relativas do bloco de linhas. Mudam quando uma célula do bloco troca de tamanho
+   * (ex.: BLANK de 6 bytes vira texto de 10) — o modelo oficial com macros tem esses registros e o gerador os deixava velhos.
+   */
+  private reconstruirDbcells(posicoes: Map<Registro, number>) {
+    const vista = this.registros.map((r) => ({ pos: posicoes.get(r) ?? 0, tipo: r.tipo, dados: r.dados }));
+    this.registros.forEach((r, i) => {
+      if (r.tipo !== R.DBCELL) return;
+      const e = dbcellEsperado(vista, i);
+      if (!e) return;
+      const d = new Uint8Array(4 + 2 * e.rgdb.length);
+      escreveU32(d, 0, e.dbRtrw);
+      e.rgdb.forEach((v, k) => {
+        if (v < 0 || v > 0xffff) throw new Error("Bloco de linhas grande demais para o formato .xls.");
+        escreveU16(d, 4 + 2 * k, v);
+      });
+      r.dados = d;
+    });
+  }
+
+  /**
+   * INDEX (S-2 do EPIC-030): posições ABSOLUTAS dos DBCELL e do DEFCOLWIDTH de cada aba. Qualquer byte a mais antes da aba
+   * (texto novo no SST, foto no grupo de desenhos) as desloca; o gerador as deixava apontando para o meio de outros registros.
+   */
+  private reconstruirIndices(posicoes: Map<Registro, number>) {
+    let nivel = 0;
+    let index: Registro | null = null;
+    let dbcells: Registro[] = [];
+    let defcolwidth: Registro | null = null;
+    const fechar = () => {
+      if (!index) return;
+      const antigo = index.dados;
+      const d = new Uint8Array(16 + 4 * dbcells.length);
+      d.set(antigo.subarray(0, 12), 0); // reservado, primeira e última linha: ficam como no modelo
+      escreveU32(d, 12, u32(antigo, 12) && defcolwidth ? posicoes.get(defcolwidth) ?? 0 : u32(antigo, 12));
+      dbcells.forEach((r, k) => escreveU32(d, 16 + 4 * k, posicoes.get(r) ?? 0));
+      index.dados = d;
+    };
+    for (const r of this.registros) {
+      if (r.tipo === R.BOF && ++nivel === 1) {
+        index = null;
+        dbcells = [];
+        defcolwidth = null;
+      }
+      if (nivel === 1) {
+        if (r.tipo === R.INDEX) index = r;
+        else if (r.tipo === R.DBCELL) dbcells.push(r);
+        else if (r.tipo === 0x0055) defcolwidth = r;
+      }
+      if (r.tipo === R.EOF && nivel-- === 1) fechar();
+    }
+  }
+
   private serializarFluxo(): Uint8Array {
     const posicoes = new Map<Registro, number>();
     const calcular = () => {
@@ -686,8 +740,15 @@ export class PastaBiff8 {
       return pos;
     };
     calcular();
+    this.reconstruirDbcells(posicoes);
+    calcular();
     // O EXTSST pode mudar de tamanho; recalcula as posições depois dele.
     this.reconstruirExtsst(posicoes);
+    calcular();
+    // O INDEX pode mudar de tamanho (e ele vem antes dos DBCELL da própria aba): duas passadas fecham as posições.
+    this.reconstruirIndices(posicoes);
+    calcular();
+    this.reconstruirIndices(posicoes);
     const total = calcular();
     for (const { registro, aba } of this.boundsheets) {
       escreveU32(registro.dados, 0, posicoes.get(aba.bof) ?? 0);

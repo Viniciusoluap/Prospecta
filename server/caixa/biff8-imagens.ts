@@ -171,6 +171,19 @@ function filhos(d: Uint8Array, inicio: number, fim: number) {
   return lista;
 }
 
+/** Ids das formas (FSP 0xF00A) num registro MSODRAWING; contêineres que continuam no registro seguinte são cortados no fim deste. */
+function idsDeFormas(d: Uint8Array, saida: Set<number>) {
+  const andar = (o: number, fim: number) => {
+    while (o + 8 <= fim) {
+      const h = cabecalho(d, o);
+      if (h.tipo === 0xf00a && o + 12 <= d.length) saida.add(u32(d, o + 8));
+      if (h.ver === 0xf) andar(o + 8, Math.min(fim, o + 8 + h.tam));
+      o += 8 + h.tam;
+    }
+  };
+  andar(0, d.length);
+}
+
 /** Registro FBSE + BLIP (foto embutida no armazenamento do arquivo). */
 function montarBlip(img: FotoXls): Uint8Array {
   const png = img.tipo === "png";
@@ -322,15 +335,45 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
 
   // --- novas formas na aba
   const fdgDados = 16;
-  let spidAtual = u32(primeiro.dados, fdgDados + 4);
+  const spidCurModelo = u32(primeiro.dados, fdgDados + 4);
   const csp = u32(primeiro.dados, fdgDados);
   const base = molde ?? { forma: hex(MOLDE_FORMA_HEX), obj: hex(MOLDE_OBJ_HEX) };
   const novos: Registro[] = [];
+  // S-2 do EPIC-030: o id da forma nova sai de um grupo de ids (cluster do FDGG) que pertence a ESTE desenho, depois do maior id
+  // já usado nele. Antes saía de "spidCur + 1": no modelo oficial com macros o spidCur da aba é 143934 (bem acima do grupo de ids
+  // dela, 1024–2047), e a foto ganhava o id 143935, num grupo de ids que não pertence a desenho nenhum.
+  const usados = new Set<number>();
+  const objIds = new Set<number>();
+  for (const k of desenhos) {
+    if (removerIndices.includes(k)) continue;
+    idsDeFormas(regs[k].dados, usados);
+    const prox = regs[k + 1];
+    if (prox?.tipo === R.OBJ && !removerIndices.includes(k + 1) && u16(prox.dados, 0) === 0x15) objIds.add(u16(prox.dados, 6));
+  }
+  const fo0 = fdgg.o + 8;
+  const nClusters = Math.max(0, u32(grupoNovo, fo0 + 4) - 1);
+  const proximoSpid = (): { spid: number; cluster: number } => {
+    for (let j = 0; j < nClusters; j++) {
+      const oc = fo0 + 16 + j * 8;
+      if (u32(grupoNovo, oc) !== dgid) continue;
+      const baseIds = (j + 1) * 1024;
+      let livre = Math.max(1, u32(grupoNovo, oc + 4));
+      for (const s of Array.from(usados)) if (s >= baseIds && s < baseIds + 1024) livre = Math.max(livre, (s & 0x3ff) + 1);
+      if (livre < 1024) return { spid: baseIds + livre, cluster: oc };
+    }
+    throw new Error("Limite de desenhos da aba atingido.");
+  };
+  let spidAtual = 0;
   usar.forEach((img, n) => {
     const forma = base.forma.slice();
     const obj = base.obj.slice();
-    spidAtual++;
-    if ((spidAtual & 0x3ff) === 0) throw new Error("Limite de desenhos da aba atingido.");
+    const { spid, cluster } = proximoSpid();
+    spidAtual = spid;
+    usados.add(spid);
+    w32(grupoNovo, cluster + 4, Math.max(u32(grupoNovo, cluster + 4), (spid & 0x3ff) + 1));
+    let objId = Math.max(0, ...Array.from(objIds)) + 1;
+    while (objIds.has(objId) || objId > 0xffff) objId = objId > 0xffff ? 1 : objId + 1;
+    objIds.add(objId);
     const partes = filhos(forma, 8, forma.length);
     const fsp = partes.find((p) => p.h.tipo === 0xf00a)!;
     w32(forma, fsp.o + 8, spidAtual);
@@ -350,7 +393,7 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
     w16(forma, anc.o + 20, c.desloc);
     w16(forma, anc.o + 22, d.celula);
     w16(forma, anc.o + 24, d.desloc);
-    w16(obj, 6, spidAtual & 0xffff); // id do objeto (ftCmo)
+    w16(obj, 6, objId); // id do objeto (ftCmo): único na aba, como os do modelo
     delta += forma.length;
     novos.push({ tipo: R.MSODRAWING, dados: forma }, { tipo: R.OBJ, dados: obj });
   });
@@ -370,19 +413,13 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   w32(primeiro.dados, 4, dg.tam + delta);
   w32(primeiro.dados, 28, spgr.tam + delta);
   w32(primeiro.dados, fdgDados, csp - formasRemovidas + usar.length);
-  w32(primeiro.dados, fdgDados + 4, spidAtual);
+  // último id atribuído: o do modelo fica se for maior (o Excel o usa para as listas suspensas de validação)
+  w32(primeiro.dados, fdgDados + 4, Math.max(spidCurModelo, spidAtual));
 
-  // --- FDGG: maior id, total de formas e grupo (cluster) desta aba
+  // --- FDGG: maior id e total de formas (o grupo de ids desta aba já foi atualizado acima)
   const fo = fdgg.o + 8;
-  const spidMax = u32(grupoNovo, fo);
-  const clusters = u32(grupoNovo, fo + 4);
   w32(grupoNovo, fo + 8, u32(grupoNovo, fo + 8) - formasRemovidas + usar.length);
-  const indiceCluster = (spidAtual >> 10) - 1;
-  if (indiceCluster >= 0 && indiceCluster < clusters - 1) {
-    const oc = fo + 16 + indiceCluster * 8;
-    if (u32(grupoNovo, oc) === dgid) w32(grupoNovo, oc + 4, Math.max(u32(grupoNovo, oc + 4), (spidAtual & 0x3ff) + 1));
-  }
-  if (spidAtual >= spidMax) w32(grupoNovo, fo, ((spidAtual >> 10) + 1) * 1024);
+  if (spidAtual >= u32(grupoNovo, fo)) w32(grupoNovo, fo, ((spidAtual >> 10) + 1) * 1024);
 
   // --- aplica nos registros: primeiro a aba (índices maiores), depois o grupo
   for (const k of [...removerIndices].sort((x, y) => y - x)) regs.splice(k, 1);
