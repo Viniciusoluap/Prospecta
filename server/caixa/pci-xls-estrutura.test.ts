@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ABA_PROPOSTA_PCI, formularioPciVazio, normalizarFormularioPci, type FormularioPci } from "../../shared/pci-gerador.js";
 import { PastaBiff8, R, type Registro } from "./biff8.js";
+import { FBSE_VAZIO, substituirFotos } from "./biff8-imagens.js";
 import { validarFluxoWorkbook, validarXls } from "./biff8-validador.js";
 import { gerarPlanilhaPci } from "./pci-gerador.js";
 
@@ -159,5 +160,50 @@ describe("PCI .xls — estrutura que o Excel e a CAIXA exigem (S-2 do EPIC-030)"
     const segunda = gerarPlanilhaPci(primeira, "xls", formulario(jpegSintetico(300_000)));
     expect(segunda.avisos).toEqual([]);
     expect(validarXls(segunda.bytes)).toEqual([]);
+  });
+
+  it("gerar 3 vezes em cadeia com foto de ~1 MB não faz o arquivo crescer (a foto antiga vira slot vazio)", () => {
+    const tamanhos: number[] = [];
+    let atual = modeloOficial;
+    for (let i = 0; i < 3; i++) {
+      const r = gerarPlanilhaPci(atual, "xls", formulario(jpegSintetico(1_000_000 + i)));
+      expect(r.avisos).toEqual([]);
+      expect(validarXls(r.bytes)).toEqual([]);
+      tamanhos.push(r.bytes.length);
+      atual = r.bytes;
+    }
+    expect(Math.abs(tamanhos[2] - tamanhos[0])).toBeLessThan(16 * 1024);
+    // o slot vazio fica na mesma posição da tabela, com os 44 bytes da especificação
+    const p = PastaBiff8.abrir(atual);
+    const i = p.registros.findIndex((r) => r.tipo === R.MSODRAWINGGROUP);
+    let k = i + 1;
+    while (p.registros[k].tipo === R.CONTINUE) k++;
+    const g = new Uint8Array(p.registros.slice(i, k).reduce((s, r) => s + r.dados.length, 0));
+    let o = 0;
+    for (const r of p.registros.slice(i, k)) {
+      g.set(r.dados, o);
+      o += r.dados.length;
+    }
+    const hexG = Buffer.from(g).toString("hex");
+    const vazio = Buffer.from(FBSE_VAZIO).toString("hex");
+    expect(hexG.split(vazio).length - 1).toBeGreaterThanOrEqual(2); // as fotos das 1ª e 2ª gerações
+  });
+
+  it("foto com id fora do grupo (PCI salva pelo gerador antigo) é corrigida quando outra aba recebe foto", () => {
+    const pci = gerarPlanilhaPci(modeloOficial, "xls", formulario(jpegSintetico(50_000))).bytes;
+    // imita o gerador antigo: foto da proposta com o id 143935
+    const p = PastaBiff8.abrir(pci);
+    const [ini, fim] = p.intervaloDaAba(p.aba(ABA_PROPOSTA_PCI));
+    const novoSpid = Math.max(...spidsDasFotos(pci));
+    const forma = p.registros.slice(ini, fim).find((r) => r.tipo === R.MSODRAWING && u16(r.dados, 2) === 0xf004 && u32(r.dados, 16) === novoSpid)!;
+    w32(forma.dados, 16, 143935);
+    const antiga = p.salvar();
+    expect(validarXls(antiga).some((e) => /forma 143935 fora dos grupos/.test(e))).toBe(true);
+    // medição/PLS: a foto entra em outra aba; a da proposta é normalizada junto
+    const m = PastaBiff8.abrir(antiga);
+    substituirFotos(m, "PLS", [{ coluna1: 1, linha1: 300, coluna2: 8, linha2: 320 }], [{ dados: jpegSintetico(30_000), tipo: "jpeg" }]);
+    const saida = m.salvar();
+    expect(validarXls(saida)).toEqual([]);
+    expect(spidsDasFotos(saida).every((s) => s >= 1024 && s < 2048)).toBe(true);
   });
 });
