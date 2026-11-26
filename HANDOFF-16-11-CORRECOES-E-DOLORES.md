@@ -897,3 +897,22 @@ O dono mandou parar tudo em 24/11 e deixar o plano aqui. Nada está rodando. **E
 - Correções M1/M2/B1–B4 do portão do #331 não voltaram a uma 2ª rodada do @qa (só Codex).
 - Dívidas de segurança do Jurídico e portes para o Grupo Santa Fé: `docs/stories/epics/ROADMAP.md`.
 - #334 não foi testado no navegador (só `tsc`, build e testes ligados à área).
+
+## 26/11/2026 — E11 da Dolores (conversa direta) PUBLICADA
+
+- **PR #341 mesclado na `main`** (squash `c2f8668`), ramo `claude/dolores-e11-conversa-direta` (head `51608ee`, já com a `main` do dia). Sem migração.
+- **O que entrou (Opção A, regra do CLAUDE.md, item 8):** executa direto, sem "pode", só (a) tarefa e anotação ditadas com ":"; (b) ordem de grupo
+  com UM alvo, e em vincular/classificar só quando o cliente é o que o nome do grupo aponta; (c) silenciar aviso. Confirmação pelo nome
+  ("pode a nota da Emily", "pode todos") por código. Tudo o mais continua pedindo "pode"; ação séria continua pedindo "confirmo".
+- **Arquivos principais:** `shared/dolores/ordem-direta.ts`, `server/dolores/ordem-direta.ts`, `server/dolores/pendencia.ts`,
+  `server/dolores/grupos-decisao.ts`, `server/dolores/acoes/grupos-config.ts`, `server/dolores/whatsapp.ts`,
+  `server/dolores/e11-conversa-direta.test.ts` (164 testes), story `docs/stories/epics/epic-025-dolores/E11-conversa-direta.md`.
+- **Revisões:** 13 portões de segurança na story + portão FINAL de 26/11 sobre `51608ee`: **PASS**, nenhuma brecha reproduzida (60 frases e 9
+  cenários pelo webhook, dados sintéticos). Codex: 12 passadas com achados, todos corrigidos com teste "Codex #341"; 13ª e 14ª sem achados.
+- **Testes:** (a) automáticos — `npx tsc --noEmit` limpo; bateria completa do servidor (88 arquivos) passou em `3bdcb35`; e11 164/164 em `51608ee`;
+  portão final 10 suítes, 335 testes. (b) manuais — nenhum (não há como falar com a Dolores daqui). (c) pendente em produção — o dono usar no
+  WhatsApp: "anota na <cliente>: <texto>", "cria uma tarefa para <pessoa>: <texto>", "vincula o grupo da <cliente>", "pode o da <cliente>".
+- **Observações do portão final (não são brecha; não feitas):** `grupos-decisao.ts:235` — trocar `!enviadaEm ||` por `!!enviadaEm &&` (defesa em
+  profundidade; hoje inalcançável); "pode só o da Emily" e "pode o da Emily, por favor" pedem um "pode" a mais (atrito, seguro).
+- **Próximo passo exato:** conferir a produção da Vercel READY para `c2f8668`; ouvir do dono como ficou a conversa; se ele achar que ainda pede
+  "pode" demais, tratar os dois atritos acima em PR próprio, com portão de QA.
