@@ -9,7 +9,7 @@
  */
 import type { DadosAlteracao, DadosMedicaoCaixa, DadosPls, DadosRepactuacao, TipoMedicao } from "../../shared/medicao-caixa.js";
 import { PastaBiff8 } from "./biff8.js";
-import { substituirFotos, type FotoXls, type QuadroFoto } from "./biff8-imagens.js";
+import { substituirFotos, trocarImagensSemUso, type FotoXls, type QuadroFoto } from "./biff8-imagens.js";
 import { ABA_ALTERACAO, ABA_PLS, ABA_REPACTUACAO, isoParaSerial, type DadosPci } from "./pci.js";
 import { curvasPadraoPci, situacaoCurvaPls, situacaoPropostoPls, valorCurvaPci, type CurvasPci, type SituacaoCurvaPls, type SituacaoPropostoPls } from "../../shared/pci-curvas.js";
 
@@ -449,5 +449,6 @@ export function gerarXlsMedicao(arquivoPci: Uint8Array, e: EntradaMedicaoCaixa):
       // modelo sem a célula de legenda neste quadro: segue sem legenda
     }
   });
+  trocarImagensSemUso(pasta); // S-2 do EPIC-030: imagem sem uso não pesa no anexo da CAIXA (limite de 5.120 KB)
   return pasta.salvar();
 }

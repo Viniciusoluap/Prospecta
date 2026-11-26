@@ -184,6 +184,187 @@ function idsDeFormas(d: Uint8Array, saida: Set<number>) {
   andar(0, d.length);
 }
 
+/**
+ * S-2 do EPIC-030 (achado do QA): PCI salva pelo gerador antigo traz a foto com id de forma fora do grupo de ids do desenho da aba
+ * (ex.: 143935). Toda forma com imagem (propriedade pib) nessa situação ganha um id livre num grupo do próprio desenho. A lista
+ * suspensa da validação (OBJ tipo 0x14), que o Excel grava assim, e as formas sem imagem não são tocadas. Vale para todas as abas,
+ * para que a medição/PLS gerada a partir dessa PCI também saia coerente.
+ */
+function normalizarIdsDasFotos(regs: Registro[], g: Uint8Array, fo: number) {
+  const nClusters = Math.max(0, u32(g, fo + 4) - 1);
+  const cluster = (spid: number) => ((spid >> 10) - 1 < nClusters && spid >= 1024 ? fo + 16 + ((spid >> 10) - 1) * 8 : -1);
+  let nivel = 0;
+  let desenhos: number[] = [];
+  const tratarAba = () => {
+    if (!desenhos.length) return;
+    const d0 = regs[desenhos[0]].dados;
+    if (d0.length < 24 || cabecalho(d0, 0).tipo !== 0xf002 || cabecalho(d0, 8).tipo !== 0xf008) return;
+    const dgid = cabecalho(d0, 8).inst;
+    const usados = new Set<number>();
+    for (const k of desenhos) idsDeFormas(regs[k].dados, usados);
+    for (const k of desenhos) {
+      const d = regs[k].dados;
+      if (cabecalho(d, 0).tipo !== 0xf004) continue;
+      const prox = regs[k + 1];
+      if (prox?.tipo !== R.OBJ || u16(prox.dados, 0) !== 0x15 || u16(prox.dados, 4) === 0x14) continue;
+      const partes = filhos(d, 8, d.length);
+      const fsp = partes.find((p) => p.h.tipo === 0xf00a);
+      const opt = partes.find((p) => p.h.tipo === 0xf00b);
+      if (!fsp || !opt) continue;
+      let temImagem = false;
+      for (let j = 0; j < opt.h.inst; j++) if ((u16(d, opt.o + 8 + j * 6) & 0x3fff) === 0x0104) temImagem = true;
+      const spid = u32(d, fsp.o + 8);
+      const oc = cluster(spid);
+      if (!temImagem || (oc >= 0 && u32(g, oc) === dgid)) continue;
+      for (let j = 0; j < nClusters; j++) {
+        const c = fo + 16 + j * 8;
+        if (u32(g, c) !== dgid) continue;
+        const base = (j + 1) * 1024;
+        let livre = Math.max(1, u32(g, c + 4));
+        for (const s of Array.from(usados)) if (s >= base && s < base + 1024) livre = Math.max(livre, (s & 0x3ff) + 1);
+        if (livre >= 1024) continue;
+        w32(d, fsp.o + 8, base + livre);
+        usados.add(base + livre);
+        w32(g, c + 4, livre + 1);
+        if (base + livre >= u32(g, fo)) w32(g, fo, ((base + livre) >> 10) * 1024 + 1024);
+        break;
+      }
+    }
+  };
+  regs.forEach((r, k) => {
+    if (r.tipo === R.BOF && ++nivel === 1) desenhos = [];
+    if (nivel === 1 && r.tipo === R.MSODRAWING) desenhos.push(k);
+    if (r.tipo === R.EOF && nivel-- === 1) tratarAba();
+  });
+}
+
+/**
+ * Números de imagem (pib) usados por alguma forma da pasta — qualquer propriedade com o bit fBid (0x4000), em todas as abas e
+ * gráficos. O desenho de cada aba é UM fluxo só, espalhado por vários MSODRAWING e pelos CONTINUE que vêm logo depois de um
+ * deles (achado do Codex no PR #345): os pedaços são juntados antes de ler. Devolve `null` quando o fluxo não fecha certinho
+ * (tamanho de registro passando do fim, sobra de bytes) — aí quem chama não pode concluir que uma imagem está sem uso.
+ */
+function referenciasDeImagens(regs: Registro[]): Set<number> | null {
+  const usadas = new Set<number>();
+  const pilha: Uint8Array[][] = [];
+  let anterior = -1;
+  let integro = true;
+  const ler = (pedacos: Uint8Array[]) => {
+    if (!pedacos.length) return;
+    const d = new Uint8Array(pedacos.reduce((n, p) => n + p.length, 0));
+    let p = 0;
+    for (const x of pedacos) {
+      d.set(x, p);
+      p += x.length;
+    }
+    const andar = (o: number, fim: number): boolean => {
+      while (o < fim) {
+        if (o + 8 > fim) return false;
+        const h = cabecalho(d, o);
+        const fimDele = o + 8 + h.tam;
+        if (fimDele > fim) return false;
+        if (h.tipo === 0xf00b || h.tipo === 0xf121 || h.tipo === 0xf122) {
+          if (h.inst * 6 > h.tam) return false;
+          for (let j = 0; j < h.inst; j++) {
+            const pid = u16(d, o + 8 + 6 * j);
+            if (pid & 0x4000 && !(pid & 0x8000)) usadas.add(u32(d, o + 8 + 6 * j + 2));
+          }
+        }
+        if (h.ver === 0xf && !andar(o + 8, fimDele)) return false;
+        o = fimDele;
+      }
+      return true;
+    };
+    if (!andar(0, d.length)) integro = false;
+  };
+  for (const r of regs) {
+    if (r.tipo === R.BOF) pilha.push([]);
+    else if (r.tipo === R.EOF) ler(pilha.pop() ?? []);
+    else if (r.tipo === R.MSODRAWING || (r.tipo === R.CONTINUE && anterior === R.MSODRAWING)) {
+      if (!pilha.length) return null;
+      pilha[pilha.length - 1].push(r.dados);
+      anterior = R.MSODRAWING; // CONTINUE em sequência continua o mesmo desenho
+      continue;
+    }
+    anterior = r.tipo;
+  }
+  if (pilha.length) return null;
+  return integro ? usadas : null;
+}
+
+/** PNG 1×1 transparente (67 bytes), válido: põe no lugar das imagens que nenhuma forma usa. */
+export const PNG_MINIMO = Uint8Array.from(
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==", "base64"),
+);
+
+/**
+ * S-2 do EPIC-030 — causa confirmada pela CAIXA: "O tamanho máximo permitido para o arquivo é 5120 KB". Toda imagem do
+ * armazenamento (BStore) que nenhuma forma da pasta usa — nenhuma propriedade com o bit fBid (pib, fillBlip…), em nenhuma aba,
+ * gráfico embutido ou grupo — troca os bytes por um PNG 1×1 válido. A tabela continua igual (mesmas posições, pib intactos), só
+ * com uma imagem mínima; a contagem de referências vai a 0. Imagem em uso não é tocada (byte a byte).
+ * Por segurança não mexe em nada se a pasta tiver imagem de cabeçalho/rodapé (HEADERIMG 0x0866), que guarda desenhos à parte.
+ */
+export function trocarImagensSemUso(pasta: PastaBiff8): { trocadas: number; bytesLiberados: number } {
+  const regs = pasta.registros;
+  const nada = { trocadas: 0, bytesLiberados: 0 };
+  if (regs.some((r) => r.tipo === 0x0866)) return nada;
+  const grupo = lerGrupo(regs);
+  if (!grupo) return nada;
+  const g = grupo.bytes;
+  const raiz = cabecalho(g, 0);
+  if (raiz.tipo !== 0xf000) return nada;
+  const bstore = filhos(g, 8, 8 + raiz.tam).find((f) => f.h.tipo === 0xf001);
+  if (!bstore) return nada;
+  const usadas = referenciasDeImagens(regs);
+  if (!usadas) return nada; // desenho que não dá para ler inteiro: não se conclui que alguma imagem está sem uso
+  const fbses = filhos(g, bstore.o + 8, bstore.o + 8 + bstore.h.tam);
+  const minimo = montarBlip({ dados: PNG_MINIMO, tipo: "png" });
+  w32(minimo, 32, 0); // cRef 0: nenhuma forma usa
+  let trocadas = 0;
+  const partes: Uint8Array[] = [g.subarray(0, bstore.o + 8)];
+  fbses.forEach((f, i) => {
+    const original = g.subarray(f.o, f.o + 8 + f.h.tam);
+    if (f.h.tipo === 0xf007 && !usadas.has(i + 1) && original.length > minimo.length) {
+      partes.push(minimo);
+      trocadas++;
+    } else partes.push(original);
+  });
+  if (!trocadas) return nada;
+  partes.push(g.subarray(bstore.o + 8 + bstore.h.tam));
+  const total = partes.reduce((n, p) => n + p.length, 0);
+  const novo = new Uint8Array(total);
+  let o = 0;
+  for (const p of partes) {
+    novo.set(p, o);
+    o += p.length;
+  }
+  const encolheu = g.length - total;
+  w32(novo, bstore.o + 4, bstore.h.tam - encolheu);
+  w32(novo, 4, raiz.tam - encolheu);
+  const pedacos: Registro[] = [];
+  for (let k = 0; k < novo.length; k += MAX_REGISTRO) {
+    pedacos.push({ tipo: pedacos.length ? R.CONTINUE : R.MSODRAWINGGROUP, dados: novo.slice(k, k + MAX_REGISTRO) });
+  }
+  regs.splice(grupo.inicio, grupo.fim - grupo.inicio, ...pedacos);
+  return { trocadas, bytesLiberados: encolheu };
+}
+
+/**
+ * Só normaliza o id das fotos (sem trocar foto nenhuma): para regravar uma PCI já gerada pelo código antigo.
+ */
+export function normalizarIdsDasFotosDaPasta(pasta: PastaBiff8): void {
+  const regs = pasta.registros;
+  const grupo = lerGrupo(regs);
+  if (!grupo) return;
+  const g = grupo.bytes;
+  const fdgg = filhos(g, 8, 8 + cabecalho(g, 0).tam).find((f) => f.h.tipo === 0xf006);
+  if (!fdgg) return;
+  normalizarIdsDasFotos(regs, g, fdgg.o + 8);
+  const pedacos: Registro[] = [];
+  for (let k = 0; k < g.length; k += MAX_REGISTRO) pedacos.push({ tipo: pedacos.length ? R.CONTINUE : R.MSODRAWINGGROUP, dados: g.slice(k, k + MAX_REGISTRO) });
+  regs.splice(grupo.inicio, grupo.fim - grupo.inicio, ...pedacos);
+}
+
 /** Registro FBSE + BLIP (foto embutida no armazenamento do arquivo). */
 function montarBlip(img: FotoXls): Uint8Array {
   const png = img.tipo === "png";
@@ -219,13 +400,14 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   const regs = pasta.registros;
   const grupo = lerGrupo(regs);
   if (!grupo) throw new Error("O modelo não tem área de desenhos; não é possível incluir fotos.");
-  const g = grupo.bytes;
+  let g: Uint8Array = grupo.bytes;
   const raiz = cabecalho(g, 0);
   if (raiz.tipo !== 0xf000) throw new Error("Estrutura de desenhos do modelo não reconhecida.");
   const filhosRaiz = filhos(g, 8, 8 + raiz.tam);
-  const fdgg = filhosRaiz.find((f) => f.h.tipo === 0xf006);
+  const fdggAchado = filhosRaiz.find((f) => f.h.tipo === 0xf006);
   let bstore = filhosRaiz.find((f) => f.h.tipo === 0xf001);
-  if (!fdgg) throw new Error("Estrutura de desenhos do modelo incompleta.");
+  if (!fdggAchado) throw new Error("Estrutura de desenhos do modelo incompleta.");
+  let fdgg = fdggAchado;
 
   // --- desenhos da aba (somente nível principal, fora de gráficos embutidos)
   const [ini, fim] = pasta.intervaloDaAba(pasta.aba(nomeAba));
@@ -290,6 +472,7 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
         if (ref > 0) w32(g, f.o + 8 + 24, ref - 1);
       }
     }
+    // a foto antiga que nenhuma forma usa mais deixa de pesar em `trocarImagensSemUso`, chamada antes de salvar
   }
 
   // --- novas fotos no armazenamento (BStore)
@@ -425,6 +608,7 @@ export function substituirFotos(pasta: PastaBiff8, nomeAba: string, quadros: Qua
   for (const k of [...removerIndices].sort((x, y) => y - x)) regs.splice(k, 1);
   insercao -= removerIndices.filter((k) => k < insercao).length;
   regs.splice(insercao, 0, ...novos);
+  normalizarIdsDasFotos(regs, grupoNovo, fdgg.o + 8);
   const pedacos: Registro[] = [];
   for (let o = 0; o < grupoNovo.length; o += MAX_REGISTRO) {
     pedacos.push({ tipo: pedacos.length ? R.CONTINUE : R.MSODRAWINGGROUP, dados: grupoNovo.slice(o, o + MAX_REGISTRO) });

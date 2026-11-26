@@ -14,8 +14,8 @@ const T = {
   BOF: 0x0809, EOF: 0x000a, BOUNDSHEET: 0x0085, SST: 0x00fc, EXTSST: 0x00ff, CONTINUE: 0x003c, ROW: 0x0208, INDEX: 0x020b,
   DBCELL: 0x00d7, DEFCOLWIDTH: 0x0055, MSODRAWINGGROUP: 0x00eb, MSODRAWING: 0x00ec, OBJ: 0x005d, TXO: 0x01b6,
 } as const;
-/** Registros de célula (os que o DBCELL aponta). STRING/SHRFMLA/ARRAY/TABLE vêm depois da fórmula e nunca abrem a linha. */
-export const REGISTROS_DE_CELULA = new Set([0x0203, 0x027e, 0x00bd, 0x00fd, 0x0204, 0x0201, 0x00be, 0x0205, 0x0006]);
+/** Registros de célula (os que o DBCELL aponta). RSTRING (0x00D6) também abre linha; STRING/SHRFMLA/ARRAY/TABLE vêm depois da fórmula e nunca abrem a linha. */
+export const REGISTROS_DE_CELULA = new Set([0x0203, 0x027e, 0x00bd, 0x00fd, 0x0204, 0x0201, 0x00be, 0x0205, 0x0006, 0x00d6]);
 
 interface Reg { pos: number; tipo: number; dados: Uint8Array }
 
@@ -103,6 +103,7 @@ export function validarFluxoWorkbook(wb: Uint8Array): string[] {
   const iGrupo = regs.findIndex((r) => r.tipo === T.MSODRAWINGGROUP);
   let clusters: { dgid: number; csp: number }[] = [];
   let refsBlip: number[] = [];
+  let blipVazio: boolean[] = [];
   if (iGrupo >= 0) {
     let k = iGrupo + 1;
     while (regs[k]?.tipo === T.CONTINUE) k++;
@@ -111,8 +112,9 @@ export function validarFluxoWorkbook(wb: Uint8Array): string[] {
     erros.push(...v.erros);
     clusters = v.clusters;
     refsBlip = v.cRef;
+    blipVazio = v.vazio;
   }
-  erros.push(...validarDesenhosDasAbas(regs, clusters, refsBlip));
+  erros.push(...validarDesenhosDasAbas(regs, clusters, refsBlip, blipVazio));
   return erros;
 }
 
@@ -178,8 +180,9 @@ function validarGrupo(g: Uint8Array) {
   const erros: string[] = [];
   const clusters: { dgid: number; csp: number }[] = [];
   const cRef: number[] = [];
+  const vazio: boolean[] = [];
   const raiz = esc(g, 0);
-  if (raiz.tipo !== 0xf000) return { erros: ["grupo de desenhos sem dggContainer"], clusters, cRef };
+  if (raiz.tipo !== 0xf000) return { erros: ["grupo de desenhos sem dggContainer"], clusters, cRef, vazio };
   if (8 + raiz.tam !== g.length) erros.push(`dggContainer declara ${raiz.tam} bytes e o grupo tem ${g.length - 8}`);
   let o = 8;
   while (o + 8 <= Math.min(g.length, 8 + raiz.tam)) {
@@ -198,7 +201,14 @@ function validarGrupo(g: Uint8Array) {
         const size = u32(g, q + 8 + 20);
         const cbName = g[q + 8 + 33];
         cRef.push(u32(g, q + 8 + 24));
-        if (size) {
+        if (!size) {
+          // slot vazio (imagem apagada): só o cabeçalho de 36 bytes + nome, sem imagem e sem referência
+          if (36 + cbName !== f.tam) erros.push(`FBSE ${n + 1}: vazio (size 0) mas com ${f.tam - 36 - cbName} byte(s) de imagem`);
+          if (u32(g, q + 8 + 24) !== 0) erros.push(`FBSE ${n + 1}: vazio (size 0) com contagem de referências ${u32(g, q + 8 + 24)}`);
+          if (f.inst !== g[q + 8]) erros.push(`FBSE ${n + 1}: recInstance ${f.inst} diferente do tipo ${g[q + 8]}`);
+          vazio.push(true);
+        } else {
+          vazio.push(false);
           if (36 + cbName + size !== f.tam) erros.push(`FBSE ${n + 1}: tamanho ${f.tam} e 36 + nome + imagem = ${36 + cbName + size}`);
           const b = esc(g, q + 8 + 36 + cbName);
           if (8 + b.tam !== size) erros.push(`FBSE ${n + 1}: imagem declara ${8 + b.tam} bytes e o FBSE diz ${size}`);
@@ -213,10 +223,10 @@ function validarGrupo(g: Uint8Array) {
     o += 8 + h.tam;
   }
   if (o !== 8 + raiz.tam) erros.push("dggContainer: itens não fecham com o tamanho declarado");
-  return { erros, clusters, cRef };
+  return { erros, clusters, cRef, vazio };
 }
 
-function validarDesenhosDasAbas(regs: Reg[], clusters: { dgid: number; csp: number }[], cRef: number[]): string[] {
+function validarDesenhosDasAbas(regs: Reg[], clusters: { dgid: number; csp: number }[], cRef: number[], vazio: boolean[]): string[] {
   const erros: string[] = [];
   const usoBlip = new Map<number, number>();
   let nivel = 0;
@@ -238,6 +248,7 @@ function validarDesenhosDasAbas(regs: Reg[], clusters: { dgid: number; csp: numb
   });
   usoBlip.forEach((n, pib) => {
     if (pib < 1 || pib > cRef.length) erros.push(`forma aponta para a imagem ${pib}, que não existe`);
+    else if (vazio[pib - 1]) erros.push(`forma aponta para a imagem ${pib}, que é um slot vazio`);
     else if (cRef[pib - 1] < n) erros.push(`imagem ${pib}: ${n} forma(s) usam e a contagem de referências diz ${cRef[pib - 1]}`);
   });
   return erros;
