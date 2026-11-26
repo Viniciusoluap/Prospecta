@@ -7,19 +7,20 @@ import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { encryptSecret, decryptSecret } from "../_core/secret-vault.js";
 import { iniciarUploadProjetoDrive, enviarParteProjetoDrive } from "../drive-documents.js";
-import { projectChecklist, projectDocumentCanonicalName, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
+import { clienteCurtoArquivoProjeto, itemCurtoArquivoProjeto, nomePadraoArquivoProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
 import { PROJECT_TYPE_LABELS } from "../../shared/operacional.js";
 const router = Router();
 type Session = { uid: number; projectId: number; revisionId?: number; documentId: number; itemId: string; kind: "editable" | "pdf"; name: string; canonicalName: string; version: number; mime: string; size: number; location: string; expires: number };
 const parseArray = <T,>(value: string | null): T[] => { try { const x = JSON.parse(value || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
 
-async function reservarDocumento(input: { projectId: number; revisionId?: number; itemId: string; itemName: string; kind: "editable" | "pdf"; name: string; mime: string; size: number; projectName: string; clientName: string; userId: number }) {
+async function reservarDocumento(input: { projectId: number; revisionId?: number; itemId: string; itemName: string; itemType?: string; kind: "editable" | "pdf"; name: string; mime: string; size: number; projectName: string; clientName: string; userId: number }) {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-document:${input.projectId}:${input.itemId}:${input.kind}`}))`);
     const [ultimo] = await tx.select({ version: sql<number>`coalesce(max(${projectDocuments.version}), 0)::int` }).from(projectDocuments)
       .where(and(eq(projectDocuments.projectId, input.projectId), eq(projectDocuments.itemId, input.itemId), eq(projectDocuments.kind, input.kind)));
     const version = (ultimo?.version ?? 0) + 1;
-    const canonicalName = projectDocumentCanonicalName({ projectName: input.projectName, clientName: input.clientName, itemName: input.itemName, version, originalName: input.name, mime: input.mime });
+    // EPIC-031 S-1: nome padrão e curto (o original fica em original_name).
+    const canonicalName = nomePadraoArquivoProjeto({ item: itemCurtoArquivoProjeto({ itemId: input.itemId, type: input.itemType, text: input.itemName }), cliente: clienteCurtoArquivoProjeto(input.clientName), n: version, originalName: input.name, mime: input.mime });
     const [document] = await tx.insert(projectDocuments).values({
       projectId: input.projectId, revisionId: input.revisionId ?? null, itemId: input.itemId, kind: input.kind,
       originalName: input.name, canonicalName, mime: input.mime, size: input.size, version,
@@ -61,7 +62,7 @@ router.post("/projetos/:projectId/documentos", async (req, res) => {
       const item = checks.find(c => c.id === body.itemId);
       if (!item) return res.status(400).json({ error: "Salve o item do checklist antes de enviar o arquivo." });
       const mime = body.kind === "pdf" ? "application/pdf" : String(body.mime || "application/octet-stream").slice(0, 150);
-      const reserved = await reservarDocumento({ projectId, itemId: item.id!, itemName: item.text, kind: body.kind, name: body.name, mime, size: body.size, projectName: project.name, clientName: project.clientName, userId: user.id });
+      const reserved = await reservarDocumento({ projectId, itemId: item.id!, itemName: item.text, itemType: item.type, kind: body.kind, name: body.name, mime, size: body.size, projectName: project.name, clientName: project.clientName, userId: user.id });
       const location = await iniciarUploadProjetoDrive({ projectId: String(projectId), clientId: String(project.leadId || `projeto-${projectId}`), clientName: project.clientName, projectName: project.name, itemId: item.id!, itemName: item.text, kind: body.kind, name: body.name, canonicalName: reserved.canonicalName, mime, size: body.size });
       const session: Session = { uid: user.id, projectId, ...reserved, itemId: item.id!, kind: body.kind, name: body.name, mime, size: body.size, location, expires: Date.now() + 24 * 60 * 60 * 1000 };
       return res.json({ session: encryptSecret(JSON.stringify(session)), offset: 0 });

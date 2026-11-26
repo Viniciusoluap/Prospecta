@@ -18,6 +18,9 @@ export const ROTULO_SITUACAO_REVISAO: Record<SituacaoRevisao, string> = {
 /** Arquivo da versão revisada, enviado ao Google Drive no próprio card. */
 export interface EntregaRevisao {
   nome: string;
+  /** Gravados pelo envio (rota de documentos do projeto); entregas antigas podem não ter. */
+  nomeOriginal?: string;
+  versao?: number;
   url: string;
   driveFileId: string;
   tipo: "editable" | "pdf";
