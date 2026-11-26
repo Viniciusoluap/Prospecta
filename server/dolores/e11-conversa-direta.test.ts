@@ -1900,6 +1900,18 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect(await retrato()).toBe(antes);
   });
 
+  it("QA 14 (C1, C2): confirmação com palavra de tipo não confirma; aceite pela fila + nome solto não liga grupo de terceiro", async () => {
+    for (const f of ["pode o grupo da Emily como pós", "pode o grupo da Emily pós", "pode o da Emily como pós atendimento", "pode o grupo da Emily como cliente", "o grupo da Emily pode como engenharia"])
+      expect(lerConfirmacaoNomeada(f), f).toBeNull();
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO", situacao: "recusado", adicionadoPor: "outra_pessoa" });
+    roteiro.push(() => ferramenta(["aceitar_grupo", { grupoId: g.id }]), () => texto("Aceito?"));
+    await dono("aceita o grupo da Emily");
+    await dono("confirmo");
+    roteiro.push(() => texto("De que grupo?"));
+    await dono("Maria Dayane");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();

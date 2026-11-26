@@ -180,6 +180,8 @@ const AFIRMA = new Set(["pode", "sim", "ok", "confirmo", "faz", "faca", "manda"]
 const LIGACAO = new Set(["o", "a", "os", "as", "do", "da", "de", "dos", "das", "e", "grupo", "grupos", "isso", "esse", "essa", "tambem", "ai", "la", "eu", "ja", "so", "somente", "apenas"]);
 const VERBO_NOVO = /\b(?:cri(?:e|ar|a)|registr\w*|anot\w*|apag\w*|exclu\w*|mand(?:ar|e)|envi\w*|cobr\w*|emit\w*|cancel\w*|pag(?:ar|a|ue)|transfer\w*|ger(?:e|ar)|prepar\w*)\b/;
 
+const VOCABULARIO_DE_TIPO: ReadonlySet<string> = new Set(["como", "tipo", "cliente", "clientes", "pos", "posvenda", "venda", "vendas", "atendimento", "engenharia",
+  "juridico", "administrativo", "socio", "socios", "parceiro", "parceiros", "obra", "obras", "interno", "interna"]);
 const EXCLUSAO_OU_CONDICAO: ReadonlySet<string> = new Set(["menos", "exceto", "fora", "salvo", "tirando", "sem", "nem", "se", "caso", "quando",
   "depois", "antes", "mas", "porem", "talvez", "ainda", "nunca", "jamais", "nenhum", "nenhuma", "outro", "outra", "outros", "outras"]);
 /** Formas exatas dos verbos de ordem (palavra inteira — "Marcos", "Cristina", "Lígia" não são verbo). */
@@ -233,6 +235,9 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   // "pode todas as tarefas" é o lote das tarefas (a restrição da entidade continua valendo na execução)
   const resto = (fim ? ps.slice(0, -1) : ps.slice(1)).filter(p => !AFIRMA.has(p) && !LIGACAO.has(p) && p !== "sim" && !ENTIDADE_DA_PALAVRA[p]);
   if (!resto.length || resto.length > 6) return null;
+  // QA 14 (C1): palavra de TIPO ou "como" na confirmação ("pode o grupo da Emily como pós") pede algo diferente da proposta —
+  // confirmar é aceitar a proposta como ela foi mostrada; mudar o tipo é pedido novo
+  if (resto.some(p => VOCABULARIO_DE_TIPO.has(p))) return null;
   const todos = resto.every(p => p === "todos" || p === "todas" || p === "tudo");
   // "todos" misturado com um nome ("pode todos o da Emily") é ambíguo → não é confirmação
   if (!todos && resto.some(p => p === "todos" || p === "todas" || p === "tudo")) return null;

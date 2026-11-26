@@ -110,10 +110,12 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
             const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: auto.tipo ?? "cliente", numero: auto.leadId }, origem);
             if (r.ok) return { ...r, texto: r.texto.replace(/^Dolores: feito\. /, "Dolores: aceito. ") };
           }
-          await marcarPerguntaDoTipo(g.id, origem);
+          // QA 14 (C2): no aceite vindo da fila o dono NÃO vê esta pergunta — sem marcar, uma resposta solta só com um nome
+          // ("Maria Dayane") não liga o grupo; ele diz o tipo pelo caminho de sempre ("grupo CÓDIGO 1")
+          if (!origem.semProposta) await marcarPerguntaDoTipo(g.id, origem);
           return { ok: true, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. ${perguntaDoCliente(auto.candidatos, g.codigo)}`, grupoId: g.id };
         }
-        await marcarPerguntaDoTipo(g.id, origem);
+        if (!("semProposta" in origem && origem.semProposta)) await marcarPerguntaDoTipo(g.id, origem);
       }
       const vinculo = tipoAtual === "cliente" || tipoAtual === "pos_atendimento" ? await nomeDoVinculo(g.leadId) : "";
       return { ok: true, texto: tipoAtual === "indefinido"
