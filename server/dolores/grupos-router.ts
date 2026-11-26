@@ -191,10 +191,6 @@ export const gruposRouter = router({
   }),
 
   /**
-   * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
-   * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
-   */
-  /**
    * E12 (pedido do dono, 26/11): escolher o cliente do CRM (ou a obra) PELO NOME ao classificar/cadastrar um grupo, em vez de
    * decorar o número. Só admin (o mesmo de quem classifica), só id + nome (sem telefone, CPF, e-mail), até 20, sem leads
    * excluídos; sem diferenciar acento nem maiúscula. Só leitura.
@@ -212,6 +208,10 @@ export const gruposRouter = router({
       .where(sql`${semAcento(constructionProjects.title)} LIKE ${padrao}`).orderBy(asc(constructionProjects.title), asc(constructionProjects.id)).limit(20);
   }),
 
+  /**
+   * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
+   * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
+   */
   // regra do dono (21/11): classificar é SÓ do administrador pela tela (e do dono pelo WhatsApp); colaborador nunca classifica
   definirTipo: soAdmin.input(z.object({
     grupoId: id32,

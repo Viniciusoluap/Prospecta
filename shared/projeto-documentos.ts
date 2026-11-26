@@ -48,24 +48,55 @@ export const ITEM_ARQUIVO_PROJETO_CURTO: Record<string, string> = {
   art_rrt: "ART", "art rrt": "ART",
 };
 const LIMITE_ITEM = 16;
+/** a forma distinta (só usada quando dois itens dariam o mesmo nome) pode ir um pouco além */
+const LIMITE_ITEM_DISTINTO = 20;
 const LIGACOES = new Set(["de", "da", "do", "das", "dos", "e", "a", "o", "para", "com"]);
 const LIMITE_BASE = 40;
 
-/** Nome curto do item: tabela fixa; senão até duas palavras do texto (sem "Projeto"); sem item → "Doc". */
-export function itemCurtoArquivoProjeto(item: { type?: string | null; text?: string | null; itemId?: string | null } | null | undefined): string {
-  if (!item) return "Doc";
-  if (item.itemId && /^revisao-\d+$/.test(item.itemId)) return "Revisao";
-  if (item.type && ITEM_ARQUIVO_PROJETO_CURTO[item.type]) return ITEM_ARQUIVO_PROJETO_CURTO[item.type];
+type ItemArquivo = { type?: string | null; text?: string | null; itemId?: string | null; id?: string | null };
+const numeroRevisao = (itemId: string | null | undefined) => (itemId ? /^revisao-(\d+)$/.exec(itemId)?.[1] : undefined);
+
+/** Forma curta e forma "distinta" (com o final do item colado: `Eletrico-BlocoA`) de um item. */
+function formasDoItem(item: ItemArquivo | null | undefined): { curto: string; distinto: string } {
+  if (!item) return { curto: "Doc", distinto: "Doc" };
+  if (item.type && ITEM_ARQUIVO_PROJETO_CURTO[item.type] && !item.text) return { curto: ITEM_ARQUIVO_PROJETO_CURTO[item.type], distinto: ITEM_ARQUIVO_PROJETO_CURTO[item.type] };
   const partes = palavras(item.text ?? "");
   const chave = partes.join(" ").toLowerCase();
-  if (ITEM_ARQUIVO_PROJETO_CURTO[chave]) return ITEM_ARQUIVO_PROJETO_CURTO[chave];
-  const semLigacao = partes.filter(p => !LIGACOES.has(p.toLowerCase()));
+  const fixo = (item.type && ITEM_ARQUIVO_PROJETO_CURTO[item.type]) || ITEM_ARQUIVO_PROJETO_CURTO[chave];
+  // "de/da/e…" saem, menos a última palavra ("Bloco A": o "A" é o que diferencia)
+  const semLigacao = partes.filter((p, i) => i === partes.length - 1 || !LIGACOES.has(p.toLowerCase()));
   const uteis = semLigacao.length > 1 && semLigacao[0].toLowerCase() === "projeto" ? semLigacao.slice(1) : semLigacao;
-  if (!uteis.length) return "Doc";
-  const formatadas = uteis.slice(0, 2).map(p => (/^[A-Z0-9]{2,5}$/.test(p) ? p : capitalizar(p)));
+  const formatadas = uteis.map(p => (/^[A-Z0-9]{2,5}$/.test(p) ? p : capitalizar(p)));
+  if (fixo) return { curto: fixo, distinto: fixo };
+  if (!formatadas.length) return { curto: "Doc", distinto: "Doc" };
+  const duas = formatadas.slice(0, 2);
   // corta na palavra: a segunda só entra se couber inteira
-  const texto = formatadas.length > 1 && formatadas.join("-").length <= LIMITE_ITEM ? formatadas.join("-") : formatadas[0].slice(0, LIMITE_ITEM);
-  return texto || "Doc";
+  const curto = (duas.length > 1 && duas.join("-").length <= LIMITE_ITEM ? duas.join("-") : duas[0].slice(0, LIMITE_ITEM)) || "Doc";
+  if (formatadas.length < 2) return { curto, distinto: curto };
+  // distinto: primeira palavra + resto colado, guardando o FINAL (onde mora o que diferencia: "A", "B", "2")
+  const primeira = formatadas[0].slice(0, 10);
+  const cabe = LIMITE_ITEM_DISTINTO - primeira.length - 1;
+  let resto = "";
+  for (const p of formatadas.slice(1).reverse()) { if ((p + resto).length > cabe) break; resto = p + resto; }
+  if (!resto) resto = formatadas[formatadas.length - 1].slice(0, cabe);
+  const distinto = `${primeira}-${resto}`;
+  return { curto, distinto };
+}
+
+/**
+ * Nome curto do item: tabela fixa; senão até duas palavras do texto (sem "Projeto"); entrega de
+ * revisão → `Rev<n>`; sem item → "Doc". Com `checklist` (opcional), dois itens do mesmo projeto que dariam
+ * o mesmo nome curto usam a forma distinta (`Eletrico-BlocoA` / `Eletrico-BlocoB`).
+ * `numeroDaRevisao` (opcional) troca o id do pedido pela ordem da revisão no projeto.
+ */
+export function itemCurtoArquivoProjeto(item: ItemArquivo | null | undefined, checklist?: ItemArquivo[], numeroDaRevisao?: (revisionId: number) => number): string {
+  const rev = numeroRevisao(item?.itemId);
+  if (rev) return `Rev${numeroDaRevisao?.(Number(rev)) ?? rev}`;
+  const formas = formasDoItem(item);
+  if (!checklist?.length || formas.curto === formas.distinto) return formas.curto;
+  const proprio = item?.id ?? item?.itemId ?? null;
+  const repetido = checklist.some(outro => (outro.id ?? outro.itemId ?? null) !== proprio && (outro.text ?? "") !== (item?.text ?? "") && formasDoItem(outro).curto === formas.curto);
+  return repetido ? formas.distinto : formas.curto;
 }
 
 /** Primeiro e último nome do cliente, sem acento nem emoji; vazio → "Cliente". */
@@ -90,26 +121,58 @@ export function nomePadraoArquivoProjeto(input: { item: string; cliente: string;
   return `${base}${sufixo}.${extensionFrom(input.originalName || "", input.mime || "")}`;
 }
 
-/** Nome padrão de um documento do projeto, a partir dos metadados guardados. */
-export function nomePadraoDocumentoProjeto(doc: { itemId?: string | null; version?: number | null; originalName?: string | null; name?: string | null; mime?: string | null; kind?: string | null }, projeto: { clientName: string | null | undefined; checklist: ProjectCheck[] }, nFallback = 1) {
+/** O nome já está no padrão novo (gravado no envio)? Então é mostrado como está, nunca recalculado. */
+export function ehNomePadraoArquivoProjeto(nome: string | null | undefined): boolean {
+  const m = /^([A-Za-z0-9-]+)\.[a-z0-9]{1,10}$/.exec(nome ?? "");
+  return !!m && m[1].length <= LIMITE_BASE && /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*-\d+$/.test(m[1]);
+}
+
+type ProjetoDoArquivo = { clientName: string | null | undefined; checklist: ProjectCheck[]; numeroDaRevisao?: (revisionId: number) => number };
+
+/** Nome padrão de um documento do projeto, a partir dos metadados guardados (sem olhar colisões). */
+export function nomePadraoDocumentoProjeto(doc: { itemId?: string | null; version?: number | null; originalName?: string | null; name?: string | null; mime?: string | null; kind?: string | null }, projeto: ProjetoDoArquivo, nFallback = 1) {
   const item = doc.itemId ? projeto.checklist.find(c => (c.id || c.type) === doc.itemId) : undefined;
-  const itemCurto = doc.itemId && /^revisao-\d+$/.test(doc.itemId) ? "Revisao" : itemCurtoArquivoProjeto(item ?? null);
+  const itemCurto = itemCurtoArquivoProjeto(numeroRevisao(doc.itemId) ? { itemId: doc.itemId } : item ?? null, projeto.checklist, projeto.numeroDaRevisao);
   const original = doc.originalName || doc.name || "";
   const mime = doc.mime || (doc.kind === "pdf" ? "application/pdf" : "");
   return nomePadraoArquivoProjeto({ item: itemCurto, cliente: clienteCurtoArquivoProjeto(projeto.clientName), n: doc.version || nFallback, originalName: original, mime });
 }
 
 /**
- * Nomes padrão de uma lista de arquivos (lista do projeto). Arquivo antigo sem versão
- * recebe a posição dentro do mesmo item e tipo; nomes repetidos sobem o número até ficarem únicos.
+ * Nome de um arquivo NOVO, único no projeto: tenta o nome padrão; se já existir, tenta a forma
+ * distinta do item; depois sobe o número. `usados` = todos os nomes já mostrados do projeto.
  */
-export function nomesPadraoArquivosProjeto<T extends { itemId?: string | null; version?: number | null; originalName?: string | null; name?: string | null; kind?: string | null }>(files: T[], projeto: { clientName: string | null | undefined; checklist: ProjectCheck[] }): string[] {
+export function nomeNovoArquivoProjeto(input: { item: ItemArquivo; checklist: ItemArquivo[]; clientName: string | null | undefined; n: number; originalName: string; mime?: string | null; numeroDaRevisao?: (revisionId: number) => number }, usados: Iterable<string>): string {
+  const ocupados = new Set(Array.from(usados, nome => nome.toLowerCase()));
+  const cliente = clienteCurtoArquivoProjeto(input.clientName);
+  const itens = [itemCurtoArquivoProjeto(input.item, input.checklist, input.numeroDaRevisao)];
+  if (!numeroRevisao(input.item.itemId)) itens.push(formasDoItem(input.item).distinto);
+  for (const item of itens) {
+    const nome = nomePadraoArquivoProjeto({ item, cliente, n: input.n, originalName: input.originalName, mime: input.mime });
+    if (!ocupados.has(nome.toLowerCase())) return nome;
+  }
+  for (let n = input.n + 1; ; n++) {
+    const nome = nomePadraoArquivoProjeto({ item: itens[0], cliente, n, originalName: input.originalName, mime: input.mime });
+    if (!ocupados.has(nome.toLowerCase())) return nome;
+  }
+}
+
+/**
+ * Nomes mostrados de uma lista de arquivos (lista do projeto). Arquivo cujo nome gravado já está no
+ * padrão novo aparece COM esse nome (nunca é renumerado). Só os antigos são calculados, sem colidir com
+ * os gravados nem com `reservados` (opcional: outros nomes do projeto, ex.: entregas de revisão).
+ * Antigo sem versão recebe a posição dentro do mesmo item e tipo; nome repetido sobe o número.
+ */
+export function nomesPadraoArquivosProjeto<T extends { itemId?: string | null; version?: number | null; originalName?: string | null; name?: string | null; kind?: string | null }>(files: T[], projeto: ProjetoDoArquivo, reservados: Iterable<string> = []): string[] {
+  const usados = new Set(Array.from(reservados, nome => nome.toLowerCase()));
+  const gravado = files.map(file => ehNomePadraoArquivoProjeto(file.name));
+  files.forEach((file, i) => { if (gravado[i]) usados.add(file.name!.toLowerCase()); });
   const posicao = new Map<string, number>();
-  const usados = new Set<string>();
-  return files.map(file => {
+  return files.map((file, i) => {
     const grupo = `${file.itemId ?? ""}:${file.kind ?? ""}`;
     const pos = (posicao.get(grupo) ?? 0) + 1;
     posicao.set(grupo, pos);
+    if (gravado[i]) return file.name!;
     let n = file.version || pos;
     let nome = nomePadraoDocumentoProjeto({ ...file, version: n }, projeto);
     while (usados.has(nome.toLowerCase())) nome = nomePadraoDocumentoProjeto({ ...file, version: ++n }, projeto);

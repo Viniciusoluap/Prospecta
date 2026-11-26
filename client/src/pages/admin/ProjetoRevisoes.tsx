@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { uploadProjectDocument } from "@/lib/project-upload";
 import { LIMITE_PEDIDO_REVISAO, ROTULO_SITUACAO_REVISAO, rotuloCanal, validarPedidoRevisao, type SituacaoRevisao } from "@shared/projeto-revisao";
 import { inputClass } from "./OperationalUI";
-import { clienteCurtoArquivoProjeto, nomePadraoArquivoProjeto } from "@shared/projeto-documentos";
+import { clienteCurtoArquivoProjeto, ehNomePadraoArquivoProjeto, nomePadraoArquivoProjeto } from "@shared/projeto-documentos";
 
 const dataHora = (v: string | Date | null | undefined) => (v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -53,6 +53,8 @@ export function RevisoesProjeto({ projectId, clientName = "" }: { projectId: num
   const revisoes = trpc.projetos.revisoes.useQuery({ projectId });
   const [enviando, setEnviando] = useState<string | null>(null);
   const [progresso, setProgresso] = useState(0);
+  // ordem da revisão no projeto (1ª, 2ª…), a mesma que o servidor usa ao gravar o nome
+  const ordemRevisao = new Map((revisoes.data ?? []).map(r => r.id).sort((a, b) => a - b).map((id, i) => [id, i + 1]));
   return (
     <section className="space-y-2">
       <h3 className="font-semibold">Revisões</h3>
@@ -70,8 +72,8 @@ export function RevisoesProjeto({ projectId, clientName = "" }: { projectId: num
           {r.deliveries.length > 0 && (
             <ul className="space-y-0.5">
               {r.deliveries.map(d => {
-                // EPIC-031 S-1: nome padrão calculado na leitura; o original fica na dica.
-                const nome = nomePadraoArquivoProjeto({ item: "Revisao", cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
+                // EPIC-031 S-1: nome gravado no padrão aparece como está; antigo é calculado (Rev<ordem>); o original fica na dica.
+                const nome = ehNomePadraoArquivoProjeto(d.nome) ? d.nome : nomePadraoArquivoProjeto({ item: `Rev${ordemRevisao.get(r.id) ?? r.id}`, cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
                 const rotulo = `${d.tipo === "pdf" ? "PDF" : "Editável"}: ${nome}`;
                 return <li key={d.driveFileId}><a className="underline" href={d.url} target="_blank" rel="noopener noreferrer" title={d.nomeOriginal || d.nome ? `Nome original: ${d.nomeOriginal || d.nome}` : undefined}>{rotulo}</a> — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>;
               })}

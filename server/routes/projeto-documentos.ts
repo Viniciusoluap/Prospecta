@@ -7,20 +7,34 @@ import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { encryptSecret, decryptSecret } from "../_core/secret-vault.js";
 import { iniciarUploadProjetoDrive, enviarParteProjetoDrive } from "../drive-documents.js";
-import { clienteCurtoArquivoProjeto, itemCurtoArquivoProjeto, nomePadraoArquivoProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
+import { ehNomePadraoArquivoProjeto, nomeNovoArquivoProjeto, nomesPadraoArquivosProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
 import { PROJECT_TYPE_LABELS } from "../../shared/operacional.js";
 const router = Router();
 type Session = { uid: number; projectId: number; revisionId?: number; documentId: number; itemId: string; kind: "editable" | "pdf"; name: string; canonicalName: string; version: number; mime: string; size: number; location: string; expires: number };
+type FileJson = { itemId?: string; version?: number; originalName?: string; name?: string; kind?: string };
 const parseArray = <T,>(value: string | null): T[] => { try { const x = JSON.parse(value || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
 
 async function reservarDocumento(input: { projectId: number; revisionId?: number; itemId: string; itemName: string; itemType?: string; kind: "editable" | "pdf"; name: string; mime: string; size: number; projectName: string; clientName: string; userId: number }) {
   return getDb().transaction(async tx => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-document:${input.projectId}:${input.itemId}:${input.kind}`}))`);
+    // EPIC-031 S-1: trava do PROJETO (não só do item): o nome tem de ser único no projeto inteiro.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-document:${input.projectId}`}))`);
     const [ultimo] = await tx.select({ version: sql<number>`coalesce(max(${projectDocuments.version}), 0)::int` }).from(projectDocuments)
       .where(and(eq(projectDocuments.projectId, input.projectId), eq(projectDocuments.itemId, input.itemId), eq(projectDocuments.kind, input.kind)));
     const version = (ultimo?.version ?? 0) + 1;
-    // EPIC-031 S-1: nome padrão e curto (o original fica em original_name).
-    const canonicalName = nomePadraoArquivoProjeto({ item: itemCurtoArquivoProjeto({ itemId: input.itemId, type: input.itemType, text: input.itemName }), cliente: clienteCurtoArquivoProjeto(input.clientName), n: version, originalName: input.name, mime: input.mime });
+    // Nomes já usados: todos os gravados do projeto + os que a tela mostra para os arquivos antigos.
+    const [project] = await tx.select().from(projects).where(eq(projects.id, input.projectId)).limit(1);
+    const checklist = projectChecklist(parseArray<string>(project.types), parseArray<ProjectCheck>(project.checklist), PROJECT_TYPE_LABELS);
+    const gravados = (await tx.select({ nome: projectDocuments.canonicalName }).from(projectDocuments).where(eq(projectDocuments.projectId, input.projectId))).map(d => d.nome);
+    const mostrados = nomesPadraoArquivosProjeto(parseArray<FileJson>(project.files), { clientName: input.clientName, checklist }, gravados.filter(ehNomePadraoArquivoProjeto));
+    let numeroDaRevisao: ((id: number) => number) | undefined;
+    if (input.revisionId) {
+      const [ordem] = await tx.select({ n: sql<number>`count(*)::int` }).from(revisoes).where(and(eq(revisoes.projectId, input.projectId), sql`${revisoes.id} <= ${input.revisionId}`));
+      const n = ordem?.n || input.revisionId;
+      numeroDaRevisao = () => n;
+    }
+    const item = input.revisionId ? { itemId: input.itemId } : (checklist.find(c => c.id === input.itemId) ?? { itemId: input.itemId, type: input.itemType, text: input.itemName });
+    // nome padrão, curto e ÚNICO no projeto (o original fica em original_name)
+    const canonicalName = nomeNovoArquivoProjeto({ item, checklist, clientName: input.clientName, n: version, originalName: input.name, mime: input.mime, numeroDaRevisao }, [...gravados, ...mostrados]);
     const [document] = await tx.insert(projectDocuments).values({
       projectId: input.projectId, revisionId: input.revisionId ?? null, itemId: input.itemId, kind: input.kind,
       originalName: input.name, canonicalName, mime: input.mime, size: input.size, version,
