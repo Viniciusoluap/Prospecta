@@ -26,3 +26,6 @@ ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_patch_attempted boo
 -- 4ª rodada do portão de QA (26/11): o nome que a rotina gravou (congelou) na lista/entrega da tela — sempre que congela,
 -- inclusive quando o arquivo já estava com o nome no Drive. O "Como desfazer" só volta a lista se ela ainda tem este nome.
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS list_name_target varchar(255);
+-- Revisão do Codex no PR #346: o último nome que SABEMOS ser um PATCH nosso aplicado no Drive enquanto o alvo já é outro
+-- (PATCH para o alvo novo sem resultado: 5xx/tempo esgotado). Sem isto o nome anterior real seria sobrescrito pelo intermediário.
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_applied varchar(255);

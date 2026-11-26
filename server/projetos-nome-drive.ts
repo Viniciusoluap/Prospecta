@@ -50,6 +50,8 @@ type Doc = {
   id: number; project_id: number; original_name: string; canonical_name: string; drive_file_id: string; drive_rename_failures: number;
   drive_renamed_at: Date | string | null; drive_name_before: string | null; drive_name_before_origem: string | null;
   drive_name_target: string | null; drive_patch_attempted: boolean | null; drive_rename_error: string | null;
+  /** Último nome que SABEMOS ser um PATCH nosso aplicado no Drive (lido lá e reconhecido), enquanto o alvo já é outro. */
+  drive_name_applied: string | null;
 };
 type Projeto = { id: number; client_name: string | null; types: string | null; checklist: string | null; files: string | null };
 type Revisao = { id: number; project_id: number; deliveries: string | null };
@@ -213,7 +215,7 @@ function patchNossoAplicado(doc: Doc, nome: string): boolean {
 }
 
 type Executor = Pick<ReturnType<typeof getDb>, "execute">;
-const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_renamed_at, drive_name_before, drive_name_before_origem, drive_name_target, drive_patch_attempted, drive_rename_error FROM project_documents
+const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_renamed_at, drive_name_before, drive_name_before_origem, drive_name_target, drive_patch_attempted, drive_rename_error, drive_name_applied FROM project_documents
   WHERE status IN ('active', 'substituted') AND drive_file_id IS NOT NULL AND drive_file_id <> ''
   ${projetoId === undefined ? sql`` : sql`AND project_id = ${projetoId}`} ORDER BY project_id, id`;
 const lerDocs = async (db: Executor, projetoId?: number) => (await db.execute(DOCS_SQL(projetoId)) as unknown as Linhas<Doc>).rows;
@@ -352,21 +354,26 @@ export async function renomearDocumentosProjetoNoDrive(
           const doc = c.alvo.doc;
           let antes = doc.drive_name_before, origem = doc.drive_name_before_origem;
           let alvoDrive = doc.drive_name_target, marca = doc.drive_patch_attempted;
+          let aplicado = doc.drive_name_applied;
           if (!jaNoNovo) {
             // o nome lido é um PATCH NOSSO já aplicado para um alvo anterior (o nome da tela mudou depois): o "antes"
             // real continua o guardado; só o alvo muda
-            const lidoEhPatchNosso = doc.drive_patch_attempted === true && doc.drive_name_target != null && info.nome === doc.drive_name_target;
-            if (lidoEhPatchNosso) alvoAnteriorAplicado = doc.drive_name_target;
+            // (ou o `drive_name_applied`: o alvo já tinha mudado e o PATCH para o alvo novo não foi aplicado — 5xx —,
+            // então o Drive continua com o nome do PATCH anterior; Codex #346)
+            const lidoEhPatchNosso = doc.drive_patch_attempted === true
+              && ((doc.drive_name_target != null && info.nome === doc.drive_name_target) || (doc.drive_name_applied != null && info.nome === doc.drive_name_applied));
+            if (lidoEhPatchNosso) alvoAnteriorAplicado = info.nome;
+            aplicado = lidoEhPatchNosso ? ate255(info.nome) : null;
             if (doc.drive_renamed_at == null && !lidoEhPatchNosso) { antes = ate255(info.nome); origem = "drive"; }
             alvoDrive = ate255(candidato.nome); marca = true;
           } else if (doc.drive_renamed_at == null && !patchNossoAplicado(doc, candidato.nome)) {
             antes = doc.canonical_name !== candidato.nome ? ate255(doc.canonical_name) : null;
             origem = antes ? "registro" : null;
-            alvoDrive = null; marca = null;
+            alvoDrive = null; marca = null; aplicado = null;
           }
           await tx.execute(sql`UPDATE project_documents SET
             drive_name_before = ${antes}, drive_name_before_origem = ${origem},
-            drive_name_target = ${alvoDrive}, drive_patch_attempted = ${marca},
+            drive_name_target = ${alvoDrive}, drive_patch_attempted = ${marca}, drive_name_applied = ${aplicado},
             canonical_name_before = COALESCE(canonical_name_before, canonical_name),
             list_name_before = COALESCE(list_name_before, ${ate255(l.nome)}),
             list_original_added = COALESCE(list_original_added, ${l.semOriginal})
@@ -402,7 +409,7 @@ export async function renomearDocumentosProjetoNoDrive(
           // Sem a marca (alguém renomeou à mão): não é atribuído à rotina.
           const fomosNos = !jaNoNovo || patchNossoAplicado(alvo.doc, alvo.nome);
           // só o nome do Drive (canonical_name) muda no registro; original_name fica como estava
-          await tx.execute(sql`UPDATE project_documents SET canonical_name = ${alvo.nome}, drive_rename_error = NULL,
+          await tx.execute(sql`UPDATE project_documents SET canonical_name = ${alvo.nome}, drive_rename_error = NULL, drive_name_applied = NULL,
             list_name_target = ${ate255(alvo.nome)},
             drive_renamed_at = ${!jaNoNovo ? sql`now()` : fomosNos ? sql`COALESCE(drive_renamed_at, now())` : sql`drive_renamed_at`},
             updated_at = now()
@@ -428,7 +435,12 @@ export async function renomearDocumentosProjetoNoDrive(
       case "renomeado": resumo.renomeados++; break;
       case "ja_estava": resumo.jaEstavam++; break;
       case "mudou": resumo.mudaram++; break;
-      case "colisao": resumo.colisoes++; break;
+      case "colisao":
+        resumo.colisoes++;
+        // fica marcado (só o código) para ir para depois dos que nunca falharam: arquivos presos em colisão não podem
+        // ocupar o lote inteiro em toda execução (Codex #346). Não conta para a desistência.
+        await db.execute(sql`UPDATE project_documents SET drive_rename_error = 'colisao' WHERE id = ${docId}`);
+        break;
       case "nao_tocado":
         resumo.naoTocados++;
         await db.execute(sql`UPDATE project_documents SET drive_rename_failures = drive_rename_failures + 1, drive_rename_error = ${desfecho.resultado} WHERE id = ${docId}`);
@@ -444,7 +456,7 @@ export async function renomearDocumentosProjetoNoDrive(
             await db.execute(sql`UPDATE project_documents SET drive_name_target = ${alvoAnteriorAplicado} WHERE id = ${docId} AND drive_renamed_at IS NULL`);
           } else {
             await db.execute(sql`UPDATE project_documents SET drive_name_before = NULL, drive_name_before_origem = NULL,
-              drive_name_target = NULL, drive_patch_attempted = NULL WHERE id = ${docId} AND drive_renamed_at IS NULL`);
+              drive_name_target = NULL, drive_patch_attempted = NULL, drive_name_applied = NULL WHERE id = ${docId} AND drive_renamed_at IS NULL`);
           }
         }
         if (desfecho.limiteDeTaxa) { processados = limite; break; } // limite de taxa do Google: para o lote sem contar como falha do arquivo

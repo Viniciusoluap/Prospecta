@@ -129,7 +129,8 @@ Vale em qualquer estado, inclusive no meio de uma passagem (PATCH aplicado e ban
 2. **Drive**: só se `drive_patch_attempted = true` E `drive_name_before_origem = 'drive'`. Nesse caso, ler o nome
    atual do arquivo no Drive (`lerArquivoNoDrive(drive_file_id)`) e compará-lo com `drive_name_target` (o nome que a
    rotina tentou pôr — NÃO com `canonical_name`, que numa passagem pela metade ainda tem o nome antigo):
-   - nome atual = `drive_name_target` → trocar para `drive_name_before` (`trocarNomeNoDrive(drive_file_id,
+   - nome atual = `drive_name_target` **ou** = `drive_name_applied` (nome de um PATCH nosso anterior que ficou no Drive
+     porque o PATCH para o alvo novo não foi aplicado) → trocar para `drive_name_before` (`trocarNomeNoDrive(drive_file_id,
      drive_name_before)`);
    - nome atual = `drive_name_before` → o PATCH não chegou ao Google: nada a fazer;
    - qualquer outro nome → alguém mexeu à mão depois da rotina: não tocar; decidir com o dono.
@@ -143,7 +144,7 @@ Vale em qualquer estado, inclusive no meio de uma passagem (PATCH aplicado e ban
    voltar para `list_name_before` e, se `list_original_added = true`, REMOVER a chave `originalName` / `nomeOriginal`
    (a tela volta a calcular o nome, como antes). Caso contrário, nada a fazer aqui.
 4. **Registro**: `UPDATE project_documents SET canonical_name = COALESCE(canonical_name_before, canonical_name),
-   drive_renamed_at = NULL, drive_name_before = NULL, drive_name_before_origem = NULL, drive_name_target = NULL,
+   drive_renamed_at = NULL, drive_name_before = NULL, drive_name_before_origem = NULL, drive_name_target = NULL, drive_name_applied = NULL,
    drive_patch_attempted = NULL, canonical_name_before = NULL, list_name_before = NULL, list_name_target = NULL,
    list_original_added = NULL WHERE id = <id>;` — `canonical_name_before` dá a volta exata. Passos 3 e 4 na mesma transação, com
    `pg_advisory_xact_lock(hashtext('project-document:<project_id>'))` e `SELECT … FOR UPDATE` no projeto.
@@ -256,3 +257,12 @@ volta a só conferir. Para parar de vez: retirar a chamada `renomearNomesDriveNo
 - (c) Pendentes em produção: aplicar a 0175; um dia só conferindo (contagens em `nomesDrive`); ligar
   `PROJETOS_NOME_DRIVE_ESCREVER=1`; depois do cron seguinte, abrir no Drive um arquivo antigo para ver o nome igual ao
   da tela e conferir `drive_name_before` preenchido. A espera real da trava (lock_timeout) só foi testada simulada.
+
+### Revisão do Codex no PR #346 (26/11/2026)
+1. PATCH recusado (4xx) para um alvo novo depois de um PATCH nosso aplicado: o "antes" real e a marca ficam; só o alvo volta ao nome que
+   está no Drive.
+2. Fila: quem teve falha temporária ou colisão na última tentativa (`drive_rename_error` preenchido) vai para depois dos que nunca
+   falharam, e esse grupo gira a cada hora.
+3. PATCH para o alvo novo sem resultado (5xx/tempo esgotado) e não aplicado: nova coluna `drive_name_applied` guarda o nome do PATCH
+   nosso que continua no Drive; a passagem seguinte o reconhece e não sobrescreve o "antes" real. O "Como desfazer" (passo 2) aceita
+   esse nome além do alvo.
