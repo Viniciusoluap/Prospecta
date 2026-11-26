@@ -240,29 +240,56 @@ function normalizarIdsDasFotos(regs: Registro[], g: Uint8Array, fo: number) {
 
 /**
  * Números de imagem (pib) usados por alguma forma da pasta — qualquer propriedade com o bit fBid (0x4000), em todas as abas e
- * gráficos. `ignorar` = índices de registros que vão sair.
+ * gráficos. O desenho de cada aba é UM fluxo só, espalhado por vários MSODRAWING e pelos CONTINUE que vêm logo depois de um
+ * deles (achado do Codex no PR #345): os pedaços são juntados antes de ler. Devolve `null` quando o fluxo não fecha certinho
+ * (tamanho de registro passando do fim, sobra de bytes) — aí quem chama não pode concluir que uma imagem está sem uso.
  */
-function referenciasDeImagens(regs: Registro[], ignorar: Set<number>): Set<number> {
+function referenciasDeImagens(regs: Registro[]): Set<number> | null {
   const usadas = new Set<number>();
-  regs.forEach((r, k) => {
-    if (r.tipo !== R.MSODRAWING || ignorar.has(k)) return;
-    const d = r.dados;
-    const andar = (o: number, fim: number) => {
-      while (o + 8 <= fim) {
+  const pilha: Uint8Array[][] = [];
+  let anterior = -1;
+  let integro = true;
+  const ler = (pedacos: Uint8Array[]) => {
+    if (!pedacos.length) return;
+    const d = new Uint8Array(pedacos.reduce((n, p) => n + p.length, 0));
+    let p = 0;
+    for (const x of pedacos) {
+      d.set(x, p);
+      p += x.length;
+    }
+    const andar = (o: number, fim: number): boolean => {
+      while (o < fim) {
+        if (o + 8 > fim) return false;
         const h = cabecalho(d, o);
+        const fimDele = o + 8 + h.tam;
+        if (fimDele > fim) return false;
         if (h.tipo === 0xf00b || h.tipo === 0xf121 || h.tipo === 0xf122) {
-          for (let j = 0; j < h.inst && o + 8 + 6 * j + 6 <= d.length; j++) {
+          if (h.inst * 6 > h.tam) return false;
+          for (let j = 0; j < h.inst; j++) {
             const pid = u16(d, o + 8 + 6 * j);
             if (pid & 0x4000 && !(pid & 0x8000)) usadas.add(u32(d, o + 8 + 6 * j + 2));
           }
         }
-        if (h.ver === 0xf) andar(o + 8, Math.min(fim, o + 8 + h.tam));
-        o += 8 + h.tam;
+        if (h.ver === 0xf && !andar(o + 8, fimDele)) return false;
+        o = fimDele;
       }
+      return true;
     };
-    andar(0, d.length);
-  });
-  return usadas;
+    if (!andar(0, d.length)) integro = false;
+  };
+  for (const r of regs) {
+    if (r.tipo === R.BOF) pilha.push([]);
+    else if (r.tipo === R.EOF) ler(pilha.pop() ?? []);
+    else if (r.tipo === R.MSODRAWING || (r.tipo === R.CONTINUE && anterior === R.MSODRAWING)) {
+      if (!pilha.length) return null;
+      pilha[pilha.length - 1].push(r.dados);
+      anterior = R.MSODRAWING; // CONTINUE em sequência continua o mesmo desenho
+      continue;
+    }
+    anterior = r.tipo;
+  }
+  if (pilha.length) return null;
+  return integro ? usadas : null;
 }
 
 /** PNG 1×1 transparente (67 bytes), válido: põe no lugar das imagens que nenhuma forma usa. */
@@ -288,7 +315,8 @@ export function trocarImagensSemUso(pasta: PastaBiff8): { trocadas: number; byte
   if (raiz.tipo !== 0xf000) return nada;
   const bstore = filhos(g, 8, 8 + raiz.tam).find((f) => f.h.tipo === 0xf001);
   if (!bstore) return nada;
-  const usadas = referenciasDeImagens(regs, new Set());
+  const usadas = referenciasDeImagens(regs);
+  if (!usadas) return nada; // desenho que não dá para ler inteiro: não se conclui que alguma imagem está sem uso
   const fbses = filhos(g, bstore.o + 8, bstore.o + 8 + bstore.h.tam);
   const minimo = montarBlip({ dados: PNG_MINIMO, tipo: "png" });
   w32(minimo, 32, 0); // cRef 0: nenhuma forma usa

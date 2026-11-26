@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ABA_PROPOSTA_PCI, AVISO_TAMANHO_PCI_KB, avisoTamanhoPci, formularioPciVazio, LIMITE_ANEXO_CAIXA_KB, normalizarFormularioPci, type FormularioPci } from "../../shared/pci-gerador.js";
 import { PastaBiff8, R, type Registro } from "./biff8.js";
-import { PNG_MINIMO, substituirFotos } from "./biff8-imagens.js";
+import { PNG_MINIMO, substituirFotos, trocarImagensSemUso } from "./biff8-imagens.js";
 import { validarFluxoWorkbook, validarXls } from "./biff8-validador.js";
 import { gerarPlanilhaPci } from "./pci-gerador.js";
 
@@ -254,6 +254,31 @@ describe("PCI .xls — estrutura que o Excel e a CAIXA exigem (S-2 do EPIC-030)"
     });
     expect(liberado).toBeGreaterThan(100_000);
     expect(validarXls(r.bytes)).toEqual([]);
+  });
+
+  it("Codex #345: desenho partido em MSODRAWING + CONTINUE — imagem em uso continua intacta", () => {
+    const inteira = PastaBiff8.abrir(modeloOficial);
+    const esperado = trocarImagensSemUso(inteira).trocadas;
+    expect(esperado).toBeGreaterThan(0);
+    const partida = PastaBiff8.abrir(modeloOficial);
+    const regs = partida.registros;
+    let partidos = 0;
+    for (let k = regs.length - 1; k >= 0; k--) {
+      const d = regs[k].dados;
+      if (regs[k].tipo !== R.MSODRAWING || d.length < 40) continue;
+      const meio = d.length >> 1; // corta no meio, sem respeitar limite de registro do desenho
+      regs.splice(k, 1, { tipo: R.MSODRAWING, dados: d.slice(0, meio) }, { tipo: R.CONTINUE, dados: d.slice(meio) });
+      partidos++;
+    }
+    expect(partidos).toBeGreaterThan(0);
+    expect(trocarImagensSemUso(partida).trocadas).toBe(esperado);
+  });
+
+  it("Codex #345: desenho que não dá para ler inteiro — nenhuma imagem é trocada", () => {
+    const p = PastaBiff8.abrir(modeloOficial);
+    const desenho = p.registros.find((r) => r.tipo === R.MSODRAWING)!;
+    desenho.dados = desenho.dados.slice(0, desenho.dados.length - 3); // fluxo truncado
+    expect(trocarImagensSemUso(p)).toEqual({ trocadas: 0, bytesLiberados: 0 });
   });
 
   it("avisa (nunca em silêncio) quando a planilha passa do limite de anexo da CAIXA", () => {
