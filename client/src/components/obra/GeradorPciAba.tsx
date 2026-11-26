@@ -15,6 +15,10 @@ import { baixarArquivoEmPartes } from "@/lib/pci-gerador-arquivos";
 import {
   CAMPOS_PCI,
   LIMITE_IMAGEM_PCI_BYTES,
+  ALVO_FOTO_PCI_BYTES,
+  AVISO_TAMANHO_PCI_KB,
+  LIMITE_ANEXO_CAIXA_KB,
+  LADO_MAXIMO_FOTO_PCI,
   MAX_ETAPAS_PCI,
   SECOES_PCI,
   SERVICOS_CUSTO_PCI,
@@ -445,18 +449,29 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   async function prepararFoto(origem: string, parte: ParteDaFotoPci): Promise<NonNullable<FormularioPci["imagem"]>> {
     const img = await carregarImagem(origem);
     const existente = /^data:image\/(png|jpeg);base64,(.+)$/.exec(origem);
-    if (existente && fotoNoFormatoDoQuadroPci(img.naturalWidth, img.naturalHeight)) {
-      return { tipo: existente[1] === "png" ? "png" : "jpeg", base64: existente[2] };
+    // já no formato do quadro, em JPEG e leve: vai como está (S-2 do EPIC-030: o anexo da CAIXA é limitado a 5.120 KB)
+    if (existente && existente[1] === "jpeg" && fotoNoFormatoDoQuadroPci(img.naturalWidth, img.naturalHeight) && (existente[2].length / 4) * 3 <= ALVO_FOTO_PCI_BYTES) {
+      return { tipo: "jpeg", base64: existente[2] };
     }
-    const r = recorteParaQuadroPci(img.naturalWidth, img.naturalHeight, parte);
+    const r = fotoNoFormatoDoQuadroPci(img.naturalWidth, img.naturalHeight)
+      ? { x: 0, y: 0, largura: img.naturalWidth, altura: img.naturalHeight }
+      : recorteParaQuadroPci(img.naturalWidth, img.naturalHeight, parte);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.min(1600, r.largura);
-    canvas.height = Math.max(1, Math.round(canvas.width / (r.largura / r.altura)));
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Navegador sem suporte a canvas.");
-    ctx.drawImage(img, r.x, r.y, r.largura, r.altura, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    return { tipo: "jpeg", base64: dataUrl.split(",")[1] };
+    let base64 = "";
+    // lado maior até 1.600 px, JPEG 0,82; se ainda passar de ~400 KB, reduz um pouco mais (nunca estica)
+    for (const [lado, qualidade] of [[LADO_MAXIMO_FOTO_PCI, 0.82], [1280, 0.78], [1024, 0.72]] as const) {
+      const escala = Math.min(1, lado / Math.max(r.largura, r.altura));
+      canvas.width = Math.max(1, Math.round(r.largura * escala));
+      canvas.height = Math.max(1, Math.round(r.altura * escala));
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, r.x, r.y, r.largura, r.altura, 0, 0, canvas.width, canvas.height);
+      base64 = canvas.toDataURL("image/jpeg", qualidade).split(",")[1];
+      if ((base64.length / 4) * 3 <= ALVO_FOTO_PCI_BYTES) break;
+    }
+    return { tipo: "jpeg", base64 };
   }
 
   async function recortarFoto(origem: string, parte: ParteDaFotoPci) {
@@ -733,6 +748,11 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                       <div className="flex flex-wrap gap-1">
                         <Button size="sm" variant="outline" className={botaoSec} disabled={baixando !== null} onClick={() => baixar(h.id, "planilha", h.planilha)} aria-label={`Baixar planilha .${h.formato}`}>
                           {baixando === `${h.id}-planilha` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}.{h.formato}
+                          {h.tamanhoPlanilha > 0 && (
+                            <span className={Math.ceil(h.tamanhoPlanilha / 1024) > AVISO_TAMANHO_PCI_KB ? "ml-1 text-red-400" : "ml-1 text-gray-400"} title={`O sistema da CAIXA aceita anexo de até ${LIMITE_ANEXO_CAIXA_KB.toLocaleString("pt-BR")} KB`}>
+                              {Math.ceil(h.tamanhoPlanilha / 1024).toLocaleString("pt-BR")} KB
+                            </span>
+                          )}
                         </Button>
                         <Button size="sm" variant="outline" className={botaoSec} disabled={baixando !== null} onClick={() => baixar(h.id, "pdf", h.pdf)} aria-label="Baixar PDF">
                           {baixando === `${h.id}-pdf` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}.pdf

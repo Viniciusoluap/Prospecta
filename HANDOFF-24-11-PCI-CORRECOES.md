@@ -38,7 +38,11 @@ Ramo: `claude/inspiring-feynman-e8rqmc` (PR #338, rascunho). **Nada publicado ai
 - (b) Manuais: planilha enviada pelo dono reprocessada com a foto dele e renderizada no LibreOffice — a foto aparece no quadro (antes não).
 - (c) Pendentes em produção: abrir o Gerador de PCI da obra, conferir os campos automáticos, gerar e abrir planilha e PDF.
 
+## Publicação (24/11/2026)
+- PR #338 mesclado na `main` (squash `1d6bb11`), depois de 3 rodadas do Codex (2 achados corrigidos, a 3ª sem achados).
+- Produção da Vercel `dpl_9TVacobwCc9C5ibH7k35Tie8UPtu` READY, no ar em https://www.prospectaconstrucoes.com. Sem migração.
+
 ## Próximo passo exato
-1. PR #338: esperar o Codex ficar "Completed" e a prévia da Vercel pronta; ler os comentários; mesclar (squash); conferir produção.
-2. Pedir ao dono para abrir o Gerador de PCI da obra, usar "Converter em R$" nos custos, escolher a parte da foto e gerar.
-3. Pendências acima.
+1. O dono abre o Gerador de PCI da obra, usa "Converter em R$" nos custos, escolhe a parte da foto e gera; confere o PDF e a planilha
+   no Google Planilhas (iPad).
+2. Pendências acima (se o Google Planilhas ainda esconder ART/área/terreno, investigar com o arquivo gerado em produção).

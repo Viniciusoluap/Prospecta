@@ -17,6 +17,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   ABA_PROPOSTA_PCI,
+  avisoTamanhoPci,
   CAMPOS_PCI,
   COLUNA_CUSTO_PCI,
   LINHA_ADICIONAL_PCI,
@@ -44,7 +45,7 @@ import {
   type ValorCampoPci,
 } from "../../shared/pci-gerador.js";
 import { PastaBiff8, colunaParaLetras, type ValidacaoDados, type ValorCelula } from "./biff8.js";
-import { dimensoesImagem, proporcaoDoQuadro, substituirFotos } from "./biff8-imagens.js";
+import { dimensoesImagem, normalizarIdsDasFotosDaPasta, proporcaoDoQuadro, substituirFotos, trocarImagensSemUso } from "./biff8-imagens.js";
 import { formatarCoordenada, isoParaSerial, serialParaIso } from "./pci.js";
 import { PastaXlsb } from "./xlsb.js";
 
@@ -253,7 +254,14 @@ function gerarXls(modelo: Uint8Array, form: FormularioPci): ResultadoGeracaoPci 
     }
   }
   corAutomaticaVisivelNoGooglePlanilhas(p);
-  return { bytes: p.salvar(), formato: "xls", avisos };
+  // S-2 do EPIC-030 — a CAIXA recusa anexo acima de 5.120 KB: imagem que nenhuma forma usa deixa de pesar e a foto com id de forma
+  // fora do grupo da aba (PCI salva pelo código antigo) é corrigida mesmo quando não há foto nova.
+  if (!form.imagem) normalizarIdsDasFotosDaPasta(p);
+  trocarImagensSemUso(p);
+  const bytes = p.salvar();
+  const aviso = avisoTamanhoPci(bytes.length);
+  if (aviso) avisos.push(aviso);
+  return { bytes, formato: "xls", avisos };
 }
 
 /**
@@ -272,6 +280,7 @@ export function corAutomaticaVisivelNoGooglePlanilhas(p: PastaBiff8): number {
     const d = r.dados;
     const flags = (d[6] | (d[7] << 8) | (d[8] << 16)) + d[9] * 0x1000000;
     if (((flags >>> 26) & 1) === 0) continue; // regra sem bloco de fonte
+    if (((flags >>> 25) & 1) === 1) continue; // bloco de formato de número antes da fonte: o deslocamento 12+80 não vale (S-2 do EPIC-030)
     const o = 12 + 80; // cor da fonte, dentro do bloco de fonte (118 bytes) que vem logo depois do cabeçalho de 12
     const cor = (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16)) + d[o + 3] * 0x1000000;
     if (cor !== COR_AUTOMATICA) continue;
