@@ -73,7 +73,7 @@ export function RevisoesProjeto({ projectId, clientName = "" }: { projectId: num
             <ul className="space-y-0.5">
               {r.deliveries.map(d => {
                 // EPIC-031 S-1: nome gravado no padrão aparece como está; antigo é calculado (Rev<ordem>); o original fica na dica.
-                const nome = ehNomePadraoArquivoProjeto(d.nome) ? d.nome : nomePadraoArquivoProjeto({ item: `Rev${ordemRevisao.get(r.id) ?? r.id}`, cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
+                const nome = d.nomeOriginal && ehNomePadraoArquivoProjeto(d.nome) ? d.nome : nomePadraoArquivoProjeto({ item: `Rev${ordemRevisao.get(r.id) ?? r.id}`, cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
                 const rotulo = `${d.tipo === "pdf" ? "PDF" : "Editável"}: ${nome}`;
                 return <li key={d.driveFileId}><a className="underline" href={d.url} target="_blank" rel="noopener noreferrer" title={d.nomeOriginal || d.nome ? `Nome original: ${d.nomeOriginal || d.nome}` : undefined}>{rotulo}</a> — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>;
               })}

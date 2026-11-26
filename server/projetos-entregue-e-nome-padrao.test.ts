@@ -209,10 +209,10 @@ describe("colisão de itens com o mesmo nome curto (portão de QA do PR #340)", 
     const projeto = { clientName: "Maria da Silva", checklist };
     // dois gravados iguais por engano (antes desta correção) continuam como estão; o antigo calculado desvia deles
     expect(nomesPadraoArquivosProjeto([
-      { itemId: "ba", kind: "pdf", version: 1, name: "Eletrico-Bloco-Maria-Silva-1.pdf" },
-      { itemId: "bb", kind: "pdf", version: 1, name: "Eletrico-Bloco-Maria-Silva-1.pdf" },
+      { itemId: "ba", kind: "pdf", version: 1, name: "Eletrico-Bloco-Maria-Silva-1.pdf", originalName: "do-aparelho.pdf" },
+      { itemId: "bb", kind: "pdf", version: 1, name: "Eletrico-Bloco-Maria-Silva-1.pdf", originalName: "do-aparelho.pdf" },
       { itemId: "ag", kind: "pdf", version: 1, name: "PROJETO_X_MARIA_HIDRO_V01.pdf" },
-      { itemId: "ag", kind: "pdf", name: "Hidrossanitario-Maria-Silva-1.pdf" },
+      { itemId: "ag", kind: "pdf", name: "Hidrossanitario-Maria-Silva-1.pdf", originalName: "do-aparelho.pdf" },
     ], projeto)).toEqual(["Eletrico-Bloco-Maria-Silva-1.pdf", "Eletrico-Bloco-Maria-Silva-1.pdf", "Hidrossanitario-Maria-Silva-2.pdf", "Hidrossanitario-Maria-Silva-1.pdf"]);
     expect(ehNomePadraoArquivoProjeto("Eletrico-BlocoA-Maria-Silva-1.pdf")).toBe(true);
     expect(ehNomePadraoArquivoProjeto("PROJETO_TECNICO_X_V02.pdf")).toBe(false);
@@ -232,5 +232,13 @@ describe("colisão de itens com o mesmo nome curto (portão de QA do PR #340)", 
       expect(await enviar(base, { revisionId: 32, itemId: "revisao-32", name: "revisado.pdf", kind: "pdf" })).toBe("Rev2-Maria-Silva-1.pdf");
       expect(await enviar(base, { revisionId: 31, itemId: "revisao-31", name: "revisado.pdf", kind: "pdf" })).toBe("Rev1-Maria-Silva-1.pdf");
     });
+  });
+
+  it("Codex #340: arquivos antigos só com nome e link que PARECEM do padrão não são tratados como gravados (e nunca repetem nome)", () => {
+    const nomes = nomesPadraoArquivosProjeto([{ name: "planta-1.pdf" }, { name: "planta-1.pdf" }], { clientName: "Maria Silva", checklist: [] });
+    expect(new Set(nomes).size).toBe(2);
+    for (const n of nomes) expect(n).toMatch(/^Doc-Maria-Silva-\d+\.pdf$/);
+    // enviado pelo sistema (tem o nome original guardado): fica como foi gravado
+    expect(nomesPadraoArquivosProjeto([{ name: "Planta-Maria-Silva-1.pdf", originalName: "x.pdf" }], { clientName: "Maria Silva", checklist: [] })).toEqual(["Planta-Maria-Silva-1.pdf"]);
   });
 });

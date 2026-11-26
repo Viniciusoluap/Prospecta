@@ -165,7 +165,9 @@ export function nomeNovoArquivoProjeto(input: { item: ItemArquivo; checklist: It
  */
 export function nomesPadraoArquivosProjeto<T extends { itemId?: string | null; version?: number | null; originalName?: string | null; name?: string | null; kind?: string | null }>(files: T[], projeto: ProjetoDoArquivo, reservados: Iterable<string> = []): string[] {
   const usados = new Set(Array.from(reservados, nome => nome.toLowerCase()));
-  const gravado = files.map(file => ehNomePadraoArquivoProjeto(file.name));
+  // Codex #340 (P2): só vale como "gravado no padrão" o arquivo enviado pelo sistema (tem `originalName` guardado). Arquivo
+  // antigo só com nome e link, mesmo que o nome PAREÇA do padrão ("planta-1.pdf"), é calculado — e nunca repete nome.
+  const gravado = files.map(file => !!file.originalName && ehNomePadraoArquivoProjeto(file.name));
   files.forEach((file, i) => { if (gravado[i]) usados.add(file.name!.toLowerCase()); });
   const posicao = new Map<string, number>();
   return files.map((file, i) => {
