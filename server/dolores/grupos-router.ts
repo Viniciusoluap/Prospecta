@@ -10,7 +10,7 @@
 //   CORRIGIR o tipo/vínculo (decisão do dono, gravada com `decidido_em` — o gatilho da 0133 só aceita assim) e desativar.
 import { TRPCError } from "@trpc/server";
 import { randomInt } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { constructionProjects, leads } from "../../drizzle/schema.js";
 import { doloresGrupos, doloresGruposConfig } from "../../drizzle/schema-dolores-grupos.js";
@@ -194,6 +194,24 @@ export const gruposRouter = router({
    * Etapa 7 — corrige/define o tipo e o vínculo de um grupo (decisão do dono pela tela, a mesma do comando "grupo CÓDIGO tipo [nº]"
    * no WhatsApp). "ignorar" desativa. Nunca apaga; não mexe no CRM.
    */
+  /**
+   * E12 (pedido do dono, 26/11): escolher o cliente do CRM (ou a obra) PELO NOME ao classificar/cadastrar um grupo, em vez de
+   * decorar o número. Só admin (o mesmo de quem classifica), só id + nome (sem telefone, CPF, e-mail), até 20, sem leads
+   * excluídos; sem diferenciar acento nem maiúscula. Só leitura.
+   */
+  buscarVinculo: soAdmin.input(z.object({ tipo: z.enum(["cliente", "obra"]), termo: z.string().trim().min(2).max(80) }).strict()).query(async ({ input }) => {
+    const termo = input.termo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[\\%_]/g, c => `\\${c}`);
+    const padrao = `%${termo}%`;
+    const semAcento = (col: unknown) => sql`translate(lower(${col}), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn')`;
+    const db = getDb();
+    if (input.tipo === "cliente") {
+      return db.select({ id: leads.id, nome: leads.name }).from(leads)
+        .where(and(isNull(leads.deletedAt), sql`${semAcento(leads.name)} LIKE ${padrao}`)).orderBy(asc(leads.name), asc(leads.id)).limit(20);
+    }
+    return db.select({ id: constructionProjects.id, nome: constructionProjects.title }).from(constructionProjects)
+      .where(sql`${semAcento(constructionProjects.title)} LIKE ${padrao}`).orderBy(asc(constructionProjects.title), asc(constructionProjects.id)).limit(20);
+  }),
+
   // regra do dono (21/11): classificar é SÓ do administrador pela tela (e do dono pelo WhatsApp); colaborador nunca classifica
   definirTipo: soAdmin.input(z.object({
     grupoId: id32,
