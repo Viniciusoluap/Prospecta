@@ -54,8 +54,8 @@
 
 ## Pendências do dono
 
-- Renomear os arquivos ANTIGOS no próprio Google Drive (só o nome, sem mexer no conteúdo) para o nome padrão depende da
-  autorização dele. Nada foi preparado nem executado.
+- ~~Renomear os arquivos ANTIGOS no próprio Google Drive~~ — autorizado pelo dono em 26/11/2026 ("Pode renomear os
+  arquivos do Google Drive sim"); feito na S-2 (`S-2-renomear-no-drive.md`).
 - Confirmar as abreviações (`Planta` para Projeto Arquitetônico; `ART` para ART / RRT) e o limite de 16 caracteres do item livre.
 
 ## File List
