@@ -20,18 +20,28 @@ import {
 } from "../../shared/dolores/grupos-tipo.js";
 import { limparNomeDeTerceiro } from "../../shared/dolores/operacao.js";
 import { getDb } from "../db.js";
+import { unicoComPonto } from "../../shared/dolores/ordem-direta.js";
 import { registrarAcao } from "./auditoria.js";
 import { erroParaLog } from "./erro-seguro.js";
+import { clienteDoNomeDoGrupo, clientesPelasPalavras, grupoDoDono } from "./ordem-direta.js";
+import { FRASE_SO_QUANDO_MARCADA } from "../../shared/dolores/ordem-direta.js";
 
 /** `agora` (WhatsApp): o relógio do aviso, para a hora da PERGUNTA do tipo (a resposta só com o número vale por 30 min). */
-export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date } | { via: "tela"; userId: number };
+export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date;
+  /** quando o dono escreveu a mensagem (respostas só com nome ou número valem só para pergunta ANTERIOR a ela) */
+  enviadaEm?: Date | null;
+  /** Codex #341 (P2): quem chama não mostra ao dono o texto desta resposta (aceite vindo da fila) — nenhuma proposta nova é aberta. */
+  semProposta?: boolean } | { via: "tela"; userId: number };
 
-export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null };
+export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null;
+  /** QA E11 (M3): esta resposta É a pergunta desta proposta ("pode"/"sim" confirma) — quem envia marca a pergunta como enviada. */
+  pendenciaId?: number | null };
 
 const aspas = (s: string | null | undefined) => { const t = limparNomeDeTerceiro(s); return t ? `«${t}»` : "(sem nome)"; };
 
 /** Aplica a decisão do dono ao grupo (pelo código, no WhatsApp; pelo id, na tela). Devolve o texto para o dono. */
-export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number; instancia?: string }, d: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
+export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number; instancia?: string }, decisao: Omit<DecisaoDeGrupo, "codigo">, origem: OrigemDecisao): Promise<ResultadoDecisao> {
+  let d = decisao;
   const db = getDb();
   const pedidoId = origem.via === "whatsapp" ? `wa:${origem.mensagemId}` : `tela:grupos:${"grupoId" in alvo ? alvo.grupoId : "codigo"}`;
   const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>) =>
@@ -87,10 +97,32 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
         if (tipoAtual !== "indefinido") await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();
       });
       await auditar("ok", g.situacaoConfirmacao === "recusado" ? "grupo recusado aceito pelo dono" : "grupo sem prova de quem colocou a Dolores aceito pelo dono", { grupoId: g.id, tipo: tipoAtual });
-      if (tipoAtual === "indefinido") await marcarPerguntaDoTipo(g.id, origem);
+      if (tipoAtual === "indefinido") {
+        // EPIC-025 E11 (regra do dono de 19/11, também logo depois do "aceitar"): o nome do grupo aponta UM cliente → liga sozinha e
+        // avisa em uma linha; ele só responde se estiver errado. Mais de um → oferece os nomes; nenhum → uma pergunta curta.
+        if (origem.via === "whatsapp") {
+          const auto: Awaited<ReturnType<typeof clienteDoNomeDoGrupo>> = await clienteDoNomeDoGrupo(g, { parcial: true }).catch(() => ({ leadId: null, candidatos: [] }));
+          // QA E11 (M3): grupo em que OUTRA pessoa (ou não se sabe quem) pôs a Dolores — o nome é texto de terceiro: não liga sozinha;
+          // UMA pergunta curta com o cliente que o nome aponta ("pode"/"sim" confirma, pela proposta de sempre)
+          if (auto.leadId && !grupoDoDono(g) && !origem.semProposta) {
+            const p = await proporVinculo(g, auto.leadId, auto.tipo ?? "cliente", origem);
+            if (p) return { ok: true, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. Pelo nome, ele parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
+          }
+          if (auto.leadId && grupoDoDono(g)) {
+            const r = await decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: auto.tipo ?? "cliente", numero: auto.leadId }, origem);
+            if (r.ok) return { ...r, texto: r.texto.replace(/^Dolores: feito\. /, "Dolores: aceito. ") };
+          }
+          // QA 14 (C2): no aceite vindo da fila o dono NÃO vê esta pergunta — sem marcar, uma resposta solta só com um nome
+          // ("Maria Dayane") não liga o grupo; ele diz o tipo pelo caminho de sempre ("grupo CÓDIGO 1")
+          if (!origem.semProposta) await marcarPerguntaDoTipo(g.id, origem);
+          return { ok: true, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. ${perguntaDoCliente(auto.candidatos, g.codigo)}`, grupoId: g.id };
+        }
+        if (!("semProposta" in origem && origem.semProposta)) await marcarPerguntaDoTipo(g.id, origem);
+      }
+      const vinculo = tipoAtual === "cliente" || tipoAtual === "pos_atendimento" ? await nomeDoVinculo(g.leadId) : "";
       return { ok: true, texto: tipoAtual === "indefinido"
         ? `Dolores: aceito o grupo ${nomeDoGrupo}. Ainda não sei de que tipo ele é. ${perguntaDoTipo(g.nomeWhatsapp ?? g.nome, g.codigo ?? "CÓDIGO")}`
-        : `Dolores: aceito o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${ROTULO_TIPO_GRUPO[tipoAtual]}.`, grupoId: g.id };
+        : `Dolores: aceito o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${ROTULO_TIPO_GRUPO[tipoAtual]}${vinculo}.${vinculo ? " Se estiver errado, me diga." : ""}`, grupoId: g.id };
     }
     if (d.tipo === "ignorar") {
       await db.transaction(async tx => {
@@ -108,13 +140,34 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
     let obraId: number | null = null;
     let descricao = `grupo ${ROTULO_TIPO_GRUPO[d.tipo]}`;
     if (d.tipo === "cliente" || d.tipo === "pos_atendimento") {
+      // EPIC-025 E11: sem o nº ("grupo CÓDIGO 1", "1"), o cliente sai do NOME do grupo (um só); senão, os nomes para ele escolher
+      if (!d.numero) {
+        const auto = await clienteDoNomeDoGrupo(g, { parcial: true });
+        if (!auto.leadId) {
+          await marcarPerguntaDoTipo(g.id, origem);
+          await auditar("recusada", "cliente sem nº e o nome do grupo não aponta um cliente só: perguntado pelo nome; nada mudou", { grupoId: g.id, candidatos: auto.candidatos.length });
+          return { ok: false, texto: `Dolores: ${perguntaDoCliente(auto.candidatos, g.codigo, nomeDoGrupo)}${d.tipo === "pos_atendimento"
+            // Codex #341 (P2): a resposta só com o nome vale como "cliente"; para manter o PÓS pedido, ele responde "2 <nome>"
+            ? " Para ficar como pós-atendimento, responda «2» e o nome (ex.: «2 Emily»); só o nome fica como cliente."
+            : ""}`, grupoId: g.id };
+        }
+        // QA E11 (M3): grupo de terceiro — o cliente que o nome aponta vai como UMA pergunta, nunca ligado sozinho
+        if (!grupoDoDono(g) && origem.via === "whatsapp") {
+          const p = await proporVinculo(g, auto.leadId, d.tipo, origem);
+          if (p) return { ok: false, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: pelo nome, o grupo ${nomeDoGrupo} parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
+          // Codex #341 (P1): sem a pergunta de confirmação (ex.: o grupo ainda precisa ser aceito), o grupo de terceiro NUNCA é ligado sozinho
+          await auditar("recusada", "grupo de terceiro: a proposta de vínculo não pôde ser criada; nada mudou", { grupoId: g.id });
+          return { ok: false, grupoId: g.id, texto: `Dolores: não liguei o grupo ${nomeDoGrupo} a nenhum cliente. Como outra pessoa me colocou nele, primeiro aceite o grupo («grupo ${g.codigo ?? "CÓDIGO"} aceitar») e depois me diga o tipo. Nada mudou.` };
+        }
+        d = { ...d, numero: auto.leadId };
+      }
       const [l] = await db.select({ id: leads.id, nome: leads.name }).from(leads).where(and(eq(leads.id, d.numero!), isNull(leads.deletedAt))).limit(1);
       if (!l) {
         await auditar("recusada", "cliente não encontrado no CRM; nada mudou", { grupoId: g.id, leadId: d.numero });
         return { ok: false, texto: `Dolores: não achei o cliente nº ${d.numero} no CRM (ou ele foi excluído). Nada mudou no grupo ${nomeDoGrupo}.`, grupoId: g.id };
       }
       leadId = l.id;
-      descricao = `${ROTULO_TIPO_GRUPO[d.tipo]} ${aspas(l.nome)} (nº ${l.id})`;
+      descricao = `${ROTULO_TIPO_GRUPO[tipo as "cliente"]} ${aspas(l.nome)} (nº ${l.id})`;
     } else if (d.tipo === "engenharia" && d.numero) {
       const [o] = await db.select({ id: constructionProjects.id, titulo: constructionProjects.title }).from(constructionProjects).where(eq(constructionProjects.id, d.numero)).limit(1);
       if (!o) {
@@ -135,6 +188,10 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
       await tx.insert(doloresMarcacoesGrupo).values({ grupoId: g!.id, responderLigado: true, atualizadoPor: origem.via === "tela" ? origem.userId : null }).onConflictDoNothing();
     });
     await auditar("ok", `tipo do grupo definido pelo dono: ${d.tipo}`, { grupoId: g.id, tipo: d.tipo, leadId, obraId, antes: g.tipo ?? null });
+    // EPIC-025 E11: ligado a um cliente → uma linha, com como corrigir (ele só responde se estiver errado)
+    // QA E11 (M2): o interruptor do grupo nasce ligado como sempre foi para grupo confirmado pelo dono — e a linha diz que lá ela só
+    // responde quando marcada (o interruptor geral continua valendo por cima)
+    if (leadId) return { ok: true, texto: `Dolores: feito. Liguei o grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) como ${descricao}. ${FRASE_SO_QUANDO_MARCADA}. Se estiver errado, me diga.`, grupoId: g.id };
     return { ok: true, texto: `Dolores: anotado. O grupo ${nomeDoGrupo} (${g.codigo ?? g.id}) agora é: ${descricao}.`, grupoId: g.id };
   } catch (e) {
     console.error("[dolores/grupos-decisao] falha ao gravar a decisão", erroParaLog(e));
@@ -154,7 +211,11 @@ export async function marcarPerguntaDoTipo(grupoId: number, origem: OrigemDecisa
  * Grupos que esperam o dono dizer o TIPO (aceitos, de tipo indefinido, ativos) e cuja PERGUNTA saiu há no máximo 30 min (QA-SEG
  * EPIC-027, achado 2): os únicos que a resposta só com o número resolve.
  */
-export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> {
+/**
+ * `enviadaEm` (Codex #341, P2): a hora em que o dono ESCREVEU a resposta. Só vale para grupo cuja pergunta saiu ANTES dela (segundo
+ * inteiro, estritamente depois — como nas confirmações): mensagem atrasada, escrita antes da pergunta, não responde a ela.
+ */
+export async function gruposEsperandoTipo(agora: Date, enviadaEm?: Date | null): Promise<DoloresGrupo[]> {
   // Revisão automática: a elegibilidade (tipo indefinido, entrada provada, pergunta dos últimos 30 min) vai no SQL, ANTES do limite —
   // senão 50 linhas inelegíveis escondem as elegíveis e uma resposta ambígua pareceria ter um grupo só. As mesmas regras são
   // conferidas de novo abaixo (tipoEfetivo/semProvaDoDono), e o limite folgado basta para ver que há 2 ou mais (pede o código).
@@ -170,7 +231,8 @@ export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> 
     isNotNull(doloresGrupos.perguntaTipoEm), gte(doloresGrupos.perguntaTipoEm, desde), lte(doloresGrupos.perguntaTipoEm, ate),
   )).orderBy(asc(doloresGrupos.id)).limit(50);
   return linhas.filter(g => tipoEfetivo(g) === "indefinido" && !semProvaDoDono(g) && !!g.perguntaTipoEm
-    && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000);
+    && agora.getTime() - g.perguntaTipoEm.getTime() <= JANELA_RESPOSTA_NUMERADA_MS && agora.getTime() - g.perguntaTipoEm.getTime() >= -2 * 60_000
+    && (!enviadaEm || Math.floor(enviadaEm.getTime() / 1000) > Math.floor(g.perguntaTipoEm.getTime() / 1000)));
 }
 
 /**
@@ -180,7 +242,7 @@ export async function gruposEsperandoTipo(agora: Date): Promise<DoloresGrupo[]> 
  * dono, na conversa direta, não encaminhada e sem mídia (whatsapp.ts).
  */
 export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
-  const esperando = await gruposEsperandoTipo(origem.agora);
+  const esperando = await gruposEsperandoTipo(origem.agora, origem.enviadaEm);
   if (!esperando.length) return null;
   if (esperando.length > 1) {
     const lista = esperando.slice(0, 6).map(g => `${aspas(g.nomeWhatsapp ?? g.nome)} (código ${g.codigo ?? g.id})`).join("; ");
@@ -192,6 +254,79 @@ export async function decidirPelaOpcao(r: RespostaNumerada, origem: Extract<Orig
     return { ok: false, grupoId: g.id, texto: textoDaConfirmacaoDoTipo(g.nomeWhatsapp ?? g.nome, g.codigo ?? String(g.id), r.tipo) };
   }
   return decidirGrupo({ grupoId: g.id }, { tipo: r.tipo, numero: r.numero }, origem);
+}
+
+/**
+ * QA E11 (M3) — a proposta de ligar um grupo de TERCEIRO ao cliente que o nome aponta: o MESMO item da fila e a MESMA pergunta do sistema
+ * da conversa (resumo exato + hash; "pode"/"sim" confirma — `tratarConfirmacao`). Falhou → null (quem chama segue a pergunta pelo nome).
+ */
+async function proporVinculo(g: DoloresGrupo, leadId: number, tipo: "cliente" | "pos_atendimento", origem: OrigemDecisao): Promise<{ pergunta: string; pendenciaId: number; nome: string | null } | null> {
+  if (origem.via !== "whatsapp") return null;
+  try {
+    const [{ prepararClassificarGrupo }, { porNaFila }, { abrirPendencia }, { usuarioDolores }, { VALIDADE_ITEM_CONFIRMAVEL_MS }] = await Promise.all([
+      import("./acoes/grupos-config.js"), import("./aprovacoes.js"), import("./pendencia.js"), import("./perfil.js"), import("../../shared/dolores/confirmacao.js")]);
+    const agora = origem.agora ?? new Date();
+    const autorId = origem.autor ?? await usuarioDolores();
+    const ctx = { agora, autorId, mensagemId: origem.mensagemId, pedidoId: `wa:${origem.mensagemId}`, aprovacaoId: null, motivoContaminacao: null, validadeFilaMs: VALIDADE_ITEM_CONFIRMAVEL_MS };
+    const preparo = await prepararClassificarGrupo({ grupoId: g.id, tipo, leadId }, ctx);
+    const criados = await porNaFila("classificar_grupo", preparo, ctx);
+    const p = await abrirPendencia({ mensagemId: origem.mensagemId, codigos: criados.map(c => c.codigo), agora, autor: autorId });
+    if (!p) return null;
+    const [l] = await getDb().select({ nome: leads.name }).from(leads).where(eq(leads.id, leadId)).limit(1);
+    return { pergunta: p.pergunta, pendenciaId: p.id, nome: l?.nome ?? null };
+  } catch (e) {
+    console.error("[dolores/grupos-decisao] não consegui propor o vínculo do grupo de terceiro", erroParaLog(e));
+    return null;
+  }
+}
+
+/**
+ * EPIC-025 E11 — a pergunta "de qual cliente é?" (texto do SISTEMA): com candidatos, os NOMES para ele escolher (nunca o nº do CRM);
+ * sem candidato, uma pergunta curta. A resposta só com o nome vale por 30 min (`decidirPeloNome`).
+ */
+export function perguntaDoCliente(candidatos: ReadonlyArray<{ id: number; nome: string | null }>, codigo: string | null, nomeDoGrupo?: string): string {
+  const doGrupo = nomeDoGrupo ? ` o grupo ${nomeDoGrupo}` : "";
+  if (candidatos.length > 1) {
+    const nomes = candidatos.slice(0, 5).map(c => aspas(c.nome));
+    return `De qual cliente é${doGrupo || " o grupo"}: ${nomes.slice(0, -1).join(", ")} ou ${nomes.at(-1)}? Responda com o nome.`;
+  }
+  return `De qual cliente é${doGrupo || " o grupo"}? Responda com o nome dele${codigo ? ` (ou «grupo ${codigo} ignorar» para eu não participar)` : ""}.`;
+}
+
+/** " de «Fulano» (nº 3)" do cliente ligado (lido agora; sem cliente → ""). */
+async function nomeDoVinculo(leadId: number | null): Promise<string> {
+  if (!leadId) return "";
+  const [l] = await getDb().select({ id: leads.id, nome: leads.name }).from(leads).where(eq(leads.id, leadId)).limit(1).catch(() => []);
+  return l ? ` de ${aspas(l.nome)} (nº ${l.id})` : "";
+}
+
+/**
+ * EPIC-025 E11 — o dono respondeu SÓ com o nome do cliente ("Maria dayane", "1 Emily") à pergunta do tipo/cliente de UM grupo que
+ * espera (pergunta dos últimos 30 min, `gruposEsperandoTipo`). Liga quando as palavras dele apontam UM cliente ativo e TODAS as
+ * palavras dele estão no nome desse cliente (um "bom dia" não liga ninguém). Nenhum grupo esperando, ou nada casando → null (a
+ * mensagem segue o caminho comum). Mais de um cliente → os nomes para ele escolher (nada muda). Só a conversa direta do dono.
+ */
+export async function decidirPeloNome(r: { palavras: string[]; todas?: string[]; tipo: "cliente" | "pos_atendimento" }, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
+  const esperando = await gruposEsperandoTipo(origem.agora, origem.enviadaEm);
+  if (esperando.length !== 1) return null;
+  const [g] = esperando;
+  const achados = await clientesPelasPalavras(r.palavras);
+  // QA E11 (B2): passou do teto → ambíguo (nunca "único" por corte)
+  if (achados.cortado) return null;
+  const candidatos = achados.clientes.filter(c => {
+    const nome = new Set((c.nome ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" "));
+    return (r.todas ?? r.palavras).every(p => nome.has(p));
+  });
+  if (!candidatos.length) return null;
+  // portão 2 (M-C): o ÚNICO com ponto (mais de um → os nomes para ele escolher)
+  const u = unicoComPonto(r.palavras, candidatos);
+  const escolha = { escolhido: u.escolhido, empatados: u.comPonto };
+  if (!escolha.escolhido) {
+    await auditar0(origem, "recusada", "nome do cliente aponta mais de um cliente: perguntado de novo pelo nome", { grupoId: g.id, candidatos: escolha.empatados.length });
+    await marcarPerguntaDoTipo(g.id, origem);
+    return { ok: false, grupoId: g.id, texto: `Dolores: ${perguntaDoCliente(candidatos.filter(c => escolha.empatados.includes(c.id)), g.codigo)}` };
+  }
+  return decidirGrupo({ grupoId: g.id, instancia: g.instancia }, { tipo: r.tipo, numero: escolha.escolhido }, origem);
 }
 
 const auditar0 = (origem: Extract<OrigemDecisao, { via: "whatsapp" }>, resultado: "ok" | "recusada", motivo: string, resumo: Record<string, unknown>) =>

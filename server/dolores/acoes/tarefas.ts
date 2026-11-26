@@ -18,6 +18,12 @@ import {
 
 /** Título da tarefa: uma linha, sem caracteres de controle, até 150 caracteres (HTML fica como texto: a tela escapa). */
 const MAX_TITULO = 150;
+/** O título em uma linha, INTEIRO: passou de 150 caracteres → recusa (EPIC-025 E11 portão 5, I-2: nunca corta em silêncio). */
+function tituloInteiro(bruto: string): string {
+  const t = umaLinha(textoDoDono(bruto), MAX_TITULO + 1);
+  if (t.length > MAX_TITULO) throw new RecusaAcao(`O texto da tarefa passa de ${MAX_TITULO} caracteres. Encurte, ou mande o resto como descrição. Nada foi criado.`);
+  return t;
+}
 const PRIORIDADE = { baixa: "low", media: "medium", alta: "high", critica: "critical" } as const;
 const sem = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -69,7 +75,8 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
     if (!obra) throw new RecusaAcao(`Obra ${args.vinculo.id} não encontrada.`);
     relatedType = "obra"; relatedId = obra.id; vinculo = `obra ${obra.title}`;
   }
-  const titulo = umaLinha(textoDoDono(args.titulo), MAX_TITULO);
+  // EPIC-025 E11 portão 5 (I-2): acima do limite, recusa — o título nunca é cortado em silêncio
+  const titulo = tituloInteiro(args.titulo);
   if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");
   const descricaoDoDono = args.descricao ? textoDoDono(args.descricao) : null;
   // item aprovado da fila (QA R2 N3): título, responsável e descrição gravados têm de ser os que o dono leu no resumo
@@ -88,7 +95,8 @@ export async function criarTarefa(args: z.infer<typeof entradaCriarTarefa>, ctx:
     relatedType, relatedId, priority: PRIORIDADE[args.prioridade], status: "pending", dueAt,
   }, tx);
   const prazoTexto = dueAt ? diaFortaleza(dueAt)!.split("-").reverse().join("/") : "sem prazo";
-  const frase = textoDeDado(`Tarefa #${criada.id} "${titulo.slice(0, 80)}" para ${responsavel.name} (${prazoTexto}; ${vinculo})`, 300);
+  // EPIC-025 E11 portão 5 (I-2): o título inteiro (até 150) na linha do que foi feito — nunca cortado em silêncio
+  const frase = textoDeDado(`Tarefa #${criada.id} "${titulo}" para ${responsavel.name} (${prazoTexto}; ${vinculo})`, 400);
   await registrarAutoria(ctx, { tabela: "tasks", registroId: criada.id, funcao: "criar_tarefa", descricao: frase });
   return {
     // QA R2 N2: ao modelo vão só ids, datas e códigos do sistema — nenhum texto do banco (o nome do responsável e o do
@@ -111,7 +119,7 @@ export async function tarefaParaFila(args: z.infer<typeof entradaCriarTarefa>, c
     const p = lerPrazo(args.prazo, ctx.agora);
     if (!p.ok) throw new RecusaAcao(`Prazo inválido: ${p.motivo}.`);
   }
-  const titulo = comoMostrado(umaLinha(textoDoDono(args.titulo), MAX_TITULO));
+  const titulo = comoMostrado(tituloInteiro(args.titulo));
   const descricao = args.descricao ? comoMostrado(textoDoDono(args.descricao)) : null;
   if (titulo.length > MAX_TITULO || (descricao?.length ?? 0) > 1000) throw new RecusaAcao(FRASE_TEXTO_LONGO);
   if (titulo.length < 3) throw new RecusaAcao("Título da tarefa vazio depois de limpar caracteres inválidos.");

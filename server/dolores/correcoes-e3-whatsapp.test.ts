@@ -103,38 +103,39 @@ describe("achado 1 (A8) — dado de terceiro não induz ação: regra de contami
     expect(ultimaResposta()).not.toMatch(/Registrado no sistema por mim|Aguardando a sua aprovação/);
   });
 
-  it("ação pedida explicitamente ANTES de qualquer leitura (EPIC-027 C5 E2): espera o \"pode\"; com ele, grava", async () => {
+  // EPIC-025 E11b: com o texto e os alvos nas palavras dele, a ordem direta grava na hora — mesmo com uma leitura depois no mesmo pedido
+  it("ação pedida explicitamente ANTES de qualquer leitura (E11b): texto dele → grava na hora, sem \"pode\"", async () => {
     roteiro = [
       () => ferramenta(["criar_tarefa", { titulo: "Ligar para a Maria amanhã", responsavel: "Bianca Souza" }]),
       () => ferramenta(["historico_atendimento", { leadId: 1 }]),
       () => texto("Criei a tarefa e aqui está o histórico."),
     ];
-    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca ligar para a Maria amanhã e me mostra o histórico dela." }));
-    expect(await tarefasDolores()).toEqual([]);
-    // pedida antes da leitura: o resumo não leva o aviso de leitura
-    expect(((await fila())[0] as any).resumo).toMatch(/^criar a tarefa "Ligar para a Maria amanhã"/);
-    expect(ultimaResposta()).toMatch(/Posso fazer isto\?/);
-    await chamar(aviso({ texto: "pode" }));
-    expect((await tarefasDolores()).map(t => t.title)).toEqual(["Ligar para a Maria amanhã"]);
+    // Opção A do dono (24/11/2026): direto só a tarefa ditada com ":"
+    await chamar(aviso({ texto: "Dolores, crie uma tarefa para a Bianca: ligar para a Maria amanhã e me mostra o histórico dela." }));
+    // grava o ditado do PRÓPRIO dono (a caixa dele)
+    expect((await tarefasDolores()).map(t => t.title)).toEqual(["ligar para a Maria amanhã e me mostra o histórico dela"]);
+    expect(ultimaResposta()).toMatch(/Feito: Tarefa #\d+ "ligar para a Maria amanhã e me mostra o histórico dela"/);
+    expect(ultimaResposta()).not.toMatch(/Posso fazer isto\?/);
   });
 
   it("ação pedida explicitamente DEPOIS de uma leitura de dados: vai para a FILA (marcada), nada gravado; aprovada pelo código, grava", async () => {
     roteiro = [
       () => ferramenta(["historico_atendimento", { leadId: 1 }]),
-      () => ferramenta(["registrar_acompanhamento", { leadId: 1, texto: "Liguei e ela vai mandar o RG.", tipo: "ligacao" }]),
+      // E11b: o texto traz o que a consulta devolveu ("certidão"), não só as palavras dele → fila, marcada
+      () => ferramenta(["registrar_acompanhamento", { leadId: 1, texto: "Liguei e ela vai mandar o RG e a certidão.", tipo: "ligacao" }]),
       () => texto("Pus o registro na fila."),
     ];
     await chamar(aviso({ texto: "Dolores, veja o histórico da Maria e registre que liguei para ela e ela vai mandar o RG." }));
     expect(await doDolores()).toEqual([]);
     const [item] = await fila();
     expect(item).toMatchObject({ funcao: "registrar_acompanhamento", situacao: "aguardando" });
-    expect((item as any).resumo).toMatch(/^Pedido surgido durante a leitura de dados; confira antes de aprovar: registrar LIGAÇÃO no histórico de Maria Trello \(cliente 1\): "Liguei e ela vai mandar o RG\."/);
+    expect((item as any).resumo).toMatch(/^Pedido surgido durante a leitura de dados; confira antes de aprovar: registrar LIGAÇÃO no histórico de Maria Trello \(cliente 1\): "Liguei e ela vai mandar o RG e a certidão\."/);
     expect(ultimaResposta()).toContain("- Pedido surgido durante a leitura de dados; confira antes de aprovar");
     expect(ultimaResposta()).not.toContain(item.codigo);
     expect(ultimaResposta()).not.toMatch(/Registrado no sistema por mim/);
     await chamar(aviso({ texto: `aprovar ${item.codigo}` }));
     expect((await fila())[0].situacao).toBe("executada");
-    expect((await doDolores()).map((g: any) => [g.type, g.description])).toEqual([["call", "Liguei e ela vai mandar o RG."]]);
+    expect((await doDolores()).map((g: any) => [g.type, g.description])).toEqual([["call", "Liguei e ela vai mandar o RG e a certidão."]]);
     const [autoria] = await q<{ aprovacao_id: number | null }>("SELECT aprovacao_id FROM dolores_autoria");
     expect(autoria.aprovacao_id).not.toBeNull();
   });
