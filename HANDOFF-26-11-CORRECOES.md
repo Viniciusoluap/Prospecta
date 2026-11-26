@@ -73,6 +73,12 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
   `api-rotas-producao` 2/2; `imports-esm` 2/2. (b) manuais — nenhum (sem Drive real). (c) pendentes em produção — contagens do cron da tarde;
   comportamento real do Google (PATCH cortado pelo tempo, `canRename` em Drive compartilhado, cotas).
 
+- **Portão de QA sobre `64e3a0a..5531076` (26/11): FAIL para LIGAR A ESCRITA.** 34.992 sequências de até 4 passagens: o "Como desfazer" sempre
+  devolve o nome real, mas (ALTA) dois arquivos do projeto podiam ficar com o mesmo nome no Drive — `colide` ignorava o nome posto por um PATCH
+  nosso aplicado e não confirmado de outro registro; (MÉDIA) o giro por hora deixava posições do grupo com erro sem vez. Corrigido neste ramo:
+  `nomesNoDrive` (canonical_name + `drive_name_target`/`drive_name_applied` com a marca) e giro por dia×5+hora. `projetos-nome-drive` 39/39.
+  **A escrita continua DESLIGADA em produção; não ligar antes de novo PASS do QA sobre esta correção.**
+
 ## Próximo passo exato
 1. Conferir a produção da Vercel READY para `8f6692f` e, depois de uma execução do cron da tarde, as contagens em `nomesDrive`.
 2. Portão de QA sobre `64e3a0a..5531076`; com PASS e um dia de contagens coerentes, passo a passo ao dono para cadastrar
