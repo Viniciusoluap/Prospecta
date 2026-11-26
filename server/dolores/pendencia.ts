@@ -399,7 +399,7 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
     // Codex #341 (5ª passada), regra ESTRUTURAL: TODA palavra de referência tem de estar no resumo do item escolhido — palavra que
     // sobra ("amanhã", "menos", outro nome) quer dizer outra coisa → não é confirmação deste item
     const doResumo = new Set(normalizarNome(identidadeDoItem(item)).split(" "));
-    if (!c.referencia.every(p => doResumo.has(p))) return null;
+    if (!(c.todas ?? c.referencia).every(p => doResumo.has(p))) return null;
     // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova
     if (nivelDoItem(item.funcao, item.argumentos) === "serio" && !daAberta.has(item.id)) {
       await auditar("recusada", "confirmação nomeada de item sério de proposta substituída; nada foi feito", { itens: 1 }, ctx);

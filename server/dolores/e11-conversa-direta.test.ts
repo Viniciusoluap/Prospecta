@@ -122,10 +122,10 @@ describe("regras puras (E11)", () => {
     expect(textoDasOpcoes("AA7W", { soComNumero: true })).not.toMatch(/nº do cliente no CRM/);
   });
   it("confirmação nomeada: uma linha curta, palavra que confirma no começo ou no fim, sem pedido novo", () => {
-    expect(lerConfirmacaoNomeada("O grupo da maria Dayane pode")).toEqual({ tipo: "sim", todos: false, referencia: ["maria", "dayane"], entidade: "grupo" });
-    expect(lerConfirmacaoNomeada("Grupo da emily pode")).toEqual({ tipo: "sim", todos: false, referencia: ["emily"], entidade: "grupo" });
-    expect(lerConfirmacaoNomeada("pode todos")).toEqual({ tipo: "sim", todos: true, referencia: [] });
-    expect(lerConfirmacaoNomeada("confirmo o da emily")).toEqual({ tipo: "confirmo", todos: false, referencia: ["emily"] });
+    expect(lerConfirmacaoNomeada("O grupo da maria Dayane pode")).toMatchObject({ tipo: "sim", todos: false, referencia: ["maria", "dayane"], entidade: "grupo" });
+    expect(lerConfirmacaoNomeada("Grupo da emily pode")).toMatchObject({ tipo: "sim", todos: false, referencia: ["emily"], entidade: "grupo" });
+    expect(lerConfirmacaoNomeada("pode todos")).toMatchObject({ tipo: "sim", todos: true, referencia: [] });
+    expect(lerConfirmacaoNomeada("confirmo o da emily")).toMatchObject({ tipo: "confirmo", todos: false, referencia: ["emily"] });
     for (const t of ["pode criar uma tarefa para a emily", "pode mandar para a emily", "pode", "não pode o da emily", "pode o da emily?", "o da emily\npode", "a emily pode emitir a nota"])
       expect(lerConfirmacaoNomeada(t), t).toBeNull();
   });
@@ -1940,6 +1940,17 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     roteiro.push(() => texto("Não achei."));
     await dono("Emily Lu");
     expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+  });
+
+  it("Codex #341 (10ª passada): \"pode a nota da Emily Lu\" não confirma a anotação da Emily Victoria (palavra curta que não bate)", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "ela mandou o RG" }]), () => texto("Anoto?"));
+    await dono("anota na Emily que ela mandou o RG");
+    roteiro.push(() => texto("Qual?"));
+    await dono("pode a nota da Emily Lu");
+    expect(await anotacoes()).toEqual([]);
+    expect(lerConfirmacaoNomeada("pode a nota da Emily Lu")).toMatchObject({ referencia: ["emily"], todas: ["emily", "lu"] });
+    await dono("o da Emily pode");
+    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "ela mandou o RG" }]);
   });
 
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {

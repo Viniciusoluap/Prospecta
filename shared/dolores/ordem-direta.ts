@@ -191,7 +191,9 @@ const VERBO_DE_ORDEM: ReadonlySet<string> = new Set(["ignorar", "ignora", "ignor
   "corrigir", "corrige", "corrija", "salvar", "salva", "salve", "agendar", "agenda", "agende", "desfazer", "desfaz", "desfaca", "recusar", "recusa", "recuse",
   "parar", "pare", "voltar", "volta", "volte", "religar", "religa", "religue", "tirar", "tira", "tire", "remover", "remove", "remova", "mudar", "muda", "mude"]);
 export type EntidadeNomeada = "grupo" | "tarefa" | "anotacao" | "lembranca" | "aviso";
-export type ConfirmacaoNomeada = { tipo: "sim" | "confirmo"; todos: boolean; referencia: string[]; entidade?: EntidadeNomeada };
+export type ConfirmacaoNomeada = { tipo: "sim" | "confirmo"; todos: boolean; referencia: string[]; entidade?: EntidadeNomeada;
+  /** Codex #341 (10ª passada): TODAS as palavras da referência, inclusive as curtas ("Lu", "Jr", "12") — a conferência final exige todas */
+  todas?: string[] };
 /** Codex #341 (P2): a coisa que ele nomeou na confirmação ("o GRUPO da Emily pode") restringe os itens que ela pode confirmar. */
 const ENTIDADE_DA_PALAVRA: Readonly<Record<string, EntidadeNomeada>> = { grupo: "grupo", grupos: "grupo", tarefa: "tarefa", tarefas: "tarefa", anotacao: "anotacao", anotacoes: "anotacao",
   nota: "anotacao", lembranca: "lembranca", lembrancas: "lembranca", memoria: "lembranca", aviso: "aviso", avisos: "aviso" };
@@ -248,7 +250,7 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   if (todos) return { tipo: confirmo ? "confirmo" : "sim", todos: true, referencia: [], ...(entidades[0] ? { entidade: entidades[0] } : {}) };
   const referencia = resto.filter(p => !ENTIDADE_DA_PALAVRA[p] && ((p.length >= 3 && !PALAVRAS_GENERICAS.has(p)) || (/^[a-z0-9]{4}$/.test(p) && /\d/.test(p))));
   if (!referencia.length) return null;
-  return { tipo: confirmo ? "confirmo" : "sim", todos: false, referencia, ...(entidades[0] ? { entidade: entidades[0] } : {}) };
+  return { tipo: confirmo ? "confirmo" : "sim", todos: false, referencia, todas: resto.filter(p => !PALAVRAS_GENERICAS.has(p)), ...(entidades[0] ? { entidade: entidades[0] } : {}) };
 }
 
 /**
