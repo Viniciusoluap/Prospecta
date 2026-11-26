@@ -71,11 +71,11 @@ const PEDIDO_COM_CODIGO = new RegExp(`"?(?:aprovar|recusar) [${ALFABETO_CODIGO}]
 /** Texto do sistema sobre um item, sem o código dele (o dono responde "pode"; o modelo e a memória nunca veem código). */
 export const semCodigoDoItem = (t: string) => t.replace(CODIGO_ENTRE_COLCHETES, "").replace(PEDIDO_COM_CODIGO, "\"pode\"").trim();
 
-async function itens(ids: readonly number[]): Promise<ItemDaPendencia[]> {
+async function itens(ids: readonly number[], limite: number = MAX_ITENS_PENDENCIA): Promise<ItemDaPendencia[]> {
   if (!ids.length) return [];
   return getDb().select({ id: doloresAprovacoes.id, codigo: doloresAprovacoes.codigo, funcao: doloresAprovacoes.funcao, argumentos: doloresAprovacoes.argumentos,
     resumo: doloresAprovacoes.resumo, situacao: doloresAprovacoes.situacao, venceEm: doloresAprovacoes.venceEm })
-    .from(doloresAprovacoes).where(inArray(doloresAprovacoes.id, ids.slice(0, MAX_ITENS_PENDENCIA))).orderBy(doloresAprovacoes.id);
+    .from(doloresAprovacoes).where(inArray(doloresAprovacoes.id, ids.slice(0, limite))).orderBy(doloresAprovacoes.id);
 }
 
 const paraMotivo = (i: ItemDaPendencia) => ({ funcao: i.funcao, argumentos: i.argumentos });
@@ -376,7 +376,10 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
   // Portão de QA E11 (M4): só os itens da proposta ABERTA valem para "todos" e para o que é SÉRIO
   const daAberta = new Set(antesDela.filter(m => m.situacao === "aberta").flatMap(m => m.aprovacaoIds));
   if (!vistos.size) return null;
-  const candidatos = (await itens(Array.from(vistos).slice(-MAX_ITENS_CONFIRMACAO_NOMEADA)))
+  // Codex #341 (11ª passada): TODOS os itens mostrados entram na conferência — se houver mais do que o teto, não dá para garantir
+  // que o nome aponta um só (um item fora da conta poderia empatar) → não é confirmação
+  if (vistos.size > MAX_ITENS_CONFIRMACAO_NOMEADA) return null;
+  const candidatos = (await itens(Array.from(vistos), MAX_ITENS_CONFIRMACAO_NOMEADA))
     .filter(i => i.situacao === "aguardando" && i.venceEm.getTime() > ctx.agora.getTime());
   if (!candidatos.length) return null;
   let escolhidos: ItemDaPendencia[];

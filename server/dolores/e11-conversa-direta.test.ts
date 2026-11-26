@@ -1953,6 +1953,19 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "ela mandou o RG" }]);
   });
 
+  it("Codex #341 (11ª passada): com mais de 10 itens mostrados, dois da Emily continuam empatando (nenhum é executado)", async () => {
+    const pedir = async (nome: string, lead: number, t: string) => {
+      roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: lead, texto: t }]), () => texto("Anoto?"));
+      await dono(`anota na ${nome} que ${t}`);
+    };
+    await pedir("Emily", EMILY, "ela mandou o RG");
+    for (let i = 1; i <= 9; i++) await pedir("Maria Dayane", MARIA, `ela mandou o documento numero ${i}`);
+    await pedir("Emily", EMILY, "ela mandou o comprovante");
+    roteiro.push(() => texto("Qual das duas?"));
+    await dono("pode a nota da Emily");
+    expect(await anotacoes()).toEqual([]);
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();
