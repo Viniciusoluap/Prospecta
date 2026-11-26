@@ -496,6 +496,28 @@ async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOr
   return resultado;
 }
 
+/**
+ * EPIC-031 S-2 (autorização do dono em 26/11/2026: "Pode renomear os arquivos do Google Drive sim"): troca SÓ o nome
+ * de um arquivo de Projetos no Drive. Nunca mexe em conteúdo, pasta, permissão nem lixeira. Arquivo na lixeira ou sem
+ * permissão de renomear não é tocado; nome já igual não faz chamada de escrita. Em DUAS chamadas separadas, para quem
+ * chama poder guardar (e confirmar no banco) o nome que o arquivo tinha ANTES de qualquer escrita:
+ *   - `lerArquivoNoDrive`: só leitura (GET de name, trashed, capabilities.canRename);
+ *   - `trocarNomeNoDrive`: só o PATCH do nome.
+ */
+export type ArquivoNoDrive = { nome: string | null; lixeira: boolean; podeRenomear: boolean };
+export async function lerArquivoNoDrive(fileId: string): Promise<ArquivoNoDrive> {
+  const fonte = await fonteObrigatoria();
+  const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,trashed,capabilities(canRename)&supportsAllDrives=true`, {}, "leitura");
+  const info = await r.json() as { name?: string; trashed?: boolean; capabilities?: { canRename?: boolean } };
+  return { nome: typeof info.name === "string" ? info.name : null, lixeira: info.trashed === true, podeRenomear: info.capabilities?.canRename !== false };
+}
+export async function trocarNomeNoDrive(fileId: string, nome: string): Promise<void> {
+  const fonte = await fonteObrigatoria();
+  await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nome }),
+  }, "upload");
+}
+
 /** Portfólio por cliente/projeto/item. Sessão retomável; cada requisição leva até 1 MiB. */
 export async function iniciarUploadProjetoDrive(doc: { projectId: string; clientId: string; clientName: string; projectName: string; itemId: string; itemName: string; kind: "editable" | "pdf"; name: string; canonicalName?: string; mime: string; size: number }): Promise<string> {
   const fonte = await fonteObrigatoria();

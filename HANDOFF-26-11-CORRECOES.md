@@ -50,15 +50,27 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
   sem uso deixa de pesar; em uso intacta; aviso acima do limite); suítes `pci-*`, `caixa/*`, `medicao*`, `pls-fiel-pci`, `caixa-medicao` passando.
   (b) arquivo de produção regerado com foto de ~1 MB: 2.563 KB nas 3 gerações, validador 0. (c) só o dono: anexar na CAIXA e abrir no Excel sem reparo.
 
-## Em andamento, fora deste PR
-- **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11: "Pode renomear os arquivos do Google Drive sim"):
-  commit local `4161fb8` em `/home/user/Prospecta-projetos` (ramo `projetos-entregue-nomes`). Roda no cron dos avisos da tarde, 25 por execução,
-  só o nome, `original_name` intacto. Precisa da migração aditiva `drizzle/0175_projeto_documentos_nome_drive.sql` no Neon ANTES de publicar e
-  de ser reconciliada com a mudança de assinatura das funções de nome feita no #340 (`nomesPadraoArquivosProjeto` agora preserva o gravado).
-- **Dolores E11** — PR #341 (ramo `claude/dolores-e11-conversa-direta`): 14 portões de QA e 8 passadas do Codex; último commit `ff50c69`.
+- **Publicado em 26/11:** PR #345 mesclado na `main` (squash `cf2a848`), produção `dpl_9cVb3fnZw1qk12YvVzekqLycvSrM`. Sem migração.
+  Codex: 1 achado P1 (desenho partido em MSODRAWING + CONTINUE fazia imagem em uso ser trocada) corrigido em `a0b722e` — a varredura junta o
+  desenho de cada aba e, se o fluxo não fecha, não troca nada; 2ª passada sem achados. Portão de QA: PASS (12/12 no arquivo; 206/206 em 18 arquivos).
+- **Ressalvas baixas do QA (não feitas):** (1) todas as imagens trocadas têm o mesmo uid — dar uid único por entrada; (2) a tabela de propriedades
+  padrão do grupo de desenhos não é varrida por `referenciasDeImagens` (no modelo atual não tem imagem); (3) `biff8-validador.ts` não junta
+  MSODRAWING + CONTINUE (só usado em testes); comentário "67 bytes" do PNG mínimo (são 70).
+
+## Em andamento
+- **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11) [EPIC-031 S-2]: neste ramo, a partir do ramo local
+  `projetos-entregue-nomes` (commits `faac36f`, `320f13b`, `df60988`, `26e3006`, `64e3a0a`). 4 portões de QA: 3 FAIL (nome duplicado com registro
+  apagado/em envio; nome anterior perdido; log com dado pessoal) e o 4º CONCERNS, com os 3 ajustes pedidos já feitos em `64e3a0a`.
+  - Arquivos: `server/projetos-nome-drive.ts`, `server/projetos-nome-drive.test.ts` (32), `server/drive-documents.ts`, `api/index.ts` (cron dos avisos),
+    `drizzle/0175_projeto_documentos_nome_drive.sql` (ADITIVA, **ainda não aplicada**), story `S-2-renomear-no-drive.md` (com "Como desfazer").
+  - **Publica em modo "só conferindo"**: sem `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel a rotina só conta (`pendentes`, `semVinculoNaTela`,
+    `desistidos`, `colisoes`), não chama o Drive e não grava nada. Ligar a escrita depende do dono cadastrar a variável.
+  - Schema Drizzle sem as colunas novas, de propósito (o envio de arquivo não depende da 0175).
 
 ## Próximo passo exato
-1. PR do tamanho da PCI: portão de QA + Codex "Completed" lido + prévia pronta → mesclar → conferir produção → dono gera de novo e anexa na CAIXA.
-2. Confirmar com o dono se o arquivo de 1.911 KB enviado na conversa foi aceito pela CAIXA e abriu no Excel sem a mensagem de reparo.
-3. Drive: reconciliar com a main, portão de QA, aplicar a 0175, publicar.
-4. E11: ler a passada do Codex sobre `ff50c69`; sem achado → mesclar e conferir produção; atualizar `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
+1. PR do Drive: confirmação do QA sobre `64e3a0a`, Codex "Completed" lido, aplicar a 0175 no Neon (aditiva) ANTES de mesclar, prévia READY,
+   mesclar, conferir produção e, no cron da tarde (15h–19h), o campo `nomesDrive` com as contagens.
+2. Depois de um dia de contagens coerentes: passo a passo ao dono para cadastrar `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel.
+3. Dono: confirmar a PCI no Excel (sem "reparo") e na CAIXA. PCI #345 e Dolores E11 #341 já estão em produção (ver seções acima e
+   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`).
+4. Ressalvas baixas em aberto: PCI (uid único, tabela do grupo, validador com CONTINUE) e E11 (`grupos-decisao.ts:235`, "pode só o da …").
