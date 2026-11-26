@@ -225,6 +225,9 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
   // Codex #341 (P1): exclusão ou condição ("pode todos menos o da Emily", "confirmo todos exceto…", "pode o da Emily se…") nunca é
   // confirmação nomeada — "menos"/"exceto" não fazem parte do nome e o item excluído seria justamente o executado
   if (ps.some(p => EXCLUSAO_OU_CONDICAO.has(p))) return null;
+  // Codex #341 (5ª passada, P1): tempo ou adiamento ("pode amanhã o da Emily", "confirmo o da Emily às 18h") nunca é confirmação —
+  // confirmar é AGORA; a palavra de tempo não pode virar "nome" ignorável
+  if (ps.some(p => CONDICAO_OU_TEMPO.has(p) || /^\d{1,2}h(?:\d{2})?$/.test(p) || MESES_E_SEMANA.test(p)) || /\d[:/]\d/.test(bruto)) return null;
   const confirmo = ps.includes("confirmo");
   const resto = (fim ? ps.slice(0, -1) : ps.slice(1)).filter(p => !AFIRMA.has(p) && !LIGACAO.has(p) && p !== "sim");
   if (!resto.length || resto.length > 6) return null;

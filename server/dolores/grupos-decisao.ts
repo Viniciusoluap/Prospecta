@@ -27,7 +27,9 @@ import { clienteDoNomeDoGrupo, clientesPelasPalavras, grupoDoDono } from "./orde
 import { FRASE_SO_QUANDO_MARCADA } from "../../shared/dolores/ordem-direta.js";
 
 /** `agora` (WhatsApp): o relógio do aviso, para a hora da PERGUNTA do tipo (a resposta só com o número vale por 30 min). */
-export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date } | { via: "tela"; userId: number };
+export type OrigemDecisao = { via: "whatsapp"; autor: number | null; mensagemId: number; agora?: Date;
+  /** Codex #341 (P2): quem chama não mostra ao dono o texto desta resposta (aceite vindo da fila) — nenhuma proposta nova é aberta. */
+  semProposta?: boolean } | { via: "tela"; userId: number };
 
 export type ResultadoDecisao = { ok: boolean; texto: string; grupoId: number | null;
   /** QA E11 (M3): esta resposta É a pergunta desta proposta ("pode"/"sim" confirma) — quem envia marca a pergunta como enviada. */
@@ -100,7 +102,7 @@ export async function decidirGrupo(alvo: { codigo: string } | { grupoId: number;
           const auto = await clienteDoNomeDoGrupo(g, { parcial: true }).catch(() => ({ leadId: null, candidatos: [] }));
           // QA E11 (M3): grupo em que OUTRA pessoa (ou não se sabe quem) pôs a Dolores — o nome é texto de terceiro: não liga sozinha;
           // UMA pergunta curta com o cliente que o nome aponta ("pode"/"sim" confirma, pela proposta de sempre)
-          if (auto.leadId && !grupoDoDono(g)) {
+          if (auto.leadId && !grupoDoDono(g) && !origem.semProposta) {
             const p = await proporVinculo(g, auto.leadId, "cliente", origem);
             if (p) return { ok: true, grupoId: g.id, pendenciaId: p.pendenciaId, texto: `Dolores: aceito o grupo ${nomeDoGrupo}. Pelo nome, ele parece ser de ${aspas(p.nome)}.\n${p.pergunta}` };
           }

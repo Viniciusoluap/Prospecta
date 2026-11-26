@@ -1862,6 +1862,29 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     for (const f of ["o da Cristina pode", "pode o do Marcos", "o da Lígia pode"]) expect(lerConfirmacaoNomeada(f), f).not.toBeNull();
   });
 
+  it("Codex #341 (5ª passada): \"pode amanhã o da Emily\" não executa; palavra de referência fora do resumo do item não confirma", async () => {
+    for (const f of ["pode amanhã o da Emily", "confirmo o da Emily amanhã", "pode o da Emily às 18h", "pode o da Emily dia 10", "pode o da Emily segunda", "o da Emily pode 10/12"])
+      expect(lerConfirmacaoNomeada(f), f).toBeNull();
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "ela mandou o RG" }]), () => texto("Anoto?"));
+    await dono("anota na Emily que ela mandou o RG");
+    // "bianca" não está no resumo da anotação da Emily → não confirma
+    roteiro.push(() => texto("Qual?"));
+    await dono("pode o da Emily Bianca");
+    expect(await anotacoes()).toEqual([]);
+    await dono("o da Emily pode");
+    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "ela mandou o RG" }]);
+  });
+
+  it("Codex #341 (5ª passada, P2): aceitar grupo de terceiro pela fila não deixa proposta escondida", async () => {
+    const g = await grupo({ codigo: "KHMN", nome: "EMILY VICTORIA BRITO", situacao: "recusado", adicionadoPor: "outra_pessoa" });
+    roteiro.push(() => ferramenta(["aceitar_grupo", { grupoId: g.id }]), () => texto("Aceito?"));
+    await dono("aceita o grupo da Emily");
+    await dono("confirmo");
+    expect((await grupoPorCodigo("KHMN")).situacao_confirmacao).not.toBe("recusado");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
+    expect((await fila()).filter((i: any) => i.situacao === "aguardando")).toEqual([]);
+  });
+
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
     for (const f of ["pode todos menos o da Emily", "confirmo todos exceto o da Emily", "pode todos fora o da Emily", "pode o da Emily se ela assinar",
       "pode só o da Emily depois", "pode todos o da Emily", "tirando o da Emily pode"]) expect(lerConfirmacaoNomeada(f), f).toBeNull();
