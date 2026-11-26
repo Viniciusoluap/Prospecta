@@ -23,3 +23,6 @@ ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_before_origem 
 -- Sem a marca, "já estava com o nome novo" quer dizer que alguém renomeou à mão: não é atribuído à rotina.
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_target varchar(255);
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_patch_attempted boolean;
+-- 4ª rodada do portão de QA (26/11): o nome que a rotina gravou (congelou) na lista/entrega da tela — sempre que congela,
+-- inclusive quando o arquivo já estava com o nome no Drive. O "Como desfazer" só volta a lista se ela ainda tem este nome.
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS list_name_target varchar(255);

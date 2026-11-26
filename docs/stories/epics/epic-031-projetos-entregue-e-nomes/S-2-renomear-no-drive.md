@@ -66,7 +66,9 @@ S-1. Só o nome — nunca conteúdo, pasta, permissão nem exclusão. Resolve a 
     2. **GUARDAR o "antes"**: transação curta e CONFIRMADA (ver "Sob a trava" abaixo):
        - nome lido ≠ alvo e a rotina ainda não renomeou o arquivo (`drive_renamed_at` nulo): `drive_name_before` = nome
          lido AGORA, origem `drive` (sobrescreve o de uma passagem anterior que não terminou — alguém pode ter renomeado
-         à mão no meio); `drive_name_target` = alvo; `drive_patch_attempted` = `true`. Se a rotina já o renomeou antes
+         à mão no meio) — EXCETO quando o nome lido é o `drive_name_target` de um PATCH nosso tentado (aplicado, mas a
+         passagem não terminou, e o nome da tela mudou depois): aí o `drive_name_before` real fica e só o alvo muda;
+         `drive_name_target` = alvo; `drive_patch_attempted` = `true`. Se a rotina já o renomeou antes
          (`drive_renamed_at` preenchido), o `drive_name_before` fica como está;
        - nome lido = alvo ("já estava"): só é nosso se houver a marca, com o mesmo alvo e um `drive_name_before` de origem
          `drive` diferente dele (PATCH aplicado numa passagem que não terminou) — aí fica tudo como está. Sem isso,
@@ -74,9 +76,13 @@ S-1. Só o nome — nunca conteúdo, pasta, permissão nem exclusão. Resolve a 
          (ESTIMADO; nulo se o `canonical_name` também já é o nome novo), e alvo e marca são limpos;
        - sempre, com `COALESCE`: `canonical_name_before`, `list_name_before`, `list_original_added`.
     3. **RENOMEAR e GRAVAR**: nova transação sob a trava; confere tudo de novo; se o nome lido era diferente, `PATCH`;
-       grava o nome na lista/entrega e em `canonical_name`. `drive_renamed_at` = agora quando o PATCH foi feito; também
+       grava o nome na lista/entrega e em `canonical_name`, e `list_name_target` = o nome congelado na lista (sempre que
+       congela, inclusive no "já estava" sem marca). `drive_renamed_at` = agora quando o PATCH foi feito; também
        quando "já estava" com a marca de PATCH nosso aplicado (regra do passo 2) — conta como `renomeados`. "Já estava"
        sem a marca conta como `jaEstavam` e não grava `drive_renamed_at`.
+       Consulta que passa do `statement_timeout` (SQLSTATE 57014), inclusive depois do PATCH: a transação é desfeita,
+       conta como `falhasTemporarias` do arquivo (`drive_rename_error = 'banco:57014'`) e o lote segue; o "antes" e a
+       marca já estavam confirmados, então a passagem seguinte completa.
        PATCH recusado (4xx, inclusive limite de taxa): não foi aplicado — `drive_name_before`, a origem, o alvo e a marca
        são limpos (se a rotina ainda não tinha renomeado o arquivo). 5xx e tempo esgotado mantêm a marca (podem ter
        sido aplicados).
@@ -108,7 +114,7 @@ não muda (não é atividade de ninguém). `project_documents.original_name` nun
 `drive_renamed_at`, `drive_rename_failures`, `drive_rename_error` e, para desfazer, `drive_name_before varchar(255)`,
 `list_name_before varchar(255)`, `list_original_added boolean`, `canonical_name_before varchar(255)` e
 `drive_name_before_origem varchar(20)` (`'drive'` exato / `'registro'` estimado), `drive_name_target varchar(255)` e
-`drive_patch_attempted boolean` — nulas, sem default. Nomes acima de 255 caracteres são
+`drive_patch_attempted boolean` e `list_name_target varchar(255)` — nulas, sem default. Nomes acima de 255 caracteres são
 guardados cortados em 255 (limite conhecido). Fora do schema do Drizzle de propósito (os `select()` existentes não
 dependem delas). Sem a migração, a rotina devolve `{ erro: true }` no cron e o resto do sistema segue igual.
 
@@ -119,7 +125,7 @@ Vale em qualquer estado, inclusive no meio de uma passagem (PATCH aplicado e ban
 `<id>`:
 1. Ler a linha: `SELECT id, project_id, drive_file_id, canonical_name, drive_renamed_at, drive_name_before,
    drive_name_before_origem, drive_name_target, drive_patch_attempted, canonical_name_before, list_name_before,
-   list_original_added FROM project_documents WHERE id = <id>;`
+   list_name_target, list_original_added FROM project_documents WHERE id = <id>;`
 2. **Drive**: só se `drive_patch_attempted = true` E `drive_name_before_origem = 'drive'`. Nesse caso, ler o nome
    atual do arquivo no Drive (`lerArquivoNoDrive(drive_file_id)`) e compará-lo com `drive_name_target` (o nome que a
    rotina tentou pôr — NÃO com `canonical_name`, que numa passagem pela metade ainda tem o nome antigo):
@@ -132,13 +138,14 @@ Vale em qualquer estado, inclusive no meio de uma passagem (PATCH aplicado e ban
 3. **Lista da tela**: achar o item pelo `documentId = <id>` (ou pelo `driveFileId`/link com `drive_file_id`) em
    `operational_projects.files` do `project_id`; se não estiver lá, procurar nas `deliveries` de TODOS os
    `project_revision_requests` do `project_id` (o `revision_id` dos registros antigos pode ser nulo). Só se o nome que
-   está nele hoje (`name` na lista / `nome` na entrega) é igual a `drive_name_target` (a rotina chegou a gravá-lo):
+   está nele hoje (`name` na lista / `nome` na entrega) é igual a `list_name_target` (o nome que a rotina gravou nele;
+   nulo = a rotina não chegou a gravar a lista):
    voltar para `list_name_before` e, se `list_original_added = true`, REMOVER a chave `originalName` / `nomeOriginal`
    (a tela volta a calcular o nome, como antes). Caso contrário, nada a fazer aqui.
 4. **Registro**: `UPDATE project_documents SET canonical_name = COALESCE(canonical_name_before, canonical_name),
    drive_renamed_at = NULL, drive_name_before = NULL, drive_name_before_origem = NULL, drive_name_target = NULL,
-   drive_patch_attempted = NULL, canonical_name_before = NULL, list_name_before = NULL, list_original_added = NULL
-   WHERE id = <id>;` — `canonical_name_before` dá a volta exata. Passos 3 e 4 na mesma transação, com
+   drive_patch_attempted = NULL, canonical_name_before = NULL, list_name_before = NULL, list_name_target = NULL,
+   list_original_added = NULL WHERE id = <id>;` — `canonical_name_before` dá a volta exata. Passos 3 e 4 na mesma transação, com
    `pg_advisory_xact_lock(hashtext('project-document:<project_id>'))` e `SELECT … FOR UPDATE` no projeto.
 
 O teste `server/projetos-nome-drive.test.ts` executa exatamente estes passos (função `desfazer`) e confere que o Drive,
@@ -210,10 +217,21 @@ volta a só conferir. Para parar de vez: retirar a chamada `renomearNomesDriveNo
    o cron segue com até 30 s para a rotina dentro de 50 s do total.
 5. Limite conhecido registrado em "Pendências e limites".
 
+## Ajustes da 4ª rodada do portão de QA (26/11, sobre 26e3006 — CONCERNS)
+
+1. (MÉDIA) Alvo muda depois de PATCH aplicado e não confirmado: se o nome lido é o `drive_name_target` de um PATCH nosso
+   tentado, o `drive_name_before` real não é sobrescrito; só o alvo muda.
+2. (BAIXA/MÉDIA) `list_name_target` (0175): o nome congelado na lista, gravado sempre que a rotina congela; o passo 3 do
+   "Como desfazer" compara com ele (antes, o "já estava" sem marca não voltava a lista).
+3. (BAIXA) `57014` (statement_timeout) depois do PATCH: falha temporária do arquivo, o lote segue.
+
 ## Testes
 
-- (a) Automáticos (depois da 3ª rodada do portão de QA): `npx tsc --noEmit` limpo; `server/projetos-nome-drive.test.ts`
-  29/29 — novos: PATCH com 403 e com 503 seguido de renomeação à mão (a passagem seguinte guarda o nome lido agora e o
+- (a) Automáticos (depois da 4ª rodada do portão de QA): `npx tsc --noEmit` limpo; `server/projetos-nome-drive.test.ts`
+  32/32 — novos: PATCH aplicado com tempo esgotado e depois o nome da tela muda ("-2" → "-3"): o "antes" continua o
+  real e o desfazer volta para ele; "já estava" sem marca: o desfazer volta a lista e o registro (`list_name_target`) e
+  não mexe no Drive; 57014 depois do PATCH (simulado): `falhasTemporarias`, lote segue, log sem nome.
+  Na 3ª rodada (29/29): PATCH com 403 e com 503 seguido de renomeação à mão (a passagem seguinte guarda o nome lido agora e o
   desfazer volta para ele); PATCH 4xx e depois nome padrão posto à mão (não atribuído à rotina: `jaEstavam`, sem
   `drive_renamed_at`, "antes" estimado, desfazer não mexe no Drive); desfazer no estado "PATCH aplicado, banco não
   gravou" antes da passagem seguinte (volta o Drive pelo alvo e não mexe na lista); orçamento de 24 s.

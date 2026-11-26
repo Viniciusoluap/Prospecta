@@ -178,13 +178,18 @@ function codigoDoErro(e: unknown): { codigo: string; limiteDeTaxa: boolean; cont
   return { codigo: e instanceof Error && e.name === "TimeoutError" ? "tempo_esgotado" : "falha", limiteDeTaxa: false, contaFalha: false };
 }
 
-/** lock_timeout estourado (SQLSTATE 55P03), direto do driver ou embrulhado pelo Drizzle em `cause`. */
-function travaOcupada(e: unknown): boolean {
+/** SQLSTATE do erro do banco, direto do driver ou embrulhado pelo Drizzle em `cause`. */
+function sqlstate(e: unknown): string | undefined {
   for (let x: unknown = e, i = 0; x && typeof x === "object" && i < 4; x = (x as { cause?: unknown }).cause, i++) {
-    if ((x as { code?: unknown }).code === "55P03") return true;
+    const c = (x as { code?: unknown }).code;
+    if (typeof c === "string" && /^[0-9A-Z]{5}$/.test(c)) return c;
   }
-  return false;
+  return undefined;
 }
+/** lock_timeout estourado (55P03). */
+const travaOcupada = (e: unknown) => sqlstate(e) === "55P03";
+/** statement_timeout estourado (57014). */
+const consultaLenta = (e: unknown) => sqlstate(e) === "57014";
 /**
  * Código do erro do banco para log, SEM a mensagem: o Drizzle põe os parâmetros da consulta (nomes de cliente e de
  * arquivo) na mensagem. Só o SQLSTATE (5 caracteres), direto ou em `cause`; senão um código fixo.
@@ -334,7 +339,10 @@ export async function renomearDocumentosProjetoNoDrive(
           let antes = doc.drive_name_before, origem = doc.drive_name_before_origem;
           let alvoDrive = doc.drive_name_target, marca = doc.drive_patch_attempted;
           if (!jaNoNovo) {
-            if (doc.drive_renamed_at == null) { antes = ate255(info.nome); origem = "drive"; }
+            // o nome lido é um PATCH NOSSO já aplicado para um alvo anterior (o nome da tela mudou depois): o "antes"
+            // real continua o guardado; só o alvo muda
+            const lidoEhPatchNosso = doc.drive_patch_attempted === true && doc.drive_name_target != null && info.nome === doc.drive_name_target;
+            if (doc.drive_renamed_at == null && !lidoEhPatchNosso) { antes = ate255(info.nome); origem = "drive"; }
             alvoDrive = ate255(candidato.nome); marca = true;
           } else if (doc.drive_renamed_at == null && !patchNossoAplicado(doc, candidato.nome)) {
             antes = doc.canonical_name !== candidato.nome ? ate255(doc.canonical_name) : null;
@@ -380,6 +388,7 @@ export async function renomearDocumentosProjetoNoDrive(
           const fomosNos = !jaNoNovo || patchNossoAplicado(alvo.doc, alvo.nome);
           // só o nome do Drive (canonical_name) muda no registro; original_name fica como estava
           await tx.execute(sql`UPDATE project_documents SET canonical_name = ${alvo.nome}, drive_rename_error = NULL,
+            list_name_target = ${ate255(alvo.nome)},
             drive_renamed_at = ${!jaNoNovo ? sql`now()` : fomosNos ? sql`COALESCE(drive_renamed_at, now())` : sql`drive_renamed_at`},
             updated_at = now()
             WHERE id = ${docId}`);
@@ -387,6 +396,14 @@ export async function renomearDocumentosProjetoNoDrive(
         }));
       })();
     } catch (e) {
+      if (consultaLenta(e)) {
+        // statement_timeout (também depois de um PATCH): a transação foi desfeita; o "antes" e a marca já estavam
+        // confirmados, então a passagem seguinte completa. Falha temporária deste arquivo; o lote segue.
+        console.error("[projetos/nome-drive] documento", docId, "banco:57014");
+        resumo.falhasTemporarias++;
+        await db.execute(sql`UPDATE project_documents SET drive_rename_error = 'banco:57014' WHERE id = ${docId}`).catch(() => undefined);
+        continue;
+      }
       if (!travaOcupada(e)) throw e;
       projetosOcupados.add(projetoId);
       resumo.ocupados++;
