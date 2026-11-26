@@ -57,20 +57,25 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
   padrão do grupo de desenhos não é varrida por `referenciasDeImagens` (no modelo atual não tem imagem); (3) `biff8-validador.ts` não junta
   MSODRAWING + CONTINUE (só usado em testes); comentário "67 bytes" do PNG mínimo (são 70).
 
-## Em andamento
-- **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11) [EPIC-031 S-2]: neste ramo, a partir do ramo local
-  `projetos-entregue-nomes` (commits `faac36f`, `320f13b`, `df60988`, `26e3006`, `64e3a0a`). 4 portões de QA: 3 FAIL (nome duplicado com registro
-  apagado/em envio; nome anterior perdido; log com dado pessoal) e o 4º CONCERNS, com os 3 ajustes pedidos já feitos em `64e3a0a`.
-  - Arquivos: `server/projetos-nome-drive.ts`, `server/projetos-nome-drive.test.ts` (32), `server/drive-documents.ts`, `api/index.ts` (cron dos avisos),
-    `drizzle/0175_projeto_documentos_nome_drive.sql` (ADITIVA, **ainda não aplicada**), story `S-2-renomear-no-drive.md` (com "Como desfazer").
-  - **Publica em modo "só conferindo"**: sem `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel a rotina só conta (`pendentes`, `semVinculoNaTela`,
-    `desistidos`, `colisoes`), não chama o Drive e não grava nada. Ligar a escrita depende do dono cadastrar a variável.
-  - Schema Drizzle sem as colunas novas, de propósito (o envio de arquivo não depende da 0175).
+## Projetos — renomear os arquivos antigos no Google Drive [EPIC-031 S-2] — PUBLICADO em modo "só conferindo" (26/11)
+- **PR #346 mesclado na `main`** (squash `8f6692f`). Autorizado pelo dono em 26/11 ("Pode renomear os arquivos do Google Drive sim").
+- **Banco (Neon de produção, projeto SiteProspecta):** migração aditiva `drizzle/0175_projeto_documentos_nome_drive.sql` aplicada — 12 colunas novas
+  em `project_documents` (conferido por contagem). Nada alterado nem apagado. O schema Drizzle não tem essas colunas, de propósito.
+- **Arquivos:** `server/projetos-nome-drive.ts`, `server/projetos-nome-drive.test.ts` (37), `server/drive-documents.ts`, `api/index.ts` (cron dos
+  avisos da tarde), story `docs/stories/epics/epic-031-projetos-entregue-e-nomes/S-2-renomear-no-drive.md` (com "Como desfazer").
+- **Estado em produção:** sem `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel a rotina NÃO chama o Drive e NÃO grava nada; devolve só contagens
+  (`pendentes`, `semVinculoNaTela`, `desistidos`, `colisoes`) no campo `nomesDrive` da resposta do cron.
+- **Revisões:** portão de QA em 5 rodadas (3 FAIL corrigidos, 1 CONCERNS, PASS final em `64e3a0a`). Codex: 3 passadas com 5 achados P2, todos
+  corrigidos com teste (`5ed76a4`, `eaf2b5b`, `5531076`); 4ª passada sem achados.
+- **ATENÇÃO antes de ligar a escrita:** as 3 correções do Codex (preservar o "antes" em 4xx/5xx/volta do alvo, coluna `drive_name_applied`, fila que
+  gira) entraram DEPOIS do PASS do QA. Rodar um portão de QA sobre `64e3a0a..5531076` antes de cadastrar `PROJETOS_NOME_DRIVE_ESCREVER=1`.
+- **Testes:** (a) automáticos — tsc limpo; `projetos-nome-drive` 37/37; `projetos-entregue-e-nome-padrao` 14/14; `projeto-documentos` 4/4;
+  `api-rotas-producao` 2/2; `imports-esm` 2/2. (b) manuais — nenhum (sem Drive real). (c) pendentes em produção — contagens do cron da tarde;
+  comportamento real do Google (PATCH cortado pelo tempo, `canRename` em Drive compartilhado, cotas).
 
 ## Próximo passo exato
-1. PR do Drive: confirmação do QA sobre `64e3a0a`, Codex "Completed" lido, aplicar a 0175 no Neon (aditiva) ANTES de mesclar, prévia READY,
-   mesclar, conferir produção e, no cron da tarde (15h–19h), o campo `nomesDrive` com as contagens.
-2. Depois de um dia de contagens coerentes: passo a passo ao dono para cadastrar `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel.
-3. Dono: confirmar a PCI no Excel (sem "reparo") e na CAIXA. PCI #345 e Dolores E11 #341 já estão em produção (ver seções acima e
-   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`).
+1. Conferir a produção da Vercel READY para `8f6692f` e, depois de uma execução do cron da tarde, as contagens em `nomesDrive`.
+2. Portão de QA sobre `64e3a0a..5531076`; com PASS e um dia de contagens coerentes, passo a passo ao dono para cadastrar
+   `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel (Settings › Environment Variables) e redeploy.
+3. Dono: confirmar a PCI no Excel (sem "reparo") e na CAIXA. PCI #345 e Dolores E11 #341 já estão em produção.
 4. Ressalvas baixas em aberto: PCI (uid único, tabela do grupo, validador com CONTINUE) e E11 (`grupos-decisao.ts:235`, "pode só o da …").
