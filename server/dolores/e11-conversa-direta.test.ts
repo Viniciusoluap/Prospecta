@@ -122,8 +122,8 @@ describe("regras puras (E11)", () => {
     expect(textoDasOpcoes("AA7W", { soComNumero: true })).not.toMatch(/nº do cliente no CRM/);
   });
   it("confirmação nomeada: uma linha curta, palavra que confirma no começo ou no fim, sem pedido novo", () => {
-    expect(lerConfirmacaoNomeada("O grupo da maria Dayane pode")).toEqual({ tipo: "sim", todos: false, referencia: ["maria", "dayane"] });
-    expect(lerConfirmacaoNomeada("Grupo da emily pode")).toEqual({ tipo: "sim", todos: false, referencia: ["emily"] });
+    expect(lerConfirmacaoNomeada("O grupo da maria Dayane pode")).toEqual({ tipo: "sim", todos: false, referencia: ["maria", "dayane"], entidade: "grupo" });
+    expect(lerConfirmacaoNomeada("Grupo da emily pode")).toEqual({ tipo: "sim", todos: false, referencia: ["emily"], entidade: "grupo" });
     expect(lerConfirmacaoNomeada("pode todos")).toEqual({ tipo: "sim", todos: true, referencia: [] });
     expect(lerConfirmacaoNomeada("confirmo o da emily")).toEqual({ tipo: "confirmo", todos: false, referencia: ["emily"] });
     for (const t of ["pode criar uma tarefa para a emily", "pode mandar para a emily", "pode", "não pode o da emily", "pode o da emily?", "o da emily\npode", "a emily pode emitir a nota"])
