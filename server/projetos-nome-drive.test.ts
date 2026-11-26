@@ -277,6 +277,19 @@ describe("renomear", () => {
     const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false, limite: 1 }, drive);
     expect(r2).toMatchObject({ colisoes: 0, renomeados: 1 });
   });
+  it.each(["drive_name_target", "drive_name_applied"])("QA 26/11: o nome-alvo já pode estar no Drive por um PATCH nosso não confirmado de OUTRO registro (%s): colisão, não renomeia", async coluna => {
+    // o canonical_name do 13 continua o antigo; só a marca diz que o arquivo dele pode estar com "-2" no Drive
+    await pg.query(`UPDATE project_documents SET drive_patch_attempted = true, ${coluna} = 'Eletrico-Maylanne-Araujo-2.pdf' WHERE id = 13`);
+    expect((await renomearDocumentosProjetoNoDrive({ conferir: true }, driveSimulado({}))).colisoes).toBe(1);
+    const drive = driveSimulado({});
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r.colisoes).toBe(1);
+    expect(drive.chamadas.some(([id]) => id === "d11")).toBe(false);
+    // sem a marca, o mesmo valor não bloqueia (não há PATCH nosso)
+    await pg.query(`UPDATE project_documents SET drive_patch_attempted = NULL, drive_rename_error = NULL WHERE id IN (11, 13)`);
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+  });
   it("guarda o nome anterior (Drive, registro e lista) e se o original foi acrescentado; rodar de novo não sobrescreve", async () => {
     const so = (x: Antes) => ({ drive_name_before: x.drive_name_before, drive_name_before_origem: x.drive_name_before_origem, canonical_name_before: x.canonical_name_before, list_name_before: x.list_name_before, list_original_added: x.list_original_added });
     // d14 já está com o nome novo no Drive e nada foi lido antes: o "antes" do Drive é o canonical_name (ESTIMADO)

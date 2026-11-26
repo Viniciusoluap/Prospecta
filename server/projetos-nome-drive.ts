@@ -160,10 +160,17 @@ function planoDoProjeto(projeto: Projeto, revisoes: Revisao[], docs: Doc[]): { a
  * O nome já é de OUTRO arquivo do projeto (no Drive, pelo registro, ou na tela)? `nomesGravados` = canonical_name de
  * TODOS os registros do projeto, de qualquer status: apagado ou ainda enviando também continua (ou vai estar) no Drive.
  */
-type NomeGravado = { id: number; project_id: number; canonical_name: string };
+type NomeGravado = { id: number; project_id: number; canonical_name: string; drive_name_target: string | null; drive_name_applied: string | null; drive_patch_attempted: boolean | null };
+/**
+ * Nomes que o arquivo de um registro tem (ou pode ter) no Drive: o do registro e, com a marca de PATCH tentado, o alvo e o
+ * último PATCH nosso aplicado — um PATCH aplicado e não confirmado deixa o arquivo com esse nome no Drive enquanto o
+ * `canonical_name` ainda é o antigo (portão de QA de 26/11: sem isto dois arquivos do projeto podiam ficar com o mesmo nome).
+ */
+const nomesNoDrive = (d: NomeGravado) => [d.canonical_name, ...(d.drive_patch_attempted === true ? [d.drive_name_target, d.drive_name_applied] : [])]
+  .filter((x): x is string => !!x).map(minusculo);
 function colide(alvo: Alvo, nomesGravados: NomeGravado[], mostrados: { nome: string; docId?: number }[]): boolean {
   const n = minusculo(alvo.nome);
-  return nomesGravados.some(d => Number(d.id) !== alvo.doc.id && minusculo(d.canonical_name) === n)
+  return nomesGravados.some(d => Number(d.id) !== alvo.doc.id && nomesNoDrive(d).includes(n))
     || mostrados.some(m => m.docId !== alvo.doc.id && minusculo(m.nome) === n);
 }
 
@@ -222,7 +229,7 @@ const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_nam
 const lerDocs = async (db: Executor, projetoId?: number) => (await db.execute(DOCS_SQL(projetoId)) as unknown as Linhas<Doc>).rows;
 /** Nomes gravados de TODOS os registros (qualquer status) dos projetos: base da conferência de colisão. */
 const lerNomesGravados = async (db: Executor, ids: number[]) => ids.length
-  ? (await db.execute(sql`SELECT id, project_id, canonical_name FROM project_documents WHERE project_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`) as unknown as Linhas<NomeGravado>).rows
+  ? (await db.execute(sql`SELECT id, project_id, canonical_name, drive_name_target, drive_name_applied, drive_patch_attempted FROM project_documents WHERE project_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`) as unknown as Linhas<NomeGravado>).rows
   : [];
 
 /**
@@ -272,7 +279,9 @@ export async function renomearDocumentosProjetoNoDrive(
     let fim = primeiroComErro;
     while (fim < candidatos.length && Number(candidatos[fim].doc.drive_rename_failures) === 0 && comErro(candidatos[fim]) === 1) fim++;
     const grupo = candidatos.slice(primeiroComErro, fim);
-    const giro = Math.floor(inicio / 3_600_000) % grupo.length;
+    // avança 1 a cada execução do cron (5 por dia, em horas seguidas): dia × 5 + hora dá inteiros consecutivos de um dia
+    // para o outro, então toda posição do grupo chega a ser a primeira, qualquer que seja o tamanho dele
+    const giro = (Math.floor(inicio / 86_400_000) * 5 + (Math.floor(inicio / 3_600_000) % 24)) % grupo.length;
     candidatos.splice(primeiroComErro, grupo.length, ...grupo.slice(giro), ...grupo.slice(0, giro));
   }
   resumo.pendentes = candidatos.length;
