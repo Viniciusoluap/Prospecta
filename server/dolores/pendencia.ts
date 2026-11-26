@@ -350,6 +350,8 @@ async function respostaDoResultado(lista: ItemDaPendencia[], rs: ResultadoDecisa
 
 /** EPIC-025 E11: itens que a confirmação nomeada consegue achar (os mais recentes que esperam a resposta do dono). */
 export const MAX_ITENS_CONFIRMACAO_NOMEADA = 30;
+/** Teto de propostas mostradas consideradas na confirmação pelo nome; acima dele não se confirma pelo nome (nada fica de fora da conta). */
+export const MAX_PROPOSTAS_CONFIRMACAO_NOMEADA = 20;
 
 /**
  * EPIC-025 E11 — "o grupo da Emily pode", "pode o da Maria Dayane", "pode todos": a resposta que NOMEIA o que ele confirma, já
@@ -365,11 +367,13 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
     mostradas = await getDb().select({ id: doloresConversaPendencia.id, aprovacaoIds: doloresConversaPendencia.aprovacaoIds, perguntaEnviadaEm: doloresConversaPendencia.perguntaEnviadaEm,
       situacao: doloresConversaPendencia.situacao })
       .from(doloresConversaPendencia).where(and(sql`${doloresConversaPendencia.perguntaEnviadaEm} IS NOT NULL`, inArray(doloresConversaPendencia.situacao, ["aberta", "substituida"]),
-        sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`)).orderBy(desc(doloresConversaPendencia.id)).limit(20);
+        sql`${doloresConversaPendencia.venceEm} > ${ctx.agora}`)).orderBy(desc(doloresConversaPendencia.id)).limit(MAX_PROPOSTAS_CONFIRMACAO_NOMEADA + 1);
   } catch (e) {
     console.error("[dolores/pendencia] propostas indisponíveis (confirmação nomeada)", erroParaLog(e));
     return null;
   }
+  // Codex #341 (12ª passada): proposta fora da consulta poderia esconder um item que empata com o nome → sem garantia, não confirma
+  if (mostradas.length > MAX_PROPOSTAS_CONFIRMACAO_NOMEADA) return null;
   // só os itens cuja pergunta saiu ANTES de ele escrever (segundo inteiro, estritamente depois)
   const antesDela = mostradas.filter(m => m.perguntaEnviadaEm && segundo(ctx.enviadaEm!) > segundo(m.perguntaEnviadaEm));
   const vistos = new Set(antesDela.flatMap(m => m.aprovacaoIds));

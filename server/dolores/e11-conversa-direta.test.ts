@@ -1964,6 +1964,12 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     roteiro.push(() => texto("Qual das duas?"));
     await dono("pode a nota da Emily");
     expect(await anotacoes()).toEqual([]);
+    // 12ª passada: com mais de 20 propostas mostradas (a primeira da Emily sairia da consulta), continua sem confirmar
+    for (let i = 10; i <= 21; i++) await pedir("Maria Dayane", MARIA, `ela mandou o documento numero ${i}`);
+    await pedir("Emily", EMILY, "ela mandou a certidao");
+    roteiro.push(() => texto("Qual delas?"));
+    await dono("pode a nota da Emily");
+    expect(await anotacoes()).toEqual([]);
   });
 
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {
