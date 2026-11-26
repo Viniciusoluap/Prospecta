@@ -499,20 +499,23 @@ async function reorganizar(fonte: FonteDrive, root: string): Promise<ResultadoOr
 /**
  * EPIC-031 S-2 (autorização do dono em 26/11/2026: "Pode renomear os arquivos do Google Drive sim"): troca SÓ o nome
  * de um arquivo de Projetos no Drive. Nunca mexe em conteúdo, pasta, permissão nem lixeira. Arquivo na lixeira ou sem
- * permissão de renomear não é tocado; nome já igual não faz chamada de escrita.
+ * permissão de renomear não é tocado; nome já igual não faz chamada de escrita. Devolve também o nome que o arquivo tinha
+ * no Drive (lido no GET, antes de qualquer escrita), para quem chama poder guardar e desfazer.
  */
 export type ResultadoRenomearDrive = "renomeado" | "ja_estava" | "lixeira" | "sem_permissao";
-export async function renomearArquivoNoDrive(fileId: string, nome: string): Promise<ResultadoRenomearDrive> {
+export type RenomeDrive = { resultado: ResultadoRenomearDrive; nomeAnterior: string | null };
+export async function renomearArquivoNoDrive(fileId: string, nome: string): Promise<RenomeDrive> {
   const fonte = await fonteObrigatoria();
   const r = await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,trashed,capabilities(canRename)&supportsAllDrives=true`, {}, "leitura");
   const info = await r.json() as { name?: string; trashed?: boolean; capabilities?: { canRename?: boolean } };
-  if (info.trashed) return "lixeira";
-  if (info.name === nome) return "ja_estava";
-  if (info.capabilities?.canRename === false) return "sem_permissao";
+  const nomeAnterior = typeof info.name === "string" ? info.name : null;
+  if (info.trashed) return { resultado: "lixeira", nomeAnterior };
+  if (info.name === nome) return { resultado: "ja_estava", nomeAnterior };
+  if (info.capabilities?.canRename === false) return { resultado: "sem_permissao", nomeAnterior };
   await driveFetch(fonte, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nome }),
   }, "upload");
-  return "renomeado";
+  return { resultado: "renomeado", nomeAnterior };
 }
 
 /** Portfólio por cliente/projeto/item. Sessão retomável; cada requisição leva até 1 MiB. */

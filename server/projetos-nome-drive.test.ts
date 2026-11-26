@@ -65,17 +65,21 @@ async function nomesDaTela(projetoId: number): Promise<string[]> {
   return [...lista, ...entregas];
 }
 
-function driveSimulado(nomes: Record<string, string>, extra: Partial<DependenciasNomesDrive> = {}): DependenciasNomesDrive & { chamadas: [string, string][]; nomes: Record<string, string> } {
+/** Drive simulado: `nomes` = nome atual de cada arquivo no Drive (sem entrada: "antigo-<id>"). */
+function driveSimulado(nomes: Record<string, string>, extra: Partial<DependenciasNomesDrive> = {}): DependenciasNomesDrive & { chamadas: [string, string][]; prazos: number[]; nomes: Record<string, string> } {
   const chamadas: [string, string][] = [];
+  const prazos: number[] = [];
   return {
-    chamadas, nomes,
+    chamadas, prazos, nomes,
     configurado: async () => true,
     agora: () => 0,
-    renomear: vi.fn(async (fileId: string, nome: string) => {
+    renomear: vi.fn(async (fileId: string, nome: string, prazoMs: number) => {
       chamadas.push([fileId, nome]);
-      if (nomes[fileId] === nome) return "ja_estava" as const;
+      prazos.push(prazoMs);
+      const nomeAnterior = nomes[fileId] ?? `antigo-${fileId}`;
+      if (nomeAnterior === nome) return { resultado: "ja_estava" as const, nomeAnterior };
       nomes[fileId] = nome;
-      return "renomeado" as const;
+      return { resultado: "renomeado" as const, nomeAnterior };
     }),
     ...extra,
   };
@@ -95,6 +99,7 @@ describe("conferir (dry-run)", () => {
       { id: 15, antes: "Revisao 4 longa.pdf", depois: "Rev1-Maylanne-Araujo-3.pdf" },
     ]);
     expect(r.semVinculoNaTela).toBe(1); // id 16: substituído que a tela não mostra
+    expect(r.colisoes).toBe(0);
     expect(drive.chamadas).toEqual([]);
     expect((await linha(11)).canonical_name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
   });
@@ -116,6 +121,7 @@ describe("renomear", () => {
     expect((await linha(13)).canonical_name).toBe("apagado.dwg");
     expect((await linha(16)).canonical_name).toBe("sumiu da tela.pdf");
     expect(drive.chamadas.some(([id]) => ["d12", "d13", "d16", "d99"].includes(id))).toBe(false);
+    expect(drive.prazos.every(p => p > 0 && p <= 8_000)).toBe(true);
     // (d) a tela mostra EXATAMENTE os mesmos nomes depois, e o Drive tem esses nomes
     expect(await nomesDaTela(7)).toEqual(tela);
     expect([drive.nomes.d11, drive.nomes.d14, drive.nomes.d15]).toEqual([tela[0], tela[2], tela[4]]);
@@ -149,14 +155,14 @@ describe("renomear", () => {
   it("falha num arquivo não interrompe os outros e fica registrada (só o código); nada é gravado dele", async () => {
     const drive = driveSimulado({});
     drive.renomear = vi.fn(async (id: string, nome: string) => {
-      if (id === "d11") throw new ErroDrive("upload", 500, "backendError", "detalhe");
+      if (id === "d11") throw new ErroDrive("upload", 404, "notFound", "detalhe");
       drive.chamadas.push([id, nome]);
-      return "renomeado" as const;
+      return { resultado: "renomeado" as const, nomeAnterior: "x" };
     });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
     expect(r).toMatchObject({ renomeados: 2, falhas: 1, restante: true });
-    expect(await linha(11)).toMatchObject({ canonical_name: "PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf", drive_rename_failures: 1, drive_rename_error: "upload:500:backendError" });
+    expect(await linha(11)).toMatchObject({ canonical_name: "PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf", drive_rename_failures: 1, drive_rename_error: "upload:404:notFound" });
     const files = JSON.parse((await pg.query<{ files: string }>("SELECT files FROM operational_projects WHERE id = 7")).rows[0].files);
     expect(files[0].name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
     // depois do limite de falhas, a rotina desiste dele
@@ -165,7 +171,7 @@ describe("renomear", () => {
     expect(depois).toMatchObject({ pendentes: 0, desistidos: 1 });
   });
   it("lixeira e sem permissão: não toca e registra", async () => {
-    const drive = driveSimulado({}, { renomear: vi.fn(async (id: string) => (id === "d11" ? "lixeira" as const : id === "d14" ? "sem_permissao" as const : "renomeado" as const)) });
+    const drive = driveSimulado({}, { renomear: vi.fn(async (id: string) => ({ resultado: id === "d11" ? "lixeira" as const : id === "d14" ? "sem_permissao" as const : "renomeado" as const, nomeAnterior: "x" })) });
     const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
     expect(r).toMatchObject({ renomeados: 1, naoTocados: 2 });
     expect((await linha(11)).drive_rename_error).toBe("lixeira");
@@ -179,6 +185,24 @@ describe("renomear", () => {
     expect(r).toMatchObject({ falhas: 0, restante: true });
     expect((await linha(11)).drive_rename_failures).toBe(0);
   });
+  it("5xx e tempo esgotado: registram o código, mas não contam para as 5 falhas", async () => {
+    const tempo = Object.assign(new Error("tempo"), { name: "TimeoutError" });
+    const drive = driveSimulado({}, { renomear: vi.fn(async (id: string) => {
+      if (id === "d11") throw new ErroDrive("upload", 503, "backendError", undefined);
+      if (id === "d14") throw tempo;
+      return { resultado: "renomeado" as const, nomeAnterior: "x" };
+    }) });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r).toMatchObject({ renomeados: 1, falhas: 0, falhasTemporarias: 2, restante: true });
+    expect(await linha(11)).toMatchObject({ drive_rename_failures: 0, drive_rename_error: "upload:503:backendError" });
+    expect(await linha(14)).toMatchObject({ drive_rename_failures: 0, drive_rename_error: "tempo_esgotado" });
+    // 4xx de verdade (fora limite de taxa) conta
+    const drive2 = driveSimulado({}, { renomear: vi.fn(async () => { throw new ErroDrive("upload", 403, "insufficientFilePermissions", undefined); }) });
+    const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive2);
+    expect(r2).toMatchObject({ falhas: 2, falhasTemporarias: 0 });
+    expect((await linha(11)).drive_rename_failures).toBe(1);
+  });
   it("nome já usado no Drive por outro arquivo do projeto: não renomeia (nunca dois iguais)", async () => {
     // o registro 16 (fora da tela) já tem no Drive o nome que a tela daria ao 11
     await pg.query("UPDATE project_documents SET canonical_name = 'Eletrico-Maylanne-Araujo-2.pdf' WHERE id = 16");
@@ -186,6 +210,46 @@ describe("renomear", () => {
     const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
     expect(r).toMatchObject({ colisoes: 1, renomeados: 2, restante: true });
     expect(drive.chamadas.some(([id]) => id === "d11")).toBe(false);
+  });
+  it.each(["deleted", "uploading"])("nome-alvo já é de um registro %s do projeto (o arquivo continua no Drive): não renomeia e conta colisão", async status => {
+    await pg.query("UPDATE project_documents SET canonical_name = 'Eletrico-Maylanne-Araujo-2.pdf', status = $1 WHERE id = 13", [status]);
+    const conferido = await renomearDocumentosProjetoNoDrive({ conferir: true }, driveSimulado({}));
+    expect(conferido.colisoes).toBe(1);
+    const drive = driveSimulado({});
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r).toMatchObject({ colisoes: 1, renomeados: 2, restante: true });
+    expect(drive.chamadas.some(([id]) => id === "d11")).toBe(false);
+    expect((await linha(11)).canonical_name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
+  });
+  it("guarda o nome anterior (Drive e lista) e se o original foi acrescentado; rodar de novo não sobrescreve", async () => {
+    const antes = async (id: number) => (await pg.query<{ drive_name_before: string | null; list_name_before: string | null; list_original_added: boolean | null }>(
+      "SELECT drive_name_before, list_name_before, list_original_added FROM project_documents WHERE id = $1", [id])).rows[0];
+    const drive = driveSimulado({ d11: "PRANCHA NO DRIVE.pdf" });
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(await antes(11)).toEqual({ drive_name_before: "PRANCHA NO DRIVE.pdf", list_name_before: "PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf", list_original_added: false });
+    expect(await antes(14)).toEqual({ drive_name_before: "antigo-d14", list_name_before: "Documento antigo muito longo.PDF", list_original_added: true });
+    expect(await antes(15)).toEqual({ drive_name_before: "antigo-d15", list_name_before: "Revisao 4 longa.pdf", list_original_added: false });
+    // mesmo se o registro voltar a ser processado (lista desfeita à mão), o "antes" já guardado não muda
+    const files = JSON.parse((await pg.query<{ files: string }>("SELECT files FROM operational_projects WHERE id = 7")).rows[0].files);
+    files[0] = { ...files[0], name: "outro nome.pdf", originalName: undefined };
+    await pg.query("UPDATE operational_projects SET files = $1 WHERE id = 7", [JSON.stringify(files)]);
+    drive.nomes.d11 = "renomeado de novo.pdf";
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(drive.chamadas.filter(([id]) => id === "d11").length).toBe(2);
+    expect(await antes(11)).toEqual({ drive_name_before: "PRANCHA NO DRIVE.pdf", list_name_before: "PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf", list_original_added: false });
+  });
+  it("trava do projeto ocupada por mais de 5 s (lock_timeout): pula o projeto sem contar falha do arquivo", async () => {
+    const banco = db.getDb();
+    const ocupada = Object.assign(new Error("Failed query"), { cause: Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" }) });
+    const tx = vi.spyOn(banco, "transaction").mockRejectedValue(ocupada);
+    const drive = driveSimulado({});
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(tx).toHaveBeenCalledTimes(1); // os outros arquivos do mesmo projeto ficam para a próxima
+    expect(r).toMatchObject({ ocupados: 1, falhas: 0, renomeados: 0, restante: true });
+    expect((await linha(11)).drive_rename_failures).toBe(0);
+    expect(drive.chamadas).toEqual([]);
+    tx.mockRejectedValue(new Error("outro erro"));
+    await expect(renomearDocumentosProjetoNoDrive({ conferir: false }, drive)).rejects.toThrow("outro erro");
   });
   it("Drive não configurado: não faz nada", async () => {
     const drive = driveSimulado({}, { configurado: async () => false });
@@ -238,19 +302,25 @@ describe("lote e limite de tempo", () => {
     expect(r2).toMatchObject({ pendentes: 8, renomeados: 8, restante: false });
     expect(await nomesDaTela(7)).toEqual(tela);
   });
-  it("para ao passar do prazo", async () => {
+  it("só começa um arquivo se ainda couberem os 8 s da chamada ao Drive dentro do prazo", async () => {
     let t = 0;
     const drive = driveSimulado({}, { agora: () => t });
     const original = drive.renomear;
-    drive.renomear = vi.fn(async (id: string, nome: string) => { t += 1_000; return original(id, nome); });
-    const r = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 3_000 }, drive);
-    expect(r.renomeados).toBe(3);
+    drive.renomear = vi.fn(async (id: string, nome: string, prazo: number) => { t += 1_000; return original(id, nome, prazo); });
+    // começa em t = 0, 1, 2 e 3 s (3 + 8 = 11, ainda cabe); em t = 4 s já não cabe
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 11_000 }, drive);
+    expect(r.renomeados).toBe(4);
     expect(r.restante).toBe(true);
+    expect(drive.prazos).toEqual([8_000, 8_000, 8_000, 8_000]);
+    // prazo menor que uma chamada: nem começa
+    const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false, prazoMs: 7_999 }, driveSimulado({}));
+    expect(r2.renomeados).toBe(0);
   });
 });
 
 describe("no cron (permissão)", () => {
-  beforeEach(() => montar());
+  beforeEach(async () => { await montar(); vi.stubEnv("PROJETOS_NOME_DRIVE_ESCREVER", "1"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
   it("sem o segredo do cron ou sem tempo, não faz nada", async () => {
     const drive = driveSimulado({});
     expect(await renomearNomesDriveNoCron(false, 15_000, drive)).toEqual({ pulado: true });
@@ -263,5 +333,15 @@ describe("no cron (permissão)", () => {
     await pg.exec("ALTER TABLE project_documents DROP COLUMN drive_rename_failures");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await renomearNomesDriveNoCron(true, 15_000, drive)).toEqual({ erro: true });
+  });
+  it.each([undefined, "0", "sim"])("sem PROJETOS_NOME_DRIVE_ESCREVER=1 (%s): só confere e devolve SÓ contagens, sem exemplos", async valor => {
+    if (valor === undefined) vi.stubEnv("PROJETOS_NOME_DRIVE_ESCREVER", undefined as unknown as string); else vi.stubEnv("PROJETOS_NOME_DRIVE_ESCREVER", valor);
+    await pg.query("UPDATE project_documents SET canonical_name = 'Eletrico-Maylanne-Araujo-2.pdf' WHERE id = 13");
+    const drive = driveSimulado({});
+    const r = await renomearNomesDriveNoCron(true, 15_000, drive);
+    expect(r).toEqual({ conferir: true, pendentes: 3, semVinculoNaTela: 1, desistidos: 0, colisoes: 1 });
+    expect(JSON.stringify(r)).not.toMatch(/Maylanne|exemplos/);
+    expect(drive.chamadas).toEqual([]);
+    expect((await linha(11)).canonical_name).toBe("PROJETO_TECNICO_MAYLANNE_ELETRICO_V02.pdf");
   });
 });
