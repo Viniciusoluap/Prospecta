@@ -210,7 +210,8 @@ const ate255 = (s: string | null | undefined) => (typeof s === "string" ? s.slic
  * esgotado; num 4xx ela é limpa.)
  */
 function patchNossoAplicado(doc: Doc, nome: string): boolean {
-  return doc.drive_patch_attempted === true && doc.drive_name_target === nome
+  // o alvo ou o `drive_name_applied` (o alvo mudou, o PATCH novo não foi aplicado e o nome calculado VOLTOU ao anterior)
+  return doc.drive_patch_attempted === true && (doc.drive_name_target === nome || doc.drive_name_applied === nome)
     && doc.drive_name_before_origem === "drive" && doc.drive_name_before != null && doc.drive_name_before !== nome;
 }
 
@@ -371,6 +372,8 @@ export async function renomearDocumentosProjetoNoDrive(
             origem = antes ? "registro" : null;
             alvoDrive = null; marca = null; aplicado = null;
           }
+          // já está com o nome novo e é um PATCH nosso (pelo alvo ou pelo `drive_name_applied`): o alvo passa a ser este nome
+          else if (jaNoNovo && patchNossoAplicado(doc, candidato.nome)) alvoDrive = ate255(candidato.nome);
           await tx.execute(sql`UPDATE project_documents SET
             drive_name_before = ${antes}, drive_name_before_origem = ${origem},
             drive_name_target = ${alvoDrive}, drive_patch_attempted = ${marca}, drive_name_applied = ${aplicado},

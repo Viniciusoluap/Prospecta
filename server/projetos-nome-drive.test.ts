@@ -480,6 +480,31 @@ describe("renomear", () => {
     await desfazer(11, drive);
     expect(drive.nomes.d11).toBe("REAL.pdf");
   });
+  it("Codex #346 (3ª passada): o nome calculado VOLTA ao do PATCH aplicado — continua nosso, com o \"antes\" real", async () => {
+    const drive = driveSimulado({ d11: "REAL.pdf" });
+    const original = drive.trocar;
+    drive.trocar = vi.fn(async (id: string, nome: string, prazo: number) => {
+      await original(id, nome, prazo);
+      if (id === "d11") throw Object.assign(new Error("tempo"), { name: "TimeoutError" });
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive); // "-2" aplicado, sem confirmação
+    const filesV2 = await filesDo(7);
+    await pg.query("UPDATE operational_projects SET files = $1 WHERE id = 7", [JSON.stringify(filesV2.map((f: object, i: number) => (i === 0 ? { ...f, version: 3 } : f)))]);
+    drive.trocar = original;
+    trocaQueFalha(drive, id => (id === "d11" ? new ErroDrive("upload", 503, "backendError", undefined) : undefined));
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive); // "-3" não aplicado (503)
+    await pg.query("UPDATE operational_projects SET files = $1 WHERE id = 7", [JSON.stringify(filesV2)]); // volta para "-2"
+    drive.trocar = original;
+    const r = await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(r.renomeados).toBeGreaterThanOrEqual(1);
+    expect(drive.chamadas.filter(([id]) => id === "d11").length).toBe(1); // nenhum PATCH novo: já estava com o nosso nome
+    const a = await antesDe(11);
+    expect(a).toMatchObject({ drive_name_before: "REAL.pdf", drive_name_before_origem: "drive", drive_patch_attempted: true });
+    expect(a.drive_renamed_at).not.toBeNull();
+    await desfazer(11, drive);
+    expect(drive.nomes.d11).toBe("REAL.pdf");
+  });
   it("Codex #346: arquivo que sempre esgota o tempo não fica sempre em primeiro — os outros são renomeados na execução seguinte", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const drive = driveSimulado({});
