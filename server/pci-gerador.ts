@@ -50,7 +50,7 @@ import { gerarPdfPci, gerarPlanilhaPci, lerFormularioPci, validarModeloPci } fro
 import { gerarPdfFielPci } from "./caixa/pci-pdf-fiel.js";
 import { compararEstruturasPci, lerEstruturaModeloPci, xlsCompativelCom, type EstruturaModeloPci, type RelatorioCompatibilidadePci } from "./caixa/pci-modelo-estrutura.js";
 import { getDb, getUserById } from "./db.js";
-import { copiarParaDrive } from "./drive-organizacao.js";
+import { copiarParaDrive, lixeiraDoArquivo } from "./drive-organizacao.js";
 import { obterLocalizacaoObra } from "./obra-localizacao.js";
 import { dadosEngenheiroParaPci, listarEngenheiros } from "./usuario-documentos.js";
 
@@ -748,6 +748,19 @@ export const pciGeradorRouter = router({
   gerar: adminProcedure.input(formularioInput).mutation(async ({ input, ctx }) => {
     try { return await gerarPciDaObra(input.projectId, input.formulario, { id: ctx.user.id, name: ctx.user.name ?? null }); }
     catch (e) { return erroLegivel(e); }
+  }),
+  excluirGerada: adminProcedure.input(projectIdInput.extend({
+    id: z.number().int().positive(),
+    confirmar: z.literal(true),
+  })).mutation(async ({ input }) => {
+    const [gerada] = linhas<{ sheet_drive_file_id: string | null; pdf_drive_file_id: string | null }>(
+      await getDb().execute(sql`
+        DELETE FROM pci_generated WHERE id = ${input.id} AND project_id = ${input.projectId}
+        RETURNING sheet_drive_file_id, pdf_drive_file_id`),
+    );
+    if (!gerada) throw new TRPCError({ code: "NOT_FOUND", message: "PCI gerada não encontrada nesta obra." });
+    await Promise.all(Array.from(new Set([gerada.sheet_drive_file_id, gerada.pdf_drive_file_id])).map(id => lixeiraDoArquivo(id)));
+    return { ok: true };
   }),
   historico: adminProcedure.input(projectIdInput).query(({ input }) => historicoPci(input.projectId)),
 });

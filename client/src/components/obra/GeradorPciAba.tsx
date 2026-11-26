@@ -364,6 +364,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
   const consulta = trpc.pciGerador.obter.useQuery({ projectId }, { refetchOnWindowFocus: false });
   const salvar = trpc.pciGerador.salvarRascunho.useMutation();
   const gerar = trpc.pciGerador.gerar.useMutation();
+  const excluirGerada = trpc.pciGerador.excluirGerada.useMutation();
   const [form, setForm] = useState<FormularioPci | null>(null);
   const [carregandoAuto, setCarregandoAuto] = useState(false);
   const [baixando, setBaixando] = useState<string | null>(null);
@@ -379,7 +380,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
 
   const totais = useMemo(() => (form ? calcularTotaisPci(form) : null), [form]);
   const fotoInteira = useRef<string | null>(null);
-  const [parteDaFoto, setParteDaFoto] = useState<ParteDaFotoPci>("meio");
+  const [parteDaFoto, setParteDaFoto] = useState<ParteDaFotoPci>("baixo");
   const [fotoNoFormato, setFotoNoFormato] = useState(true);
   const pendencias = useMemo(() => (form ? pendenciasPci(form) : []), [form]);
   // Lote 03, correção 06: validação do cronograma durante a digitação (o servidor valida de novo).
@@ -430,7 +431,9 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
 
   async function gerarPci() {
     try {
-      const r = await gerar.mutateAsync({ projectId, formulario: form });
+      const origem = form?.imagem && `data:image/${form.imagem.tipo};base64,${form.imagem.base64}`;
+      const imagem = origem ? await prepararFoto(origem, parteDaFoto) : null;
+      const r = await gerar.mutateAsync({ projectId, formulario: { ...form, imagem } });
       toast.success("PCI gerada (planilha e PDF). Veja o histórico abaixo.");
       for (const a of r.avisos) toast.warning(a, { duration: 10000 });
       await utils.pciGerador.obter.invalidate({ projectId });
@@ -439,8 +442,12 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
 
   // Foto de localização: recortada na proporção do quadro da planilha (preenche o quadro, sem faixas e sem esticar). A foto inteira
   // fica guardada só enquanto a tela está aberta, para dar para trocar a parte que aparece (de cima, do meio, de baixo).
-  async function recortarFoto(origem: string, parte: ParteDaFotoPci) {
+  async function prepararFoto(origem: string, parte: ParteDaFotoPci): Promise<NonNullable<FormularioPci["imagem"]>> {
     const img = await carregarImagem(origem);
+    const existente = /^data:image\/(png|jpeg);base64,(.+)$/.exec(origem);
+    if (existente && fotoNoFormatoDoQuadroPci(img.naturalWidth, img.naturalHeight)) {
+      return { tipo: existente[1] === "png" ? "png" : "jpeg", base64: existente[2] };
+    }
     const r = recorteParaQuadroPci(img.naturalWidth, img.naturalHeight, parte);
     const canvas = document.createElement("canvas");
     canvas.width = Math.min(1600, r.largura);
@@ -449,7 +456,12 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     if (!ctx) throw new Error("Navegador sem suporte a canvas.");
     ctx.drawImage(img, r.x, r.y, r.largura, r.altura, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    setForm((f) => (f ? { ...f, imagem: { tipo: "jpeg", base64: dataUrl.split(",")[1] } } : f));
+    return { tipo: "jpeg", base64: dataUrl.split(",")[1] };
+  }
+
+  async function recortarFoto(origem: string, parte: ParteDaFotoPci) {
+    const imagem = await prepararFoto(origem, parte);
+    setForm((f) => (f ? { ...f, imagem } : f));
     setFotoNoFormato(true);
   }
   async function escolherImagem(arquivo: File | undefined) {
@@ -466,6 +478,15 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
     try {
       setParteDaFoto(parte);
       await recortarFoto(fotoInteira.current ?? `data:image/${form.imagem.tipo};base64,${form.imagem.base64}`, parte);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function excluirPciGerada(id: number, geradoEm: Date) {
+    if (!window.confirm(`Excluir a PCI gerada em ${new Date(geradoEm).toLocaleString("pt-BR")}? A planilha e o PDF dessa geração serão removidos.`)) return;
+    try {
+      await excluirGerada.mutateAsync({ projectId, id, confirmar: true });
+      await utils.pciGerador.obter.invalidate({ projectId });
+      toast.success("PCI excluída do histórico.");
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }
 
@@ -583,7 +604,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                           onChange={(v) => setForm({ ...form, custos: form.custos.map((c, k) => (k === i ? v : c)) })} /></td>
                       </tr>
                     ))}
-                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}</td><td className="p-1">{brl(totais.outros)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="p-1">20</td><td className="p-1">{SERVICO_OUTROS_PCI}</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.outros) ?? 0, 2)}%</td><td className="p-1">{brl(totais.outros)}</td></tr>
                   </tbody>
                   <tfoot className="font-semibold">
                     <tr><td /><td className="p-1">Custo total de serviços</td><td className="p-1">{brl(incidenciaDoCustoPci(form, totais.totalServicos) ?? 0, 2)}%</td><td className="p-1">{brl(totais.totalServicos)}</td></tr>
@@ -610,15 +631,29 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                   </tbody>
                 </table>
                 <p className="mt-1 text-xs text-gray-400">O terreno é dividido pela área do terreno; os demais, pela área construída total.</p>
-                <p className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
-                {form.adicionais.map((a, i) => (
-                  <div key={i} className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
-                    <Input aria-label={`Serviço adicional ${i + 1}`} value={a.descricao} placeholder={`Serviço adicional ${i + 1}`} className={campoCls}
-                      onChange={(e) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => (k === i ? { ...x, descricao: e.target.value } : x)) })} />
-                    <NumeroInput aria-label={`Custo do serviço adicional ${i + 1}`} value={a.valor} negativo={false} className={campoCls}
-                      onChange={(v) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => (k === i ? { ...x, valor: v } : x)) })} />
-                  </div>
-                ))}
+                <p id="pci-servicos-adicionais" className="mt-3 text-xs font-semibold text-gray-300">Serviços adicionais (somam no item 20 "Outros")</p>
+                <table aria-labelledby="pci-servicos-adicionais" className="w-full text-sm">
+                  <thead className="text-left text-gray-400">
+                    <tr><th className="py-1 pr-2">Serviço</th><th className="w-[28%] px-1 py-1">Incidência (%)</th><th className="w-[27%] py-1 pl-2">Valor (R$)</th></tr>
+                  </thead>
+                  <tbody>
+                    {form.adicionais.map((a, i) => {
+                      const atualizarValor = (valor: number | null) => setForm({
+                        ...form,
+                        adicionais: form.adicionais.map((servico, k) => k === i ? { ...servico, valor } : servico),
+                      });
+                      return (
+                        <tr key={i}>
+                          <td className="py-0.5 pr-2"><Input aria-label={`Serviço adicional ${i + 1}`} value={a.descricao} placeholder={`Serviço adicional ${i + 1}`} className={campoCls}
+                            onChange={(e) => setForm({ ...form, adicionais: form.adicionais.map((x, k) => k === i ? { ...x, descricao: e.target.value } : x) })} /></td>
+                          <td className="min-w-[110px] px-1 py-0.5"><NumeroInput aria-label={`Incidência do serviço adicional ${i + 1}`} value={incidenciaDoCustoPci(form, a.valor)} negativo={false} sufixo="%" disabled={baseCustos === null} className={campoCls}
+                            onChange={(v) => { if (baseCustos !== null) atualizarValor(custoDaIncidenciaPci(baseCustos, v)); }} /></td>
+                          <td className="min-w-[110px] py-0.5 pl-2"><NumeroInput aria-label={`Valor do serviço adicional ${i + 1}`} value={a.valor} negativo={false} className={campoCls} onChange={atualizarValor} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
             {s.id === "cronograma" && (
@@ -673,7 +708,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                     </div>
                     {fotoNoFormato
                       ? <p className="text-xs text-gray-400">A foto está no formato do quadro da planilha (largo, 3 por 1) e vai preencher o quadro inteiro. {fotoInteira.current ? "Se o lote ficou cortado, troque a parte acima." : "Para escolher outra parte, envie a foto de novo."}</p>
-                      : <p role="alert" className="text-xs text-yellow-200">Esta foto ainda não está no formato do quadro da planilha (largo, 3 por 1): do jeito que está, sobram faixas dos lados. Escolha acima a parte da foto que entra no quadro.</p>}
+                      : <p role="alert" className="text-xs text-yellow-200">Esta foto ainda não está no formato do quadro da planilha (largo, 3 por 1): ao gerar, a foto será recortada para preencher o quadro. Escolha acima a parte que deve aparecer.</p>}
                   </div>
                 )}
               </div>
@@ -687,7 +722,7 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
         {!d.historico.length ? <p className="text-sm text-gray-300">Nenhuma PCI gerada para esta obra.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-gray-400"><th className="p-1">Gerada em</th><th className="p-1">Autor</th><th className="p-1">Modelo</th><th className="p-1">Arquivos</th></tr></thead>
+              <thead><tr className="text-left text-gray-400"><th className="p-1">Gerada em</th><th className="p-1">Autor</th><th className="p-1">Modelo</th><th className="p-1">Arquivos</th><th className="p-1"><span className="sr-only">Ações</span></th></tr></thead>
               <tbody>
                 {d.historico.map((h) => (
                   <tr key={h.id} className="border-t border-white/10 align-top">
@@ -703,6 +738,12 @@ export function GeradorPciAba({ projectId }: { projectId: number }) {
                           {baixando === `${h.id}-pdf` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}.pdf
                         </Button>
                       </div>
+                    </td>
+                    <td className="p-1 text-right">
+                      <Button type="button" size="sm" variant="outline" className="border-red-400/30 text-red-300 hover:text-red-200" disabled={excluirGerada.isPending}
+                        onClick={() => void excluirPciGerada(h.id, h.geradoEm)}>
+                        <Trash2 className="h-3.5 w-3.5" /> Excluir
+                      </Button>
                     </td>
                   </tr>
                 ))}
