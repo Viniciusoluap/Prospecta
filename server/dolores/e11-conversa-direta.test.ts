@@ -130,8 +130,8 @@ describe("regras puras (E11)", () => {
       expect(lerConfirmacaoNomeada(t), t).toBeNull();
   });
   it("nome do cliente como resposta; saudações e pedidos não são nome", () => {
-    expect(lerNomeDeCliente("Maria dayane")).toEqual({ palavras: ["maria", "dayane"], tipo: "cliente" });
-    expect(lerNomeDeCliente("2 Emily")).toEqual({ palavras: ["emily"], tipo: "pos_atendimento" });
+    expect(lerNomeDeCliente("Maria dayane")).toMatchObject({ palavras: ["maria", "dayane"], tipo: "cliente" });
+    expect(lerNomeDeCliente("2 Emily")).toMatchObject({ palavras: ["emily"], tipo: "pos_atendimento" });
     for (const t of ["bom dia", "pode", "cria tarefa", "quem é a emily?", "cliente 29", ""]) expect(lerNomeDeCliente(t), t).toBeNull();
   });
   it("escolherPorNome (só para sugerir): o melhor único; empate → ninguém — a PROVA usa unicoComPonto", () => {
@@ -1924,6 +1924,22 @@ describe("Opção A do dono (24/11/2026) — o que vai direto e o que pede o \"p
     // escrita depois da pergunta: vale
     await dono("Emily");
     expect((await grupoPorCodigo("KHMN")).lead_id).toBe(EMILY);
+  });
+
+  it("Codex #341 (9ª passada): nome citado DENTRO da anotação não confirma; nome curto que não bate não liga grupo", async () => {
+    roteiro.push(() => ferramenta(["registrar_acompanhamento", { leadId: EMILY, texto: "ela falou com Maria" }]), () => texto("Anoto?"));
+    await dono("anota na Emily que ela falou com Maria");
+    roteiro.push(() => texto("Qual nota?"));
+    await dono("pode a nota da Maria");
+    expect(await anotacoes()).toEqual([]);
+    await dono("o da Emily pode");
+    expect(await anotacoes()).toEqual([{ lead_id: EMILY, description: "ela falou com Maria" }]);
+    expect(lerNomeDeCliente("Emily Lu")).toMatchObject({ palavras: ["emily"], todas: ["emily", "lu"] });
+    await grupo({ codigo: "KHMN", nome: "CASA NOVA" });
+    await dono("grupo KHMN 1");
+    roteiro.push(() => texto("Não achei."));
+    await dono("Emily Lu");
+    expect((await grupoPorCodigo("KHMN")).lead_id).toBeNull();
   });
 
   it("Codex #341 (P1): confirmação com exclusão ou condição nunca é confirmação nomeada", () => {

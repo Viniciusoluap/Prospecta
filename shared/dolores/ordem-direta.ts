@@ -256,7 +256,7 @@ export function lerConfirmacaoNomeada(texto: string | null | undefined): Confirm
  * caracteres, até 6 palavras, sem "?", sem verbo de ação, sem número além da opção no começo. Devolve as palavras do nome e o tipo
  * (2 no começo = pós-atendimento). Quem confere se é UM cliente é o servidor.
  */
-export function lerNomeDeCliente(texto: string | null | undefined): { palavras: string[]; tipo: "cliente" | "pos_atendimento" } | null {
+export function lerNomeDeCliente(texto: string | null | undefined): { palavras: string[]; todas: string[]; tipo: "cliente" | "pos_atendimento" } | null {
   const bruto = String(texto ?? "");
   if (!bruto.trim() || bruto.length > 60 || /[\r\n?]/.test(bruto)) return null;
   let ps = normalizarNome(bruto).split(" ").filter(Boolean);
@@ -266,7 +266,9 @@ export function lerNomeDeCliente(texto: string | null | undefined): { palavras: 
   if (!ps.length || ps.length > 6 || ps.some(p => /\d/.test(p)) || VERBO_NOVO.test(ps.join(" "))) return null;
   if (ps.some(p => ["pode", "sim", "nao", "ok", "confirmo", "obrigado", "obrigada", "bom", "boa", "dia", "tarde", "noite", "oi", "ola"].includes(p))) return null;
   const palavras = ps.filter(p => p.length >= 3 && !PALAVRAS_GENERICAS.has(p));
-  return palavras.length ? { palavras, tipo } : null;
+  // Codex #341 (P2): `todas` = TODAS as palavras do nome que ele escreveu (inclusive as curtas, "Lu") — quem confere exige todas no
+  // nome do cliente; `palavras` (3+ letras) servem só para procurar candidatos
+  return palavras.length ? { palavras, todas: ps, tipo } : null;
 }
 
 /** A linha fixa (texto do SISTEMA) do que foi feito por ordem direta — uma linha, com como desfazer. */

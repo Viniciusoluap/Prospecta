@@ -306,7 +306,7 @@ async function nomeDoVinculo(leadId: number | null): Promise<string> {
  * palavras dele estão no nome desse cliente (um "bom dia" não liga ninguém). Nenhum grupo esperando, ou nada casando → null (a
  * mensagem segue o caminho comum). Mais de um cliente → os nomes para ele escolher (nada muda). Só a conversa direta do dono.
  */
-export async function decidirPeloNome(r: { palavras: string[]; tipo: "cliente" | "pos_atendimento" }, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
+export async function decidirPeloNome(r: { palavras: string[]; todas?: string[]; tipo: "cliente" | "pos_atendimento" }, origem: Extract<OrigemDecisao, { via: "whatsapp" }> & { agora: Date }): Promise<ResultadoDecisao | null> {
   const esperando = await gruposEsperandoTipo(origem.agora, origem.enviadaEm);
   if (esperando.length !== 1) return null;
   const [g] = esperando;
@@ -315,7 +315,7 @@ export async function decidirPeloNome(r: { palavras: string[]; tipo: "cliente" |
   if (achados.cortado) return null;
   const candidatos = achados.clientes.filter(c => {
     const nome = new Set((c.nome ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" "));
-    return r.palavras.every(p => nome.has(p));
+    return (r.todas ?? r.palavras).every(p => nome.has(p));
   });
   if (!candidatos.length) return null;
   // portão 2 (M-C): o ÚNICO com ponto (mais de um → os nomes para ele escolher)

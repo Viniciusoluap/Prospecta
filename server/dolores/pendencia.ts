@@ -44,6 +44,28 @@ type ItemDaPendencia = { id: number; codigo: string; funcao: string; argumentos:
 const auditar = (resultado: "ok" | "recusada" | "erro", motivo: string, resumo: Record<string, unknown>, c: { mensagemId: number | null; autor: number | null; pedidoId?: string }) =>
   registrarAcao({ funcao: "dolores_pendencia", resultado, motivo, canal: "whatsapp", pedidoId: c.pedidoId ?? `wa:${c.mensagemId}`, autorUserId: c.autor, resumo }).catch(() => false);
 
+/**
+ * Codex #341 (P2) — a IDENTIDADE do item para a confirmação pelo nome: o resumo SEM o texto que o dono ditou. Numa anotação ou
+ * lembrança, o nome citado DENTRO do texto ("ela falou com Maria") não é de quem o item trata — "pode a nota da Maria" não confirma a
+ * anotação da Emily. Tarefa fica com o título: é por ele que ela é reconhecida ("pode o do cartório").
+ */
+const FUNCOES_COM_TEXTO_DITADO = new Set(["registrar_acompanhamento", "guardar_memoria", "corrigir_memoria"]);
+function identidadeDoItem(i: ItemDaPendencia): string {
+  const resumo = textoDeDado(i.resumo, Number.MAX_SAFE_INTEGER);
+  if (!FUNCOES_COM_TEXTO_DITADO.has(i.funcao)) return resumo;
+  const ditado = normalizarNome(String((i.argumentos as { texto?: unknown } | null)?.texto ?? "")).split(" ").filter(Boolean);
+  const ts = normalizarNome(resumo).split(" ").filter(Boolean);
+  if (!ditado.length) return ts.join(" ");
+  // tira do resumo cada ocorrência da sequência ditada (inteira; ou o começo dela, quando o resumo corta o texto)
+  const fora = new Array<boolean>(ts.length).fill(false);
+  for (let a = 0; a < ts.length; a++) {
+    let k = 0;
+    while (a + k < ts.length && k < ditado.length && ts[a + k] === ditado[k]) k++;
+    if (k === ditado.length || (k >= 3 && a + k === ts.length) || (k >= Math.min(3, ditado.length) && k >= ditado.length - 1)) for (let x = 0; x < k; x++) fora[a + x] = true;
+  }
+  return ts.filter((_, x) => !fora[x]).join(" ");
+}
+
 const CODIGO_ENTRE_COLCHETES = new RegExp(`\\[[${ALFABETO_CODIGO}]{5}\\]\\s*`, "g");
 const PEDIDO_COM_CODIGO = new RegExp(`"?(?:aprovar|recusar) [${ALFABETO_CODIGO}]{5}"?`, "gi");
 /** Texto do sistema sobre um item, sem o código dele (o dono responde "pode"; o modelo e a memória nunca veem código). */
@@ -371,12 +393,12 @@ export async function tratarConfirmacaoNomeada(c: ConfirmacaoNomeada, ctx: Conte
     // portão 2 (M-C): o nome aponta UM item só (outro item com a mesma palavra → segue o caminho comum)
     // Codex #341 (P2): "o GRUPO da Emily pode" só confirma item de grupo (nunca a anotação da Emily que também espera)
     const daEntidade = c.entidade ? candidatos.filter(i => funcaoDaEntidade(i.funcao, c.entidade!)) : candidatos;
-    const escolha = unicoComPonto(c.referencia, daEntidade.map(i => ({ id: i.id, nome: resumoMostrado(i) })));
+    const escolha = unicoComPonto(c.referencia, daEntidade.map(i => ({ id: i.id, nome: identidadeDoItem(i) })));
     const item = escolha.escolhido ? candidatos.find(i => i.id === escolha.escolhido) : undefined;
     if (!item) return null;
     // Codex #341 (5ª passada), regra ESTRUTURAL: TODA palavra de referência tem de estar no resumo do item escolhido — palavra que
     // sobra ("amanhã", "menos", outro nome) quer dizer outra coisa → não é confirmação deste item
-    const doResumo = new Set(normalizarNome(resumoMostrado(item)).split(" "));
+    const doResumo = new Set(normalizarNome(identidadeDoItem(item)).split(" "));
     if (!c.referencia.every(p => doResumo.has(p))) return null;
     // sério de proposta substituída: nunca (inclui nota fiscal) — ele pede de novo e confirma a pergunta nova
     if (nivelDoItem(item.funcao, item.argumentos) === "serio" && !daAberta.has(item.id)) {
