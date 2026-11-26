@@ -52,6 +52,8 @@ import { revalidarPendentes } from "../server/juridico-revalidacao.js";
 import { gerarRascunhosNoCron } from "../server/fiscal/gerador.js";
 // EPIC-029 S-5: captura das NFS-e recebidas pelo ADN no mesmo cron diário (sem cron novo). DESLIGADA: sem o cliente mTLS da S-4.
 import { capturarRecebidasNoCron } from "../server/fiscal/distribuicao.js";
+// EPIC-031 S-2 (26/11): nomes antigos dos arquivos de Projetos trocados no Drive pelo nome padrão, um lote por execução no cron da tarde.
+import { renomearNomesDriveNoCron } from "../server/projetos-nome-drive.js";
 
 const app = express();
 // Pedido de 24/10: webhook do WhatsApp publicado na Vercel. Precisa do corpo bruto (assinatura),
@@ -244,9 +246,15 @@ app.get([...CAMINHOS_CRON_DOLORES], async (req, res) => {
 // segredo do cron; query, corpo e o fim do caminho são ignorados. Desligados por padrão (Integrações › Dolores — operação contínua).
 app.get([...CAMINHOS_CRON_AVISOS], async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
+  const inicio = Date.now();
   try {
     const saida = await tratarCronAvisos(req);
-    return res.status(saida.status).json(saida.body);
+    // EPIC-031 S-2: DEPOIS dos avisos, só com o segredo do cron e com o tempo que sobra (no máximo 30 s, nunca além de 50 s do total): até 25 arquivos de
+    // Projetos têm o NOME trocado no Drive pelo nome padrão (autorização do dono em 26/11). Sem pendência, só lê o banco.
+    // Nunca lança nem muda o status da resposta; o resumo (só contagens) vai junto. Só escreve com
+    // PROJETOS_NOME_DRIVE_ESCREVER=1 (sem ela, só confere: contagens, sem exemplos). Total do cron até 50 s.
+    const nomesDrive = await renomearNomesDriveNoCron(cronAutorizado(req.headers.authorization), Math.min(30_000, 50_000 - (Date.now() - inicio)));
+    return res.status(saida.status).json(saida.status === 200 ? { ...saida.body, nomesDrive } : saida.body);
   } catch (err) {
     console.error("[cron/dolores-avisos]", erroParaLog(err));
     return res.status(500).json({ error: "Falha nos avisos da Dolores" });
