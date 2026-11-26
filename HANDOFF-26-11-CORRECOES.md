@@ -36,6 +36,20 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
   inconsistências; comparação registro a registro: nenhum registro de célula, fórmula, SST ou CF muda; LibreOffice converte as 9 abas idênticas.
 - (c) Pendentes em produção (só o dono): gerar a PCI de novo, abrir no Excel sem a mensagem de reparo e anexar no sistema da CAIXA.
 
+## PCI — tamanho do arquivo (causa CONFIRMADA pela CAIXA em 26/11) [EPIC-030 S-2, parte 2]
+- O #344 (INDEX/DBCELL e id da foto) foi publicado (squash `842b8d9`, produção READY). O dono gerou de novo e o sistema da CAIXA respondeu:
+  "Operação não permitida. O tamanho máximo permitido para o arquivo é 5120 KB. Tamanho deste arquivo: 5342 KB."
+- **O que pesava:** PNG de 3.484.635 bytes que nenhuma forma usa (veio no modelo enviado) + foto de localização (337 KB) + fotos antigas a cada regeração.
+- **Correção (commits `20cb79b`, `99f4516` do ramo local `pci-xls-caixa`, neste PR):** `trocarImagensSemUso` em `server/caixa/biff8-imagens.ts` — imagem
+  que nenhuma forma/propriedade referencia vira PNG 1×1 válido (posições e `pib` intactos; imagem em uso igual byte a byte); foto nova reduzida no
+  cliente (JPEG, até 1.600 px, alvo 400 KB) e recusada no servidor acima de 1,5 MB; aviso na tela acima de 5.000 KB e tamanho no botão de baixar
+  (`LIMITE_ANEXO_CAIXA_KB`, `AVISO_TAMANHO_PCI_KB` em `shared/pci-gerador.ts`); spid antigo da foto normalizado; RSTRING no validador.
+- **Entrega imediata ao dono:** a planilha da Keilane regravada sem mudar dado nenhum — 1.911 KB (era 5.342 KB); 23.705 registros comparados, só o
+  id da foto mudou; render das 15 páginas idêntico. Enviada na conversa em 26/11.
+- **Testes:** (a) `npx tsc --noEmit` limpo; `server/caixa/pci-xls-estrutura.test.ts` 10/10 (3 gerações em cadeia não crescem e ficam < 5.000 KB; imagem
+  sem uso deixa de pesar; em uso intacta; aviso acima do limite); suítes `pci-*`, `caixa/*`, `medicao*`, `pls-fiel-pci`, `caixa-medicao` passando.
+  (b) arquivo de produção regerado com foto de ~1 MB: 2.563 KB nas 3 gerações, validador 0. (c) só o dono: anexar na CAIXA e abrir no Excel sem reparo.
+
 ## Em andamento, fora deste PR
 - **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11: "Pode renomear os arquivos do Google Drive sim"):
   commit local `4161fb8` em `/home/user/Prospecta-projetos` (ramo `projetos-entregue-nomes`). Roda no cron dos avisos da tarde, 25 por execução,
@@ -44,7 +58,7 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
 - **Dolores E11** — PR #341 (ramo `claude/dolores-e11-conversa-direta`): 14 portões de QA e 8 passadas do Codex; último commit `ff50c69`.
 
 ## Próximo passo exato
-1. #344: prévia da Vercel pronta + Codex "Completed" lido → mesclar (squash) → conferir produção → pedir ao dono para gerar a PCI e testar na CAIXA.
-2. Conforme o resultado do dono: publicar (ou não) o commit `20cb79b` do tamanho.
+1. PR do tamanho da PCI: portão de QA + Codex "Completed" lido + prévia pronta → mesclar → conferir produção → dono gera de novo e anexa na CAIXA.
+2. Confirmar com o dono se o arquivo de 1.911 KB enviado na conversa foi aceito pela CAIXA e abriu no Excel sem a mensagem de reparo.
 3. Drive: reconciliar com a main, portão de QA, aplicar a 0175, publicar.
 4. E11: ler a passada do Codex sobre `ff50c69`; sem achado → mesclar e conferir produção; atualizar `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
