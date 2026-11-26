@@ -11,3 +11,10 @@ ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_rename_error varcha
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_before varchar(255);
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS list_name_before varchar(255);
 ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS list_original_added boolean;
+-- Re-revisão do portão de QA (26/11): o "antes" é gravado e CONFIRMADO antes de qualquer escrita no Drive.
+-- canonical_name_before: o canonical_name do registro antes da rotina (volta exata do registro).
+-- drive_name_before_origem: 'drive' = lido no Drive antes de renomear (exato); 'registro' = o arquivo já estava com o
+-- nome novo quando a rotina chegou e não havia leitura anterior, então drive_name_before é o canonical_name anterior
+-- (ESTIMADO). Nulo = nada guardado.
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS canonical_name_before varchar(255);
+ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS drive_name_before_origem varchar(20);

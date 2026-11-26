@@ -249,11 +249,11 @@ app.get([...CAMINHOS_CRON_AVISOS], async (req, res) => {
   const inicio = Date.now();
   try {
     const saida = await tratarCronAvisos(req);
-    // EPIC-031 S-2: DEPOIS dos avisos, só com o segredo do cron e com o tempo que sobra (no máximo 15 s): até 25 arquivos de
+    // EPIC-031 S-2: DEPOIS dos avisos, só com o segredo do cron e com o tempo que sobra (no máximo 30 s, nunca além de 50 s do total): até 25 arquivos de
     // Projetos têm o NOME trocado no Drive pelo nome padrão (autorização do dono em 26/11). Sem pendência, só lê o banco.
     // Nunca lança nem muda o status da resposta; o resumo (só contagens) vai junto. Só escreve com
     // PROJETOS_NOME_DRIVE_ESCREVER=1 (sem ela, só confere: contagens, sem exemplos). Total do cron até 50 s.
-    const nomesDrive = await renomearNomesDriveNoCron(cronAutorizado(req.headers.authorization), Math.min(15_000, 50_000 - (Date.now() - inicio)));
+    const nomesDrive = await renomearNomesDriveNoCron(cronAutorizado(req.headers.authorization), Math.min(30_000, 50_000 - (Date.now() - inicio)));
     return res.status(saida.status).json(saida.status === 200 ? { ...saida.body, nomesDrive } : saida.body);
   } catch (err) {
     console.error("[cron/dolores-avisos]", erroParaLog(err));
