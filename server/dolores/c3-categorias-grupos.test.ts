@@ -150,6 +150,9 @@ describe("C3 — resposta só com o número, pelo WhatsApp (só o dono)", () => 
     expect(await grupo(2)).toMatchObject({ tipo: "administrativo", situacao_confirmacao: "confirmado" });
     await chamar(doNumero(DONO, "1"));
     expect(await grupo(1)).toMatchObject({ tipo: "indefinido" });
+    // E11 (Codex #341): a resposta só vale para pergunta ANTERIOR à mensagem. Nesta suíte toda mensagem tem a hora fixa (AGORA − 10 s)
+    // e o "1" acima marcou a pergunta em AGORA — volta-se a pergunta para antes da mensagem, como aconteceria no relógio real
+    await banco.pg.exec(`UPDATE dolores_grupos SET pergunta_tipo_em = '${PERGUNTA}' WHERE id = 1`);
     await chamar(doNumero(DONO, "1 1"));
     expect(await grupo(1)).toMatchObject({ tipo: "cliente", lead_id: 1, situacao_confirmacao: "confirmado" });
     // o sem prova (3) e o recusado (4) não foram tocados pela resposta numerada
