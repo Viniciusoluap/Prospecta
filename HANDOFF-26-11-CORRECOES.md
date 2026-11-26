@@ -58,16 +58,19 @@ Ramo `claude/inspiring-feynman-e8rqmc`, commit `495ee1d` (origem: `3d61d9a` no r
   MSODRAWING + CONTINUE (só usado em testes); comentário "67 bytes" do PNG mínimo (são 70).
 
 ## Em andamento
-- **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11): `/home/user/Prospecta-projetos`, ramo local
-  `projetos-entregue-nomes`, base `faac36f`. Portão de QA de 26/11: **FAIL** — (ALTA) nome duplicado no Drive com registro `deleted`/`uploading`;
-  (ALTA) nome anterior do Drive não fica guardado (desfazer incompleto); (MÉDIA) prazo pode passar dos 60 s. Correção em andamento por agente
-  (colunas novas na 0175, ainda NÃO aplicada: `drive_name_before`, `list_name_before`, `list_original_added`; trava igual à do envio; modo
-  "só conferindo" atrás de `PROJETOS_NOME_DRIVE_ESCREVER=1`). Depois: novo QA, PR, Codex, aplicar a 0175 no Neon ANTES do deploy.
-- **Dolores E11** — PR #341 (ramo `claude/dolores-e11-conversa-direta`), head `3bdcb35`: 12 passadas do Codex respondidas; bateria completa
-  passou (88 arquivos); aguardando a 13ª passada.
+- **Projetos — renomear os arquivos antigos no Google Drive** (autorizado pelo dono em 26/11) [EPIC-031 S-2]: neste ramo, a partir do ramo local
+  `projetos-entregue-nomes` (commits `faac36f`, `320f13b`, `df60988`, `26e3006`, `64e3a0a`). 4 portões de QA: 3 FAIL (nome duplicado com registro
+  apagado/em envio; nome anterior perdido; log com dado pessoal) e o 4º CONCERNS, com os 3 ajustes pedidos já feitos em `64e3a0a`.
+  - Arquivos: `server/projetos-nome-drive.ts`, `server/projetos-nome-drive.test.ts` (32), `server/drive-documents.ts`, `api/index.ts` (cron dos avisos),
+    `drizzle/0175_projeto_documentos_nome_drive.sql` (ADITIVA, **ainda não aplicada**), story `S-2-renomear-no-drive.md` (com "Como desfazer").
+  - **Publica em modo "só conferindo"**: sem `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel a rotina só conta (`pendentes`, `semVinculoNaTela`,
+    `desistidos`, `colisoes`), não chama o Drive e não grava nada. Ligar a escrita depende do dono cadastrar a variável.
+  - Schema Drizzle sem as colunas novas, de propósito (o envio de arquivo não depende da 0175).
 
 ## Próximo passo exato
-1. Conferir a produção `dpl_9cVb3fnZw1qk12YvVzekqLycvSrM` READY; o dono gera a PCI de novo e anexa na CAIXA.
-2. Confirmar com o dono se o arquivo de 1.911 KB enviado na conversa foi aceito pela CAIXA e abriu no Excel sem a mensagem de reparo.
-3. Drive: receber a correção, novo portão de QA, PR, Codex, migração 0175, publicar em modo "só conferindo".
-4. E11: ler a passada do Codex sobre `3bdcb35`; sem achado → mesclar e conferir produção; atualizar `HANDOFF-16-11-CORRECOES-E-DOLORES.md`.
+1. PR do Drive: confirmação do QA sobre `64e3a0a`, Codex "Completed" lido, aplicar a 0175 no Neon (aditiva) ANTES de mesclar, prévia READY,
+   mesclar, conferir produção e, no cron da tarde (15h–19h), o campo `nomesDrive` com as contagens.
+2. Depois de um dia de contagens coerentes: passo a passo ao dono para cadastrar `PROJETOS_NOME_DRIVE_ESCREVER=1` na Vercel.
+3. Dono: confirmar a PCI no Excel (sem "reparo") e na CAIXA. PCI #345 e Dolores E11 #341 já estão em produção (ver seções acima e
+   `HANDOFF-16-11-CORRECOES-E-DOLORES.md`).
+4. Ressalvas baixas em aberto: PCI (uid único, tabela do grupo, validador com CONTINUE) e E11 (`grupos-decisao.ts:235`, "pode só o da …").
