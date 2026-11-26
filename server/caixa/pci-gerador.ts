@@ -272,6 +272,7 @@ export function corAutomaticaVisivelNoGooglePlanilhas(p: PastaBiff8): number {
     const d = r.dados;
     const flags = (d[6] | (d[7] << 8) | (d[8] << 16)) + d[9] * 0x1000000;
     if (((flags >>> 26) & 1) === 0) continue; // regra sem bloco de fonte
+    if (((flags >>> 25) & 1) === 1) continue; // bloco de formato de número antes da fonte: o deslocamento 12+80 não vale (S-2 do EPIC-030)
     const o = 12 + 80; // cor da fonte, dentro do bloco de fonte (118 bytes) que vem logo depois do cabeçalho de 12
     const cor = (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16)) + d[o + 3] * 0x1000000;
     if (cor !== COR_AUTOMATICA) continue;

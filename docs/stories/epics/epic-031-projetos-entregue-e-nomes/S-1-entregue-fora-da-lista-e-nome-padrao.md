@@ -29,7 +29,7 @@
 - **Item** (tabela fixa `ITEM_ARQUIVO_PROJETO_CURTO`): Projeto Arquitetônico → `Planta`; Projeto Estrutural →
   `Estrutural`; Projeto Elétrico → `Eletrico`; Projeto Hidrossanitário → `Hidrossanitario`; Orçamento de Obra →
   `Orcamento`; Laudo Técnico → `Laudo`; ART / RRT → `ART`. Item de texto livre: até duas palavras (sem "Projeto" e sem
-  "de/da/do/e…"), máx. 16 caracteres, cortado na palavra. Entrega de revisão → `Revisao`. Sem item → `Doc`.
+  "de/da/do/e…"), máx. 16 caracteres, cortado na palavra. Entrega de revisão → `Rev<ordem da revisão no projeto>` (`Rev2`). Sem item → `Doc`.
 - **Cliente**: primeiro e último nome, capitalizados, sem acento e sem emoji; uma palavra só → ela; vazio → `Cliente`.
 - **n**: versão do arquivo no item (1, 2, 3…); arquivo antigo sem versão → posição no item; nome repetido sobe o número.
 - **Extensão**: a original, em minúsculas (só a última: `planta.final.DWG` → `dwg`); sem extensão → `pdf` (PDF) ou `bin`.
@@ -40,10 +40,21 @@
 | `PRANCHA FINAL revisada 03 (1) cópia.dwg` (item Projeto Arquitetônico, v1) | `Planta-Keilane-Costa-1.dwg` |
 | `ART assinada Márcio.pdf` (item ART / RRT) | `ART-Marcio-Paiva-1.pdf` |
 | `planta situação.DWG` (item livre "Planta de situação e localização") | `Planta-Situacao-Maylanne-1.dwg` (cliente "Maylanne 🌻") |
-| entrega da revisão 4, PDF v3 | `Revisao-Marcio-Paiva-3.pdf` |
+| 2ª revisão do projeto, PDF v1 | `Rev2-Maria-Silva-1.pdf` |
 | documento antigo sem item | `Doc-Keilane-Costa-1.pdf` |
 
 ## Decisões
+
+- **Nome único e estável no projeto (portão de QA do PR #340).** Uma fonte de verdade só:
+  - o arquivo que já foi gravado com o nome padrão aparece na tela COM o nome gravado (`ehNomePadraoArquivoProjeto`),
+    nunca renumerado; só os antigos (fora do padrão) são calculados, e sem colidir com os gravados;
+  - no envio, sob trava do projeto, o nome é escolhido contra TODOS os nomes do projeto (gravados + calculados dos antigos)
+    por `nomeNovoArquivoProjeto`: nome padrão → forma distinta do item → número seguinte;
+  - dois itens do checklist que dariam o mesmo nome curto usam a forma distinta (até 20 caracteres, guardando o final do
+    texto, onde fica o que diferencia). Ex.: "Projeto Elétrico Bloco A" / "Bloco B": antes os dois iam ao Drive como
+    `Eletrico-Bloco-Maria-Silva-1.pdf` e a tela mostrava `…-2` no segundo; agora `Eletrico-BlocoA-Maria-Silva-1.pdf` e
+    `Eletrico-BlocoB-Maria-Silva-1.pdf`, iguais na tela e no Drive. "Projeto Estrutural Torre 2" / "Torre 10" →
+    `Estrutural-Torre2-…` / `Estrutural-Torre10-…`.
 
 - Filtro feito no cliente (a lista `projetos.list` já vem inteira e é filtrada na tela); a regra está em
   `shared/projetos-lista.ts` (pura, testada). A tela não tem contadores/resumos. Outras telas não mudaram.
@@ -71,7 +82,8 @@
 
 ## Testes
 
-- (a) Automáticos: `npx tsc --noEmit` limpo; `server/projetos-entregue-e-nome-padrao.test.ts` 9/9 (PGlite; Drive simulado: envio novo grava o nome padrão
+- (a) Automáticos: `npx tsc --noEmit` limpo; `server/projetos-entregue-e-nome-padrao.test.ts` 13/13 (PGlite; Drive simulado: Bloco A/B envio + tela = Drive, estabilidade ao enviar um terceiro,
+  colisão no envio sobe o número, Rev1/Rev2; envio novo grava o nome padrão
   no banco e no Drive, antigo não é alterado, nome na leitura para o antigo),
   `server/projeto-documentos.test.ts` 4/4, `server/projeto-revisao.test.ts` 5/5, `server/api-rotas-producao.test.ts` 2/2.
 - (b) Manuais: nenhum.
