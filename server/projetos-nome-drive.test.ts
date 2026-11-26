@@ -418,6 +418,43 @@ describe("renomear", () => {
     expect(drive.nomes.d11).toBe("REAL.pdf");
     expect((await filesDo(7))[0]).toEqual({ ...filesAntes[0], version: 3 });
   });
+  it("Codex #346: PATCH para o alvo novo é RECUSADO (4xx) depois de um PATCH nosso aplicado — o \"antes\" real e a marca ficam", async () => {
+    const drive = driveSimulado({ d11: "REAL.pdf" });
+    const original = drive.trocar;
+    drive.trocar = vi.fn(async (id: string, nome: string, prazo: number) => {
+      await original(id, nome, prazo);
+      if (id === "d11") throw Object.assign(new Error("tempo"), { name: "TimeoutError" });
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+    const files = await filesDo(7);
+    files[0] = { ...files[0], version: 3 };
+    await pg.query("UPDATE operational_projects SET files = $1 WHERE id = 7", [JSON.stringify(files)]);
+    // o PATCH para "-3" é recusado: o arquivo continua com "-2", que fomos nós que pusemos
+    drive.trocar = original;
+    trocaQueFalha(drive, id => (id === "d11" ? new ErroDrive("upload", 403, "insufficientFilePermissions", undefined) : undefined));
+    await renomearDocumentosProjetoNoDrive({ conferir: false }, drive);
+    expect(drive.nomes.d11).toBe("Eletrico-Maylanne-Araujo-2.pdf");
+    expect(await antesDe(11)).toMatchObject({ drive_name_before: "REAL.pdf", drive_name_before_origem: "drive", drive_patch_attempted: true, drive_name_target: "Eletrico-Maylanne-Araujo-2.pdf", drive_renamed_at: null });
+    // o desfazer ainda volta o Drive para o nome real
+    await desfazer(11, drive);
+    expect(drive.nomes.d11).toBe("REAL.pdf");
+  });
+  it("Codex #346: arquivo que sempre esgota o tempo não fica sempre em primeiro — os outros são renomeados na execução seguinte", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const drive = driveSimulado({});
+    const lerOriginal = drive.ler;
+    drive.ler = vi.fn(async (id: string, prazo: number) => {
+      if (id === "d11") throw Object.assign(new Error("tempo"), { name: "TimeoutError" });
+      return lerOriginal(id, prazo);
+    });
+    const r1 = await renomearDocumentosProjetoNoDrive({ conferir: false, limite: 1 }, drive);
+    expect(r1).toMatchObject({ falhasTemporarias: 1, renomeados: 0 });
+    expect(await linha(11)).toMatchObject({ drive_rename_failures: 0 });
+    const r2 = await renomearDocumentosProjetoNoDrive({ conferir: false, limite: 1 }, drive);
+    expect(r2).toMatchObject({ falhasTemporarias: 0, renomeados: 1 }); // outro arquivo passou na frente
+  });
   it("\"já estava\" sem marca: a lista congelada também volta no desfazer (list_name_target)", async () => {
     const drive = driveSimulado({ d14: "Doc-Maylanne-Araujo-1.pdf" }); // já estava com o nome padrão no Drive
     const filesAntes = await filesDo(7);

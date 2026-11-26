@@ -49,7 +49,7 @@ type Linhas<T> = { rows: T[] };
 type Doc = {
   id: number; project_id: number; original_name: string; canonical_name: string; drive_file_id: string; drive_rename_failures: number;
   drive_renamed_at: Date | string | null; drive_name_before: string | null; drive_name_before_origem: string | null;
-  drive_name_target: string | null; drive_patch_attempted: boolean | null;
+  drive_name_target: string | null; drive_patch_attempted: boolean | null; drive_rename_error: string | null;
 };
 type Projeto = { id: number; client_name: string | null; types: string | null; checklist: string | null; files: string | null };
 type Revisao = { id: number; project_id: number; deliveries: string | null };
@@ -213,7 +213,7 @@ function patchNossoAplicado(doc: Doc, nome: string): boolean {
 }
 
 type Executor = Pick<ReturnType<typeof getDb>, "execute">;
-const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_renamed_at, drive_name_before, drive_name_before_origem, drive_name_target, drive_patch_attempted FROM project_documents
+const DOCS_SQL = (projetoId?: number) => sql`SELECT id, project_id, original_name, canonical_name, drive_file_id, drive_rename_failures, drive_renamed_at, drive_name_before, drive_name_before_origem, drive_name_target, drive_patch_attempted, drive_rename_error FROM project_documents
   WHERE status IN ('active', 'substituted') AND drive_file_id IS NOT NULL AND drive_file_id <> ''
   ${projetoId === undefined ? sql`` : sql`AND project_id = ${projetoId}`} ORDER BY project_id, id`;
 const lerDocs = async (db: Executor, projetoId?: number) => (await db.execute(DOCS_SQL(projetoId)) as unknown as Linhas<Doc>).rows;
@@ -259,7 +259,19 @@ export async function renomearDocumentosProjetoNoDrive(
   }
   resumo.semVinculoNaTela += docs.filter(d => !projetos.some(p => Number(p.id) === Number(d.project_id))).length;
   // quem falhou antes vai para o fim: um arquivo com problema não trava o lote dos outros
-  candidatos.sort((a, b) => Number(a.doc.drive_rename_failures) - Number(b.doc.drive_rename_failures) || a.doc.id - b.doc.id);
+  // Quem teve falha TEMPORÁRIA na última tentativa (drive_rename_error preenchido, sem contar para a desistência) também
+  // vai para depois dos que nunca falharam, e esse grupo roda a cada hora — um arquivo que sempre esgota o tempo não
+  // pode ficar sempre em primeiro e impedir os outros (achado do Codex no PR #346).
+  const comErro = (a: Alvo) => (a.doc.drive_rename_error ? 1 : 0);
+  candidatos.sort((a, b) => Number(a.doc.drive_rename_failures) - Number(b.doc.drive_rename_failures) || comErro(a) - comErro(b) || a.doc.id - b.doc.id);
+  const primeiroComErro = candidatos.findIndex(c => Number(c.doc.drive_rename_failures) === 0 && comErro(c) === 1);
+  if (primeiroComErro >= 0) {
+    let fim = primeiroComErro;
+    while (fim < candidatos.length && Number(candidatos[fim].doc.drive_rename_failures) === 0 && comErro(candidatos[fim]) === 1) fim++;
+    const grupo = candidatos.slice(primeiroComErro, fim);
+    const giro = Math.floor(inicio / 3_600_000) % grupo.length;
+    candidatos.splice(primeiroComErro, grupo.length, ...grupo.slice(giro), ...grupo.slice(0, giro));
+  }
   resumo.pendentes = candidatos.length;
   if (opcoes.conferir) {
     resumo.exemplos = candidatos.slice(0, 10).map(c => ({ id: c.doc.id, antes: c.doc.canonical_name, depois: c.nome }));
@@ -315,6 +327,8 @@ export async function renomearDocumentosProjetoNoDrive(
     const docId = candidato.doc.id;
     const fileId = candidato.doc.drive_file_id;
     let desfecho: Desfecho;
+    /** O nome lido no Drive é um PATCH nosso, aplicado numa passagem anterior para um alvo que depois mudou. */
+    let alvoAnteriorAplicado: string | null = null;
     try {
       desfecho = await (async (): Promise<Desfecho> => {
         // 1. LER no Drive (sem trava): o nome atual, lixeira e permissão
@@ -342,6 +356,7 @@ export async function renomearDocumentosProjetoNoDrive(
             // o nome lido é um PATCH NOSSO já aplicado para um alvo anterior (o nome da tela mudou depois): o "antes"
             // real continua o guardado; só o alvo muda
             const lidoEhPatchNosso = doc.drive_patch_attempted === true && doc.drive_name_target != null && info.nome === doc.drive_name_target;
+            if (lidoEhPatchNosso) alvoAnteriorAplicado = doc.drive_name_target;
             if (doc.drive_renamed_at == null && !lidoEhPatchNosso) { antes = ate255(info.nome); origem = "drive"; }
             alvoDrive = ate255(candidato.nome); marca = true;
           } else if (doc.drive_renamed_at == null && !patchNossoAplicado(doc, candidato.nome)) {
@@ -423,8 +438,14 @@ export async function renomearDocumentosProjetoNoDrive(
         if (desfecho.naTroca && (desfecho.contaFalha || desfecho.limiteDeTaxa)) {
           // PATCH recusado (4xx, inclusive limite de taxa): NÃO foi aplicado — limpa o "antes" do Drive, o alvo e a
           // marca (a passagem seguinte lê de novo). Só se a rotina ainda não renomeou este arquivo antes.
-          await db.execute(sql`UPDATE project_documents SET drive_name_before = NULL, drive_name_before_origem = NULL,
-            drive_name_target = NULL, drive_patch_attempted = NULL WHERE id = ${docId} AND drive_renamed_at IS NULL`);
+          // Exceção (Codex #346): o arquivo está com um nome que um PATCH NOSSO anterior aplicou — o "antes" real e a
+          // marca continuam valendo; só o alvo volta a ser o que está de fato no Drive.
+          if (alvoAnteriorAplicado) {
+            await db.execute(sql`UPDATE project_documents SET drive_name_target = ${alvoAnteriorAplicado} WHERE id = ${docId} AND drive_renamed_at IS NULL`);
+          } else {
+            await db.execute(sql`UPDATE project_documents SET drive_name_before = NULL, drive_name_before_origem = NULL,
+              drive_name_target = NULL, drive_patch_attempted = NULL WHERE id = ${docId} AND drive_renamed_at IS NULL`);
+          }
         }
         if (desfecho.limiteDeTaxa) { processados = limite; break; } // limite de taxa do Google: para o lote sem contar como falha do arquivo
         if (!desfecho.contaFalha) {
