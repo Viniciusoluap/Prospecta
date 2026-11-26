@@ -6,20 +6,21 @@ import { canAccessAdminProcedure } from "../_core/trpc.js";
 import { getDb, getUserById } from "../db.js";
 import { sessaoAindaValida } from "../../shared/session.js";
 import { encryptSecret, decryptSecret } from "../_core/secret-vault.js";
-import { iniciarUploadProjetoDrive, enviarParteProjetoDrive } from "../drive-documents.js";
-import { projectChecklist, projectDocumentCanonicalName, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
+import { iniciarUploadProjetoDrive, enviarParteProjetoDrive, readPrivateDocumentRange } from "../drive-documents.js";
+import { clienteCurtoArquivoProjeto, itemCurtoArquivoProjeto, nomePadraoArquivoProjeto, nomePadraoDocumentoProjeto, projectChecklist, reconcileProjectChecklist, validateProjectUpload, PROJECT_CHUNK_SIZE, type ProjectCheck } from "../../shared/projeto-documentos.js";
 import { PROJECT_TYPE_LABELS } from "../../shared/operacional.js";
 const router = Router();
 type Session = { uid: number; projectId: number; revisionId?: number; documentId: number; itemId: string; kind: "editable" | "pdf"; name: string; canonicalName: string; version: number; mime: string; size: number; location: string; expires: number };
 const parseArray = <T,>(value: string | null): T[] => { try { const x = JSON.parse(value || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
 
-async function reservarDocumento(input: { projectId: number; revisionId?: number; itemId: string; itemName: string; kind: "editable" | "pdf"; name: string; mime: string; size: number; projectName: string; clientName: string; userId: number }) {
+async function reservarDocumento(input: { projectId: number; revisionId?: number; itemId: string; itemName: string; itemType?: string; kind: "editable" | "pdf"; name: string; mime: string; size: number; projectName: string; clientName: string; userId: number }) {
   return getDb().transaction(async tx => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-document:${input.projectId}:${input.itemId}:${input.kind}`}))`);
     const [ultimo] = await tx.select({ version: sql<number>`coalesce(max(${projectDocuments.version}), 0)::int` }).from(projectDocuments)
       .where(and(eq(projectDocuments.projectId, input.projectId), eq(projectDocuments.itemId, input.itemId), eq(projectDocuments.kind, input.kind)));
     const version = (ultimo?.version ?? 0) + 1;
-    const canonicalName = projectDocumentCanonicalName({ projectName: input.projectName, clientName: input.clientName, itemName: input.itemName, version, originalName: input.name, mime: input.mime });
+    // EPIC-031 S-1: nome padrão e curto (o original fica em original_name).
+    const canonicalName = nomePadraoArquivoProjeto({ item: itemCurtoArquivoProjeto({ itemId: input.itemId, type: input.itemType, text: input.itemName }), cliente: clienteCurtoArquivoProjeto(input.clientName), n: version, originalName: input.name, mime: input.mime });
     const [document] = await tx.insert(projectDocuments).values({
       projectId: input.projectId, revisionId: input.revisionId ?? null, itemId: input.itemId, kind: input.kind,
       originalName: input.name, canonicalName, mime: input.mime, size: input.size, version,
@@ -61,7 +62,7 @@ router.post("/projetos/:projectId/documentos", async (req, res) => {
       const item = checks.find(c => c.id === body.itemId);
       if (!item) return res.status(400).json({ error: "Salve o item do checklist antes de enviar o arquivo." });
       const mime = body.kind === "pdf" ? "application/pdf" : String(body.mime || "application/octet-stream").slice(0, 150);
-      const reserved = await reservarDocumento({ projectId, itemId: item.id!, itemName: item.text, kind: body.kind, name: body.name, mime, size: body.size, projectName: project.name, clientName: project.clientName, userId: user.id });
+      const reserved = await reservarDocumento({ projectId, itemId: item.id!, itemName: item.text, itemType: item.type, kind: body.kind, name: body.name, mime, size: body.size, projectName: project.name, clientName: project.clientName, userId: user.id });
       const location = await iniciarUploadProjetoDrive({ projectId: String(projectId), clientId: String(project.leadId || `projeto-${projectId}`), clientName: project.clientName, projectName: project.name, itemId: item.id!, itemName: item.text, kind: body.kind, name: body.name, canonicalName: reserved.canonicalName, mime, size: body.size });
       const session: Session = { uid: user.id, projectId, ...reserved, itemId: item.id!, kind: body.kind, name: body.name, mime, size: body.size, location, expires: Date.now() + 24 * 60 * 60 * 1000 };
       return res.json({ session: encryptSecret(JSON.stringify(session)), offset: 0 });
@@ -126,6 +127,45 @@ router.post("/projetos/:projectId/documentos", async (req, res) => {
     return res.json({ ...result, file, checklist });
   } catch (error) {
     return res.status(400).json({ error: error instanceof Error ? error.message : "Não foi possível enviar o arquivo ao Drive." });
+  }
+});
+/**
+ * EPIC-031 S-1 — GET /api/projetos/:projectId/documentos/:documentId/arquivo?offset=N
+ * Baixa o arquivo do Drive em partes de 1 MB (limite de resposta da Vercel), sempre com o
+ * NOME PADRÃO calculado na leitura (vale para arquivo antigo também; nada é renomeado no Drive
+ * nem no banco). X-Document-Size = tamanho total; X-Document-Name = nome padrão.
+ */
+router.get("/projetos/:projectId/documentos/:documentId/arquivo", async (req, res) => {
+  try {
+    const token = getTokenFromRequest(req);
+    const payload = token ? await verifySessionToken(token) : null;
+    const user = payload ? await getUserById(payload.userId) : null;
+    if (!user || !payload || !user.active || !sessaoAindaValida(user, payload.sessionVersion)) return res.status(401).json({ error: "Entre novamente." });
+    if (!canAccessAdminProcedure(user, "projetos.list")) return res.status(403).json({ error: "Sem permissão para projetos." });
+    const projectId = Number(req.params.projectId);
+    const documentId = Number(req.params.documentId);
+    if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(documentId) || documentId <= 0) return res.status(404).json({ error: "Documento não encontrado." });
+    const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
+    if (!Number.isSafeInteger(offset) || offset < 0) return res.status(400).json({ error: "Parte inválida." });
+    const [project] = await getDb().select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    const [document] = await getDb().select().from(projectDocuments).where(and(eq(projectDocuments.id, documentId), eq(projectDocuments.projectId, projectId))).limit(1);
+    if (!project || !document || !document.driveFileId || document.status === "deleted" || document.status === "uploading") return res.status(404).json({ error: "Documento não encontrado." });
+    if (offset >= document.size) return res.status(400).json({ error: "Parte inválida." });
+    const checklist = projectChecklist(parseArray<string>(project.types), parseArray<ProjectCheck>(project.checklist), PROJECT_TYPE_LABELS);
+    const nome = nomePadraoDocumentoProjeto(document, { clientName: project.clientName, checklist });
+    const corpo = await readPrivateDocumentRange(document.driveFileId, offset, Math.min(offset + PROJECT_CHUNK_SIZE, document.size));
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", String(corpo.length));
+    res.setHeader("Content-Disposition", `attachment; filename="${nome}"`);
+    res.setHeader("X-Document-Size", String(document.size));
+    res.setHeader("X-Document-Name", nome);
+    res.setHeader("X-Document-Mime", document.mime);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.end(corpo);
+  } catch (error) {
+    console.error("[projeto-documentos] leitura:", error instanceof Error ? error.message : "falha");
+    return res.status(500).json({ error: "Não foi possível baixar o arquivo do Drive." });
   }
 });
 export default router;

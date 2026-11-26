@@ -8,6 +8,8 @@ import { trpc } from "@/lib/trpc";
 import { uploadProjectDocument } from "@/lib/project-upload";
 import { LIMITE_PEDIDO_REVISAO, ROTULO_SITUACAO_REVISAO, rotuloCanal, validarPedidoRevisao, type SituacaoRevisao } from "@shared/projeto-revisao";
 import { inputClass } from "./OperationalUI";
+import { clienteCurtoArquivoProjeto, nomePadraoArquivoProjeto } from "@shared/projeto-documentos";
+import { baixarArquivoProjeto } from "@/lib/projeto-arquivo";
 
 const dataHora = (v: string | Date | null | undefined) => (v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -48,7 +50,7 @@ export function SolicitarRevisaoModal({ projeto, onClose }: { projeto: { id: num
   );
 }
 
-export function RevisoesProjeto({ projectId }: { projectId: number }) {
+export function RevisoesProjeto({ projectId, clientName = "" }: { projectId: number; clientName?: string }) {
   const revisoes = trpc.projetos.revisoes.useQuery({ projectId });
   const [enviando, setEnviando] = useState<string | null>(null);
   const [progresso, setProgresso] = useState(0);
@@ -68,7 +70,14 @@ export function RevisoesProjeto({ projectId }: { projectId: number }) {
           <p className="text-xs text-slate-600">{rotuloCanal("notificacao", r.notificationStatus)} · {rotuloCanal("email", r.emailStatus)}</p>
           {r.deliveries.length > 0 && (
             <ul className="space-y-0.5">
-              {r.deliveries.map(d => <li key={d.driveFileId}><a className="underline" href={d.url} target="_blank" rel="noopener noreferrer">{d.tipo === "pdf" ? "PDF" : "Editável"}: {d.nome}</a> — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>)}
+              {r.deliveries.map(d => {
+                // EPIC-031 S-1: nome padrão calculado na leitura; o original fica na dica.
+                const nome = nomePadraoArquivoProjeto({ item: "Revisao", cliente: clienteCurtoArquivoProjeto(clientName), n: d.versao || 1, originalName: d.nomeOriginal || d.nome, mime: d.tipo === "pdf" ? "application/pdf" : "" });
+                const rotulo = `${d.tipo === "pdf" ? "PDF" : "Editável"}: ${nome}`;
+                return <li key={d.driveFileId}>{d.documentId
+                  ? <button type="button" className="text-left underline" title={d.nomeOriginal ? `Nome original: ${d.nomeOriginal}` : undefined} onClick={() => void baixarArquivoProjeto(projectId, d.documentId!, nome).catch(error => toast.error(error instanceof Error ? error.message : "Não foi possível baixar o arquivo."))}>{rotulo}</button>
+                  : <a className="underline" href={d.url} target="_blank" rel="noopener noreferrer" title={d.nomeOriginal ? `Nome original: ${d.nomeOriginal}` : undefined}>{rotulo}</a>} — entregue por {d.enviadoPor} em {dataHora(d.enviadoEm)}</li>;
+              })}
             </ul>
           )}
           <div className="flex flex-wrap gap-2">
